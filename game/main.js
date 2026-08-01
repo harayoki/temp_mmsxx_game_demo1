@@ -1093,16 +1093,16 @@ function updateMoai() {
       }
       mmsxx.audio.playSE('shot', SE_HIT);
     }
-    // 時間切れ。**まず赤くなってから**、あきらめて上へ帰っていく。
-    // 赤くなるのは「もう壊せない」の合図なので、逃げる前にも見せる
-    if (--m.stay <= 0) {
-      if (!m.angry) {
-        m.angry = true;
-        mmsxx.audio.playSE('nobreak', SE_HIT);
-        showNotice('IT IS LEAVING!');
-      }
-      m.y += 2;   // 下へ流れ去る
-      if (m.y > SCREEN_H + 8) { clearMoai(); return; }
+    // 時間切れ。**まず赤くなってから**、あきらめて流れ去っていく。
+    // 赤くなるのは「もう壊せない」の合図なので、逃げる前にも見せる。
+    // 逃げる動きは上の m.leaving の枝にまかせる。
+    // (ここで m.y を足しても、すぐ上の「漂う」行が毎コマ上書きしてしまい、
+    //  いつまでも居座っていた)
+    if (--m.stay <= 0 && !m.leaving) {
+      m.angry = true;
+      m.leaving = true;
+      mmsxx.audio.playSE('nobreak', SE_HIT);
+      showNotice('IT IS LEAVING!');
     }
   } else if (m.hold > 0) {
     // 四隅で構えているあいだは合体しない(プレイヤーの準備時間)
