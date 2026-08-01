@@ -66,20 +66,53 @@ export { LocalStorageStore, MemoryStore };
  * localStorage を供給元にしたもの(既定)。
  * サーバ版と同じ形にそろえるため、非同期でないものまで Promise で返す。
  * こうしておくと、あとでサーバへ替えても呼ぶ側のコードが 1 文字も変わらない。
+ *
+ * ## 通信の遅さを試す
+ *
+ * `delay` に秒数を渡すと、その秒数だけ待ってから返すようになる。
+ * サーバがまだ無いうちに「取れるまでのあいだ何が見えているか」を
+ * 手元で確かめるためのもの。
+ *
+ *   new LocalRankingSource({ delay: 5 })       // 5 秒かかることにする
+ *   LocalRankingSource.defaultDelay = 5;       // 既定を 5 秒にする
+ *
+ * **遅れを入れているあいだは `peek()` が値を返さない。**
+ * サーバには「同期で出せる値」が無いので、そこも同じにしてある。
+ * つまり既定データから始まり、取れた時点で本物に入れ替わる ―― 本番と同じ道筋になる。
  */
 export class LocalRankingSource {
-  /** @param {{ storage?: object }} [opts] 保存先(既定は localStorage) */
+  /** 既定の遅れ(秒)。ここを書き換えると、指定しなかったものすべてに効く */
+  static defaultDelay = 0;
+
+  /**
+   * @param {{
+   *   storage?: object,   保存先(既定は localStorage)
+   *   delay?: number,     取得・登録にかかることにする秒数(既定 0 = 待たない)
+   * }} [opts]
+   */
   constructor(opts = {}) {
     this.storage = opts.storage || new LocalStorageStore();
+    this.delay = opts.delay ?? LocalRankingSource.defaultDelay;
   }
 
-  /** 同期で出せる値を返す。起動直後の初回表示に使う */
+  /** 通信にかかることにした時間だけ待つ */
+  _wait() {
+    if (!(this.delay > 0)) return Promise.resolve();
+    return new Promise(done => setTimeout(done, this.delay * 1000));
+  }
+
+  /**
+   * 同期で出せる値を返す。起動直後の初回表示に使う。
+   * 遅れを入れているときは、サーバに合わせて何も返さない
+   */
   peek(key) {
+    if (this.delay > 0) return null;
     return this.storage.load(key);
   }
 
-  /** 一覧を取り直す(手元なので実際には即返る) */
+  /** 一覧を取り直す(手元なので本当は即返るが、遅れを入れていれば待つ) */
   async fetch(key) {
+    await this._wait();
     return this.storage.load(key);
   }
 
@@ -92,9 +125,12 @@ export class LocalRankingSource {
    * @param {{ entries: object[], rank: number, max: number }} ctx
    */
   async submit(key, entry, ctx) {
+    await this._wait();
     if (ctx && Array.isArray(ctx.entries)) this.storage.save(key, ctx.entries);
     return { rank: ctx ? ctx.rank : -1 };
   }
+
+  // replace() と clear() は通信ではなく手元の手入れなので、遅れは入れない
 
   /** 一覧を丸ごと書き換える(古い記録の手入れなど、手元だけの用事) */
   async replace(key, entries) {
