@@ -1,6 +1,6 @@
 // MSX1 (TMS9918A) 15色パレット + 透明色(0)
 // 実機の代表的な近似RGB値。index 0 は透明。
-export const MSX_PALETTE = [
+export const VDP_PALETTE = [
   [0, 0, 0],       // 0: transparent (値は未使用)
   [0, 0, 0],       // 1: black
   [62, 184, 73],   // 2: medium green
@@ -27,7 +27,7 @@ export function nearestColor(r, g, b) {
   let best = 1;
   let bestD = Infinity;
   for (let i = 1; i <= 15; i++) {
-    const p = MSX_PALETTE[i];
+    const p = VDP_PALETTE[i];
     const dr = r - p[0], dg = g - p[1], db = b - p[2];
     const d = WR * dr * dr + WG * dg * dg + WB * db * db;
     if (d < bestD) { bestD = d; best = i; }
@@ -70,7 +70,7 @@ export function convertRGBA(data, width, height) {
       if (c2 === 0) c2 = c1;
       if (c1 === 0) continue; // 全ピクセル透明
       // 3色目以降を c1/c2 の近い方へ寄せる
-      const p1 = MSX_PALETTE[c1], p2 = MSX_PALETTE[c2];
+      const p1 = VDP_PALETTE[c1], p2 = VDP_PALETTE[c2];
       for (let i = 0; i < bw; i++) {
         const idx = y * width + bx + i;
         const c = pixels[idx];
@@ -124,7 +124,7 @@ export function convertRGBAFlat(data, width, height, maxColors) {
     const r = data[o], g = data[o + 1], b = data[o + 2];
     let best = allowed[0], bestD = Infinity;
     for (const a of allowed) {
-      const p = MSX_PALETTE[a];
+      const p = VDP_PALETTE[a];
       const d = WR * (r - p[0]) ** 2 + WG * (g - p[1]) ** 2 + WB * (b - p[2]) ** 2;
       if (d < bestD) { bestD = d; best = a; }
     }

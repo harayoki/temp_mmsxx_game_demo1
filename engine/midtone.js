@@ -8,14 +8,14 @@
 // エンジンとアセット作成スクリプトの両方から使う(色の決まりを 1 か所に置く)。
 
 /** MSX1 の 16 色(0 は透明あつかい。1 が黒) */
-export const MSX_PALETTE = [
+export const VDP_PALETTE = [
   [0, 0, 0], [0, 0, 0], [62, 184, 73], [116, 208, 125], [89, 85, 224], [128, 118, 241],
   [185, 94, 81], [101, 219, 239], [219, 101, 89], [255, 137, 125], [204, 195, 94],
   [222, 208, 135], [58, 162, 65], [183, 102, 181], [204, 204, 204], [255, 255, 255],
 ];
 
 /** 同じものの '#rrggbb' 版 */
-export const MSX_HEX = [
+export const VDP_HEX = [
   '#000000', '#000000', '#3eb849', '#74d07d', '#5955e0', '#8076f1',
   '#b95e51', '#65dbef', '#db6559', '#ff897d', '#ccc35e', '#ded087',
   '#3aa241', '#b766b5', '#cccccc', '#ffffff',
@@ -27,10 +27,10 @@ export function hexRGB(c) {
 }
 
 /** いちばん近いパレット番号(1..15)。0 は透明なので候補に入れない */
-export function nearestMsxColor(r, g, b) {
+export function nearestVdpColor(r, g, b) {
   let best = 1, bestD = Infinity;
   for (let i = 1; i <= 15; i++) {
-    const p = MSX_PALETTE[i];
+    const p = VDP_PALETTE[i];
     const d = 3 * (r - p[0]) ** 2 + 6 * (g - p[1]) ** 2 + (b - p[2]) ** 2;
     if (d < bestD) { bestD = d; best = i; }
   }
@@ -56,13 +56,13 @@ function buildMidTones() {
   const out = [];
   for (let a = 1; a < 16; a++) {
     for (let b = a + 1; b < 16; b++) {
-      const pa = MSX_PALETTE[a], pb = MSX_PALETTE[b];
+      const pa = VDP_PALETTE[a], pb = VDP_PALETTE[b];
       const harsh = (a === 1);              // 黒との組
       if (!harsh && Math.abs(lum(pa) - lum(pb)) > 70) continue;
       if (!harsh && dist(pa, pb) > 300000) continue;
       const rgb = [0, 1, 2].map(i => Math.round((pa[i] + pb[i]) / 2));
       let near = Infinity;
-      for (let c = 1; c < 16; c++) near = Math.min(near, dist(rgb, MSX_PALETTE[c]));
+      for (let c = 1; c < 16; c++) near = Math.min(near, dist(rgb, VDP_PALETTE[c]));
       if (near < 400) continue;
       out.push({ a, b, rgb, harsh });
     }
@@ -81,5 +81,5 @@ export function findMidTone(a, b) {
 
 /** '#rrggbb' 2 つで引く */
 export function findMidToneHex(ca, cb) {
-  return findMidTone(nearestMsxColor(...hexRGB(ca)), nearestMsxColor(...hexRGB(cb)));
+  return findMidTone(nearestVdpColor(...hexRGB(ca)), nearestVdpColor(...hexRGB(cb)));
 }

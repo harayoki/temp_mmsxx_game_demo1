@@ -54,7 +54,7 @@
 | `snapshotRanking()` / `willRankIn()` | ゲーム開始時の順位を覚えて「ランクインしたか」を見る |
 | 名前入力 `enterNameEntry` → `add()` | 登録して、その順位へスクロールする |
 | タイトルの一覧 `drawHiScoreList()` / `drawRushList()` | `entries` / `myIndex()` を直接読んでいる |
-| `msxResetHiScores()` | デバッグ用。3 つとも `reset()` |
+| `mmsxxResetHiScores()` | デバッグ用。3 つとも `reset()` |
 
 ## 気をつけてほしいこと
 
@@ -76,7 +76,7 @@ powershell -ExecutionPolicy Bypass -File build-deploy.ps1   # deploy/ を作る
 ```
 
 確認は**ブラウザで実際に動かして**行うこと。
-`msxDebug()` / `msxResetHiScores()` / `mmsxx.errors.read()` が使える。
+`mmsxxDebug()` / `mmsxxResetHiScores()` / `mmsxx.errors.read()` が使える。
 タイトル → ハイスコア一覧、ゲームオーバー → 名前入力 → 一覧、の流れが
 **今までどおり**であることを必ず見ること。
 

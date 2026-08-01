@@ -1,5 +1,5 @@
 // デバッグ用: MML の曲を WAV ファイルとして書き出す。
-// ブラウザのコンソールから  msxExportWav('main')  のように呼ぶ。
+// ブラウザのコンソールから  mmsxxExportWav('main')  のように呼ぶ。
 // (mp3 化はブラウザ内にエンコーダを持たないので、出力した WAV を
 //  ffmpeg -i main.wav main.mp3 のように変換してください)
 import { compileMML, WAVEFORMS, ENVELOPES } from '../engine/mml.js';
@@ -115,4 +115,4 @@ export async function exportWav(name, loops = 1) {
   return name + '.wav';
 }
 
-window.msxExportWav = exportWav;
+window.mmsxxExportWav = exportWav;

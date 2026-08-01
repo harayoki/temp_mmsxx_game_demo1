@@ -141,7 +141,7 @@ STAR FABLE では URL に `?delay=5` を付けて開くと効く（既定は 0 =
   `drawHiScoreList()` / `drawRushList()` の頭で丸める
 - `roundHiScores()` は `entries` を直接書き換えて `save()` している。
   サーバには対応する操作が無いので、ローカル専用の手入れとして隔離する
-- `msxResetHiScores()` も同じく手元だけの操作
+- `mmsxxResetHiScores()` も同じく手元だけの操作
 - `drawRushList()` は `myIndex()` ではなく `e.mine` を直接見ている。
   `RankingBoard` は取り直した一覧にも目印を付け直すので、そのままでよい
 

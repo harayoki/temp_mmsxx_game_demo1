@@ -1,4 +1,4 @@
-﻿import { MSX_PALETTE, convertRGBA, convertRGBAFlat, hashRGBA } from './palette.js';
+﻿import { VDP_PALETTE, convertRGBA, convertRGBAFlat, hashRGBA } from './palette.js';
 import { getGlyph } from './font.js';
 
 // 表示画面の既定サイズ。実機の SCREEN2 と同じ 256x192。
@@ -43,9 +43,9 @@ function checkVirtualSize(v, name) {
 
 /** パレット番号 c を、a と b のうち色が近い方に寄せる(透明 0 は黒 1 として扱う) */
 function nearerColor(c, a, b) {
-  const p = MSX_PALETTE[c === 0 ? 1 : c];
-  const pa = MSX_PALETTE[a === 0 ? 1 : a];
-  const pb = MSX_PALETTE[b === 0 ? 1 : b];
+  const p = VDP_PALETTE[c === 0 ? 1 : c];
+  const pa = VDP_PALETTE[a === 0 ? 1 : a];
+  const pb = VDP_PALETTE[b === 0 ? 1 : b];
   const d = (q) => 3 * (p[0] - q[0]) ** 2 + 6 * (p[1] - q[1]) ** 2 + (p[2] - q[2]) ** 2;
   return d(pa) <= d(pb) ? a : b;
 }
@@ -198,7 +198,7 @@ export class VDP {
     // パレットを ABGR(リトルエンディアンの RGBA) 32bit 値に前計算
     this.pal32 = new Uint32Array(16);
     for (let i = 1; i <= 15; i++) {
-      const [r, g, b] = MSX_PALETTE[i];
+      const [r, g, b] = VDP_PALETTE[i];
       this.pal32[i] = (255 << 24) | (b << 16) | (g << 8) | r;
     }
 

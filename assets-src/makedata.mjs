@@ -7,7 +7,7 @@
 
 import { writeFileSync, mkdirSync } from 'node:fs';
 // 色の決まりはエンジン側に置いてある(ここと実行時で同じものを使う)
-import { MSX_PALETTE, MSX_HEX, MID_TONES, nearestMsxColor, findMidToneHex }
+import { VDP_PALETTE, VDP_HEX, MID_TONES, nearestVdpColor, findMidToneHex }
   from '../engine/midtone.js';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -2781,7 +2781,7 @@ function makeEarthBig(seed) {
   const img = createImage(W, H);
   const rand = rng(seed);
   // 中間色は行の偶奇で目印を塗り分ける = 1 ライン おきのディザ
-  const mid = (m, y) => hex(MSX_HEX[(y & 1) ? m.odd : m.even]);
+  const mid = (m, y) => hex(VDP_HEX[(y & 1) ? m.odd : m.even]);
   // 大陸: 丸をいくつか重ねて、道中の地球とは違う形の陸を作る
   const LANDS = [
     [-40, -34, 36], [-18, -14, 30], [-50, 6, 24], [-30, 14, 20],  // 左上の大陸
@@ -2851,7 +2851,7 @@ let LAST_RIFT_LINE = null;
 function makeEndRift(seed) {
   const W = 224, H = 192, img = createImage(W, H);
   const rand = rng(seed);
-  const mid = (m, y) => hex(MSX_HEX[(y & 1) ? m.odd : m.even]);
+  const mid = (m, y) => hex(VDP_HEX[(y & 1) ? m.odd : m.even]);
   const CX = W / 2;
   // 中心線をふらつかせながら上から下へ。中ほどがいちばん太い
   // 画面いっぱいには広げず、縦横とも 2/3 の大きさに収める
@@ -2970,7 +2970,7 @@ const BASE_FLAT = { hull: '#ffffff', glass: '#65dbef' };   // 機体と風防
 function makeBaseScene(seed) {
   const W = 224, H = 192, img = createImage(W, H);
   const rand = rng(seed);
-  const mid = (m, y) => hex(MSX_HEX[(y & 1) ? m.odd : m.even]);
+  const mid = (m, y) => hex(VDP_HEX[(y & 1) ? m.odd : m.even]);
   const span = (y, x0, x1, c) => {
     if (y < 0 || y >= H) return;
     for (let x = Math.max(0, Math.round(x0)); x <= Math.min(W - 1, Math.round(x1)); x++) {
@@ -5572,7 +5572,7 @@ const candyItem = fromAscii([
 const pilot = fromAscii(PILOT_ART, {
   ...PILOT_COLORS,
   ...Object.fromEntries(Object.entries(PILOT_MID_CH)
-    .map(([ch, [key, n]]) => [ch, MSX_HEX[PILOT_MID[key][n ? 'odd' : 'even']]])),
+    .map(([ch, [key, n]]) => [ch, VDP_HEX[PILOT_MID[key][n ? 'odd' : 'even']]])),
 });
 
 // ひとつ前の案(図形を組み合わせて描いた正面の姿)。
@@ -6033,7 +6033,7 @@ const BG_IMAGES = new Set([
 function pixelIndex(img, x, y) {
   const o = (y * img.width + x) * 4;
   if (img.data[o + 3] < 128) return 1;
-  return nearestMsxColor(img.data[o], img.data[o + 1], img.data[o + 2]);
+  return nearestVdpColor(img.data[o], img.data[o + 1], img.data[o + 2]);
 }
 
 /** BG 用: 横 8 ドットごとに 3 色以上使っていないか調べる */
@@ -6060,7 +6060,7 @@ function countSpriteColors(img) {
   for (let y = 0; y < img.height; y++) {
     for (let x = 0; x < img.width; x++) {
       const o = (y * img.width + x) * 4;
-      if (img.data[o + 3] >= 128) set.add(nearestMsxColor(img.data[o], img.data[o + 1], img.data[o + 2]));
+      if (img.data[o + 3] >= 128) set.add(nearestVdpColor(img.data[o], img.data[o + 1], img.data[o + 2]));
     }
   }
   return set.size;
@@ -6096,11 +6096,11 @@ function reduceBgImage(img) {
       for (let i = 0; i < idx.length; i++) {
         const c = idx[i];
         if (c === c1 || c === c2) continue;
-        const p = MSX_PALETTE[c], p1 = MSX_PALETTE[c1], p2 = MSX_PALETTE[c2];
+        const p = VDP_PALETTE[c], p1 = VDP_PALETTE[c1], p2 = VDP_PALETTE[c2];
         const d = (q) => 3 * (p[0] - q[0]) ** 2 + 6 * (p[1] - q[1]) ** 2 + (p[2] - q[2]) ** 2;
         const to = d(p1) <= d(p2) ? c1 : c2;
         const o = (y * img.width + bx + i) * 4;
-        const rgb = MSX_PALETTE[to];
+        const rgb = VDP_PALETTE[to];
         img.data[o] = rgb[0]; img.data[o + 1] = rgb[1]; img.data[o + 2] = rgb[2];
         img.data[o + 3] = 255;
       }
@@ -6147,8 +6147,8 @@ if (spriteNg) console.log(`  スプライト素材: ${spriteNg} 個が 3 色以�
 const earthDuo = [0, 1].map((n) => {
   const map = {};
   for (const m of Object.values(EARTH_MID)) {
-    map[m.even] = nearestMsxColor(...hex(m.pair[n]));
-    map[m.odd] = nearestMsxColor(...hex(m.pair[1 - n]));
+    map[m.even] = nearestVdpColor(...hex(m.pair[n]));
+    map[m.odd] = nearestVdpColor(...hex(m.pair[1 - n]));
   }
   return map;
 });
@@ -6157,8 +6157,8 @@ const earthDuo = [0, 1].map((n) => {
 const baseDuo = [0, 1].map((n) => {
   const map = {};
   for (const m of Object.values(BASE_MID)) {
-    map[m.even] = nearestMsxColor(...hex(m.pair[n]));
-    map[m.odd] = nearestMsxColor(...hex(m.pair[1 - n]));
+    map[m.even] = nearestVdpColor(...hex(m.pair[n]));
+    map[m.odd] = nearestVdpColor(...hex(m.pair[1 - n]));
   }
   return map;
 });
@@ -6167,8 +6167,8 @@ const baseDuo = [0, 1].map((n) => {
 const riftDuo = [0, 1].map((n) => {
   const map = {};
   for (const m of Object.values(END_RIFT_MID)) {
-    map[m.even] = nearestMsxColor(...hex(m.pair[n]));
-    map[m.odd] = nearestMsxColor(...hex(m.pair[1 - n]));
+    map[m.even] = nearestVdpColor(...hex(m.pair[n]));
+    map[m.odd] = nearestVdpColor(...hex(m.pair[1 - n]));
   }
   return map;
 });
@@ -6176,8 +6176,8 @@ const riftDuo = [0, 1].map((n) => {
 const pilotDuo = [0, 1].map((n) => {
   const map = {};
   for (const m of Object.values(PILOT_MID)) {
-    map[m.even] = nearestMsxColor(...hex(m.pair[n]));
-    map[m.odd] = nearestMsxColor(...hex(m.pair[1 - n]));
+    map[m.even] = nearestVdpColor(...hex(m.pair[n]));
+    map[m.odd] = nearestVdpColor(...hex(m.pair[1 - n]));
   }
   return map;
 });

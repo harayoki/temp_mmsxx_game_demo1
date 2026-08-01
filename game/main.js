@@ -7519,7 +7519,7 @@ function grantFullPower(label) {
 
 // ---- プレイ統計 ----
 // バランス調整の材料にするため、エンジンの StatsLog に記録していく。
-// window.msxStats() で集計、window.msxStatsCompact() で生ログを畳める。
+// window.mmsxxStats() で集計、window.mmsxxStatsCompact() で生ログを畳める。
 const stats = new StatsLog({ key: 'starfable-stats', maxEvents: 4000 });
 
 /** 集計のしかた(compact したあともここで足した結果は残る) */
@@ -7556,7 +7556,7 @@ function statsFinish() {
  * 戻すのは**この端末に残っているぶんだけ**。
  * 供給元がサーバになっても、サーバ側の記録には触らない
  */
-window.msxResetHiScores = () => {
+window.mmsxxResetHiScores = () => {
   hardTable.reset();
   normalTable.reset();
   rushTable.reset();
@@ -7565,7 +7565,7 @@ window.msxResetHiScores = () => {
 
 /** デバッグ用: いまの画面状態を見る(自動テストから使う) */
 /** デバッグ用: 好きな面のボスをその場に出す(自機は無敵にする) */
-window.msxBoss = (n) => {
+window.mmsxxBoss = (n) => {
   stageNo = n;
   clearEntities();
   hud.clear();
@@ -7626,7 +7626,7 @@ function kingToPhase2() {
 }
 
 /** デバッグ用: カニの脚を全部折って第 2 形態(斜めの姿)にする */
-window.msxCrabPhase2 = () => {
+window.mmsxxCrabPhase2 = () => {
   if (!boss || boss.kind !== 'crab') return null;
   for (const lg of boss.legs) lg.hp = 0;
   boss.phase2 = true;
@@ -7635,7 +7635,7 @@ window.msxCrabPhase2 = () => {
 };
 
 /** デバッグ用: コンティニュー先の面を決める(タイトルの並びを確かめる用) */
-window.msxContinue = (n) => {
+window.mmsxxContinue = (n) => {
   continueStages.normal = n || 1;
   refreshModes();
   if (state === 'title') drawModeLine();
@@ -7643,7 +7643,7 @@ window.msxContinue = (n) => {
 };
 
 /** デバッグ用: 追加した敵をその場に出す('waller' / 'spreader' / 'diver') */
-window.msxEnemy = (kind) => {
+window.mmsxxEnemy = (kind) => {
   if (kind === 'count') return { 敵: enemies.length, 敵弾: enemyBullets.length,
     種類: enemies.map(e => e.type).join(''), おもり: weights.length };
   if (kind === 'glower') { spawnGlower(); return 'glower'; }
@@ -7657,14 +7657,14 @@ window.msxEnemy = (kind) => {
 
 /** デバッグ用: モアイをその場に出す */
 /** デバッグ用: 未実装さんに会った印を消す(コンティニューでまた出るようにする) */
-window.msxForgetTodo = () => {
+window.mmsxxForgetTodo = () => {
   metSet.delete('todo');
   metSet.delete('down' + RUSH_TODO);
   metStore.save(MET_KEY, [...metSet]);
   return '未実装さんの印を消しました(次のゲームの 2 回目のコンティニューで出ます)';
 };
 
-window.msxMoai = (what) => {
+window.mmsxxMoai = (what) => {
   // 'angry' を渡すと、その場で怒った状態にする(帰るまでを確かめる用)
   if (what === 'angry' && moai) { moai.rage = MOAI_RAGE_HITS - 1; angerMoai(moai); return moai.angryTimer; }
   clearMoai(); moaiSpawned = true; spawnMoai(); return 'moai';
@@ -7675,8 +7675,8 @@ window.msxMoai = (what) => {
  * 'rift' 裂け目 / 'break' 裂け目が壊れる / 'pose' シルエット登場 /
  * 'man' 第 2 段階 / 'die' 撃破の演出(第 2 段階のときだけ)
  */
-window.msxKing = (stage) => {
-  if (!boss || boss.kind !== 'king') { msxBoss(6); }
+window.mmsxxKing = (stage) => {
+  if (!boss || boss.kind !== 'king') { mmsxxBoss(6); }
   if (stage === 'die' && boss.stage === 'man') {
     killKingWithRoar();
     return boss.stage;
@@ -7691,21 +7691,21 @@ window.msxKing = (stage) => {
 };
 
 /** デバッグ用: 名前入力の画面をその場で出す(第 2 引数で得点を決められる) */
-window.msxNameEntry = (target = 'score', s) => {
+window.mmsxxNameEntry = (target = 'score', s) => {
   if (s !== undefined) score = s;
   enterNameEntry(target);
   return state;
 };
 
 /** デバッグ用: いまのボスの体力を書き換える(段階の変わり目をすぐ確かめる) */
-window.msxBossHp = (n) => {
+window.mmsxxBossHp = (n) => {
   if (!boss) return null;
   boss.hp = n;
   drawBossBar();
   return boss.hp;
 };
 
-window.msxDebug = () => ({
+window.mmsxxDebug = () => ({
   state, modeIndex, mode: gameMode(), titlePage, charPage, stageNo,
   playFrame, bossIntro, bossMode, stars, need: starsNeeded(), paused,
   gear: { shotLevel, speedLevel, maxVolleys, damageLevel, barrierHP, ships },
@@ -7730,7 +7730,7 @@ window.msxDebug = () => ({
 });
 
 /** デバッグ用: 貯めた統計をまとめて見る */
-window.msxStats = () => {
+window.mmsxxStats = () => {
   const sessions = stats.sessions;
   const avg = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
   return {
@@ -7750,9 +7750,9 @@ window.msxStats = () => {
   };
 };
 /** デバッグ用: いま集計して生ログを捨てる */
-window.msxStatsCompact = () => stats.compact(STAT_AGGREGATORS);
+window.mmsxxStatsCompact = () => stats.compact(STAT_AGGREGATORS);
 /** デバッグ用: 統計を全部消す */
-window.msxStatsReset = () => { stats.reset(); return 'クリアしました'; };
+window.mmsxxStatsReset = () => { stats.reset(); return 'クリアしました'; };
 
 // ---- ボスラッシュ ----// ---- ボスラッシュ ----
 // 実装済みのボスをランダムな順で 1 巡する。
@@ -8070,7 +8070,7 @@ function sceneRush(stage) {
 function sceneList() {
   const list = [
     { label: 'ENDING', run: () => enterEnding() },
-    { label: 'NAME ENTRY', run: () => msxNameEntry('score', 123456) },
+    { label: 'NAME ENTRY', run: () => mmsxxNameEntry('score', 123456) },
   ];
   for (let n = 1; n <= LAST_STAGE; n++) {
     list.push({ label: 'STAGE ' + n, run: () => sceneStart(n, false) });
