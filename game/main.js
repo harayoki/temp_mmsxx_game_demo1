@@ -4,7 +4,10 @@
 // ステージ後半は月面上空、最後にタコ型ボス。
 
 import { MMSXXEngine, SCREEN_W, SCREEN_H } from '../engine/engine.js';
-import { Ranking, byScore, byTime } from '../engine/util/ranking.js';
+// ランキングは「読み出しは同期のまま、背後で取り直す」形の表を使う。
+// いまの供給元は localStorage。サーバができたら source を差し替えるだけで移れる
+// (docs/RANKING_PLAN.md)
+import { RankingBoard, byScore, byTime } from '../engine/util/ranking-board.js';
 import { StoryScenes } from '../engine/util/story.js';
 import { StaffRoll } from '../engine/util/staffroll.js';
 import { Gallery } from '../engine/util/gallery.js';
@@ -361,8 +364,8 @@ const DEFAULT_HISCORES = [...Array(HISCORE_MAX).keys()].map(i => ({
   score: Math.max(500, 50000 - i * 500),
 }));
 
-// ハイスコア表はエンジン側の仕組みを使う(保存先は差し替えられる)
-const hardTable = new Ranking({
+// ハイスコア表はエンジン側の仕組みを使う(供給元は差し替えられる)
+const hardTable = new RankingBoard({
   key: 'starfable-hiscores',
   meKey: 'starfable-me',
   max: HISCORE_MAX,
@@ -371,7 +374,7 @@ const hardTable = new Ranking({
 });
 // NORMAL と HARD は別のランキングに載せる(同じ表に混ぜない)。
 // 保存キーは EASY だったころのままにして、それまでの記録を引き継ぐ
-const normalTable = new Ranking({
+const normalTable = new RankingBoard({
   key: 'starfable-hiscores-easy',
   meKey: 'starfable-me-easy',
   max: HISCORE_MAX,
@@ -7797,7 +7800,7 @@ function formatTime(frames) {
 
 /** ボスラッシュのタイムを保存する(速い順に 10 件) */
 // タイムは短いほど上位。こちらもエンジンの仕組みを使う
-const rushTable = new Ranking({
+const rushTable = new RankingBoard({
   key: RUSH_KEY,
   meKey: RUSH_KEY + '-me',
   max: RUSH_MAX,
