@@ -2603,8 +2603,12 @@ function enterPlay(fromContinue = false) {
   // CONTINUE を選んだときは、最後に遊んでいた面から始める
   stageNo = fromContinue ? continueStageNow() : 1;
   // **2 回目のコンティニュー**のときだけ、未実装さんが先に顔を出す。
-  // 一度会ったら、それ以降のコンティニューでは出てこない
-  if (fromContinue && ++continueCount === 2 && !metSet.has('todo')) todoGuest = true;
+  // 一度会ったら、それ以降のコンティニューでは出てこない。
+  // 数えるのは「続きから始めた回数」なので、**新しく始めたときだけ 0 に戻す**
+  // (ここを毎回 0 に戻していたため、いつまでも 1 回目のままだった)
+  todoGuest = false;
+  if (!fromContinue) continueCount = 0;
+  else if (++continueCount === 2 && !metSet.has('todo')) todoGuest = true;
   // NORMAL とボスラッシュは、各装備を 1 段階ぶん持った状態で始める
   // (ボスラッシュはいきなりボス戦なので、丸腰だと厳しいため)。
   // ボスラッシュのショットだけは 3 段階目(前 2 発 + 後ろ 1 発)から。
@@ -2616,8 +2620,6 @@ function enterPlay(fromContinue = false) {
   // モアイの案内は 1 プレイに 1 回ずつ。新しいゲームでは出し直す
   moaiToldWait = false;
   moaiToldInside = false;
-  continueCount = 0;
-  todoGuest = false;
   bossPractice = false;
   usedKonami = false;  // 隠しコマンドは 1 ゲームに 1 回ずつ
   usedStageWarp = false;
@@ -3949,10 +3951,16 @@ function updateDragonBoss(b) {
 // ---- 仮のボス「未実装君」(4〜6 面) ----
 // 何もしてこない顔。連射だけで壊せる。中身ができたら差し替える。
 const TODO_W = 48, TODO_H = 48;
+// 未実装さんの体力(どこから出会っても同じ)
+const TODO_HP = 1000;
 
 function spawnTodoBoss() {
-  // 手ごたえが無かったので 2 倍にしたが、命ごいまで長かったので 2/3 に戻す
-  const hp = Math.round((60 + stageNo * 10) * 2 * 2 / 3);
+  // 体力は**面数によらず一定**。
+  // 出てくるのは「ボスラッシュ(内部の面 103)」「シーン選択」
+  // 「2 回目のコンティニュー(そのときの面)」の 3 とおりで、
+  // 面数で決めると 103 面あつかいのときだけ極端に硬くなり、
+  // コンティニューのときは紙のように弱くなってしまっていた
+  const hp = TODO_HP;
   const eyeL = msx.sprite(IMG.bossEye);
   const eyeR = msx.sprite(IMG.bossEye);
   eyeL.visible = eyeR.visible = false;
@@ -4018,7 +4026,9 @@ const BEG_SECRETS = [
 const BEG_END = 900;             // ここまで話す
 // 話し終わったときに体力がこれ以下だと、見逃してもらえない(削りすぎ)
 const BEG_SPARE = 0.2;
-const CANDY_COUNT = 8;           // 置いていく飴の数
+// 置いていく飴の数。取るたびに倍になる(100 -> 200 -> … -> 51200)。
+// 10 個そろえると合わせて 102300 点
+const CANDY_COUNT = 10;
 // 会話の文章を出す高さ(画面の真ん中)
 const BEG_TEXT_Y = 96;
 // 飴を置いてから、ボス戦を終わりにするまでの間(11 秒)。
@@ -6397,14 +6407,15 @@ function updatePlay() {
           // 見逃したお礼の飴。**取るたびに倍々**(100 -> 200 -> 400 …)。
           // 続けて拾うほど大きくなるので、全部拾う値打ちがある
           candyCombo++;
+          // 100 から倍々(100, 200, 400 … 51200)
           const gain = Math.min(CANDY_MAX, 100 * Math.pow(2, candyCombo - 1));
           score += gain;
           spawnPopup(it.sp.x, it.sp.y, gain);
           if (--candyLeft > 0) {
             msx.audio.playSE('item');
           } else {
-            // 最後の 1 つ。ここだけファンファーレで締める
-            showNotice('ALL CANDIES!');
+            // 最後の 1 つ。ファンファーレと、画面の真ん中に知らせを出して締める
+            showNotice('ALL CANDIES!  THANK YOU!', 180, BEG_TEXT_Y);
             playBGM('fanfare', false, true);
             jingleTimer = 150;
           }
@@ -7217,8 +7228,11 @@ function updatePlay() {
         return;
       }
     }
+    // 未実装さんは体当たりしても痛くない(攻撃してこない相手なので、
+    // ぶつかっただけで残機を失うのは理不尽。話を聞く前に終わってしまう)
     if (!hit && boss && boss.dying <= 0 &&
-        boss.kind !== 'nautilus' && boss.kind !== 'king' && !dragonPeek) {
+        boss.kind !== 'nautilus' && boss.kind !== 'king' &&
+        boss.kind !== 'todo' && !dragonPeek) {
       const crab = boss.kind === 'crab', dragon = boss.kind === 'dragon';
       const todo = boss.kind === 'todo';
       const bw = todo ? TODO_W / 2 : dragon ? DRAGON_W / 2 : crab ? CRAB_W / 2 : (boss.phase2 ? HEAD_W / 2 : BOSS_W / 2);
@@ -8816,8 +8830,10 @@ const CHAR_PAGES = [
   {
     // ラスボスは出会うまで ? のまま(誰と戦うのか先に見せない)
     title: 'LAST BOSS',
-    // 名乗りの名前(コゾリテ)をかっこ書きで添える
+    // 名乗りの名前(コゾリテ)をかっこ書きで添える。
+    // 出会うまでは「THE KING」だけ(名乗りを聞く前に名前が割れないように)
     name: 'THE KING (KOZORITE)',
+    secretName: 'THE KING',
     secret: 'king',
     // 倒すまでは「?」ではなく**裂け目**を出す。
     // 最初に出会うのはこの姿なので、これだけでも十分に思わせぶりになる
@@ -8833,6 +8849,7 @@ const CHAR_PAGES = [
     title: 'SECRET BOSS',   // 本編には出てこない仮ボス
     name: 'Mr. MIJISSOU',
     secret: 'todo',         // コンティニューで出会うまでは ? のまま
+    secretName: true,       // 名前も伏せる(いること自体が秘密なので)
     // ゲーム中と同じ部品でそろえる。
     // 王冠は octoCrown ではなく水色の crownCyan(顔と色がかぶるため)、
     // ほおの赤みと目の中の反射も、本編と同じ位置に置く
@@ -8951,7 +8968,11 @@ function drawCharList() {
       const [name, bx, by] = page.secretArt;
       neb.draw(bx, by, IMG[name], true);
     } else drawBigQuestion(SCREEN_W / 2, 92);
-    if (page.name) hud.print(centerX(page.name), 160, page.name, 11);
+    // 名前も伏せたいページは、伏せたときの表記に差し替える。
+    // true なら ???、文字列ならそれを出す(「THE KING」だけ見せる、など)
+    const nm = page.secretName === true ? '???'
+      : (page.secretName || page.name);
+    if (nm) hud.print(centerX(nm), 160, nm, 11);
     charMoai = null; charFlash = []; charRocket = [];
     return;
   }
