@@ -1,0 +1,470 @@
+import { compileMML, WAVEFORMS, ENVELOPES } from './mml.js';
+import { renderTalk } from './talk.js';
+
+// PSG 風のサウンドドライバ。
+// - 波形は 8 種類 (ファミコン風パルス 4 種 / 三角 / ノコギリ / サイン / ノイズ)
+// - 音色ごとにエンベロープ 6 種、デチューン・ビブラート・エコーを指定できる
+// - BGM: 複数チャンネルの MML 配列。ループ再生可能
+// - SE : 単発再生。新しい SE を鳴らすと前の SE は止まる(実機ゲーム風)
+// - MML の "@n" は旧記法としてノイズ波形の指定に対応している
+
+const MASTER_VOL = 0.14;
+
+/** PSG 風の音量カーブ (0..15 -> ゲイン) */
+function volGain(v) {
+  if (v <= 0) return 0;
+  return Math.pow(v / 15, 1.8);
+}
+
+/** チャンネル MML をコンパイルする(波形などは MML 内の @ コマンドで指定する) */
+function compileTrack(mml) {
+  const { events, total } = compileMML(mml.trim());
+  // 実機の PSG はノイズ発生器の数が限られているので、
+  // 「このチャンネルはノイズを使うか」をここで一度だけ調べておく
+  const noise = events.some(e => (WAVEFORMS[e.wave] || {}).kind === 'noise');
+  return { events, total, noise };
+}
+
+/** トラック配列のうち、ノイズを使うチャンネルの数 */
+function noiseCount(tracks) {
+  return tracks.reduce((n, t) => n + (t.noise ? 1 : 0), 0);
+}
+
+export class PSGPlayer {
+  /**
+   * @param {{maxVoices?:number, maxNoise?:number}} [opts]
+   *   maxVoices = 同時に鳴らせる音の数。実機に寄せたいときに絞る。
+   *   エンジン側に上限はないので、いくつでも指定できる(既定 8)。
+   *   maxNoise = 同時に鳴らせるノイズの数(既定 1)。実機の PSG は 1 つしか
+   *   持っていないが、爆発など SE がノイズを取り合って消えがちなので
+   *   「間違った方向に進化したマシン」として本数を宣言できるようにしてある。
+   *   BGM のドラムぶんは別枠で、ここで数えるのは SE のノイズだけ。
+   */
+  constructor(opts = {}) {
+    /** @type {AudioContext|null} */
+    this.ctx = null;
+    this.bgmDefs = new Map();
+    this.seDefs = new Map();
+    /** しゃべる言葉。録音は持たず、鳴らすときにフォルマント合成で作る */
+    this.talkDefs = new Map();
+    this.bgmState = null;
+    /** 鳴っている SE。1 つとは限らない(空きがあれば重ねて鳴る) */
+    this.seVoices = [];
+    this.noiseBuffer = null;
+    this.maxVoices = opts.maxVoices ?? 8;
+    this.maxNoise = opts.maxNoise ?? 1;
+    /** いま BGM が使っている音の数 */
+    this.bgmVoices = 0;
+  }
+
+  /** 終わった SE を片づける */
+  _cleanupSE(now) {
+    this.seVoices = this.seVoices.filter((v) => {
+      if (now < v.endTime) return true;
+      try { v.gain.disconnect(); } catch (e) { /* already gone */ }
+      return false;
+    });
+  }
+
+  /** いま使っている音の数 */
+  _usedVoices() {
+    return this.bgmVoices + this.seVoices.reduce((n, v) => n + v.voices, 0);
+  }
+
+  /** いま SE が使っているノイズの数 */
+  _usedNoise() {
+    return this.seVoices.reduce((n, v) => n + v.noise, 0);
+  }
+
+  /** 1 つの SE を止める */
+  _stopVoice(v) {
+    for (const n of v.nodes) { try { n.stop(0); } catch (e) { /* stopped */ } }
+    try { v.gain.disconnect(); } catch (e) { /* already gone */ }
+    this.seVoices = this.seVoices.filter(x => x !== v);
+  }
+
+  /** ユーザー操作を起点に AudioContext を有効化する(エンジンがキー入力時に呼ぶ) */
+  unlock() {
+    if (!this.ctx) {
+      this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      // ホワイトノイズバッファを1つ用意して使い回す
+      const len = this.ctx.sampleRate;
+      this.noiseBuffer = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+      const d = this.noiseBuffer.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    }
+    if (this.ctx.state === 'suspended') this.ctx.resume();
+  }
+
+  /**
+   * BGM を登録する。MML でも音声ファイル(mp3 など)でも同じように扱える。
+   * @param {string} name
+   * @param {string|string[]|{url:string,gain?:number}} src
+   *   MML 文字列 / チャンネルごとの MML 配列 / {url} を渡すと音声ファイル再生になる
+   */
+  defineBGM(name, src) {
+    if (src && typeof src === 'object' && !Array.isArray(src) && src.url) {
+      this.bgmDefs.set(name, { kind: 'audio', url: src.url, gain: src.gain ?? 1 });
+      return;
+    }
+    const tracks = (Array.isArray(src) ? src : [src]).map(compileTrack);
+    this.bgmDefs.set(name, tracks);
+  }
+
+  /** 音声ファイルを読み込んでデコードする(結果はキャッシュ) */
+  async _loadAudio(def) {
+    if (def.buffer) return def.buffer;
+    if (!def._loading) {
+      def._loading = fetch(def.url)
+        .then(r => r.arrayBuffer())
+        .then(b => new Promise((res, rej) => this.ctx.decodeAudioData(b, res, rej)))
+        .then(buf => { def.buffer = buf; return buf; });
+    }
+    return def._loading;
+  }
+
+  /** 音声ファイルの BGM を鳴らす */
+  _playAudioBGM(def, loop, state) {
+    this._loadAudio(def).then((buffer) => {
+      if (this.bgmState !== state) return;   // 途中で別の曲に変わった
+      const src = this.ctx.createBufferSource();
+      src.buffer = buffer;
+      src.loop = loop;
+      src.connect(state.gain);
+      src.start(this.ctx.currentTime + 0.02);
+      state.nodes.push(src);
+    }).catch(() => { /* 読めなければ無音 */ });
+  }
+
+  /** SE を登録する(書式は BGM と同じ) */
+  defineSE(name, mml) {
+    const tracks = (Array.isArray(mml) ? mml : [mml]).map(compileTrack);
+    this.seDefs.set(name, tracks);
+  }
+
+  /**
+   * しゃべる言葉を登録する(TALK)。録音データは要らない。
+   * カタカナ(ひらがなも可)を渡すと、鳴らすときにフォルマント合成で波形を作る。
+   * 作った波形は名前ごとにキャッシュされるので、2 回目からは作り直さない。
+   * @param {string} name
+   * @param {string} text カタカナ。空白と句読点は間になる
+   * @param {{rate?:number, bits?:number, pitch?:number, speed?:number,
+   *          fall?:number, growl?:number, gain?:number}} [opts]
+   *   rate = 書き出すサンプリング周波数(既定 8000)。低いほど粗い声になる。
+   *   bits = 量子化ビット数(既定 6)。この 2 つで「8 ビット機らしさ」を決める。
+   */
+  defineTalk(name, text, opts = {}) {
+    this.talkDefs.set(name, { text, opts, buffer: null });
+  }
+
+  /** 登録した言葉をしゃべる。SE と同じ優先度のしくみに乗る */
+  playTalk(name, priority = 0, opts = {}) {
+    const def = this.talkDefs.get(name);
+    if (!def || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    this._cleanupSE(now);
+    if (this.seVoices.some(v => v.exclusive && v.priority > priority)) return;
+    // 場所が空いていなければ、優先度の低いものを止めて作る
+    while (this._usedVoices() + 1 > this.maxVoices) {
+      let low = null;
+      for (const v of this.seVoices) {
+        if (v.priority >= priority) continue;
+        if (!low || v.priority < low.priority) low = v;
+      }
+      if (!low) return;
+      this._stopVoice(low);
+    }
+    if (!def.buffer) {
+      // 粗いまま鳴らしたいので、書き出したサンプリング周波数のまま
+      // AudioBuffer を作る(再生時にブラウザが伸ばしてくれる)
+      const { rate, data } = renderTalk(def.text, def.opts);
+      const buf = this.ctx.createBuffer(1, data.length, rate);
+      buf.getChannelData(0).set(data);
+      def.buffer = buf;
+    }
+    const gain = this.ctx.createGain();
+    gain.gain.value = (def.opts.gain ?? 1) * 0.9;
+    gain.connect(this.ctx.destination);
+    const src = this.ctx.createBufferSource();
+    src.buffer = def.buffer;
+    src.connect(gain);
+    const when = now + 0.02;
+    src.start(when);
+    this.seVoices.push({
+      gain, nodes: [src], priority, voices: 1, noise: 0,
+      endTime: when + def.buffer.duration, exclusive: !!opts.exclusive,
+    });
+  }
+
+  /**
+   * BGM を再生する(別の曲が鳴っていれば止まる)。
+   * 同じ曲がすでに鳴っている場合は何もしない(頭出しし直さない)。
+   * @param {string} name
+   * @param {boolean} [loop=true] ループ再生するか
+   * @param {boolean} [restart=false] true なら同じ曲でも最初から鳴らし直す
+   */
+  playBGM(name, loop = true, restart = false) {
+    const tracks = this.bgmDefs.get(name);
+    if (!tracks || !this.ctx) return;
+    // 同じ曲がすでに鳴っているときは、頭から鳴らし直さない。
+    // 最初から鳴らしたいときは restart に true を渡す。
+    // フェード中の曲は鳴らし直す(音量が下がったまま復帰してしまうのを防ぐ)
+    if (!restart && this.bgmState && this.bgmState.name === name && !this.bgmState.fading) return;
+    this.stopBGM();
+    const gain = this.ctx.createGain();
+    gain.gain.value = 1;
+    gain.connect(this.ctx.destination);
+    const state = { gain, timer: 0, nodes: [], name };
+    this.bgmState = state;
+
+    // 音声ファイル(mp3 など)の場合
+    if (!Array.isArray(tracks)) {
+      gain.gain.value = tracks.gain ?? 1;
+      this.bgmVoices = 1;
+      this._playAudioBGM(tracks, loop, state);
+      return;
+    }
+    this.bgmVoices = tracks.length;
+
+    // 1 ループぶんをまとめて予約すると、その瞬間に何百個もノードを作ることになり、
+    // 非力な端末ではひとコマぶんの引っかかりになる。
+    // そこで「少し先の分だけ」をこまめに積んでいく(先読みスケジューリング)。
+    const loopLen = Math.max(...tracks.map(t => t.total), 0.01);
+    const LOOKAHEAD = 0.5;   // 何秒先まで積んでおくか
+    const TICK_MS = 120;     // 積み足す間隔
+    state.base = this.ctx.currentTime + 0.05;   // いまのループの開始時刻
+    state.cursor = 0;                           // 曲の中のどこまで積んだか
+
+    const pump = () => {
+      if (this.bgmState !== state) return;
+      const now = this.ctx.currentTime;
+      // 終わったノードを掃除
+      state.nodes = state.nodes.filter(n => n.__endTime > now);
+      // いま鳴っているところから LOOKAHEAD 秒先まで積む
+      let guard = 0;
+      while (state.base + state.cursor < now + LOOKAHEAD && guard++ < 8) {
+        const to = Math.min(loopLen, state.cursor + LOOKAHEAD);
+        for (const t of tracks) {
+          this._scheduleTrack(t, state.base, gain, state.nodes, state.cursor, to);
+        }
+        state.cursor = to;
+        if (state.cursor >= loopLen) {
+          if (!loop) return;            // ループしないならここで終わり
+          state.base += loopLen;        // 次のループへ
+          state.cursor = 0;
+        }
+      }
+      state.timer = setTimeout(pump, TICK_MS);
+    };
+    pump();
+  }
+
+  /**
+   * BGM を少しずつ小さくして止める。
+   * @param {number} [sec=1.5] フェードにかける秒数
+   */
+  fadeOutBGM(sec = 1.5) {
+    const s = this.bgmState;
+    if (!s || !this.ctx) return;
+    const t = this.ctx.currentTime;
+    s.fading = true;   // フェード中は「鳴っている」とみなさない
+    try {
+      s.gain.gain.cancelScheduledValues(t);
+      s.gain.gain.setValueAtTime(s.gain.gain.value, t);
+      s.gain.gain.linearRampToValueAtTime(0.0001, t + sec);
+    } catch (e) { /* 環境によっては失敗するので無視 */ }
+    // 鳴り終わったら本当に止める(別の曲に切り替わっていたら何もしない)
+    setTimeout(() => { if (this.bgmState === s) this.stopBGM(); }, sec * 1000 + 50);
+  }
+
+  /** BGM を停止する */
+  stopBGM() {
+    const s = this.bgmState;
+    if (!s) return;
+    this.bgmState = null;
+    this.bgmVoices = 0;
+    clearTimeout(s.timer);
+    for (const n of s.nodes) { try { n.stop(0); } catch (e) { /* stopped */ } }
+    try { s.gain.disconnect(); } catch (e) { /* already gone */ }
+  }
+
+  /**
+   * SE を再生する。
+   * 空いている音があればそこで鳴らすので、ショットと爆発が同時に鳴ることもある。
+   * 空きが足りないときは、いま鳴っている SE のうち優先度の低いものを止めて場所を作る。
+   * どれも自分より優先度が高ければ、その SE は鳴らさない(高い音を消さない)。
+   * @param {string} name
+   * @param {number} [priority=0] 大きいほど優先
+   * @param {{exclusive?:boolean}} [opts]
+   *   exclusive = ほかの SE を全部止めて独り占めする(ファンファーレなど)。
+   *   鳴っているあいだ、優先度の低い SE は鳴らない。
+   */
+  playSE(name, priority = 0, opts = {}) {
+    const tracks = this.seDefs.get(name);
+    if (!tracks || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    this._cleanupSE(now);
+    // 独り占めしている SE より低い優先度なら、そもそも鳴らさない
+    if (this.seVoices.some(v => v.exclusive && v.priority > priority)) return;
+    if (opts.exclusive) {
+      for (const v of [...this.seVoices]) this._stopVoice(v);
+    }
+    const need = tracks.length;
+    const needNoise = noiseCount(tracks);
+    // 空きが足りなければ、優先度の低いものから止めて場所を作る
+    while (this._usedVoices() + need > this.maxVoices) {
+      let low = null;
+      for (const v of this.seVoices) {
+        if (v.priority >= priority) continue;
+        if (!low || v.priority < low.priority) low = v;
+      }
+      if (!low) return;   // 止められるものが無い = 鳴らさない
+      this._stopVoice(low);
+    }
+    // ノイズは本数が決まっているので、あふれるならノイズを使っている SE を止める
+    // (1 つの SE だけでノイズを使い切る場合は、その SE 自体は鳴らす)
+    while (needNoise > 0 && needNoise <= this.maxNoise
+           && this._usedNoise() + needNoise > this.maxNoise) {
+      let low = null;
+      for (const v of this.seVoices) {
+        if (!v.noise || v.priority >= priority) continue;
+        if (!low || v.priority < low.priority) low = v;
+      }
+      if (!low) return;
+      this._stopVoice(low);
+    }
+    const gain = this.ctx.createGain();
+    gain.gain.value = 1;
+    gain.connect(this.ctx.destination);
+    const len = Math.max(...tracks.map(t => t.total), 0);
+    const state = {
+      gain, nodes: [], priority, voices: need, noise: needNoise,
+      endTime: now + len, exclusive: !!opts.exclusive,
+    };
+    this.seVoices.push(state);
+    const when = now + 0.02;
+    for (const t of tracks) this._scheduleTrack(t, when, gain, state.nodes);
+  }
+
+  /** 鳴っている SE を全部止める */
+  stopSE() {
+    for (const v of [...this.seVoices]) this._stopVoice(v);
+    this.seVoices = [];
+  }
+
+  /** 波形に応じた音源ノードを作る(ノイズだけはバッファ再生) */
+  _makeOscillator(ev, freq) {
+    const ctx = this.ctx;
+    const wf = WAVEFORMS[ev.wave] || WAVEFORMS[2];
+    if (wf.kind === 'noise') {
+      const src = ctx.createBufferSource();
+      src.buffer = this.noiseBuffer;
+      src.loop = true;
+      // 音程が高いほど明るいノイズになるよう再生速度を変える
+      src.playbackRate.value = Math.min(4, Math.max(0.1, freq / 440));
+      return src;
+    }
+    const osc = ctx.createOscillator();
+    if (wf.kind === 'pulse') {
+      // デューティ比つき矩形波は PeriodicWave で作る(50% は素の square)
+      // setPeriodicWave を呼ぶと type は自動で 'custom' になる(直接代入は不可)
+      if (wf.duty === 0.5) osc.type = 'square';
+      else osc.setPeriodicWave(this._pulseWave(wf.duty));
+    } else if (wf.kind === 'triangle') {
+      osc.type = 'triangle';
+    } else if (wf.kind === 'saw') {
+      osc.type = 'sawtooth';
+    } else {
+      osc.type = 'sine';
+    }
+    osc.frequency.value = freq;
+    return osc;
+  }
+
+  /** デューティ比 duty のパルス波を PeriodicWave として作る(キャッシュ付き) */
+  _pulseWave(duty) {
+    if (!this._pulseCache) this._pulseCache = new Map();
+    const hit = this._pulseCache.get(duty);
+    if (hit) return hit;
+    const N = 64;
+    const real = new Float32Array(N), imag = new Float32Array(N);
+    for (let n = 1; n < N; n++) {
+      // 矩形波のフーリエ係数(デューティ比つき)
+      imag[n] = (2 / (n * Math.PI)) * Math.sin(n * Math.PI * duty);
+    }
+    const w = this.ctx.createPeriodicWave(real, imag, { disableNormalization: false });
+    this._pulseCache.set(duty, w);
+    return w;
+  }
+
+  /** エンベロープを gain に書き込む */
+  _applyEnvelope(gain, ev, amp, t0, t1) {
+    const e = ENVELOPES[ev.env] || ENVELOPES[0];
+    const len = Math.max(0.02, t1 - t0);
+    const a = Math.min(e.a, len * 0.5);
+    const d = Math.min(e.d * len, len - a);
+    const sustain = amp * e.s;
+    gain.gain.setValueAtTime(0, t0);
+    gain.gain.linearRampToValueAtTime(amp, t0 + a);
+    if (d > 0) gain.gain.linearRampToValueAtTime(Math.max(0.0001, sustain), t0 + a + d);
+    else gain.gain.setValueAtTime(amp, t0 + a);
+    // リリース(音が切れる直前に 0 へ)
+    const rel = Math.min(e.r, len * 0.5);
+    gain.gain.setValueAtTime(Math.max(0.0001, e.s > 0 ? sustain : 0.0001), Math.max(t0 + a + d, t1 - rel));
+    gain.gain.linearRampToValueAtTime(0, t1);
+  }
+
+  /** 1 音ぶんの音源 + エンベロープを組み立てて鳴らす */
+  _playVoice(ev, freq, amp, t0, t1, dest, nodes) {
+    const ctx = this.ctx;
+    const g = ctx.createGain();
+    g.connect(dest);
+    const src = this._makeOscillator(ev, freq);
+    this._applyEnvelope(g, ev, amp, t0, t1);
+
+    // ビブラート(音程をゆらす)。ノイズには効かない
+    if (ev.vibrato > 0 && src.frequency) {
+      const lfo = ctx.createOscillator();
+      const depth = ctx.createGain();
+      lfo.frequency.value = 5 + ev.vibrato * 0.6;
+      depth.gain.value = freq * 0.004 * ev.vibrato;
+      lfo.connect(depth).connect(src.frequency);
+      lfo.start(t0); lfo.stop(t1 + 0.02);
+      lfo.__endTime = t1 + 0.02;
+      nodes.push(lfo);
+    }
+
+    src.connect(g);
+    src.start(t0);
+    src.stop(t1 + 0.02);
+    src.__endTime = t1 + 0.02;
+    src.onended = () => { try { g.disconnect(); } catch (e) { /* gone */ } };
+    nodes.push(src);
+  }
+
+  /** 1チャンネルぶんのイベントを Web Audio ノードとしてスケジュールする */
+  _scheduleTrack(track, when, dest, nodes, from = -Infinity, to = Infinity) {
+    for (const ev of track.events) {
+      // 先読み予約: 曲の中の時刻が [from, to) のイベントだけを積む
+      if (ev.t < from || ev.t >= to) continue;
+      const t0 = when + ev.t;
+      const t1 = t0 + Math.max(0.01, ev.gate);
+      const amp = volGain(ev.vol) * MASTER_VOL;
+
+      this._playVoice(ev, ev.freq, amp, t0, t1, dest, nodes);
+
+      // デチューン: わずかにずらした音を重ねて厚みを出す
+      if (ev.detune > 0) {
+        const f2 = ev.freq * Math.pow(2, ev.detune / 1200);
+        this._playVoice(ev, f2, amp * 0.6, t0, t1, dest, nodes);
+      }
+
+      // エコー: 少し遅らせて小さく鳴らす
+      if (ev.echo > 0) {
+        const delay = 0.11 + ev.echo * 0.012;
+        const eAmp = amp * (0.12 + ev.echo * 0.035);
+        this._playVoice(ev, ev.freq, eAmp, t0 + delay, t1 + delay, dest, nodes);
+      }
+    }
+  }
+}

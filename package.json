@@ -1,0 +1,13 @@
+{
+  "name": "mmsxx-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MSX1風の見た目と音を再現するブラウザ用ゲームエンジン (MMSXX Engine) + サンプルシューティング STAR FABLE",
+  "scripts": {
+    "data": "node assets-src/makedata.mjs",
+    "serve": "node serve.js",
+    "checkbgm": "node assets-src/checkbgm.mjs",
+    "preview": "node assets-src/preview.mjs"
+  }
+}

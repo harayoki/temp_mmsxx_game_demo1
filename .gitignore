@@ -1,0 +1,27 @@
+# ---- Node ----
+node_modules/
+npm-debug.log*
+yarn-error.log*
+.npm/
+
+# ---- 生成物 ----
+# アセットの実体。assets-src/makedata.mjs から `npm run data` で作り直せる
+game/gamedata.js
+# 公開用に固めたもの(build-deploy.ps1 が作る)
+deploy/
+*.zip
+
+# ---- 開発中の一時ファイル ----
+# デバッグ用の画面キャプチャ(新しい 10 枚だけ残る仕組み)
+capture/
+# エラーログ
+*.log
+
+# ---- OS / エディタ ----
+.DS_Store
+Thumbs.db
+desktop.ini
+*.url
+.vscode/
+.idea/
+*.swp

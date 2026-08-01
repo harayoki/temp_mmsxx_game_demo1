@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "msx-engine",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["serve.js"],
+      "port": 8080
+    },
+    {
+      "name": "msx-engine-deploy",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["serve.js"],
+      "port": 8081
+    }
+  ]
+}

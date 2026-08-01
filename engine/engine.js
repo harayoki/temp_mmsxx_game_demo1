@@ -1,0 +1,271 @@
+﻿import { VDP, SCREEN_W, SCREEN_H, VIRTUAL_W, VIRTUAL_H } from './video.js';
+import { PSGPlayer } from './audio.js';
+import { Input } from './input.js';
+import { ErrorLog } from './errorlog.js';
+
+export { SCREEN_W, SCREEN_H, VIRTUAL_W, VIRTUAL_H };
+export { ErrorLog };
+
+/** レイヤー操作のハンドル。MMSXXEngine.layer(n) で取得する。 */
+class LayerHandle {
+  constructor(vdp, index) {
+    this._vdp = vdp;
+    this._index = index;
+  }
+  /**
+   * RGBA画像(自動MSX変換・キャッシュ付き)または変換済み画像を仮想画面に描く。
+   * opts で { flipX, flipY, rotate: 180 } を渡すと反転・180度回転して描ける
+   * (90/270 度は横8ドット2色の決まりが崩れるので BG では使えない)。
+   * opts.colorMap は色番号の置き換え表(スプライトと同じ書き方)。
+   * 1 枚の絵を色ちがいで描き分けられる。
+   * 交互に描けば、実機に無い中間色を目で作れる。
+   * opts.scanline は走査線。null = 入れない / 0 = 奇数行を抜く / 1 = 偶数行を抜く。
+   * 抜いた絵は作り置きされるので、描く手数は元の絵と変わらない。
+   */
+  draw(x, y, image, transparent = true, opts) {
+    this._vdp.drawToLayer(this._index, x, y, image, transparent, opts);
+  }
+  /**
+   * 矩形塗りつぶし。引数省略で全面。color 0 = 透明クリア。
+   * ふだんは MSX らしく 8 ドット(キャラクタ)単位に丸める。
+   * exact = true にすると 1 ドット単位でそのまま塗る
+   * (細くなっていくレーザーのような、1 ドットずつ変える絵に使う)。
+   */
+  fill(color = 0, x, y, w, h, exact = false) {
+    this._vdp.fillLayer(this._index, color, x, y, w, h, exact);
+  }
+  /** 全面透明クリア */
+  clear() { this._vdp.fillLayer(this._index, 0); }
+  /**
+   * 画面の端で裏画面を繰り返すかどうか。
+   * 既定は繰り返す(流れつづける星空など)。false にすると、
+   * 右へはみ出した絵が左から出てくる、といったことがなくなる。
+   */
+  setRepeat(x = true, y = x) {
+    const L = this._vdp.layers[this._index];
+    L.repeatX = !!x; L.repeatY = !!y;
+  }
+  /** 内蔵フォントでテキスト描画 (1文字8x8) */
+  print(x, y, text, color = 15, bg = 0) {
+    this._vdp.print(this._index, x, y, text, color, bg);
+  }
+  /** スクロール位置を設定(仮想画面のどこを表示画面の左上にするか) */
+  scroll(x, y) {
+    const L = this._vdp.layers[this._index];
+    L.scrollX = x; L.scrollY = y;
+  }
+  /** スクロール位置を相対移動 */
+  scrollBy(dx, dy) {
+    const L = this._vdp.layers[this._index];
+    L.scrollX += dx; L.scrollY += dy;
+  }
+  get scrollX() { return this._vdp.layers[this._index].scrollX; }
+  get scrollY() { return this._vdp.layers[this._index].scrollY; }
+  get visible() { return this._vdp.layers[this._index].visible; }
+  set visible(v) { this._vdp.layers[this._index].visible = v; }
+  /**
+   * 走査線。null = 入れない / 0 か 1 = その位相の行を抜いて 1 ライン おきに描く。
+   * 毎コマ 0 と 1 を入れ替えると、抜ける行が交互に動く。
+   * 絵は消さずに描画のときだけ間引くので、下に描いたものは残る。
+   */
+  get scanline() { return this._vdp.layers[this._index].scanline; }
+  set scanline(n) { this._vdp.layers[this._index].scanline = (n == null) ? null : (n & 1); }
+  /** 表示スクロールの量子化単位。8 で MSX1 実機風の8ドット単位スクロールになる (0=滑らか) */
+  get snap() { return this._vdp.layers[this._index].snap; }
+  set snap(n) { this._vdp.layers[this._index].snap = n; }
+  /** このレイヤーの裏画面サイズ */
+  get width() { return this._vdp.layers[this._index].width; }
+  get height() { return this._vdp.layers[this._index].height; }
+}
+
+/**
+ * MSX1 風仮想マシンのゲームエンジン本体。
+ *
+ * const msx = new MMSXXEngine(canvas, { scale: 3 });
+ * msx.backdrop = 4;
+ * msx.layer(0).draw(0, 0, rgbaImage);
+ * const ship = msx.sprite(rgbaImage);
+ * msx.run((m) => { ship.x++; });
+ */
+export class MMSXXEngine {
+  /**
+   * @param {HTMLCanvasElement} canvas
+   * @param {{scale?:number, virtualWidth?:number, virtualHeight?:number,
+   *          layers?: {width?:number,height?:number}[],
+   *          screen?: {width?:number,height?:number,borderX?:number,borderY?:number}}} [opts]
+   *   virtualWidth / virtualHeight は裏画面の既定サイズ(256〜2048 の 2 の冪、既定 1024x1024)。
+   *   layers を渡すとレイヤーごとに別々のサイズを持てる。配列の長さが枚数になり、上限はない。
+   *   screen は表示画面の大きさ(8 ドット単位、既定 256x192)とボーダーの厚み。
+   *   maxVoices は同時に鳴らせる音の数(既定 8)。エンジン側に上限はない。
+   *   maxNoise は同時に鳴らせるノイズの数(既定 1)。爆発など SE が
+   *   ノイズを取り合って消えるときに増やす。
+   */
+  constructor(canvas, opts = {}) {
+    this.vdp = new VDP(
+      canvas, opts.scale ?? 3,
+      opts.virtualWidth ?? VIRTUAL_W, opts.virtualHeight ?? VIRTUAL_H,
+      opts.layers, opts.screen,
+    );
+    this.audio = new PSGPlayer({
+      maxVoices: opts.maxVoices ?? 8,
+      maxNoise: opts.maxNoise ?? 1,
+    });
+    // エラーは日付ごとのログに残す(3 日ぶん)。
+    // 手元の開発中はエラーで止め、公開版は致命的でなければ続ける
+    this.errors = new ErrorLog({ local: MMSXXEngine.isLocal }).install();
+    this.input = new Input(() => this.audio.unlock());
+    this._layers = this.vdp.layers.map((_, i) => new LayerHandle(this.vdp, i));
+    /** 経過フレーム数 (60fps) */
+    this.frame = 0;
+    this._running = false;
+  }
+
+  /** 裏画面の既定の幅(レイヤーごとの実サイズは layer(i).width) */
+  get virtualWidth() { return this.vdp.vw; }
+  /** 裏画面の既定の高さ(レイヤーごとの実サイズは layer(i).height) */
+  get virtualHeight() { return this.vdp.vh; }
+  /** レイヤーの枚数 */
+  get layerCount() { return this.vdp.layers.length; }
+
+  // ---- 表示画面 ----
+  /** 描画領域の幅(8 ドット単位。既定 256) */
+  get screenWidth() { return this.vdp.width; }
+  /** 描画領域の高さ(8 ドット単位。既定 192) */
+  get screenHeight() { return this.vdp.height; }
+  /** ボーダー込みで実際に出ている幅 / 高さ */
+  get outWidth() { return this.vdp.outWidth; }
+  get outHeight() { return this.vdp.outHeight; }
+  /** いまの画面ずらし量 */
+  get adjustX() { return this.vdp.adjustX; }
+  get adjustY() { return this.vdp.adjustY; }
+
+  /** 描画領域の大きさを変える(8 ドット単位) */
+  setScreenSize(width, height) { this.vdp.setScreenSize(width, height); }
+
+  /**
+   * ボーダー(描画領域の外の遊び)の厚みを決める(1 ドット単位)。
+   * ここには何も描かれず、いつも背景色で塗られる。
+   */
+  setBorder(x, y = x) { this.vdp.setBorder(x, y); }
+
+  /**
+   * 画面全体を 1 ドット単位でずらす(実機の SET ADJUST 相当。-15..+16)。
+   * 回り込みは起きず、空いたところは背景色になる。画面を揺らす演出に使う。
+   */
+  setAdjust(x, y) { this.vdp.setAdjust(x, y); }
+
+  /**
+   * いまの画面を画像として取り出す(原寸)。
+   * 実描画そのものが原寸のオフスクリーンなので、これがいちばん安い。
+   * @param {{scale?:number, type?:'dataURL'|'blob'|'canvas', mime?:string}} [opts]
+   */
+  capture(opts) { return this.vdp.capture(opts); }
+
+  /** いまの画面を画像ファイルとして保存する(原寸) */
+  download(filename = 'screenshot.png', opts) {
+    const url = this.vdp.capture(opts);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    return filename;
+  }
+
+  /**
+   * 手元の開発中かどうか(localhost / file: で開いているか)。
+   * 開発中だけ使えるデバッグ機能の出し分けに使う。
+   */
+  get isLocal() { return MMSXXEngine.isLocal; }
+  static get isLocal() {
+    if (typeof location === 'undefined') return true;   // ブラウザ以外(テスト等)
+    if (location.protocol === 'file:') return true;
+    const h = location.hostname;
+    return h === 'localhost' || h === '127.0.0.1' || h === '::1' || h === '';
+  }
+
+  /** レイヤーハンドルを取得 (0 が奥、数字が大きいほど手前) */
+  layer(i) { return this._layers[i]; }
+
+  /** 背景色(パレット番号 1..15)。全レイヤー透明の場所に見える色 */
+  get backdrop() { return this.vdp.backdrop; }
+  set backdrop(c) { this.vdp.backdrop = c; }
+
+  /**
+   * RGBA画像を MSX 制約付き画像へ明示的に変換(キャッシュ付き)。
+   * opts.colors を指定すると「画像全体で N 色まで」の変換
+   * (単色スプライト=1, スプライト2枚重ね風=2)。省略時は横8ドット2色制約。
+   */
+  convert(image, opts) { return this.vdp.convert(image, opts); }
+
+  /**
+   * スプライトを生成(枚数・横並び制限なし)。opts は convert() と同じ。
+   * 生成したスプライトは flipX / flipY / rotate(0,90,180,270) を持ち、
+   * 1 枚の絵から向き違いを作れる(BG スプライトは 90/270 度は無視される)。
+   */
+  sprite(image, opts) { return this.vdp.createSprite(image, opts); }
+
+  /** スプライトを削除 */
+  removeSprite(sprite) { this.vdp.removeSprite(sprite); }
+
+  /**
+   * BG スプライトを生成。通常スプライトより奥(レイヤーより手前)に描かれ、
+   * 位置は 8 ドット単位に丸められる。大きさ・枚数に制限はない。
+   */
+  bgSprite(image, opts) { return this.vdp.createBgSprite(image, opts); }
+
+  /** BG スプライトを削除 */
+  removeBgSprite(sprite) { this.vdp.removeBgSprite(sprite); }
+
+  /**
+   * base64 RGBA からエンジンに渡せる画像オブジェクトを作る(makedata の出力用)。
+   * @returns {{data:Uint8Array,width:number,height:number}}
+   */
+  static imageFromBase64(b64, width, height) {
+    const bin = atob(b64);
+    const data = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) data[i] = bin.charCodeAt(i);
+    return { data, width, height };
+  }
+
+  /**
+   * メインループを開始する。update は 60fps 固定で呼ばれる。
+   * @param {(msx: MMSXXEngine) => void} update
+   */
+  run(update) {
+    this._running = true;
+    this._update = update;
+    const STEP = 1000 / 60;
+    let last = performance.now();
+    let acc = 0;
+    const tick = (now) => {
+      if (!this._running) return;
+      acc += Math.min(now - last, 100); // タブ復帰時の暴走防止
+      last = now;
+      let steps = 0;
+      while (acc >= STEP && steps < 4) {
+        update(this);
+        this.input.endFrame();
+        this.frame++;
+        acc -= STEP;
+        steps++;
+      }
+      if (steps === 4) acc = 0;
+      this.vdp.render();
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
+
+  /** メインループを停止する */
+  stop() { this._running = false; }
+
+  /** デバッグ用: 手動で n フレームぶん進めて描画する */
+  step(n = 1) {
+    for (let i = 0; i < n; i++) {
+      if (this._update) this._update(this);
+      this.input.endFrame();
+      this.frame++;
+    }
+    this.vdp.render();
+  }
+}

@@ -1,0 +1,161 @@
+// MML (Music Macro Language) コンパイラ
+// 対応コマンド (MSX BASIC の PLAY 文風):
+//   cdefgab  音符 (直後に +/# =半音上げ, - =半音下げ, 数字=音長, . =付点)
+//   r        休符
+//   o<n>     オクターブ 1..8 (o4 の a = 440Hz)
+//   > <      オクターブ上げ / 下げ
+//   l<n>     デフォルト音長 (4=四分音符)
+//   t<n>     テンポ (四分音符/分)
+//   v<n>     音量 0..15
+//   q<n>     ゲート 1..8 (8=フルレングス, 既定7)
+//   &        タイ (直後の音符の長さを直前の音に足す)
+//   [ ... ]<n>  繰り返し (n 省略時 2 回, ネスト可)
+//
+// 音色・効果 (チャンネルごとに途中で切り替えられる):
+//   @<n>     波形 0..7  (WAVEFORMS 参照。0=矩形12.5% .. 7=ノイズ)
+//   @e<n>    エンベロープ 0..5 (ENVELOPES 参照)
+//   @d<n>    デチューン (セント単位。2 音を少しずらして重ねる。0 で無効)
+//   @v<n>    ビブラート 0..9 (0 で無効。数字が大きいほど深い)
+//   @s<n>    エコー(ディレイ) 0..9 (0 で無効。数字が大きいほど強い)
+
+const SEMI = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 };
+
+/**
+ * 波形テーブル。
+ * ファミコン(2A03)の矩形波デューティ比 12.5/25/50/75% と、
+ * MSX(AY-3-8910)の矩形波(50%固定)、三角波、ノコギリ波、サイン波、ノイズ。
+ */
+export const WAVEFORMS = [
+  { id: 0, name: 'pulse12', kind: 'pulse', duty: 0.125 }, // ファミコン風 12.5%
+  { id: 1, name: 'pulse25', kind: 'pulse', duty: 0.25 },  // ファミコン風 25%
+  { id: 2, name: 'pulse50', kind: 'pulse', duty: 0.5 },   // ファミコン/MSX 50%
+  { id: 3, name: 'pulse75', kind: 'pulse', duty: 0.75 },  // ファミコン風 75%
+  { id: 4, name: 'triangle', kind: 'triangle' },          // 三角波
+  { id: 5, name: 'saw', kind: 'saw' },                    // ノコギリ波
+  { id: 6, name: 'sine', kind: 'sine' },                  // サイン波
+  { id: 7, name: 'noise', kind: 'noise' },                // ノイズ
+];
+
+/**
+ * エンベロープ (attack/decay/sustain/release を音長に対する割合で持つ)。
+ * 0=そのまま鳴る / 1=じわっと / 2=打楽器風 / 3=ピアノ風 / 4=パッド / 5=プラック
+ */
+export const ENVELOPES = [
+  { id: 0, name: 'flat',    a: 0.005, d: 0,    s: 1.0,  r: 0.01 },
+  { id: 1, name: 'soft',    a: 0.08,  d: 0.1,  s: 0.8,  r: 0.15 },
+  { id: 2, name: 'percussive', a: 0.002, d: 0.25, s: 0.0, r: 0.05 },
+  { id: 3, name: 'piano',   a: 0.004, d: 0.4,  s: 0.35, r: 0.12 },
+  { id: 4, name: 'pad',     a: 0.25,  d: 0.2,  s: 0.7,  r: 0.4 },
+  { id: 5, name: 'pluck',   a: 0.002, d: 0.12, s: 0.15, r: 0.08 },
+];
+
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+/** [ ... ]n ループをテキスト展開する(ネスト対応) */
+function expandLoops(src) {
+  for (let guard = 0; guard < 64; guard++) {
+    const open = src.lastIndexOf('['); // 最内ループから展開する
+    if (open < 0) break;
+    const close = src.indexOf(']', open);
+    if (close < 0) break; // 閉じ括弧なし: '[' を無視
+    let numEnd = close + 1;
+    while (numEnd < src.length && src[numEnd] >= '0' && src[numEnd] <= '9') numEnd++;
+    const count = numEnd > close + 1 ? parseInt(src.slice(close + 1, numEnd), 10) : 2;
+    const body = src.slice(open + 1, close);
+    src = src.slice(0, open) + body.repeat(Math.max(0, count)) + src.slice(numEnd);
+  }
+  return src.replace(/[\[\]]/g, '');
+}
+
+/**
+ * MML 文字列をイベント列にコンパイルする。
+ * @param {string} mml
+ * @returns {{events:{t:number,dur:number,gate:number,freq:number,vol:number}[], total:number}}
+ *   t=開始秒, dur=音長秒, gate=実発音秒, freq=Hz, vol=0..15。total=チャンネル全体の長さ(秒)。
+ */
+export function compileMML(mml) {
+  const src = expandLoops(mml.toLowerCase());
+  let pos = 0;
+  let octave = 4, defLen = 4, tempo = 120, vol = 10, gate = 7;
+  // 音色・効果の現在値(音符ごとにイベントへコピーする)
+  let wave = 2, env = 0, detune = 0, vibrato = 0, echo = 0;
+  let time = 0;
+  const events = [];
+  const pushNote = (dur, freq) => {
+    events.push({
+      t: time, dur, gate: dur * gate / 8, freq, vol,
+      wave, env, detune, vibrato, echo,
+    });
+  };
+
+  const peek = () => src[pos];
+  const readNumber = () => {
+    let n = '';
+    while (pos < src.length && src[pos] >= '0' && src[pos] <= '9') n += src[pos++];
+    return n === '' ? null : parseInt(n, 10);
+  };
+  const readDuration = () => {
+    const len = readNumber() ?? defLen;
+    let d = 240 / tempo / len;
+    let dot = d;
+    while (peek() === '.') { pos++; dot /= 2; d += dot; }
+    return d;
+  };
+  const skipSpace = () => {
+    while (pos < src.length && ' \n\t\r|'.includes(src[pos])) pos++;
+  };
+
+  while (pos < src.length) {
+    const ch = src[pos++];
+    if (' \n\t\r|'.includes(ch)) continue;
+
+    if (SEMI[ch] !== undefined) {
+      let semi = SEMI[ch];
+      while (peek() === '+' || peek() === '#') { semi++; pos++; }
+      while (peek() === '-') { semi--; pos++; }
+      const dur = readDuration();
+      const midi = (octave + 1) * 12 + semi;
+      pushNote(dur, 440 * Math.pow(2, (midi - 69) / 12));
+      time += dur;
+    } else if (ch === 'r') {
+      time += readDuration();
+    } else if (ch === '&') {
+      // タイ: 次の音符の長さを直前のイベントに加算する
+      skipSpace();
+      if (SEMI[src[pos]] !== undefined && events.length > 0) {
+        pos++;
+        while (peek() === '+' || peek() === '#' || peek() === '-') pos++;
+        const dur = readDuration();
+        const last = events[events.length - 1];
+        last.dur += dur;
+        last.gate = last.dur * gate / 8;
+        time += dur;
+      }
+    } else if (ch === 'o') {
+      octave = readNumber() ?? octave;
+    } else if (ch === '>') {
+      octave = Math.min(8, octave + 1);
+    } else if (ch === '<') {
+      octave = Math.max(1, octave - 1);
+    } else if (ch === 'l') {
+      defLen = readNumber() ?? defLen;
+    } else if (ch === 't') {
+      tempo = readNumber() ?? tempo;
+    } else if (ch === 'v') {
+      vol = Math.max(0, Math.min(15, readNumber() ?? vol));
+    } else if (ch === 'q') {
+      gate = Math.max(1, Math.min(8, readNumber() ?? gate));
+    } else if (ch === '@') {
+      // 音色と効果。@e/@d/@v/@s は 2 文字目で種類が決まる
+      const kind = peek();
+      if (kind === 'e') { pos++; env = clamp(readNumber() ?? env, 0, ENVELOPES.length - 1); }
+      else if (kind === 'd') { pos++; detune = clamp(readNumber() ?? detune, 0, 100); }
+      else if (kind === 'v') { pos++; vibrato = clamp(readNumber() ?? vibrato, 0, 9); }
+      else if (kind === 's') { pos++; echo = clamp(readNumber() ?? echo, 0, 9); }
+      else if (kind === 'n') { pos++; wave = 7; } // 旧記法: @n = ノイズ
+      else wave = clamp(readNumber() ?? wave, 0, WAVEFORMS.length - 1);
+    }
+    // 未知の文字は無視する
+  }
+  return { events, total: time };
+}

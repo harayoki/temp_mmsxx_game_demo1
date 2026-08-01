@@ -1,0 +1,9263 @@
+﻿// サンプル縦スクロールシューティング "STAR RAID"
+// 操作: カーソルキー = 移動, SPACE または Z = ショット
+// P アイテムでショットが 1way -> 3way -> 5way。被弾で 1 段階ダウン、1way で被弾すると 1 ミス。
+// ステージ後半は月面上空、最後にタコ型ボス。
+
+import { MMSXXEngine, SCREEN_W, SCREEN_H } from '../engine/engine.js';
+import { Ranking, byScore, byTime } from '../engine/util/ranking.js';
+import { StoryScenes } from '../engine/util/story.js';
+import { StaffRoll } from '../engine/util/staffroll.js';
+import { Gallery } from '../engine/util/gallery.js';
+import { SoundTest } from '../engine/util/soundtest.js';
+import { LocalStorageStore } from '../engine/storage.js';
+import { StatsLog } from '../engine/stats.js';
+import { GAME_DATA } from './gamedata.js';
+
+// 裏画面は 256x1024 (横は画面ぴったり、縦に長くとってスクロールさせる)。
+// レイヤーは 5 枚: 遠い星 / 中間の星 / 近い星 / 大きな背景オブジェクト(とボス) / HUD
+const msx = new MMSXXEngine(document.getElementById('screen'), {
+  scale: 3, virtualWidth: 256, virtualHeight: 1024,
+  layers: [{}, {}, {}, {}, {}, {}],
+  maxNoise: 2,   // 爆発が重なるとノイズを取り合って消えるので 2 本にする
+});
+window.msx = msx; // デバッグ用
+// 画面のまわりに 4 ドットのボーダーを持たせる。
+// ここには何も描かれず、背景色で塗られる(実機の描画領域の外の遊び)。
+// 被弾したときは、この余白のぶんだけ画面全体をずらして揺らす
+msx.setBorder(4);
+
+// ---- アセット読み込み(RGBA -> MSX変換はエンジンが自動で行う) ----
+// スプライトは MSX1 実機風に色数を落とす:
+//   自機・ボス・アイテム = 2色 (単色スプライト2枚重ねという体) / 敵・弾・爆発 = 1色
+// SE の優先度。数が大きいほど強い。
+//   SE_JINGLE  ファンファーレなど(独り占めして、ほかを全部止める)
+//   SE_HIT     ショット・爆発・ヒット(ジングルの次に強い = いつも聞こえる)
+//   SE_EVENT   レーザーなど、聞こえてほしい演出
+const SE_JINGLE = 9, SE_HIT = 5, SE_EVENT = 3;
+// 長い効果音は 0.4 秒のかたまりに分けてあるので、鳴らす側でこの間隔でくり返す。
+// (長い音のままだとポーズしても鳴り止まないため)
+const SE_CHUNK = 24;
+
+// BG スプライトの優先度は、レイヤーと同じ空間を使う。
+// 数字 n は「レイヤー n の手前」という意味になる。
+//   0 遠い星 / 1 中間の星 / 2 近い星 / 3 大きな背景オブジェクト / 4 HUD
+const BGP_SHOOT = 2;   // 流れ星: 近い星の手前、大きな背景オブジェクトより奥
+const BGP_FRONT = 3;   // 敵・ボスなど: 背景オブジェクトより手前
+
+
+const SPRITE_COLORS = {
+  player: 2, bossEye: 1, bossEye2: 1, octoMouth: 1, ufoGuard: 1, item: 1, star: 1,
+  bomb: 1, speedUp: 1, rapidUp: 1, oneUp: 1,
+  flameSmall: 1, flameSmallB: 1, flameBig: 1, flameBigA: 1, flameBigB: 1,
+  flameDragon: 1, flameDragonA: 1, flameDragonB: 1, barrier: 1,
+  enemyA: 1, enemyB: 1, enemyC: 1, enemyF: 1, enemyG: 1, warper: 1,
+  cube: 1, bouncer: 1, asteroid: 2,
+  weight16t: 1,   // 16t のおもりは青 1 色のスプライト(文字は抜き)
+  rammer: 1, eyeVein: 1, asteroidHi: 1,
+  octoArms: 1, octoCrown: 1, crabBigClaw: 1,
+  crabPod: 1,
+  chargeOrb0: 1, chargeOrb1: 1, chargeOrb2: 1,
+  chargeRing0: 1, chargeRing1: 1, chargeRing2: 1,
+  bulletP: 1, bulletE: 1,
+  coinItem: 1, autoItem: 1, dragonItem: 1, candyItem: 2,
+  boom0: 1, boom1: 1, boom2: 1,
+  // ラスボス。シルエットマンは黒 1 色、回転レーザーの粒も単色
+  kingMan00: 1, kingMan00b: 1, kingMan01: 1, kingMan01b: 1, kingMan02: 1, kingMan04: 1, kingMan05: 1, kingMan05b: 1,
+  kingMan06: 1, kingMan06b: 1, kingMan07: 1, kingMan08: 1, kingMan09: 1, kingMan10: 1,
+  kingMan11: 1, kingMan12: 1,
+  kingWaveL: 1, kingWaveM: 1, kingWaveS: 1,
+};
+const IMG = {};
+for (const [name, im] of Object.entries(GAME_DATA.images)) {
+  const raw = MMSXXEngine.imageFromBase64(im.b64, im.width, im.height);
+  const colors = SPRITE_COLORS[name];
+  IMG[name] = msx.convert(raw, colors ? { colors } : undefined);
+}
+
+/** 変換済み画像の色を全部差し替えたコピーを作る(単色スプライトの色違い用) */
+function recolor(img, color) {
+  const pixels = new Uint8Array(img.pixels.length);
+  for (let i = 0; i < pixels.length; i++) pixels[i] = img.pixels[i] === 0 ? 0 : color;
+  return { width: img.width, height: img.height, pixels };
+}
+IMG.itemW = recolor(IMG.item, 15);   // アイテム点滅用(黄と白を1フレーム交互)
+// 色違いで使い回していた敵は、それぞれ専用の絵に差し替えた
+// (enemyC / enemyF / enemyG / warper は makedata.mjs で描き起こしている)
+IMG.bulletB = recolor(IMG.bulletE, 8); // 赤い弾 = 撃ち落とせるボスの弾
+IMG.cubeItem = recolor(IMG.cube, 3);   // 緑のキューブ = アイテム入り
+IMG.starW = recolor(IMG.star, 15);     // ★の点滅用
+IMG.asteroidHiWarn = recolor(IMG.asteroidHi, 11);  // 被弾時のハイライト(黄)
+IMG.bulletRingCyan = recolor(IMG.bulletRing, 7);   // リング弾の色替え(水色)
+IMG.crownCyan = recolor(IMG.octoCrown, 7);        // 未実装君の王冠(顔と色がかぶらないよう水色)
+IMG.tearDrop = recolor(IMG.bulletP, 7);           // 未実装君の涙
+// ドラゴンの炎。先頭を黄色、後ろへいくほど赤くして炎らしく見せる
+for (const [n, col] of [['fireBall', 11], ['fireBall1', 11], ['fireBall2', 11],
+  ['fireM0', 9], ['fireM1', 9], ['fireS0', 8], ['fireS1', 8]]) {
+  IMG[n] = recolor(IMG[n], col);
+}
+IMG.ufoGuardHit = recolor(IMG.ufoGuard, 15);   // ガードの被弾点滅(白)
+// 溜めエフェクトは黄(11)と白(15)を 1 コマずつ入れ替えて光らせる
+for (const n of ['chargeOrb0', 'chargeOrb1', 'chargeOrb2',
+  'chargeRing0', 'chargeRing1', 'chargeRing2']) {
+  IMG[n + '0'] = recolor(IMG[n], 15);   // 白
+  IMG[n + '1'] = recolor(IMG[n], 11);   // 黄
+  IMG[n + '2'] = recolor(IMG[n], 7);    // 水色
+}
+IMG.ufoFistHit = recolor(IMG.ufoFist, 15);     // グーの被弾点滅(白)
+IMG.rocketHit = recolor(IMG.rocket, 15);   // 被弾時の白い点滅
+IMG.cubeAuto = recolor(IMG.cube, 11);  // 黄色のキューブ = ? アイテム入り
+IMG.cubeStar = recolor(IMG.cube, 13);  // 紫のキューブ = 耐久力2倍・★入り
+// ラスボスの回転レーザー。角度違いの線素材をまとめておく(1 発 = 1 枚)
+const KING_LINES = [];
+for (let i = 0; IMG['kingLine' + i]; i++) KING_LINES.push(IMG['kingLine' + i]);
+// 同じレーザーの 3 倍長い版(48x48)。5 面ではるか前方から飛んでくるもの
+const KING_LINES_LONG = [];
+for (let i = 0; IMG['kingLineL' + i]; i++) KING_LINES_LONG.push(IMG['kingLineL' + i]);
+// 裂け目が開くまでの途中のコマ。最後に開ききった姿(kingRift0)を足す
+const KING_RIFT_OPEN = [];
+for (let i = 0; IMG['kingRiftOpen' + i]; i++) KING_RIFT_OPEN.push(IMG['kingRiftOpen' + i]);
+KING_RIFT_OPEN.push(IMG.kingRift0);
+for (const [name, mml] of Object.entries(GAME_DATA.bgm)) msx.audio.defineBGM(name, mml);
+// スタッフロールだけは音声ファイル(mp3)を使う。
+// MML と同じように playBGM('staff') で鳴らせる
+msx.audio.defineBGM('staff', { url: './assets/staff.mp3', gain: 0.5 });
+msx.audio.defineBGM('finalbattle', { url: './assets/final_battle.mp3', gain: 0.6 });
+for (const [name, mml] of Object.entries(GAME_DATA.se)) msx.audio.defineSE(name, mml);
+// しゃべる言葉(TALK)。録音は持たず、鳴らすときにフォルマント合成で作る
+for (const [name, t] of Object.entries(GAME_DATA.talk || {})) {
+  msx.audio.defineTalk(name, t.text, t.opts);
+}
+
+const STAGE = GAME_DATA.stage;
+
+// ---- 背景: 4レイヤー構成 ----
+// layer0: 遠景の星 / layer1: 近景の星 / layer2: 大きな背景オブジェクト(とボス) / layer3: HUD
+msx.backdrop = 1; // 黒
+const far = msx.layer(0);   // 遠い星(暗い青灰)
+const mid = msx.layer(1);   // 中間の星(水色)
+const near = msx.layer(2);  // 近い星(白)
+const neb = msx.layer(3);   // 大きな背景オブジェクト / ボス
+// ボスが画面の端から出ていくとき、反対側に絵が出てこないようにする
+neb.setRepeat(false, true);
+const hud = msx.layer(4);
+// 当たり判定の可視化(HITAREA コマンド)だけに使うレイヤー。いちばん手前
+const dbg = msx.layer(5);
+const VW = msx.virtualWidth, VH = msx.virtualHeight;
+// MSX1 実機風: 背景の縦スクロールは 8 ドット単位(レイヤーごとに速度が違う多重スクロール)
+far.snap = 8;
+mid.snap = 8;
+near.snap = 8;
+neb.snap = 8;
+for (let y = 0; y < VH; y += 128) {
+  for (let x = 0; x < VW; x += 128) {
+    far.draw(x, y, IMG.starsFar);
+    mid.draw(x, y, IMG.starsMid);
+    near.draw(x, y, IMG.starsNear);
+  }
+}
+
+// 宇宙ステーション・月・星雲は layer2 に置く。
+// 手前の星のセルに欠けさせないため、星より前(layer2)に描くが、
+// スクロール速度は最背面 layer0 と同じにして「遠くにある」ように見せる。
+// ---- ゲームモード(タイトルの左右キーで選ぶ。あとから増やせる) ----
+// 難易度は NORMAL(既定) と HARD の 2 つ。
+// もとは NORMAL / EASY と呼んでいたが、やさしいほうを標準にした
+// (中身は変えず、呼び名と並び順だけを入れ替えている)。
+// ゲーム中では HARD だけを明示し、やさしいほう(既定)は「NORMAL」と名乗らない。
+// 呼び分けが必要なのは仕様書の中だけ。
+const MODES = [
+  { id: 'normal', name: 'GAME START' },
+  { id: 'hard', name: 'HARD GAME' },
+  { id: 'bossrush', name: 'BOSS RUSH' },
+  { id: 'staff', name: 'STAFF ROLL' },
+  { id: 'sound', name: 'SOUND TEST' },
+  { id: 'chars', name: 'CHARACTERS' },
+];
+// 手元の開発中だけ「シーン選択」を足す(公開版では出ない)
+if (MMSXXEngine.isLocal) MODES.push({ id: 'scene', name: 'SCENE SELECT' });
+let modeIndex = 0;
+const gameMode = () => MODES[modeIndex].id;
+/** NORMAL: 敵の手数を減らし、残機を増やし、即死をなくす(HARD はこれが無い) */
+// CONTINUE は NORMAL の続きなので、遊び方も NORMAL と同じ扱いにする
+const isNormal = () => ['normal', 'continue'].includes(MODES[modeIndex].id);
+
+// 全 5 ステージ。1〜4 面が各ボス、5 面がラスボス「THE KING(ざ・きんぐ)」。
+// 5 面は雑魚も宝珠も出さず、木星を見せてからそのままラスボス戦に入る。
+// (BIG MOAI はボスではなく、道中に出てくる大きい敵)
+const LAST_STAGE = 5;
+let titleScene = false;   // タイトル画面用の決まった背景を出すか
+let stageNo = 1; // 面数(背景オブジェクトの選択にも使う)
+
+// 賑やかしの候補。全部を毎回出すとくどいので、ステージごとに 3 種類だけ選ぶ。
+// 大きい絵は裏画面の幅(256)からはみ出さない位置に置く
+// (はみ出すと反対側の端から回り込んで見えてしまう)。
+const FAR_OBJECTS = [
+  // 置き場所は **どの 2 つも重ならない** ように取ってある(裏画面 1024 の
+  // 上下の回り込みも見ている)。重ねて描くと、地球にコロニーがめり込むうえ、
+  // 重なった行で「横 8 ドット 2 色」も崩れてしまうため。
+  // 同じものの 2 か所は 320 ドット以上離してある(地球が 2 つ並ばないように)
+  { img: 'station', spots: [[176, 768], [192, 200]] },
+  { img: 'moon', spots: [[208, 448], [216, 40]] },
+  { img: 'jupiter', spots: [[24, 616], [8, 136]] },
+  { img: 'colony', spots: [[24, 288], [136, 904]] },
+  { img: 'moai', spots: [[40, 1008], [0, 440]] },
+  { img: 'moaiFlip', spots: [[184, 280], [176, 664]] },
+  { img: 'earth', spots: [[128, 960], [144, 504]] },
+  { img: 'blackhole', spots: [[24, 536], [48, 48]], scanline: 0 },
+  { img: 'milkyway', spots: [[0, 816], [64, 352]] },
+  { img: 'debris', spots: [[144, 824], [160, 128]] },
+];
+
+/**
+ * ラスボスの面かどうか(木星だけを見せて、敵を出さずにボスへ入る面)。
+ * ボスラッシュや裏技の特別な相手は含めない。
+ */
+function isLastStage() {
+  return stageNo === LAST_STAGE && gameMode() !== 'bossrush';
+}
+// 最終面の流れ。
+//   1. はじめの 10 秒は何も出ない(星だけの静かな宇宙)
+//   2. 「そらのドラゴン」の星座が上から流れてくる。1 画面に入りきらない大きさ。
+//      顔を 16 発撃つと、ドラゴンの顔のアイテムが出る(取るとフルパワー)
+//   3. ドラゴンが流れ去ったあと、木星がゆっくり現れる(この面の後半だけの背景)
+//   4. 木星を見せ終えたらボス登場の演出へ
+// 5 面の流れ。長すぎたので全体を 80% に詰めてある
+const DRAGON_AT = 480;           // 8 秒たってからドラゴンが入ってくる
+const JUPITER_AT = 2000;         // ドラゴンが流れ去ってから木星
+const LAST_STAGE_SHOW = 2720;    // 木星を見せ終えたらボスへ
+const JUPITER_X = 56;            // 木星を置く横位置(裏画面の座標)
+const DRAGON_X = 0;              // ドラゴンは画面幅いっぱい
+
+// ドラゴンが流れ去ってからボスが出るまでの、何もない待ち時間のあいだ、
+// 画面のどこかに**撃てる場所が 2 か所**ある(見た目には何も無い)。
+// 当て続けると「?」が出る。すでに連射中なら出ない。
+const SECRET_AT = 1680;        // ドラゴンが流れ去ったころ
+const SECRET_SPOTS = 2;
+const SECRET_SIZE = 20;        // 当たる四角の大きさ
+const SECRET_NEED = 8;         // 出るまでに当てる数
+let secretSpots = null;
+
+/** 待ち時間のあいだの隠し場所を、完全にランダムな位置へ置く */
+function makeSecretSpots() {
+  secretSpots = [];
+  for (let i = 0; i < SECRET_SPOTS; i++) {
+    secretSpots.push({
+      x: 16 + Math.floor(Math.random() * (SCREEN_W - 32 - SECRET_SIZE)),
+      y: 24 + Math.floor(Math.random() * (SCREEN_H - 80 - SECRET_SIZE)),
+      hits: 0, done: false,
+    });
+  }
+}
+
+// 顔の当たり判定(絵の中の位置)は書き出し側から受け取る
+const DRAGON_FACE = GAME_DATA.dragonFace;
+let dragonSpot = null;
+
+/** ドラゴンの顔のいまの画面位置(レイヤーのスクロールに合わせて動く) */
+function dragonSpotY() {
+  // レイヤーは 8 ドット単位で表示されるので、同じ刻みに合わせる
+  return dragonSpot.ly - Math.floor(neb.scrollY / 8) * 8;
+}
+
+/**
+ * そらのドラゴンを、画面のすぐ上に置く。ここから下へ流れていく。
+ * 背景は「絵の下のはしから画面に入ってくる」ので、
+ * **しっぽから入ってきて、顔は最後に出てくる**。
+ * 顔がいきなり出ると何の絵か分からないので、この順のほうがよい。
+ */
+function showSkyDragon() {
+  const dy = Math.floor(neb.scrollY) - IMG.dragonSky.height;
+  neb.draw(DRAGON_X, dy, IMG.dragonSky);
+  dragonSpot = {
+    hits: 0, done: false,
+    x: DRAGON_X + DRAGON_FACE.x - DRAGON_FACE.size / 2,
+    ly: dy + DRAGON_FACE.y - DRAGON_FACE.size / 2,
+  };
+}
+
+/** 木星を、画面のすぐ上に置く(この面の後半だけの背景) */
+function showJupiter() {
+  const jy = Math.floor(neb.scrollY) - IMG.jupiter.height;
+  neb.draw(JUPITER_X, jy, IMG.jupiter);
+  jupiterShown = true;
+}
+let jupiterShown = false;
+
+function drawFarObjects() {
+  // ラスボスの面は木星だけ。ほかの賑やかしも敵も出さず、背景をゆっくり見せる。
+  // スクロール位置も決め打ちにして、画面の上からじわじわ現れるようにする
+  // 最終面は、はじめのうち何も出さない(星だけの静かな宇宙)。
+  // 10 秒たってから木星が上から入ってくる(showJupiter)
+  if (!titleScene && isLastStage()) {
+    neb.scroll(0, 0);
+    return;
+  }
+  // タイトルは寂しくならないよう、地球と星雲を決め打ちで出す
+  if (titleScene) {
+    // タイトルは宇宙ステーションとモアイだけ。地球は面が進んでから出す
+    // タイトルはブラックホールを主役に、ステーションとモアイを添える
+    // ブラックホールだけ走査線を入れて、遠くで光っている感じにする
+    // (絵はそのまま。抜いた絵はエンジン側で作り置きされる)
+    neb.draw(72, 120, IMG.blackhole, true, { scanline: 0 });
+    neb.draw(64, 660, IMG.blackhole, true, { scanline: 1 });
+    neb.draw(24, 40, IMG.station);
+    neb.draw(168, 560, IMG.station);
+    neb.draw(160, 300, IMG.moai);
+    neb.draw(40, 840, IMG.moaiFlip);
+    for (const [x, y] of [[64, 300], [176, 620], [16, 940], [112, 780]]) {
+      neb.draw(x, y, IMG.nebula);
+    }
+    return;
+  }
+  // ボスラッシュは背景の賑やかしを出さない(ボスだけに集中させる)
+  if (gameMode() === 'bossrush') return;
+  // 大きい絵ほど後の面に出す(全 5 面ぶんの目安)
+  const limit = 48 + Math.min(6, stageNo) * 24;   // 1 面 72 ドット .. 6 面 192 ドット
+  const pool = FAR_OBJECTS.filter(o => IMG[o.img].width <= limit);
+  const pick = (pool.length ? pool : FAR_OBJECTS).slice()
+    .sort(() => Math.random() - 0.5).slice(0, 3);
+  for (const o of pick) {
+    // scanline を持つ賑やかしは 1 ライン おきに抜いて描く
+    const opts = o.scanline == null ? undefined : { scanline: o.scanline };
+    for (const [x, y] of o.spots) neb.draw(x, y, IMG[o.img], true, opts);
+  }
+  // 星雲はふだん青。4 面だけ赤い星雲にして、ラスボスの面が近いことを見せる
+  const neb2 = stageNo === 4 ? IMG.nebulaRed : IMG.nebula;
+  for (const [x, y] of [[64, 300], [176, 620], [16, 940], [112, 780]]) neb.draw(x, y, neb2);
+}
+drawFarObjects();
+
+// layer2 はボス専用のプレーン(通常時は空)。ボスを BG スクロールで動かすために使う。
+let bossMode = false;
+let rushSpecial = null;   // 裏技で選んだ特別な相手('eyes' / 'moai')
+let specialEndTimer = -1; // 倒したあと、演出を見せてから終わるまでの残り
+
+// ---- ゲーム状態 ----
+const centerX = (text) => (SCREEN_W - text.length * 8) >> 1;
+
+// 「もう出会ったか」の記録。図鑑でラスボスを ? のままにするかの判断に使う。
+// ユーザーごとの情報なので localStorage に置く
+const metStore = new LocalStorageStore();
+const MET_KEY = 'starfable-met';
+let metSet = new Set(metStore.load(MET_KEY) || []);
+function markMet(id) {
+  if (metSet.has(id)) return;
+  metSet.add(id);
+  metStore.save(MET_KEY, [...metSet]);
+}
+
+let state = 'title'; // 'title' | 'play' | 'over'
+let score = 0;
+// ---- ハイスコア(上位 5 人) ----
+// localStorage はブラウザ設定によっては参照した時点で例外を投げるので必ず包む
+const HISCORE_MAX = 100;
+const HISCORE_ROWS = 7;              // 一度に表示する人数(画面に収まる数)
+// 初期データは 1 位 50000 点から下へ並べた 100 人ぶん
+const DEFAULT_NAMES = ['MMSXX', 'FABLE', 'STAR', 'MSX', 'YOU'];
+// 得点は 100 点刻みでしか入らないので、**10 の位から下は必ず 0**。
+// 初期データもその形にそろえる(1 位 50000 点から 500 点ずつ下げる)
+const DEFAULT_HISCORES = [...Array(HISCORE_MAX).keys()].map(i => ({
+  name: DEFAULT_NAMES[i % DEFAULT_NAMES.length],
+  score: Math.max(500, 50000 - i * 500),
+}));
+
+// ハイスコア表はエンジン側の仕組みを使う(保存先は差し替えられる)
+const hardTable = new Ranking({
+  key: 'starfable-hiscores',
+  meKey: 'starfable-me',
+  max: HISCORE_MAX,
+  defaults: DEFAULT_HISCORES,
+  compare: byScore,
+});
+// NORMAL と HARD は別のランキングに載せる(同じ表に混ぜない)。
+// 保存キーは EASY だったころのままにして、それまでの記録を引き継ぐ
+const normalTable = new Ranking({
+  key: 'starfable-hiscores-easy',
+  meKey: 'starfable-me-easy',
+  max: HISCORE_MAX,
+  defaults: DEFAULT_HISCORES,
+  compare: byScore,
+});
+/**
+ * 保存してある古い記録の 10 の位を 0 にそろえる。
+ * 10 点刻みの得点はもう出ないので、昔の端数が残っていると気持ちが悪い
+ */
+function roundHiScores(table) {
+  let changed = false;
+  for (const e of table.entries) {
+    const v = Math.round(e.score / 100) * 100;
+    if (v !== e.score) { e.score = v; changed = true; }
+  }
+  if (changed) table.save();
+}
+for (const t of [hardTable, normalTable]) roundHiScores(t);
+
+/** いま遊んでいるモードのランキング表 */
+const scoreTable = () => (gameMode() === 'hard' ? hardTable : normalTable);
+/** 表示用のトップスコア */
+const topScore = () => (scoreTable().top() ? scoreTable().top().score : 0);
+/** 表に載るかどうか */
+const isHiScore = (v) => scoreTable().qualifies({ score: v });
+let ships = 0;   // 残機。0 になったらゲームオーバー
+let shotLevel = 1;    // 1..5 = 同時に撃つ弾の本数
+let stars = 0;        // 集めた★の数。規定数そろうとボス戦
+
+/**
+ * 敵の発射間隔。自機のパワーが高いほど短くなる(= 弾が増える)。
+ * パワー最大のときが最も激しく、パワー 1 では 1/3 の手数になる。
+ */
+function enemyFireGap(base) {
+  // 自機のパワーが高いほど手数が増える
+  const byPower = 1 + (MAX_POWER - shotLevel) * 0.33;
+  // さらに面数でも変える。1 面はかなり控えめで、4 面以降が本来の量になる
+  const byStage = [3.2, 2.2, 1.5, 1][Math.min(stageNo, 4) - 1];
+  // NORMAL は弾の間隔を倍にして、見た目や装備をゆっくり楽しめるようにする
+  // NORMAL は間隔を倍に = 撃ってくる弾の数が半分になる
+  return Math.round(base * byPower * byStage * (isNormal() ? 2 : 1));
+}
+let playFrame = 0;
+let waveIndex = 0;
+let cubeIndex = 0;
+let invincible = 0;
+let entering = false;  // 下から復帰してくる演出中は操作を受け付けない
+let leaving = false;   // ステージクリア後、画面上へ飛び去っていく演出中
+let enterDelay = 0;    // ステージ開始時、自機が入ってくるまでの待ちフレーム
+let respawnDelay = 0;  // ミス後、復帰するまでの待ちフレーム
+let stateTimer = 0;
+let clearTimer = 0;
+
+const player = msx.sprite(IMG.player);
+player.priority = 10;
+player.visible = false;
+// 自機の補助表示。推進炎とバリアは 1 枚のスプライト枠を交互に使って見せる
+// (実機のスプライト数を節約する見せ方)。
+const aux = msx.sprite(IMG.flameSmall);
+aux.priority = 11;
+aux.visible = false;
+
+let bullets = [];
+let enemies = [];
+let enemyBullets = [];
+let booms = [];
+let items = [];
+let boss = null;
+
+// ショット管理: 1 回の発射(volley)ごとに ID を振り、画面上に出せる数を制限する。
+// 連射アップを取ると同時に出せる数が増える(2 -> 4)。
+let maxVolleys = 1;
+const MAX_VOLLEY_LIMIT = 4;
+const MAX_SHIPS = 5;
+// 弾の威力は 3 段階。硬い敵にまとめてダメージが入るようになる
+// 威力は 2 段階。1 段階目で 2 倍、2 段階目で 3 倍のダメージ(貫通はしない)
+const DAMAGE_TABLE = [2, 3];
+// ボスと、その部位に与えるダメージ。
+// 強さアップの影響を受けない(ボスのバランスを取りやすくするため)
+const BOSS_DMG = 2;
+let damageLevel = 1;
+// バリアは耐久制。被弾のたびに 1 減り、アイテムで最大まで貯められる
+const MAX_BARRIER = 2;
+let barrierHP = 0;
+// スコアアイテム($): 続けて取ると 100 点から倍々に増え、12800 の次はまた 100 に戻る。
+// 別のアイテムを取ると連鎖は切れる。
+// 100 点から倍々に増え、102400 が打ち止め(取るとファンファーレ)
+const COIN_BASE = 100, COIN_TOP = 102400;
+let coinValue = COIN_BASE;
+// おまかせアイテム(?): 取るとしばらくオート連射になる
+let autoFire = 0;
+const AUTO_FIRE_TIME = 1;    // 0 より大きければ有効(ミスするまで続く)
+const INTRO_QUIET = 240;        // ステージ開始から 4 秒はキューブを出さない
+const INTRO_QUIET_ENEMY = 480;  // 敵は 8 秒たってから出てくる
+const GAMEOVER_WAIT = 1520; // ゲームオーバー曲(月光)が終わるころにタイトルへ戻る
+const ASTEROID_INTERVAL = 900; // 小惑星が流れてくる間隔(2 面以降)
+
+// ---- 小惑星 ----
+// 大きい絵なのでスプライトではなく BG(専用レイヤー)に描く。
+// 8 ドット単位でしか置けないので、動きもその粒度になる(実機の BG らしい動き)。
+const AST_SIZE = 48;
+const AST_HP = 170;   // とても硬いが壊せる(256 の 2/3 ほど)
+// 小惑星は BG スプライトなので、画面には 8 ドット単位に丸めた位置で出る。
+// 当たり判定を持っている値(丸める前)のまま使うと、見えている絵と最大 7 ドット
+// ずれてしまう。判定も描画と同じ丸めかた(snap8)にそろえる
+const astCX = a => snap8(a.sp.x) + AST_SIZE / 2;
+const astCY = a => snap8(a.sp.y) + AST_SIZE / 2;
+let asteroids = [];
+// 弾が当たったときの点滅用。当たるたびに白と黄で交互に光らせて存在を目立たせる
+let astFlashImgs = null;
+const astFlash = i => (astFlashImgs || (astFlashImgs =
+  [recolor(IMG.asteroid, 15), recolor(IMG.asteroid, 11)]))[i];
+/** 難易度が上がると同時に出せる数が増える(最大 3 つ) */
+function maxAsteroids() {
+  if (isNormal()) return 1;   // NORMAL は 1 つだけ
+  return Math.min(3, 1 + Math.floor((stageNo - 1) / 2));
+}
+function spawnAsteroid() {
+  const sp = msx.bgSprite(IMG.asteroid);
+  sp.priority = BGP_FRONT;
+  sp.x = 16 + Math.floor(Math.random() * (SCREEN_W - 80));
+  sp.y = -AST_SIZE;
+  // 白いハイライトはスプライト 1 枚。3 フレームに 1 回だけ出して
+  // 「スプライトを減らしている」ちらつきを見せる
+  const hi = msx.sprite(IMG.asteroidHi);
+  hi.priority = 6;
+  hi.blink = 3;
+  asteroids.push({ sp, hi, age: 0, flash: 0, flashColor: 0, hp: AST_HP });
+}
+/** 小惑星に弾が当たった: 鈍い「ごわっ!」を鳴らして白/黄で強く光らせる */
+function pingAsteroid(a) {
+  msx.audio.playSE('thud');
+  a.flashColor ^= 1;   // 当たるたびに白と黄を入れ替える
+  a.flash = 8;
+}
+function clearAsteroids() {
+  for (const a of asteroids) {
+    msx.removeBgSprite(a.sp);
+    if (a.hi) msx.removeSprite(a.hi);
+  }
+  asteroids = [];
+}
+function updateAsteroids() {
+  for (const a of [...asteroids]) {
+    a.age++;
+    a.sp.y += 0.55;
+    a.sp.x += Math.sin(a.age * 0.012) * 0.4;
+    // 本体はいつも同じ絵。光るのは重ねたハイライトのスプライトだけにする
+    a.sp.image = IMG.asteroid;
+    if (a.hi) {
+      if (a.flash > 0) {
+        // 被弾中はハイライトを白/黄で強く光らせる
+        a.flash--;
+        a.hi.image = a.flashColor ? IMG.asteroidHiWarn : IMG.asteroidHi;
+        a.hi.blink = 1;
+      } else {
+        a.hi.image = IMG.asteroidHi;
+        a.hi.blink = 3;   // ふだんは 3 コマに 1 回のちらつき
+      }
+    }
+    // ハイライトは本体(8 ドット単位)にぴたりと合わせる
+    if (a.hi) { a.hi.x = snap8(a.sp.x); a.hi.y = snap8(a.sp.y); }
+    if (a.sp.y > SCREEN_H + AST_SIZE) {
+      // 壊せずに流れていった小惑星は、どれだけ削れていたかを記録しておく
+      stats.log('asteroidGone', { damage: AST_HP - a.hp, stage: stageNo });
+      msx.removeBgSprite(a.sp);
+      if (a.hi) msx.removeSprite(a.hi);
+      asteroids.splice(asteroids.indexOf(a), 1);
+    }
+  }
+}
+// ---- 目玉(各ステージに 1 回だけ 2 体で現れる) ----
+// 本体は 32x32 の BG スプライト、瞳は通常スプライトで重ねる。
+// 斜めショットがちょうど両方に当たるくらい離して出す。
+// 0.5 秒以内に 2 体とも倒すと 10 万点のボーナス。
+const EYE_SIZE = 32;
+const EYE_GAP = 80;             // 2 体の間隔(斜めショットがちょうど届くくらい)
+// 瞳(絞り)はダメージが進むほど閉じていく
+const IRIS_IMGS = () => [IMG.eyeIris0, IMG.eyeIris1, IMG.eyeIris2, IMG.eyeIris3];
+const EYE_HP = 32;              // 攻撃力によらず 32 発で壊れる
+const EYE_HOVER = 600;          // 画面に留まる時間(10 秒)
+const EYE_BONUS = 100000;
+const EYE_BONUS_WINDOW = 30;    // 同時撃破とみなす猶予(0.5 秒)
+const EYE_APPEAR = 2100;        // 面の後半(35 秒あたり)で出てくる
+let eyeballs = [];
+let eyeSpawned = false;         // ステージごとに 1 回だけ
+let eyeToldDouble = false;      // 「同時に壊せ」を出したか(1 プレイに 1 回)
+let eyeKillFrame = -999;        // 片方を倒したフレーム
+
+function spawnEyeballs() {
+  msx.audio.playSE('eyeAppear', SE_JINGLE);   // 登場の合図(いちばん強く鳴らす)
+  // 初回だけ、狙いどころを教える(1 プレイに 1 回)
+  if (!eyeToldDouble) {
+    eyeToldDouble = true;
+    showNotice('DESTROY EYES AT ONCE!');
+  }
+  // 上から出てくるか下から出てくるかはランダム
+  // (ふつうのステージでは後半になってから下も出るようにする)
+  const fromBelow = (stageNo >= 5 || stageNo === RUSH_EYES) && Math.random() < 0.5;
+  // 左右は画面の中央。2 体そろって出る
+  const cx = (SCREEN_W - EYE_GAP - EYE_SIZE) / 2;
+  for (let i = 0; i < 2; i++) {
+    const sp = msx.bgSprite(IMG.eyeball);
+    sp.priority = BGP_FRONT;
+    sp.x = cx + i * EYE_GAP;
+    sp.y = fromBelow ? SCREEN_H + EYE_SIZE : -EYE_SIZE;
+    const pupil = msx.sprite(IMG.eyeIris0);
+    pupil.priority = 10;
+    // 血管は赤の単色スプライト。瞳と交互に出して重ね枚数を抑える
+    const vein = msx.sprite(IMG.eyeVein);
+    vein.priority = 10;
+    // 瞳と血管はエンジンの「何フレームに 1 回出すか」で交互に表示する
+    pupil.blink = 2; pupil.blinkPhase = 0;
+    vein.blink = 2; vein.blinkPhase = 1;
+    eyeballs.push({
+      sp, pupil, vein, hp: EYE_HP, age: 0, fromBelow,
+      // 上から来たら画面の上寄り、下から来たら下寄りで止まる
+      targetY: fromBelow ? SCREEN_H - EYE_SIZE - 16 : 24,
+      state: 'enter', hover: EYE_HOVER,
+    });
+  }
+}
+
+function removeEyeball(e) {
+  msx.removeBgSprite(e.sp);
+  msx.removeSprite(e.pupil);
+  msx.removeSprite(e.vein);
+  eyeballs.splice(eyeballs.indexOf(e), 1);
+}
+
+function clearEyeballs() {
+  for (const e of [...eyeballs]) removeEyeball(e);
+  eyeballs = [];
+}
+
+function killEyeball(e) {
+  spawnBoom(e.sp.x + 8, e.sp.y + 8);
+  msx.audio.playSE('boom', SE_HIT);
+  score += 3000;
+  spawnPopup(e.sp.x, e.sp.y, 3000);
+  removeEyeball(e);
+  bigKills++;
+  // 0.5 秒以内に 2 体とも倒したらボーナス
+  if (playFrame - eyeKillFrame <= EYE_BONUS_WINDOW && eyeballs.length === 0) {
+    score += EYE_BONUS;
+    spawnPopup(SCREEN_W / 2 - 32, 96, EYE_BONUS);
+    showNotice('DOUBLE! ' + EYE_BONUS);
+    playBGM('bonus', false, true);
+    jingleTimer = 150;
+  }
+  eyeKillFrame = playFrame;
+  drawHUD();
+}
+
+function updateEyeballs() {
+  for (const e of [...eyeballs]) {
+    e.age++;
+    const dir = e.fromBelow ? -1 : 1;
+    if (e.state === 'enter') {
+      e.sp.y += 1.0 * dir;
+      if (dir > 0 ? e.sp.y >= e.targetY : e.sp.y <= e.targetY) e.state = 'hover';
+    } else if (e.state === 'hover') {
+      // 停滞中はぴたりと止まる(ゆらゆらさせない)
+      if (--e.hover <= 0) e.state = 'leave';
+    } else {
+      e.sp.y += 1.2 * dir;   // そのまま同じ向きに通り抜けて去っていく
+      if (e.sp.y < -EYE_SIZE - 8 || e.sp.y > SCREEN_H + EYE_SIZE + 8) { removeEyeball(e); continue; }
+    }
+    // 瞳は自機の方を向く。動いているあいだは本体(BG スプライト)と同じ
+    // 8 ドット刻みにしてずれを防ぎ、止まっているあいだは滑らかに動かす
+    const moving = e.state !== 'hover';
+    const bx = snap8(e.sp.x), by = snap8(e.sp.y);
+    const cx = bx + EYE_SIZE / 2, cy = by + EYE_SIZE / 2;
+    const a = Math.atan2(player.y + 8 - cy, player.x + 8 - cx);
+    if (moving) {
+      e.pupil.x = cx - 8 + Math.round(Math.cos(a) * 0.9) * 8;
+      e.pupil.y = cy - 8 + Math.round(Math.sin(a) * 0.9) * 8;
+    } else {
+      e.pupil.x = cx - 8 + Math.cos(a) * 6;
+      e.pupil.y = cy - 8 + Math.sin(a) * 6;
+    }
+    // ダメージが進むほど瞳が閉じていく
+    const stage = Math.min(3, Math.floor((1 - e.hp / EYE_HP) * 4));
+    e.pupil.image = IRIS_IMGS()[stage];
+    // 血管は眼球の中心に合わせて置く。瞳とは 1 フレームおきの交互表示にして
+    // 重ねるスプライトの枚数を抑える(実機のスプライト多重表示と同じ考え方)
+    e.vein.x = cx - 16;
+    e.vein.y = cy - 16;
+    e.pupil.visible = true;
+    e.vein.visible = true;   // 実際の交互表示は blink がやる
+  }
+}
+
+
+// ---- 流れ星 ----
+// 背景をにぎやかす飾り。当たり判定は無い。
+// 尾の伸び方が違う 4 コマを回して、尾が伸び縮みして見えるようにする。
+let shootStars = [];
+let shootTimer = 240;
+
+function spawnShootStar() {
+  const sp = msx.bgSprite(IMG.shootStar0);
+  sp.frames = [IMG.shootStar0, IMG.shootStar1, IMG.shootStar2, IMG.shootStar3];
+  sp.frameRate = 4;
+  // 大きな背景オブジェクト(木星など)より奥。BG スプライトとレイヤーは
+  // 同じ優先度空間なので、この 1 行で「星より手前・木星より奥」に置ける
+  sp.priority = BGP_SHOOT;
+  sp.x = SCREEN_W + 8;
+  sp.y = -32 + Math.random() * 60;
+  shootStars.push({ sp, vx: -6, vy: 5 });
+}
+
+function clearShootStars() {
+  for (const s of shootStars) msx.removeBgSprite(s.sp);
+  shootStars = [];
+}
+
+function updateShootStars() {
+  // ラスボス戦は静かな空間なので、賑やかしの流れ星は出さない
+  if (boss && boss.kind === 'king') { clearShootStars(); return; }
+  if (--shootTimer <= 0) {
+    shootTimer = 300 + Math.floor(Math.random() * 600);
+    spawnShootStar();
+  }
+  for (const s of [...shootStars]) {
+    s.sp.x += s.vx; s.sp.y += s.vy;
+    if (s.sp.x < -40 || s.sp.y > SCREEN_H + 40) {
+      msx.removeBgSprite(s.sp);
+      shootStars.splice(shootStars.indexOf(s), 1);
+    }
+  }
+}
+
+// ---- 中ボス「モアイ」----
+// 正面向きの巨大な石像(64x80)。十字に 4 分割された状態で画面の上下から現れ、
+// まず左右がくっついて上下 2 つになり、次に上下がくっついて 1 体になる。
+// 合体前は「切り口(内側)」しか効かない。合体前にパーツを壊せると大ダメージ。
+// 出ているあいだは敵もアイテムも出ず、曲も緊迫したものに変わる。
+// 大きすぎたので、台座の下を削って 64x64 にした
+const MOAI_W = 64, MOAI_H = 64;
+const MOAI_QW = 32, MOAI_QH = 32;
+const MOAI_PART_HP = 60;      // 合体前の 1 パーツ
+const MOAI_HP = 320;          // 合体後(とても固い)
+// すき間がこれより狭くなると、中にいる自機は押しつぶされる(自機は 16 ドット)
+const MOAI_CRUSH_GAP = 20;
+const MOAI_LOST_DAMAGE = 90;  // 合体前に 1 パーツ壊すごとに減る体力
+const MOAI_HOLD = 210;        // 出てきたあと、四隅で構えている時間(3.5 秒)
+const MOAI_MERGE1 = 70;       // 左右がくっつくまで(1 段階目はさっと)
+const MOAI_MERGE2 = 300;      // 上下がくっつくまで
+// 左右がくっついたあと、上下合体に入るまでの待ち(2〜5 秒のランダム)。
+// いつも同じ間隔だとタイミングを覚えられてしまうので、毎回ずらす
+const MOAI_WAIT_MIN = 120, MOAI_WAIT_MAX = 300;
+const MOAI_WAIT_FLASH = 10;   // 入る直前に一瞬白くなる長さ
+const MOAI_STAY = 1800;       // 合体後に居座る時間(30 秒)
+const MOAI_APPEAR = 1500;     // 面のなかごろに出てくる
+// ここまでにモアイも目玉も出ていなければ、どちらかを必ず出す
+const MUST_APPEAR = 3000;
+let moai = null;
+let moaiSpawned = false;
+let moaiToldInside = false;   // 「内側から壊せ」を出したか(1 プレイに 1 回)
+let moaiToldWait = false;     // 「色が変わるまで待て」を出したか(1 プレイに 1 回)
+// 石の表(外側)を撃つと怒る。4 発で赤とピンクになり、壊せなくなる
+// 色が付く前に**切り口(内側)**へ撃ち込んだ数。これだけ当てると怒る。
+// 流れ弾で 2〜3 発当たることはあるので、そのぶんは許す
+const MOAI_RAGE_HITS = 8;
+// 怒ると壊せなくなる。居座られても手が出せないので、30 秒で帰らせる
+const MOAI_ANGRY_LEAVE = 1800;
+// 怒ったときの色の入れ替え。緑と青の絵をそのまま赤とピンクに読み替える
+const MOAI_RAGE_MAP = { 2: 8, 3: 9, 12: 6, 4: 6, 5: 13, 7: 9 };
+// まだ倒せないあいだの色。緑と青をぜんぶ白と灰色に読み替えて「ただの石」にする
+const MOAI_STONE_MAP = { 2: 15, 3: 14, 12: 14, 4: 15, 5: 14, 7: 14 };
+
+function moaiActive() { return !!moai; }
+
+/**
+ * まだ手を出してはいけない(白と灰色の石の)あいだかどうか。
+ * 四隅に散らばっているあいだと、左右がくっついたあとの待ちのあいだ。
+ * このあいだは弾も当たらない = 撃っても怒らせない。
+ * 上下が寄りはじめて色が付いたら、内側のすき間を狙える合図
+ */
+function moaiSafe(m) {
+  return m.state === 'q4' || (m.state === 'q2' && m.wait > 0);
+}
+
+function spawnMoai() {
+  clearMoai();   // すでに出ていたら片づけてから(絵が残らないように)
+  // モアイが出たら、いま飛んでいる敵は**全部まとめて片づける**。
+  // 硬いキューブも残さない(場をモアイに明け渡す)
+  bombAllEnemies();
+  const cx = (SCREEN_W - MOAI_W) / 2;
+  const mk = (img, x, y, quad) => {
+    const sp = msx.bgSprite(img);
+    sp.x = x; sp.y = y; sp.priority = BGP_FRONT + 1;
+    return { sp, hp: MOAI_PART_HP, quad, flash: 0 };
+  };
+  moai = {
+    state: 'q4', timer: MOAI_MERGE1, hp: MOAI_HP, max: MOAI_HP, lost: 0,
+    // 合体しきったあとに居座る場所
+    x: cx, y: 40, vx: 0.5, age: 0, stay: MOAI_STAY, insideHp: 0,
+    hold: MOAI_HOLD,   // 四隅で構えている時間
+    parts: [
+      // 上半分は画面の上から、下半分は下から入ってくる
+      mk(IMG.moaiTL, cx - 48, -MOAI_QH - 8, 0),
+      mk(IMG.moaiTR, cx + MOAI_QW + 48, -MOAI_QH - 8, 1),
+      mk(IMG.moaiBL, cx - 48, SCREEN_H + 8, 2),
+      mk(IMG.moaiBR, cx + MOAI_QW + 48, SCREEN_H + 8, 3),
+    ],
+  };
+  // 怒ると赤とピンクに変わる(色だけで伝える)
+  moai.rage = 0;
+  moai.angry = false;
+  moai.angryTimer = 0;   // 怒ってからの時間(壊せないので、しばらくしたら帰る)
+  msx.audio.playSE('eyeAppear', SE_JINGLE);
+  showNotice('MOAI APPROACHING!');
+}
+
+function clearMoai() {
+  if (!moai) return;
+  for (const p of moai.parts) msx.removeBgSprite(p.sp);
+  if (moai.tint) msx.removeBgSprite(moai.tint);
+  moai = null;
+}
+
+/**
+ * 色が付く前に、切り口(内側)を撃たれた。
+ * 何発か続けて撃ち込まれると怒って、赤とピンクになり壊せなくなる。
+ * 外側を撫でても怒らない(流れ弾で理不尽に怒らせないため)
+ */
+function angerMoai(m) {
+  if (m.angry || m.state === 'one') return;   // 合体してからでは怒らない
+  if (++m.rage < MOAI_RAGE_HITS) return;
+  m.angry = true;
+  m.angryTimer = MOAI_ANGRY_LEAVE;
+  msx.audio.playSE('nobreak', SE_HIT);
+  showNotice('IT IS ANGRY NOW!');
+  flashTimer = 2;
+}
+
+/** パーツの置き場所(合体の進み具合で変わる) */
+// 1 段階目の合体は画面の上下端の近くで行う
+// パーツの切り出し名(4 分割は quad 番号、上下 2 枚は TOP / BOT)
+const MOAI_PART_KEY = { 0: 'TL', 1: 'TR', 2: 'BL', 3: 'BR', TOP: 'TOP', BOT: 'BOT' };
+// 緑(0) -> 青へ 4 段階 -> 青(5) -> 緑へ 4 段階、の 10 コマ
+const MOAI_PLAIN = {
+  TL: 'moaiTL', TR: 'moaiTR', BL: 'moaiBL', BR: 'moaiBR',
+  TOP: 'moaiTop', BOT: 'moaiBottom',
+};
+const MOAI_BLUE = {
+  TL: 'moaiTLb', TR: 'moaiTRb', BL: 'moaiBLb', BR: 'moaiBRb',
+  TOP: 'moaiTopB', BOT: 'moaiBottomB',
+};
+/** 色が変わっていく途中の絵を返す(step 0..9) */
+function moaiWaveImage(step, key) {
+  if (step === 0) return IMG[MOAI_PLAIN[key]];
+  if (step === 5) return IMG[MOAI_BLUE[key]];
+  const dir = step < 5 ? 'B' : 'G';
+  const n = step < 5 ? step : step - 5;
+  return IMG['moaiW' + dir + n + key];
+}
+
+// 上下の端ぎりぎりだと、下から撃ってくる敵の居場所が無くなるので
+// 1 キャラ(8 ドット)ぶん内側に置く
+const MOAI_TOP_Y = 16;
+const MOAI_BOT_Y = SCREEN_H - MOAI_QH - 16;
+
+function moaiPartTarget(m, p) {
+  if (m.hold > 0) {
+    // 出てきたあと、しばらく四隅で止まっている(構える時間)
+    const left = (p.quad === 0 || p.quad === 2);
+    const top = p.quad < 2;
+    return [left ? 8 : SCREEN_W - MOAI_QW - 8, top ? MOAI_TOP_Y : MOAI_BOT_Y];
+  }
+  if (m.state === 'q4') {
+    // 上の 2 つは画面の上のほうで、下の 2 つは下のほうで、それぞれ横にくっつく
+    const t = 1 - m.timer / MOAI_MERGE1;
+    const gap = Math.round(40 * (1 - t) / 8) * 8;
+    const left = (p.quad === 0 || p.quad === 2);
+    const top = p.quad < 2;
+    return [m.x + (left ? -gap : MOAI_QW + gap),
+      top ? MOAI_TOP_Y : MOAI_BOT_Y];
+  }
+  if (m.state === 'q2') {
+    // 上半分と下半分が画面の真ん中へ寄ってくる。
+    // 閉じきるまでのあいだ、そのすき間から内部を撃てる
+    const t = 1 - m.timer / MOAI_MERGE2;
+    const top = p.quad === 0;
+    const from = top ? MOAI_TOP_Y : MOAI_BOT_Y;
+    const to = m.y + (top ? 0 : MOAI_QH);
+    return [m.x, Math.round((from + (to - from) * t) / 8) * 8];
+  }
+  return [m.x, m.y];
+}
+
+function mergeMoaiParts() {
+  const m = moai;
+  if (m.state === 'q4') {
+    // 左右をくっつけて、上半分・下半分の 2 つにする(継ぎ目なしの 1 枚絵)
+    const top = m.parts.find(p => p.quad === 0) || m.parts.find(p => p.quad === 1);
+    const bot = m.parts.find(p => p.quad === 2) || m.parts.find(p => p.quad === 3);
+    for (const p of m.parts) msx.removeBgSprite(p.sp);
+    const mk = (img, quad) => {
+      const sp = msx.bgSprite(img);
+      sp.x = m.x; sp.y = quad === 0 ? MOAI_TOP_Y : MOAI_BOT_Y;
+      sp.priority = BGP_FRONT + 1;
+      return { sp, hp: MOAI_PART_HP * 2, quad, flash: 0 };
+    };
+    // 上下は一心同体。内側から削ると 2 つまとめて壊れる
+    m.insideHp = 256;   // 内側から削るぶんの耐久力
+    m.parts = [];
+    if (top) m.parts.push(mk(IMG.moaiTop, 0));
+    if (bot) m.parts.push(mk(IMG.moaiBottom, 1));
+    m.state = 'q2';
+    // すぐ上下合体に入らず、2〜5 秒のあいだ そのまま待つ。
+    // 待ち終わりに一瞬白く光ってから合体に入るので、合図は出るが
+    // タイミングは毎回ちがう
+    // すでに怒っている(壊せない)ときは、じらす意味が無いのでさっさと合体する
+    m.wait = m.angry ? 20
+      : MOAI_WAIT_MIN + Math.floor(Math.random() * (MOAI_WAIT_MAX - MOAI_WAIT_MIN + 1));
+    m.timer = m.angry ? 60 : MOAI_MERGE2;
+    // ここから撃つと怒らせてしまう。まず「待て」と伝える(1 回だけ)
+    if (!moaiToldWait) {
+      moaiToldWait = true;
+      showNotice('WAIT FOR THE COLOR!');
+    }
+    // 「内側から撃て」は、**狙えるようになってから**出す(下の待ちが明けたところ)
+  } else {
+    // 上下をくっつけて 1 体になる
+    for (const p of m.parts) msx.removeBgSprite(p.sp);
+    const sp = msx.bgSprite(IMG.moaiFront);
+    sp.x = m.x; sp.y = m.y; sp.priority = BGP_FRONT + 1;
+    m.parts = [{ sp, hp: 0, quad: 0, flash: 0 }];
+    // 色の変化は 8 ブロック同時。各ブロックが上から 2 行ずつ塗り替わる。
+    // 途中の姿は 1 枚絵として用意してあるので、絵を差し替えるだけでよい
+    // (重ね絵にすると BG スプライトのセルが黒く埋まってしまうため)
+    m.tintStep = 0;
+    m.state = 'one';
+    // 合体前に壊されたパーツのぶんだけ、はじめから傷んでいる
+    m.max = Math.max(60, MOAI_HP - m.lost * MOAI_LOST_DAMAGE);
+    m.hp = m.max;
+    m.fire = 60;
+  }
+  msx.audio.playSE('thud', SE_HIT);
+  msx.audio.playSE('bigboom', SE_HIT);   // 合体の重い音
+  flashTimer = 2;
+}
+
+/** 内側から削り切って、上下まとめて撃破したとき */
+/**
+ * 自機が上下のすき間に入っているか。
+ * 内側から壊したときのボーナスと、押しつぶしの両方で使う
+ */
+function playerInMoaiGap(m) {
+  if (!m || m.state !== 'q2' || m.parts.length !== 2) return false;
+  const top = m.parts.find(p => p.quad === 0);
+  const bot = m.parts.find(p => p.quad === 1);
+  if (!top || !bot) return false;
+  const x0 = Math.min(top.sp.x, bot.sp.x);
+  const x1 = Math.max(top.sp.x, bot.sp.x) + MOAI_W;
+  const gy0 = top.sp.y + MOAI_QH;   // すき間の上のふち
+  const gy1 = bot.sp.y;             // すき間の下のふち
+  const px = player.x + 8, py = player.y + 8;
+  return px > x0 && px < x1 && py > gy0 - 8 && py < gy1 + 8;
+}
+
+/** すき間の広さ(閉じ切ると 0 以下) */
+function moaiGapSize(m) {
+  const top = m.parts.find(p => p.quad === 0);
+  const bot = m.parts.find(p => p.quad === 1);
+  return (top && bot) ? bot.sp.y - (top.sp.y + MOAI_QH) : 999;
+}
+
+function killMoaiInside() {
+  const m = moai;
+  if (!m) return;
+  // **すき間の中にいたときだけ** 10 万点。
+  // 外から撃って壊した場合は、ふつうに倒したのと同じ 2 万点
+  const inside = playerInMoaiGap(m);
+  for (const p of m.parts) {
+    for (let i = 0; i < 5; i++) {
+      spawnBoom(p.sp.x + Math.random() * MOAI_W, p.sp.y + Math.random() * MOAI_QH);
+    }
+  }
+  msx.audio.playSE('bossboom', SE_HIT);
+  flashTimer = 3;
+  const gain = inside ? EYE_BONUS : 20000;
+  score += gain;
+  spawnPopup(SCREEN_W / 2 - 32, 96, gain);
+  showNotice(inside ? ('INSIDE JOB! ' + gain) : ('MOAI DOWN  ' + gain));
+  if (inside) {
+    playBGM('bonus', false, true);
+    jingleTimer = 150;
+  }
+  bigKills++;
+  clearMoai();
+  drawHUD();
+}
+
+function killMoaiPart(p) {
+  spawnBoom(p.sp.x + 8, p.sp.y + 8);
+  spawnBoom(p.sp.x + 16, p.sp.y + 24);
+  msx.audio.playSE('bigboom', SE_HIT);
+  score += 4000;
+  spawnPopup(p.sp.x, p.sp.y, 4000);
+  msx.removeBgSprite(p.sp);
+  moai.parts.splice(moai.parts.indexOf(p), 1);
+  moai.lost++;
+  bigKills++;
+}
+
+/**
+ * 合体前は基本ダメージを与えられない。
+ * 例外は「上下 2 つになったあと、閉じかけのすき間の内側から撃つ」ときだけ。
+ */
+function moaiInnerHit(m, p, x, y) {
+  if (m.state === 'one') return true;
+  const sx = p.sp.x, sy = p.sp.y;
+  if (m.state === 'q2') {
+    // 上下 2 つのとき: 上半分は下のふち、下半分は上のふち(すき間の内側)
+    return p.quad === 0 ? y > sy + MOAI_QH - 14 : y < sy + 14;
+  }
+  // 4 つのとき: 中心(十字の切り口)に面した角だけ
+  const right = (p.quad === 0 || p.quad === 2) ? x > sx + MOAI_QW - 12 : x < sx + 12;
+  const inner = (p.quad < 2) ? y > sy + MOAI_QH - 14 : y < sy + 14;
+  return right || inner;
+}
+
+function updateMoai() {
+  const m = moai;
+  if (!m) return;
+  m.age++;
+  // 怒って赤くなったあとは壊せない。30 秒たったら上へ帰っていく
+  if (m.angry && m.angryTimer > 0 && --m.angryTimer <= 0) m.leaving = true;
+  if (m.leaving) {
+    // 逃げるのは下(画面の流れと同じ向き)。上へ帰ると出てきた側へ戻る形になり、
+    // 追ってきたようにも見えるので、そのまま流れ去らせる。
+    // **姿は必ず出す**(ホログラムの明滅で消えたままだと、
+    //  見えないものに当たったように見えてしまう)
+    for (const p of m.parts) { p.sp.y += 2; p.sp.visible = true; }
+    if (m.parts.every(p => p.sp.y > SCREEN_H + 8)) { clearMoai(); return; }
+    return;
+  }
+  if (m.state === 'one') {
+    // 画面のやや上をゆっくり左右に漂いながら、リング弾を撒く
+    m.x += m.vx;
+    if (m.x < 8) { m.x = 8; m.vx = Math.abs(m.vx); }
+    if (m.x > SCREEN_W - MOAI_W - 8) { m.x = SCREEN_W - MOAI_W - 8; m.vx = -Math.abs(m.vx); }
+    m.y = 24 + Math.sin(m.age * 0.02) * 8;
+    if (state === 'play' && --m.fire <= 0) {
+      m.fire = Math.max(50, 90 - shotLevel * 4);
+      // 口から放射状にリング弾(撃ち落とせる)
+      const cx = m.x + MOAI_W / 2 - 8, cy = m.y + MOAI_H - 24;
+      const base = Math.atan2(player.y + 8 - cy, player.x + 8 - cx);
+      // 怒っている(壊せない)あいだは、せめて攻めを厳しくする。
+      // リング弾の速さを 1.5 倍にして、避けるのに気を使わせる
+      const spd = m.angry ? 1.2 : 0.8;
+      for (let i = -1; i <= 1; i++) {
+        const a = base + i * 0.42;
+        fireEnemyBullet(cx, cy, Math.cos(a) * spd, Math.sin(a) * spd, true);
+      }
+      msx.audio.playSE('shot', SE_HIT);
+    }
+    // 時間切れ。**まず赤くなってから**、あきらめて上へ帰っていく。
+    // 赤くなるのは「もう壊せない」の合図なので、逃げる前にも見せる
+    if (--m.stay <= 0) {
+      if (!m.angry) {
+        m.angry = true;
+        msx.audio.playSE('nobreak', SE_HIT);
+        showNotice('IT IS LEAVING!');
+      }
+      m.y += 2;   // 下へ流れ去る
+      if (m.y > SCREEN_H + 8) { clearMoai(); return; }
+    }
+  } else if (m.hold > 0) {
+    // 四隅で構えているあいだは合体しない(プレイヤーの準備時間)
+    m.hold--;
+  } else if (m.wait > 0) {
+    // 左右がくっついたあとの待ち。終わりぎわに一瞬白くする
+    m.wait--;
+    if (m.wait === MOAI_WAIT_FLASH) {
+      for (const p of m.parts) p.flash = MOAI_WAIT_FLASH;
+      msx.audio.playSE('clink', SE_HIT);
+    }
+    // 待ちが明けた = 色が付いて、内側を狙えるようになった合図。
+    // ここで初めて狙いどころを教える(1 回だけ)
+    if (m.wait === 0 && !moaiToldInside) {
+      moaiToldInside = true;
+      showNotice('BREAK IT FROM INSIDE!');
+    }
+  } else {
+    // 合体するまでのカウントダウン
+    if (--m.timer <= 0) {
+      if (m.parts.length === 0) { clearMoai(); return; }
+      mergeMoaiParts();
+    }
+  }
+  if (m.state === 'one' && m.parts[0]) {
+    // 全体を 1 コマおきに消して、ホログラムのようにちらつかせる
+    const holo = (msx.frame & 1) === 0;
+    const p0 = m.parts[0];
+    p0.sp.visible = holo && !(p0.flash > 0 && (p0.flash & 1));
+    // 緑 -> (4 段階) -> 青 -> (4 段階) -> 緑 の 10 コマでくり返す
+    const STEP_LEN = 5;
+    m.tintStep = (m.tintStep + 1) % (10 * STEP_LEN);
+    const step = Math.floor(m.tintStep / STEP_LEN);   // 0..9
+    const WAVE = [
+      IMG.moaiFront, IMG.moaiWaveB1, IMG.moaiWaveB2, IMG.moaiWaveB3, IMG.moaiWaveB4,
+      IMG.moaiFrontBlue, IMG.moaiWaveG1, IMG.moaiWaveG2, IMG.moaiWaveG3, IMG.moaiWaveG4,
+    ];
+    p0.sp.image = WAVE[step];
+    // 一度怒らせたら、合体したあともずっと赤とピンクのまま
+    p0.sp.colorMap = m.angry ? MOAI_RAGE_MAP : null;
+  }
+  // 合体前も、青への色変わりと 1 コマおきの明滅はする。
+  // (1 枚絵に重ねる細かい縞は合体後だけ。ここは絵ごと差し替える)
+  const holoNow = (msx.frame & 1) === 0;
+  for (const p of m.parts) {
+    const [tx, ty] = moaiPartTarget(m, p);
+    const rate = m.state === 'q4' ? 0.3 : 0.12;
+    p.sp.x += (tx - p.sp.x) * rate;
+    p.sp.y += (ty - p.sp.y) * (m.state === 'q4' ? 0.2 : 0.08);
+    if (p.flash > 0) p.flash--;
+    p.sp.visible = holoNow && !(p.flash > 0 && (p.flash & 1));
+    // 合体前も、緑 -> 青 -> 緑 と「線で」色が変わっていく。
+    // 途中の姿は 1 枚絵として用意してあるので、絵を差し替えるだけでよい。
+    // 合体後(one)は 1 枚絵なので、ここでは触らない(別のところで差し替える)
+    if (m.state !== 'one') {
+      const key = MOAI_PART_KEY[m.state === 'q4' ? p.quad : (p.quad ? 'BOT' : 'TOP')];
+      if (m.angry) {
+        // 怒ったら色変わりを止めて、赤とピンクで固定する
+        p.sp.image = moaiWaveImage(0, key);
+        p.sp.colorMap = MOAI_RAGE_MAP;
+      } else {
+        const STEP_LEN = 5;
+        const step = Math.floor(m.age / STEP_LEN) % 10;   // 0..9
+        p.sp.image = moaiWaveImage(step, key);
+        // **まだ手を出してはいけないあいだ(四隅の 4 つ)は、白と灰色の石**。
+        // 色が変わりはじめたら「内側を狙える」合図。
+        // 撃つと怒るタイミングを、色で見分けられるようにする
+        // 左右がくっついたあとも、**待っているあいだはまだ石のまま**。
+        // 上下が寄りはじめて、内側のすき間を狙えるようになってから色が付く
+        p.sp.colorMap = moaiSafe(m) ? MOAI_STONE_MAP : null;
+      }
+    }
+  }
+}
+
+// ---- ロケット弾 ----
+// 24x96 の BG スプライト。前からまっすぐ飛んでくるので邪魔になる。
+// とても硬いが 128 発当てれば壊せる。
+const ROCKET_W = 24, ROCKET_H = 96;
+const ROCKET_HP = 128;
+const ROCKET_INTERVAL = 900;
+let rockets = [];
+let rocketTimer = ROCKET_INTERVAL;
+
+const MAX_ROCKETS = 3;
+
+function spawnRocket() {
+  if (rockets.length >= MAX_ROCKETS) return;   // 同時に 3 本まで
+  const sp = msx.bgSprite(IMG.rocket);
+  sp.priority = BGP_FRONT;
+  // 当たり判定のある BG は、背景と見間違えないよう毎コマ色を入れ替える
+  sp.frames = [IMG.rocket, IMG.rocketAlt];
+  sp.frameRate = 1;
+  sp.x = Math.max(0, Math.min(SCREEN_W - ROCKET_W,
+    snap8(player.x - 4 + (Math.random() - 0.5) * 64)));
+  sp.y = -ROCKET_H;
+  // 弾頭の光(単色スプライト 1 枚)。3 コマに 1 回だけ表示してちらつかせる
+  const hi = msx.sprite(IMG.rocketHi);
+  hi.priority = 12;
+  hi.blink = 3;
+  // 尾を引く炎。長さの違う 3 コマと透明の 1 コマを回して揺らめかせる
+  const flame = msx.sprite(IMG.rocketFlame1);
+  flame.priority = 6;
+  flame.frames = [IMG.rocketFlame1, IMG.rocketFlame2, IMG.rocketFlame3, IMG.rocketFlame0];
+  flame.frameRate = 3;
+  flame.blink = 2;   // 2 コマに 1 回だけ出して、実機のスプライトらしくちらつかせる
+  rockets.push({ sp, hi, flame, hp: ROCKET_HP, flash: 0 });
+}
+
+function clearRockets() {
+  for (const r of rockets) {
+    msx.removeBgSprite(r.sp);
+    if (r.hi) msx.removeSprite(r.hi);
+    if (r.flame) msx.removeSprite(r.flame);
+  }
+  rockets = [];
+}
+
+function updateRockets() {
+  for (const r of [...rockets]) {
+    r.sp.y += 1.1;
+    if (r.flash > 0) {
+      r.flash--;
+      // 被弾中だけ白く光らせる(ふだんは frames の色替えにまかせる)
+      r.sp.frames = (r.flash & 1) ? null : null;
+      r.sp.image = (r.flash & 1) ? IMG.rocket : IMG.rocketHit;
+    } else if (!r.sp.frames) {
+      r.sp.frames = [IMG.rocket, IMG.rocketAlt];
+    }
+    // 弾頭の光は 3 コマに 1 回だけ出す(スプライト削減のちらつき)
+    if (r.hi) {
+      r.hi.x = snap8(r.sp.x);
+      r.hi.y = snap8(r.sp.y);
+      r.hi.visible = true;
+    }
+    // 炎はミサイルのお尻(上側)に付ける
+    if (r.flame) {
+      r.flame.x = snap8(r.sp.x);
+      r.flame.y = snap8(r.sp.y) - 44;
+      r.flame.visible = true;
+    }
+    if (r.sp.y > SCREEN_H + 8) {
+      msx.removeBgSprite(r.sp);
+      if (r.hi) msx.removeSprite(r.hi);
+      if (r.flame) msx.removeSprite(r.flame);
+      rockets.splice(rockets.indexOf(r), 1);
+    }
+  }
+}
+
+function breakRocket(r) {
+  for (let i = 0; i < 6; i++) {
+    spawnBoom(r.sp.x + Math.random() * ROCKET_W, r.sp.y + Math.random() * ROCKET_H);
+  }
+  msx.audio.playSE('bigboom', SE_HIT);
+  bigKills++;
+  score += 8000;
+  spawnPopup(r.sp.x, r.sp.y + 32, 8000);
+  msx.removeBgSprite(r.sp);
+  if (r.hi) msx.removeSprite(r.hi);
+  // 炎を消し忘れて、ジェット噴射だけが画面に残っていた
+  if (r.flame) msx.removeSprite(r.flame);
+  rockets.splice(rockets.indexOf(r), 1);
+  drawHUD();
+}
+
+// 移動速度は 3 段階。初期値は控えめで、スピードアップで速くなる
+const SPEED_TABLE = [1.5, 2.0, 2.6];
+let speedLevel = 1;
+const AUTO_FIRE_INTERVAL = 20; // 押しっぱなし時の連射間隔(フレーム)
+let volleySeq = 0;
+let volleys = new Map(); // volley ID -> 残っている弾数
+let lastShotFrame = -999;
+
+let bubbleRect = null;
+// 涙に当たったときの見た目を出す間隔(痛くはない)
+let tearSplash = 0;
+function clearBubble() {
+  if (!bubbleRect) return;
+  dbg.fill(0, bubbleRect.x, bubbleRect.y, bubbleRect.w, bubbleRect.h);
+  bubbleRect = null;
+}
+
+function clearEntities() {
+  clearBubble();
+  for (const b of bullets) msx.removeSprite(b.sp);
+  for (const e of enemies) msx.removeSprite(e.sp);
+  for (const b of enemyBullets) msx.removeSprite(b.sp);
+  for (const b of booms) msx.removeSprite(b.sp);
+  for (const it of items) msx.removeSprite(it.sp);
+  clearClawMissiles();
+  clearEyeballs();
+  clearMoai();
+  clearShootStars();
+  clearWeakSparks();
+  if (boss) {
+    if (boss.eyeL) msx.removeSprite(boss.eyeL);
+    if (boss.eyeR) msx.removeSprite(boss.eyeR);
+    if (boss.eyeL2) msx.removeSprite(boss.eyeL2);
+    if (boss.eyeR2) msx.removeSprite(boss.eyeR2);
+      if (boss.mouth) msx.removeSprite(boss.mouth);
+    for (const g of boss.guards || []) msx.removeSprite(g.sp);
+  for (const g of boss.guards || []) msx.removeSprite(g.sp);
+  if (boss.mouth) msx.removeSprite(boss.mouth);
+  for (const g of boss.guards || []) msx.removeSprite(g.sp);
+    if (boss.charge) msx.removeSprite(boss.charge);
+    if (boss.chargeRing) msx.removeSprite(boss.chargeRing);
+    if (boss.arms) msx.removeSprite(boss.arms);
+    if (boss.brow) msx.removeSprite(boss.brow);
+    if (boss.crown) msx.removeSprite(boss.crown);
+  for (const t of boss.tears || []) msx.removeSprite(t.sp);
+  for (const sp of boss.blush || []) msx.removeSprite(sp);
+  if (boss.glint) msx.removeSprite(boss.glint);
+    for (const t of boss.tears || []) msx.removeSprite(t.sp);
+  for (const sp of boss.blush || []) msx.removeSprite(sp);
+  if (boss.glint) msx.removeSprite(boss.glint);
+    for (const sp of boss.blush || []) msx.removeSprite(sp);
+  if (boss.glint) msx.removeSprite(boss.glint);
+    if (boss.glint) msx.removeSprite(boss.glint);
+    for (const sp of boss.clawSps || []) msx.removeSprite(sp);
+    for (const sp of boss.pods || []) msx.removeSprite(sp);
+    clearNautilus(boss);
+    clearDragonSegs(boss);
+    clearKing(boss);
+  }
+  clearBossParts();
+  bossVisible = true;
+  for (const sp of titleSparks) sp.visible = false;
+  bullets = []; enemies = []; enemyBullets = []; booms = []; items = [];
+  clearAsteroids();
+  clearRockets();
+  clearWeights();
+  boss = null;
+  if (bossMode) endBossMode();
+  neb.visible = true;
+  volleys = new Map();
+  lastShotFrame = -999;
+}
+
+/** 弾が当たったときの処理。弾は必ず消える */
+function bulletHits(b) {
+  removeBullet(b);
+  return true;
+}
+
+/** 自弾を 1 発ぶん取り除き、その volley の残弾数を減らす */
+function removeBullet(b) {
+  msx.removeSprite(b.sp);
+  bullets.splice(bullets.indexOf(b), 1);
+  const n = volleys.get(b.volley);
+  if (n <= 1) volleys.delete(b.volley);
+  else volleys.set(b.volley, n - 1);
+}
+
+// パワー段階ごとのショット。front は真上から、back は真下からの角度(度)。
+// 数値だけなら角度、[角度, 横のずれ] を書くと平行に並べて撃つ(V字にならない)。
+const NARROW = 15, WIDE_4 = [-33.75, -11.25, 11.25, 33.75], WIDE_5 = [-45, -22.5, 0, 22.5, 45];
+const SHOT_TABLE = [
+  { front: [0], back: [] },                                        // P1 前 1
+  { front: [[0, -5], [0, 5]], back: [] },                          // P2 前 2(平行)
+  { front: [[0, -5], [0, 5]], back: [0] },                         // P3 前 2 + 後ろ 1
+  { front: [-NARROW, 0, NARROW], back: [0] },                      // P4 前 3(狭) + 後ろ 1
+  { front: [-NARROW, 0, NARROW], back: [-NARROW, NARROW] },        // P5 前 3(狭) + 後ろ 2(狭)
+  { front: WIDE_4, back: [-NARROW, NARROW] },                      // P6 前 4(広) + 後ろ 2(狭)
+  { front: WIDE_5, back: [-NARROW, NARROW] },                      // P7 前 5(広) + 後ろ 2(狭)
+  { front: WIDE_5, back: [-45, 0, 45] },                           // P8 前 5(広) + 後ろ 3(広)
+];
+const MAX_POWER = SHOT_TABLE.length;
+
+/** ショットを撃つ。画面上の volley が上限に達していれば何もしない。 */
+function fireShot() {
+  if (volleys.size >= maxVolleys) return;
+  const SPD = 10, RAD = Math.PI / 180;
+  const t = SHOT_TABLE[shotLevel - 1];
+  // 要素は 角度 か [角度, 横のずれ]
+  const dir = (e, up) => {
+    const [a, dx] = Array.isArray(e) ? e : [e, 0];
+    return { vx: Math.sin(a * RAD) * SPD, vy: (up ? -1 : 1) * Math.cos(a * RAD) * SPD, dx };
+  };
+  const dirs = [
+    ...t.front.map(e => dir(e, true)),
+    ...t.back.map(e => dir(e, false)),
+  ];
+  const id = ++volleySeq;
+  let phase = 0;
+  for (const d of dirs) {
+    // すべて 16x16 スプライトなので、中心を合わせれば自機の中心から出る
+    const sp = msx.sprite(IMG.bulletP);
+    sp.x = player.x + (d.dx || 0);
+    sp.y = player.y;
+    sp.priority = 5;
+    // 弾ごとに点滅の位相をずらして、まとめて消えないようにする
+    bullets.push({ sp, vx: d.vx, vy: d.vy, volley: id, phase: phase++ });
+  }
+  volleys.set(id, dirs.length);
+  lastShotFrame = playFrame;
+  msx.audio.playSE('shot', SE_HIT);
+}
+
+/** 5way でアイテムを取ったときのボム: 画面上の敵と敵弾を全滅させる(アイテムは出ない) */
+/** 敵の種類ごとの得点 */
+// 得点はすべて 100 の倍数(最低 100 点)。10 の位は動かさない
+const ENEMY_SCORE = { A: 100, B: 200, C: 1000, D: 1100, E: 800, F: 200, G: 400, H: 600, I: 300, J: 500,
+  K: 500, L: 900, M: 400, N: 3000 };
+
+let killsSinceCoin = 0;   // スコアアイテムを落とすまでの撃破数
+let bigKills = 0;         // その面で倒した大きい敵の数
+let coinChainBest = 0;    // その面で伸ばした $ の最高額
+
+/** 敵を倒す(得点・アイテム・爆発をまとめて処理する) */
+function killEnemy(e) {
+  spawnBoom(e.sp.x, e.sp.y);
+  msx.audio.playSE('boom', SE_HIT);
+  // キューブは取りこぼさず壊し続けると得点が倍々に上がる
+  const gain = ENEMY_SCORE[e.type];
+  score += gain;
+  if (e.hasStar) dropItem(e.sp.x + 2, e.sp.y, 'star');       // 紫のキューブが宝珠を落とす
+  else if (e.hasAuto) dropItem(e.sp.x + 2, e.sp.y, 'auto');  // 黄色いキューブから ? が出る
+  else if (e.hasItem || e.type === 'C') dropItem(e.sp.x + 2, e.sp.y, randomItemKind());
+  else if (e.type !== 'D' && ++killsSinceCoin >= 5) {
+    // ふつうの敵は 5 匹に 1 回スコアアイテムを落とす
+    killsSinceCoin = 0;
+    dropItem(e.sp.x + 2, e.sp.y, 'coin');
+  }
+  // 光る敵は $ をばらまく(硬いぶんの見返り)
+  if (e.type === 'N') {
+    for (let i = 0; i < GLOWER_COINS; i++) {
+      const a = (Math.PI * 2 * i) / GLOWER_COINS;
+      dropItem(e.sp.x + 2 + Math.cos(a) * 14, e.sp.y + Math.sin(a) * 10, 'coin');
+    }
+  }
+  if (e.type === 'D' || ENEMY_SCORE[e.type] >= 800) spawnPopup(e.sp.x, e.sp.y, gain);
+  drawHUD();
+  msx.removeSprite(e.sp);
+  const i = enemies.indexOf(e);
+  if (i >= 0) enemies.splice(i, 1);
+}
+
+/** 敵にダメージを与える。knockback=true ならキューブは後ろへずれる */
+function hitEnemy(e, dmg, knockback) {
+  e.hp -= dmg;
+  if (e.hp <= 0) { killEnemy(e); return; }
+  // 耐久力のある敵(キューブ・硬いUFO)は弾かれたようなキンキン音
+  const tough = e.type === 'D' || e.type === 'C';
+  msx.audio.playSE(tough ? 'clink' : 'hit');
+  if (knockback && e.type === 'D') e.sp.y -= 8;   // のけぞりは控えめに
+}
+
+/** 推進炎に触れた敵にダメージ(弾 1 発ぶん / 最大スピードなら 2 発ぶん) */
+const FLAME_OFFSET = 17; // 機体からの距離
+// ドラゴンのアイテムを取ったか。緑の大きな炎になり、当たり判定も広がる。
+// **やられても消えない**(スピードの段階とは別のもの)
+let dragonFlame = false;
+// 推進炎のコマ送り用の時計。msx.frame と違い、画面を止めているあいだは進まない
+let flameFrame = 0;
+// ドラゴンの炎は七色に光る。色ちがいの絵を先に作っておいて差し替えるだけにする
+// (スプライトは 1 色なので、色を変えるには絵を作り直すしかない)
+const DRAGON_FLAME_COLORS = [8, 9, 10, 2, 7, 4, 13];   // 赤 橙 黄 緑 空 青 紫
+let dragonFlameImgs = null;
+function dragonFlameImg() {
+  // 形は**中身だけ**の 1 種類。外わくだけの絵は使わない(欠けて見えるため)。
+  // 色は 2 コマごとに七色を回す
+  if (!dragonFlameImgs) {
+    dragonFlameImgs = DRAGON_FLAME_COLORS.map(c => recolor(IMG.flameDragonB, c));
+  }
+  const c = Math.floor(flameFrame / 2) % dragonFlameImgs.length;
+  return dragonFlameImgs[c];
+}
+function burnEnemiesBehind() {
+  const dmg = DAMAGE_TABLE[damageLevel - 1] * (speedLevel >= 3 ? 2 : 1);
+  const fx = player.x + 8, fy = player.y + FLAME_OFFSET + (dragonFlame ? 8 : 3);
+  // 噴射の当たり判定は炎の見た目より小さめにする。
+  // 緑の炎は絵が一回り大きいぶん、判定も広い
+  const r = dragonFlame ? 11 : 7;
+  for (const e of [...enemies]) {
+    if (Math.abs((e.sp.x + 8) - fx) < r && Math.abs((e.sp.y + 8) - fy) < r) hitEnemy(e, dmg, false);
+  }
+  burnBossBehind(fx, fy, r, dmg);
+}
+
+/**
+ * 推進炎をボスに当てる。**弾よりずっと効く(6 倍)**。
+ * ただし炎は自機の真下なので、当てるにはボスを追い越して背を向けることになる。
+ * ドラゴンのアイテムを取っていれば炎が大きく、当てられる範囲も広い。
+ */
+function burnBossBehind(fx, fy, r, dmg) {   // dmg は中で半分にすることがある
+  if (!boss || boss.dying > 0) return;
+  // **弾とは別の間隔で数える**。弾を当てた直後でも炎は効くし、
+  // 炎を当てた直後でも弾は効く(2 つの攻めが打ち消し合わないように)
+  if (boss.burnGap > 0) { boss.burnGap--; return; }
+  if (boss.kind === 'king' && boss.stage !== 'man' && boss.stage !== 'pose') return;
+  if (boss.kind === 'king' && boss.meditate > 0) return;   // 瞑想中は炎も通らない
+  // **必ず先に「炎が当たっているか」を見る**。
+  // (ここを飛ばして先に削っていたため、出てくるだけで体力が減っていた)
+  const c = bossCenter(boss);
+  if (!c) return;
+  const hw = (boss.kind === 'king' ? KING_MAN_W : BOSS_W) / 2;
+  const hh = (boss.kind === 'king' ? KING_MAN_H : BOSS_H) / 2;
+  // **自機がボスより上にいるときだけ**効く。
+  // 炎は自機の後ろ(下)へ出るので、上から覆いかぶさる形でしか当てられない
+  if (player.y + 8 >= c[1]) return;
+  if (Math.abs(fx - c[0]) > hw + r) return;
+  // ラスボスは**頭に当てたときだけ**。胴を焼いても通らない
+  if (boss.kind === 'king') {
+    if (fy < boss.y - r || fy > boss.y + KING_MAN_H * 0.38) return;
+  } else if (Math.abs(fy - c[1]) > hh + r) return;
+  boss.burnGap = BOSS_FLAME_GAP;
+  // ラスボスにだけは、**ふつうの炎は半分しか通らない**。
+  // 七色のドラゴンの炎を取ってから挑むほうが、はっきり速く終わる
+  if (boss.kind === 'king' && !dragonFlame) dmg = dmg / 2;
+  // 出てくる(つま先立ち)あいだは体力がまだ入っていないので、
+  // 焼いたぶんを覚えておいて、構え終わった時に体力から引く
+  if (boss.kind === 'king' && boss.stage === 'pose') {
+    // 予約できるのは **1 撃ぶんだけ**。
+    // 出てくるあいだ焼き続けても、貯まるのは最初の 1 回で打ち止めにする
+    // (構える前に大半を削れてしまうと、第 2 段階が始まらなくなるため)
+    if (boss.preBurn) return;
+    boss.preBurn = Math.max(1, Math.round(dmg * BOSS_FLAME_MUL));
+    boss.flash = 4;
+    msx.audio.playSE('weak');
+    spawnWeakSpark(fx - 8, fy - 8);
+    return;
+  }
+  boss.hp -= Math.max(1, Math.round(dmg * BOSS_FLAME_MUL));
+  boss.flash = 4;
+  msx.audio.playSE('weak');
+  spawnWeakSpark(fx - 8, fy - 8);
+  if (boss.hp <= 0) {
+    if (boss.kind === 'king') killKingWithRoar();
+    else {
+      boss.dying = 90;
+      msx.audio.stopBGM();
+      msx.audio.playSE('bossboom', SE_HIT);
+    }
+  }
+}
+
+// 再生中の BGM 名。局面(通常 / 最大パワー / ボス)に応じて切り替える
+let currentBGM = null;
+let jingleTimer = 0;   // 開始ジングルが鳴り終わるまでのフレーム数
+/**
+ * BGM を切り替える。同じ曲なら鳴らし直さない(エンジン側の既定の動き)。
+ * ジングルなど、毎回頭から鳴らしたいものは restart に true を渡す。
+ */
+function playBGM(name, loop = true, restart = false) {
+  currentBGM = name;
+  // ジングル(ループしない曲 = ファンファーレなど)はいちばん強い。
+  // 鳴っている SE は止めて、ジングルだけを聞かせる
+  if (!loop) msx.audio.stopSE();
+  msx.audio.playBGM(name, loop, restart);
+}
+
+/** 局面に合った BGM に切り替える(最大パワー時は専用曲。ボス戦は除く) */
+function updateBGM() {
+  if (state !== 'play' || clearTimer > 0) return;
+  // ボス登場の演出中は、あちらで BGM を操作している(フェードアウトの最中)。
+  // ここで鳴らし直すとフェードが取り消され、同じ曲が頭から鳴り直してしまう
+  if (bossIntro > 0) return;
+  if (jingleTimer > 0) { jingleTimer--; return; } // 開始ジングルの再生中
+  if (boss && boss.dying > 0) return; // 撃破演出中は鳴らし直さない
+  // ラスボスは専用の曲。ふつうのボス曲で上書きしないよう、ここで打ち切る
+  if (boss && boss.kind === 'king') {
+    // 裂け目が壊れてからシルエットが構え終わるまでは、わざと無音にしている
+    if (boss.stage === 'break' || boss.stage === 'pose') return;
+    const k = boss.stage === 'man' ? 'finalbattle' : 'lastboss';
+    if (k !== currentBGM) playBGM(k, true);
+    return;
+  }
+  // ボスラッシュはずっとボス戦の曲のまま
+  // モアイが出ているあいだは緊迫した専用曲に切り替える
+  // 5 面は道中もボスの曲。ここだけはフルパワーでも曲を変えない
+  // (最後の面はずっと張りつめたままにしておきたい)
+  const want = (boss && boss.kind === 'todo') ? 'todo'
+    : moaiActive() ? 'moai'
+    : (boss || gameMode() === 'bossrush' || isLastStage()) ? 'boss'
+    : (shotLevel >= MAX_POWER ? 'power' : 'main');
+  if (want !== currentBGM) playBGM(want, true);
+}
+
+function bombAllEnemies() {
+  for (const e of [...enemies]) {
+    spawnBoom(e.sp.x, e.sp.y);
+    score += ENEMY_SCORE[e.type];
+    msx.removeSprite(e.sp);
+    enemies.splice(enemies.indexOf(e), 1);
+  }
+  for (const b of enemyBullets) msx.removeSprite(b.sp);
+  enemyBullets = [];
+  flashTimer = 4; // 軽く画面をフラッシュさせる
+  msx.audio.playSE('bossboom', SE_HIT);
+  drawHUD();
+}
+
+// ---- 画面の揺れ ----
+// 被弾したときに画面全体を 1 ドット単位でずらす(実機の SET ADJUST 相当)。
+// ボーダーを 8 ドット取ってあるので、ずらしても中身が欠けない
+let shakeTimer = 0;
+function startShake(n) { shakeTimer = Math.max(shakeTimer, n); }
+function updateShake() {
+  if (shakeTimer <= 0) return;
+  shakeTimer--;
+  if (shakeTimer <= 0) { msx.setAdjust(0, 0); return; }
+  // だんだん小さくなる。1 コマごとに向きを変えて「ぶるっ」とさせる
+  const a = Math.ceil(shakeTimer / 5);
+  msx.setAdjust((msx.frame & 1) ? a : -a, ((msx.frame & 2) ? a : -a) >> 1);
+}
+
+// ボム発動時の画面フラッシュ(背景を一瞬白く飛ばす)
+let flashTimer = 0;
+// フラッシュの前の背景。ラスボスの「暗い赤 + 星なし」を壊さないよう覚えておく
+let flashSaved = null;
+/**
+ * 画面のフラッシュを、途中で打ち切って元に戻す。
+ * 光っているあいだにポーズ -> Q でタイトルへ戻ると、
+ * 背景が白いまま固まってしまうため、場面が変わるときに必ず呼ぶ
+ */
+function cancelFlash() {
+  if (flashSaved) {
+    msx.backdrop = flashSaved.backdrop;
+    far.visible = mid.visible = near.visible = flashSaved.stars;
+    flashSaved = null;
+  }
+  flashTimer = 0;
+}
+
+function updateFlash() {
+  if (flashTimer <= 0) return;
+  if (!flashSaved) flashSaved = { backdrop: msx.backdrop, stars: far.visible };
+  flashTimer--;
+  msx.backdrop = 15;
+  far.visible = mid.visible = near.visible = false;
+  if (flashTimer === 0) {
+    msx.backdrop = flashSaved.backdrop;
+    far.visible = mid.visible = near.visible = flashSaved.stars;
+    flashSaved = null;
+  }
+}
+
+const IMG_BY_TYPE = {
+  A: IMG.enemyA, B: IMG.enemyB, C: IMG.enemyC, F: IMG.enemyF, G: IMG.enemyG,
+  // 追加した 3 種。K = 壁づたい / L = 全方位 / M = 放物線
+  K: IMG.enemyH, L: IMG.enemyI, M: IMG.enemyJ,
+};
+// 出現位置: 降下型は上から / F は下から / 円盤(UFO)は画面上部を横切る
+const SPAWN_Y = { A: -18, B: 16, C: 16, F: SCREEN_H + 18, G: -18,
+  K: -18, L: -18, M: -18 };
+// 色違い(シアン)の UFO は硬くて高得点。G は遅い代わりに硬め
+const HP_BY_TYPE = { A: 1, B: 2, C: 6, F: 1, G: 3, K: 4, L: 6, M: 2 };
+
+/**
+ * 画面下から出てくる敵が自機のすぐ足元に湧くと避けようがないので、
+ * 自機が画面下 1/3 にいるときは自機の近くの X を避けた位置にずらす。
+ */
+function avoidPlayerX(x) {
+  if (player.y < SCREEN_H * 2 / 3) return x;
+  const SAFE = 40;
+  if (Math.abs(x - player.x) >= SAFE) return x;
+  const left = player.x - SAFE, right = player.x + SAFE;
+  // 画面内に収まる方へ逃がす
+  if (left >= 0 && (right > SCREEN_W - 16 || Math.random() < 0.5)) return left;
+  if (right <= SCREEN_W - 16) return right;
+  return Math.max(0, Math.min(SCREEN_W - 16, left));
+}
+
+/** 敵を 1 体出す */
+/**
+ * その敵を出してよいか。
+ * F = 画面の下から来る敵。後ろに弾を撃てない(ショット 3 段階未満)うちや、
+ *     1 面、NORMAL では出さない。
+ * B/C = 左右から挟み込んでくる UFO。NORMAL では出さない。
+ */
+function enemyAllowed(type) {
+  if (type === 'F') {
+    if (isNormal() || stageNo <= 1) return false;
+    if (shotLevel < 3) return false;   // 後ろに撃てないうちは出さない
+  }
+  if (isNormal() && (type === 'B' || type === 'C')) return false;
+  return true;
+}
+
+function spawnEnemy(type, x, phase) {
+  if (!enemyAllowed(type)) return null;
+  const sp = msx.sprite(IMG_BY_TYPE[type]);
+  // 下から上がってくる敵は、左右の端からだけ来る(真下から急に出てこない)
+  if (type === 'F') x = (x < SCREEN_W / 2) ? 8 + (x % 24) : SCREEN_W - 40 + (x % 24);
+  sp.x = x; sp.y = SPAWN_Y[type]; sp.priority = 8;
+  // UFO は自機が弱いうちは硬すぎないよう、パワーに応じて耐久を上げる
+  let hp = HP_BY_TYPE[type];
+  if (type === 'B' || type === 'C') {
+    hp = Math.max(1, Math.round(hp * (0.35 + shotLevel * 0.11)));
+  }
+  if (isNormal()) hp = Math.max(1, Math.round(hp / 2)); // NORMAL は耐久力半分
+  const e = {
+    sp, type, x0: x, phase, age: 0, hp,
+    fireTimer: (type === 'A' ? enemyFireGap(45) : enemyFireGap(38)) / 2,
+    dir: Math.PI / 2, // G の進行方向(最初は真下向き)
+  };
+  enemies.push(e);
+  return e;
+}
+
+// UFO 編隊はボス戦のときだけ現れる。1 機だけ色違い(硬い・アイテム持ち)
+const BOSS_UFO_INTERVAL = 330;
+let bossUfoTimer = 0;
+let bossStartFrame = -1; // ボスが出たフレーム(いまは使っていない)
+// 撃破タイムに数えるフレーム数。
+// **弾が当たる状態のあいだだけ**増やす。登場の演出、赤いエリアが広がるところ、
+// 名乗りで止まっているあいだ、倒れる演出は数えない
+let bossFrames = 0;
+
+/** いま、ボスに弾が当たる状態か(撃破タイムを数えてよいか) */
+function bossTimeCounts() {
+  if (!boss || boss.dying > 0) return false;
+  if (bossIntro > 0 || talkHold > 0) return false;
+  if (state !== 'play') return false;
+  // ラスボスは段階によって、当たる時間と当たらない時間がある
+  if (boss.kind === 'king') return boss.stage === 'rift' || boss.stage === 'man';
+  return true;
+}
+function spawnUfoWave(noFire = false) {
+  const fromLeft = Math.random() < 0.5;
+  // 水色(アイテム持ち)は必ず 1 機は入れる。多くても 3 機まで。
+  const cyanCount = 1 + Math.floor(Math.random() * 3);
+  const cyanSlots = new Set();
+  while (cyanSlots.size < cyanCount) cyanSlots.add(Math.floor(Math.random() * 5));
+  for (let i = 0; i < 5; i++) {
+    const cyan = cyanSlots.has(i);
+    const e = spawnEnemy(cyan ? 'C' : 'B',
+      fromLeft ? -20 - i * 24 : 260 + i * 24, fromLeft ? 1 : -1);
+    // NORMAL など、その種類を出さない設定のときは null が返る
+    if (e) e.noFire = noFire; // ミス直後の群れは弾を撃たない
+  }
+}
+
+// 硬いキューブ: 4〜5 個が少しずつずれた隊列で流れてくる。自機は追わない。
+// そのうち 1 個だけがパワーアップアイテムを持っている。
+// 出現タイミングは他の敵と周期をずらしてステージデータに持たせてある。
+function spawnCubes() {
+  const n = 5 + Math.floor(Math.random() * 2);       // 5 or 6
+  // 1 個は P アイテム入り(緑)、もう 1 個は★入り(紫・耐久力 2 倍)
+  const withItem = Math.floor(Math.random() * n);
+  let withStar = Math.floor(Math.random() * n);
+  if (withStar === withItem) withStar = (withStar + 1) % n;
+  // ごくまれに黄色いキューブが混じる。壊すと ? アイテムが出る
+  // NORMAL は ? アイテム入りの黄色いキューブがよく混じる(連射中は出さない)
+  const autoRate = isNormal() ? 0.45 : 0.08;
+  const withAuto = (autoFire <= 0 && Math.random() < autoRate)
+    ? (withStar + 2) % n : -1;
+  // 画面幅をほぼ使い切るように左右へ大きくばらけさせる
+  const slot = (SCREEN_W - 16) / n;
+  const order = [...Array(n).keys()].sort(() => Math.random() - 0.5);
+  for (let i = 0; i < n; i++) {
+    const isStar = i === withStar, isItem = i === withItem, isAuto = i === withAuto;
+    const sp = msx.sprite(isAuto ? IMG.cubeAuto
+      : isStar ? IMG.cubeStar : isItem ? IMG.cubeItem : IMG.cube);
+    sp.x = Math.round(order[i] * slot + Math.random() * (slot - 16));
+    sp.y = -18 - i * 7;                              // ほぼ横一列で来るよう縦のずれは小さく
+    sp.priority = 8;
+    enemies.push({
+      sp, type: 'D', age: 0, hp: (isStar ? 36 : 18) / (isNormal() ? 2 : 1), vx: 0, vy: 0.53,
+      hasItem: isItem && !isAuto, hasStar: isStar && !isAuto, hasAuto: isAuto,
+    });
+  }
+}
+
+// 跳ね回る敵: 最大パワーのときだけ出現する
+const BOUNCER_INTERVAL = 420;
+// 同時に出ている数の下限(NORMAL / HARD)
+const BOUNCER_LEAST = 3, BOUNCER_LEAST_HARD = 8;
+let bouncerTimer = 0;
+function spawnBouncer() {
+  const sp = msx.sprite(IMG.bouncer);
+  sp.x = Math.random() < 0.5 ? 8 : SCREEN_W - 24;
+  // まとめて出すと同じ動きで固まってしまうので、
+  // 出る高さと速さを 1 匹ずつばらけさせる(跳ね返る位相がずれる)
+  sp.y = 20 + Math.random() * 84;
+  sp.priority = 8;
+  const dir = sp.x < SCREEN_W / 2 ? 1 : -1;
+  const vx = (1.7 + Math.random() * 1.2) * dir;
+  const vy = (1.3 + Math.random() * 1.0) * (Math.random() < 0.5 ? 1 : -1);
+  enemies.push({ sp, type: 'E', age: 0, hp: 3, vx, vy });
+}
+
+// ワープ機: 桂馬のように「左前 / 右前」へ跳んでは 0.5 秒止まる、を繰り返す。
+// 自機を追ってはこないので、動きを読んで避ける。
+const WARP_INTERVAL = 420;
+const WARP_WAIT = 30;        // 跳んだあとに止まっている時間(0.5 秒)
+const WARP_DX = 32, WARP_DY = 24;   // 桂馬の跳び幅
+// 跳び先までの移動の速さ。ワープをやめて、線を引くように走らせる
+const WARP_SPEED = 9;
+let warperTimer = WARP_INTERVAL;
+function spawnWarper() {
+  const n = 1 + Math.floor(Math.random() * 2);
+  for (let i = 0; i < n; i++) {
+    const sp = msx.sprite(IMG.warper);
+    sp.x = 24 + Math.floor(Math.random() * (SCREEN_W - 64));
+    sp.y = -20 - i * 28;
+    sp.priority = 8;
+    enemies.push({ sp, type: 'J', age: 0, hp: 2, wait: WARP_WAIT, dir: Math.random() < 0.5 ? -1 : 1 });
+  }
+}
+
+// 高速直進機: 画面上から自機のいる辺りへ、ほぼまっすぐ突っ込んでくる。
+// 弾は撃たないが速いので、位置取りで避ける必要がある。
+const DASHER_INTERVAL = 260;
+let dasherTimer = DASHER_INTERVAL;
+function spawnDasher() {
+  const n = 1 + Math.floor(Math.random() * 3);
+  for (let i = 0; i < n; i++) {
+    const sp = msx.sprite(IMG.enemyA);
+    sp.x = Math.max(0, Math.min(SCREEN_W - 16, player.x + (Math.random() - 0.5) * 80));
+    sp.y = -20 - i * 22;
+    sp.priority = 8;
+    // ほんの少しだけ横に流れる
+    enemies.push({ sp, type: 'I', age: 0, hp: 1, vx: (Math.random() - 0.5) * 0.6, vy: 4.2 });
+  }
+}
+
+// 挟み撃ち機: 最大パワーのときだけ、自機の左右から同時に突っ込んでくる。
+// 画面外で自機の高さに合わせてから、まっすぐ体当たりしてくる。
+const RAMMER_INTERVAL = 300;
+const RAMMER_FAST = 4.2;   // 出だしの速さ
+const RAMMER_SLOW = 1.2;   // 落ち着いたあとの等速
+let rammerTimer = 0;
+function spawnRammerPair() {
+  // 通常モードでは挟み撃ちを出さない。
+  // (enemyAllowed を通らない経路なので、ここで止める必要がある)
+  if (isNormal()) return;
+  for (const dir of [1, -1]) {
+    const sp = msx.sprite(IMG.rammer);
+    sp.flipX = dir < 0;   // 1 枚の絵を左右反転して両向きに使う
+    sp.x = dir > 0 ? -20 : SCREEN_W + 4;
+    // 画面の端に張り付いていても当たらないよう、少し上下にずらして出す
+    const off = (40 + Math.random() * 30) * (Math.random() < 0.5 ? 1 : -1);
+    sp.y = Math.max(16, Math.min(SCREEN_H - 32, player.y + off));
+    sp.priority = 8;
+    // 通常モードで出す場合にそなえて、速さを落とせるようにしておく
+    const fast = RAMMER_FAST * (isNormal() ? 0.6 : 1);
+    enemies.push({ sp, type: 'H', age: 0, hp: 2, vx: fast * dir, vy: 0 });
+  }
+}
+
+// ---- 壁づたい機(WALLER / 型 K) ----
+// 画面の左右の端を、上から下へ降りるだけ。動きは読みやすいが、
+// 定期的に自機へ 3WAY を撃ってくるので、端に長居できなくなる。
+const WALLER_INTERVAL = 400;
+const WALLER_FIRE = 96;
+let wallerTimer = WALLER_INTERVAL;
+function spawnWaller() {
+  // 左右どちらか。ときどき両方の端から 1 機ずつ
+  const both = Math.random() < 0.35;
+  const sides = both ? [-1, 1] : [Math.random() < 0.5 ? -1 : 1];
+  for (const side of sides) {
+    const e = spawnEnemy('K', side < 0 ? 4 : SCREEN_W - 20, 0);
+    if (!e) continue;
+    e.side = side;
+    e.fireTimer = WALLER_FIRE / 2 + Math.floor(Math.random() * 30);
+  }
+}
+
+// ---- 全方位機(SPREADER / 型 L) ----
+// ゆっくり降りてきて画面の縦真ん中で止まり、360 度へ時間差で 2 周ぶん撃つ。
+// 撃っているあいだは動かないので、そのあいだに倒すか、外へ逃げるか。
+const SPREADER_INTERVAL = 620;
+const SPREADER_WAIT = 50;      // 止まってから撃ちはじめるまで
+const SPREADER_SHOTS = 12;     // 1 周ぶんの弾数
+const SPREADER_GAP = 5;        // 1 発ずつずらす間隔(時間差)
+const SPREADER_ROUNDS = 2;     // 2 周
+let spreaderTimer = SPREADER_INTERVAL;
+function spawnSpreader() {
+  const e = spawnEnemy('L', 40 + Math.floor(Math.random() * (SCREEN_W - 96)), 0);
+  if (!e) return;
+  e.stopY = SCREEN_H / 2 - 8;
+  e.wait = SPREADER_WAIT;
+  e.fired = 0;                 // 撃った弾の数(2 周ぶん数える)
+  e.fireTimer = 0;
+}
+
+// ---- 放物線機(DIVER / 型 M) ----
+// 画面の上から放物線を描いて入ってきて、また上へ抜けていく。
+// そのあいだ 0.5 秒に 1 回ずつ撃ち続ける。
+const DIVER_INTERVAL = 340;
+const DIVER_FIRE = 30;         // 0.5 秒
+let diverTimer = DIVER_INTERVAL;
+function spawnDiver() {
+  const n = 1 + Math.floor(Math.random() * 2);
+  for (let i = 0; i < n; i++) {
+    const fromLeft = Math.random() < 0.5;
+    const e = spawnEnemy('M', fromLeft ? -16 : SCREEN_W, 0);
+    if (!e) continue;
+    e.vx = (fromLeft ? 1 : -1) * (1.5 + Math.random() * 0.5);
+    // 上から下へ入ってきて、だんだん減速し、また上へ戻っていく
+    e.vy = 2.5 + Math.random() * 0.6;
+    e.sp.y = -18 - i * 20;
+    e.sp.flipX = !fromLeft;
+    e.fireTimer = DIVER_FIRE / 2;
+  }
+}
+
+// ---- 光る敵(GLOWER / 型 N) ----
+// ふわふわ浮いているだけで、こちらへは来ない。硬いが、撃つほど殻が開いて
+// 中の光がむき出しになる。倒すと $ をばらまくので、狙う価値がある。
+const GLOWER_INTERVAL = 900;
+const GLOWER_HP = 30;          // 硬い。3 段階に開く
+const GLOWER_LIFE = 600;       // 一定時間浮いたら去っていく
+const GLOWER_COINS = 6;        // ばらまく $ の数
+let glowerTimer = GLOWER_INTERVAL;
+function spawnGlower() {
+  const sp = msx.sprite(IMG.glower0);
+  sp.x = 32 + Math.floor(Math.random() * (SCREEN_W - 80));
+  sp.y = -20;
+  sp.priority = 9;
+  // 光っているように、2 コマで明るさを変える
+  sp.blink = 0;
+  enemies.push({
+    sp, type: 'N', age: 0, hp: GLOWER_HP, max: GLOWER_HP,
+    life: GLOWER_LIFE, x0: sp.x, y0: 40 + Math.random() * 60,
+    phase: Math.random() * Math.PI * 2,
+  });
+}
+
+// ---- 16t のおもり ----
+// 32x32 のスプライト。壊せない。ゆっくり落ちてきて、敵も敵弾もまとめて潰す。
+// 自機が当たったら一撃。ミサイルや岩が出ているときは現れない。
+// (BG スプライトだと 8 ドット刻みでガタつくので、ふつうのスプライトにした)
+const WEIGHT_W = 48, WEIGHT_H = 32;
+const WEIGHT_INTERVAL = 1100;
+let weightTimer = WEIGHT_INTERVAL;
+let weights = [];
+function spawnWeight() {
+  const sp = msx.sprite(IMG.weight16t);
+  sp.x = 16 + Math.floor(Math.random() * (SCREEN_W - 64));
+  sp.y = -WEIGHT_H;
+  sp.priority = 11;   // 敵より手前。自機の弾は素通りする
+  weights.push({ sp, vy: 1.6 });   // 一気に落ちてくる(よけるより逃げる)
+  msx.audio.playSE('weight', SE_JINGLE);   // 即死なので、何より先に鳴らす
+}
+function clearWeights() {
+  for (const w of weights) msx.removeSprite(w.sp);
+  weights = [];
+}
+function updateWeights() {
+  for (const w of [...weights]) {
+    w.sp.y += w.vy;
+    // 触れたら即死。青とピンクを **2 コマずつ**入れ替えて危険を知らせる
+    // (1 コマ交代だと混ざってピンク 1 色に見えてしまう)
+    w.sp.colorMap = (msx.frame & 2) ? { 4: 9 } : null;
+    // 通り道にいる敵と敵弾は、まとめて潰していく
+    const x0 = w.sp.x, x1 = w.sp.x + WEIGHT_W;
+    const y0 = w.sp.y, y1 = w.sp.y + WEIGHT_H;
+    for (const e of [...enemies]) {
+      if (e.sp.x + 12 < x0 || e.sp.x + 4 > x1) continue;
+      if (e.sp.y + 12 < y0 || e.sp.y + 4 > y1) continue;
+      killEnemy(e);
+    }
+    for (const b of [...enemyBullets]) {
+      if (b.sp.x + 8 < x0 || b.sp.x + 8 > x1) continue;
+      if (b.sp.y + 8 < y0 || b.sp.y + 8 > y1) continue;
+      msx.removeSprite(b.sp);
+      enemyBullets.splice(enemyBullets.indexOf(b), 1);
+    }
+    if (w.sp.y > SCREEN_H + 8) {
+      msx.removeSprite(w.sp);
+      weights.splice(weights.indexOf(w), 1);
+    }
+  }
+}
+
+// 撃破時に出る得点表示。HUD レイヤー(layer3)に数字を描いて一定時間で消す
+let popups = [];
+/** 好きな文字を短いあいだ表示する(HIT など) */
+function spawnPopupText(x, y, text, color = 15) {
+  const px = Math.max(0, Math.min(SCREEN_W - text.length * 8, Math.round(x)));
+  const py = Math.max(16, Math.min(SCREEN_H - 8, Math.round(y)));
+  hud.print(px, py, text, color);
+  popups.push({ x: px, y: py, w: text.length * 8, life: 24 });
+}
+
+function spawnPopup(x, y, value) {
+  const text = String(value);
+  const px = Math.max(0, Math.min(SCREEN_W - text.length * 8, Math.round(x)));
+  const py = Math.max(18, Math.min(SCREEN_H - 10, Math.round(y)));
+  hud.print(px, py, text, 11);
+  popups.push({ x: px, y: py, w: text.length * 8, life: 45 });
+}
+
+function updatePopups() {
+  for (const p of [...popups]) {
+    if (--p.life > 0) continue;
+    hud.fill(0, p.x, p.y, p.w, 8);
+    popups.splice(popups.indexOf(p), 1);
+  }
+}
+
+function clearPopups() {
+  for (const p of popups) hud.fill(0, p.x, p.y, p.w, 8);
+  popups = [];
+}
+
+/** 爆発のコマ送り。ふだんの更新と、名乗り待ちの演出の両方から呼ぶ */
+function updateBooms() {
+  for (const b of [...booms]) {
+    b.age++;
+    if (b.age === 5) b.sp.image = IMG.boom1;
+    else if (b.age === 10) b.sp.image = IMG.boom2;
+    else if (b.age >= 15) { msx.removeSprite(b.sp); booms.splice(booms.indexOf(b), 1); }
+  }
+}
+
+function spawnBoom(x, y) {
+  const sp = msx.sprite(IMG.boom0);
+  sp.x = x; sp.y = y; sp.priority = 20;
+  booms.push({ sp, age: 0 });
+}
+
+// スコアの桁数(見栄えのため上位に 0 を 3 つ足した 10 桁表示)
+const SCORE_DIGITS = 9;   // 表示は 9 桁(HUD を 1 桁ぶん詰めた)
+
+function drawHUD() {
+  hud.fill(0, 0, 0, VW, 16);
+  if (gameMode() === 'bossrush') {
+    // ボスラッシュは得点ではなく経過時間を出す
+    const t = 'TIME ' + formatTime(rushFrames);
+    hud.print(0, 0, t, 15);
+  } else {
+    hud.print(0, 0, String(score).padStart(SCORE_DIGITS, '0'), 15);
+  }
+  // 集めた宝珠(取ったぶんだけ点灯する)。
+  // ボスラッシュは宝珠を集めないので出さない
+  const starX = SCORE_DIGITS * 8 + 8;  // スコアとの間を 1 文字ぶん空ける
+  if (gameMode() !== 'bossrush') {
+    for (let i = 0; i < starsNeeded(); i++) {
+      hud.print(starX + i * 8, 0, '*', i < stars ? 7 : 14);
+    }
+  }
+  // 装備の表示は右端に詰めて並べる(1 項目 2 文字ぶん、間の余白なし)
+  const gear = [
+    ['power', 'W' + shotLevel, 11],                  // WIDE SHOT
+    ['damage', 'D' + damageLevel, 9],                // POWER SHOT
+    ['speed', 'S' + speedLevel, 3],                  // SPEED
+    ['rapid', 'R' + maxVolleys, 13],                 // RAPID FIRE
+    ['barrier', 'B' + barrierHP, 7],                 // BARRIER
+    ['life', 'x' + Math.max(0, ships - 1), 15],      // 残りストック
+  ];
+  // 練習モード(ボスと直接対決)のときは分かるように出す
+  if (bossPractice) hud.print(starX, 8, 'PRACTICE', 13);
+  let gx = VW - gear.length * 16;
+  for (const [kind, text, color] of gear) {
+    // 取った直後の項目は 1 秒だけ点滅させて、どれが上がったか分かるようにする
+    const blink = kind === gearBlinkKind && gearBlinkTimer > 0 && (gearBlinkTimer >> 2) % 2 === 0;
+    hud.print(gx, 0, text, blink ? 15 : color);
+    gx += 16;
+  }
+}
+
+// 取得した装備の HUD を 1 秒間点滅させる
+let gearBlinkKind = null;
+let gearBlinkTimer = 0;
+function blinkGear(kind) { gearBlinkKind = kind; gearBlinkTimer = 120; }  // 2 秒
+function updateGearBlink() {
+  if (gearBlinkTimer > 0) {
+    gearBlinkTimer--;
+    if (gearBlinkTimer % 4 === 0 || gearBlinkTimer === 0) drawHUD();
+  }
+}
+
+// アイテムを取ったときに画面下(ボスのライフゲージと同じ行)へ効果を出す
+let noticeTimer = 0;
+let noticeY = 176;   // いま知らせを出している高さ
+/**
+ * ポーズ中の裏技の知らせ。**必ず 1 行消してから**出す。
+ * 続けて打つと前の文字が残って重なって見えていた
+ */
+function cheatNotice(text) {
+  hud.fill(0, 0, 120, VW, 8);
+  hud.print(centerX(text), 120, text, 11);
+}
+
+/**
+ * 画面下の 1 行に知らせを出す。
+ * frames を渡すと、その長さだけ出しっぱなしにできる
+ * (会話のように「次のせりふが来るまで消したくない」ときに使う)
+ */
+/**
+ * 長い文を、画面の幅に収まるところで折り返す(最大 2 行)。
+ * 単語の切れ目で折るので、単語が真っ二つにならない
+ */
+function wrapNotice(text, cols = 28) {
+  if (text.length <= cols) return [text];
+  const out = [];
+  let cur = '';
+  for (const word of text.split(' ')) {
+    if (cur && (cur + ' ' + word).length > cols) { out.push(cur); cur = word; }
+    else cur = cur ? cur + ' ' + word : word;
+  }
+  if (cur) out.push(cur);
+  return out.slice(0, 2);
+}
+
+function showNotice(text, frames = 90, y = 176) {
+  hud.fill(0, 0, noticeY, VW, 16);   // 前の行を消してから
+  noticeY = y;
+  hud.fill(0, 0, noticeY, VW, 16);
+  // 画面いっぱいまで届く文は 2 行に折り返す
+  const lines = wrapNotice(text);
+  lines.forEach((t, i) => hud.print(centerX(t), noticeY + i * 8, t, 11));
+  noticeTimer = frames;
+}
+function updateNotice() {
+  if (noticeTimer > 0 && --noticeTimer === 0) hud.fill(0, 0, noticeY, VW, 16);
+}
+
+// 残り 1 機になったら「ピピピピ」と警告を出す(そのあいだだけ画面下に表示)
+const LAST_WARN = 'LAST SHIP!';
+const LAST_WARN_DELAY = 180;   // 音の 1 秒あとから文字を出す
+let lastWarnTimer = 0;
+function startLastShipWarning() {
+  lastWarnTimer = 240;
+  msx.audio.playSE('warning');
+}
+function updateLastShipWarning() {
+  if (lastWarnTimer <= 0) return;
+  lastWarnTimer--;
+  // 1 秒ごとに鳴らし直す(音は復帰と同時)
+  if (lastWarnTimer % 60 === 0 && lastWarnTimer > 0) msx.audio.playSE('warning');
+  // 文字は 1 秒おくれて出しはじめる
+  if (lastWarnTimer > LAST_WARN_DELAY) return;
+  if (lastWarnTimer % 20 === 0) {
+    if ((lastWarnTimer / 20) % 2 === 0) hud.print(centerX(LAST_WARN), 176, LAST_WARN, 8);
+    else hud.fill(0, 0, 176, VW, 8);
+  }
+  if (lastWarnTimer === 0) hud.fill(0, 0, 176, VW, 8);
+}
+
+// ボスのライフゲージ。スコア行のすぐ下に "BOSS" の文字と一緒に出す。
+// BG は 8 ドット単位でしか置けないので、枠のセルを黒で埋めてから
+// その中をドット単位のゲージに見立てて描く(見た目はなめらかに減る)。
+// ゲージは細く長く。右端の少し手前まで伸ばす
+const BAR_X = 48, BAR_Y = 8, BAR_W = 192;
+// 左から n ドットだけ赤く塗った 8x8 タイル(残りは黒)。
+// これを並べることで、8 ドット単位の BG でもドット単位で減るゲージに見せる。
+const BAR_TILES = [];
+// 灰色の枠のなかに、残っている体力を赤、削ったぶんを黒で見せる。
+// 枠があるので「最大 HP のうちどこまで減らせたか」がひと目で分かる。
+const BAR_TOP = 1, BAR_BOT = 6;   // 枠の上下(タイル内の行)
+for (let n = 0; n <= 8; n++) {
+  const pixels = new Uint8Array(64);
+  for (let y = 0; y < 8; y++) {
+    for (let x = 0; x < 8; x++) {
+      let c = 1;                                   // 枠の外は黒
+      if (y === BAR_TOP || y === BAR_BOT) c = 14;  // 枠(灰)
+      else if (y > BAR_TOP && y < BAR_BOT) c = x < n ? 8 : 1;   // 中身
+      pixels[y * 8 + x] = c;
+    }
+  }
+  BAR_TILES.push({ width: 8, height: 8, pixels });
+}
+
+/** ボスを倒したあとの面の評価。ボーナスをまとめて出す */
+function showStageResult(r, frames, bossBonus) {
+  // 大きい敵(目玉・小惑星・ロケット)を倒したぶんのボーナス
+  const bigBonus = bigKills * 2000;
+  const coinBonus = coinChainBest * 10;
+  const total = bossBonus + bigBonus + coinBonus;
+  score += bigBonus + coinBonus;   // TOTAL SCORE に含めるため先に足す
+  hud.fill(0, 0, 48, VW, 128);
+  // 本編の面(1..5)だけ番号を出す。
+  // 裏技やコンティニューの特別な相手(100 番台)は名前で出す
+  const t = stageNo <= LAST_STAGE
+    ? 'STAGE ' + stageNo + ' CLEAR!'
+    : (bossName(stageNo) || 'STAGE') + ' CLEAR!';
+  hud.print(centerX(t), 48, t, 11);
+  // 何のランクなのかが分かるように「撃破タイム」と並べて出す
+  const time = 'BOSS TIME ' + formatTime(frames);
+  hud.print(centerX(time), 68, time, 15);
+  const rows = [
+    ['BOSS RANK ' + r.rank, bossBonus, r.rank === 'C' ? 14 : 11],
+    ['BIG ENEMY', bigBonus, 14],
+    ['ITEM CHAIN', coinBonus, 14],
+    ['BONUS TOTAL', total, 11],
+    ['TOTAL SCORE', score, 15],
+  ];
+  rows.forEach(([label, v, color], i) => {
+    const y = 90 + i * 14;
+    hud.print(32, y, label, color);
+    hud.print(160, y, String(v).padStart(SCORE_DIGITS - 3, '0'), 15);
+  });
+  bigKills = 0;
+  coinChainBest = 0;
+  drawHUD();
+}
+
+function drawBossBar() {
+  hud.fill(0, 0, BAR_Y, VW, 8);
+  if (!boss || boss.dying > 0) return;
+  hud.print(8, BAR_Y, 'BOSS', 8);
+  const w = Math.max(0, Math.round(BAR_W * boss.hp / boss.max));
+  for (let i = 0; i * 8 < BAR_W; i++) {
+    const n = Math.max(0, Math.min(8, w - i * 8));
+    hud.draw(BAR_X + i * 8, BAR_Y, BAR_TILES[n]);
+  }
+  // 枠の左右のふた(1 ドット単位で塗る)
+  hud.fill(14, BAR_X - 1, BAR_Y + BAR_TOP, 1, BAR_BOT - BAR_TOP + 1, true);
+  hud.fill(14, BAR_X + BAR_W, BAR_Y + BAR_TOP, 1, BAR_BOT - BAR_TOP + 1, true);
+}
+
+// ---- タイトルロゴのまわりを回る光 ----
+// ロゴの外周(長方形)を 2 つの光がぐるぐる回る。
+// 絵はエンジンのパラパラアニメ(frames)にまかせる。
+const SPARK_COUNT = 2;
+let titleSparks = [];
+function ensureTitleSparks() {
+  if (titleSparks.length) return;
+  for (let i = 0; i < SPARK_COUNT; i++) {
+    const sp = msx.sprite(IMG.spark0);
+    sp.priority = 30;
+    sp.frames = [IMG.spark0, IMG.spark1, IMG.spark2, IMG.spark1];
+    sp.frameRate = 5;
+    sp.framePhase = i * 7;
+    titleSparks.push(sp);
+  }
+}
+// ロゴの「STAR」と「FABLE」それぞれの外接矩形を求めておく。
+// 光はこの矩形を少し小さくした線の上を回る(文字のかたまりに沿って動く)。
+let logoBoxes = null;
+function buildLogoBoxes() {
+  const img = IMG.logo;
+  const has = [];
+  for (let x = 0; x < img.width; x++) {
+    let any = false;
+    for (let y = 0; y < img.height; y++) {
+      if (img.pixels[y * img.width + x] !== 0) { any = true; break; }
+    }
+    has.push(any);
+  }
+  // 中身のある列のかたまりを拾い、いちばん広いすき間で 2 語に分ける
+  const runs = [];
+  for (let x = 0; x < img.width; x++) {
+    if (!has[x]) continue;
+    if (runs.length && x - runs[runs.length - 1][1] <= 1) runs[runs.length - 1][1] = x;
+    else runs.push([x, x]);
+  }
+  // 「STAR」と「FABLE」の切れ目を探す。字の間にも小さなすき間があるので、
+  // 真ん中あたり(幅の 30%〜70%)にあるいちばん広いすき間だけを見る
+  let gapAt = -1, gap = -1;
+  for (let i = 1; i < runs.length; i++) {
+    const at = runs[i - 1][1];
+    if (at < img.width * 0.3 || at > img.width * 0.7) continue;
+    const g = runs[i][0] - at;
+    if (g > gap) { gap = g; gapAt = i; }
+  }
+  if (gapAt < 0) gapAt = Math.max(1, Math.floor(runs.length / 2));
+  const groups = [runs.slice(0, gapAt), runs.slice(gapAt)];
+  logoBoxes = groups.map((g) => {
+    const x0 = g[0][0], x1 = g[g.length - 1][1];
+    let y0 = img.height, y1 = 0;
+    for (let x = x0; x <= x1; x++) {
+      for (let y = 0; y < img.height; y++) {
+        if (img.pixels[y * img.width + x] === 0) continue;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
+    }
+    // 文字のかたまりのすぐ外側(2 ドット外)を回らせる
+    const m = -2;
+    return { x0: x0 + m, y0: y0 + m, x1: x1 - m, y1: y1 - m };
+  });
+}
+
+function updateTitleSparks() {
+  ensureTitleSparks();
+  // ロゴが出ているページ(0 枚目)だけ光らせる
+  const on = (titlePage === 0);
+  if (!logoBoxes) buildLogoBoxes();
+  const ox = (SCREEN_W - IMG.logo.width) >> 1, oy = 32;
+  titleSparks.forEach((sp, i) => {
+    sp.visible = on;
+    if (!on) return;
+    // 光は 1 つずつ、STAR と FABLE の矩形を回る
+    const box = logoBoxes[i % logoBoxes.length];
+    const w = box.x1 - box.x0, h = box.y1 - box.y0;
+    const peri = (w + h) * 2;
+    let d = (msx.frame * 1.3) % peri;
+    let x, y;
+    if (d < w) { x = box.x0 + d; y = box.y0; }
+    else if ((d -= w) < h) { x = box.x1; y = box.y0 + d; }
+    else if ((d -= h) < w) { x = box.x1 - d; y = box.y1; }
+    else { d -= w; x = box.x0; y = box.y1 - d; }
+    sp.x = ox + Math.round(x) - 4; sp.y = oy + Math.round(y) - 4;
+  });
+}
+
+/**
+ * タイトルへ戻る。
+ * @param {number} [page] 出したいタイトル画面(既定はロゴ)
+ * @param {number} [focusRank] 一覧のこの順位(0 起点)を上下の真ん中に置く
+ */
+function enterTitle(page = 0, focusRank = -1, fromOver = false) {
+  cancelFlash();   // 光ったまま止まらないように
+  // 遊んだ面があれば CONTINUE を並びに入れる。
+  // ゲームオーバーから戻ったときは、それが選ばれた状態にする
+  refreshModes(fromOver);
+  state = 'title';
+  paused = false;
+  bossPractice = false;   // 練習モードはタイトルへ戻ったら解除
+  titleScene = true;      // タイトルは決まった背景にする
+  clearEntities();
+  player.visible = false;
+  msx.audio.stopBGM();
+  currentBGM = null;
+  hud.clear();
+  popups = [];
+  titlePage = page;
+  titleTimer = 0;
+  // 各モードで消した背景を戻す
+  neb.clear();
+  drawFarObjects();
+  drawTitlePage();
+  // 名前を登録した直後は、自分の順位が真ん中に来る位置から見せる
+  if (focusRank >= 0) {
+    if (page === 4) { rushTop = hiCenterTop(rushTable, focusRank); drawRushList(); }
+    else { hiTop = hiCenterTop(listTable(), focusRank); drawHiScoreList(); }
+  }
+}
+
+// タイトル画面は「ロゴ」と「アイテム説明」を交互に見せる
+let titlePage = 0;
+let titleTimer = 0;
+const PUSH_KEY = 'SPACE TO START';
+// ゲームモード(左右キーで選ぶ)。あとから増やせるように配列で持つ
+const ARROW_L = String.fromCharCode(0x1a), ARROW_R = String.fromCharCode(0x1b);
+/** 「PUSH SPACE KEY」の表示行(アイテム一覧のときは下にずらす) */
+const pushKeyY = () => (titlePage === 0 ? 128 : 176);
+
+// アイコンはゲーム中と同じ絵をそのまま並べる
+const ITEM_HELP = [
+  ['star', 'ORB - COLLECT FOR BOSS'],
+  ['power', 'WIDE SHOT'],
+  ['bomb', 'BOMB'],
+  ['speed', 'SPEED UP'],
+  ['rapid', 'RAPID FIRE'],
+  ['damage', 'POWER SHOT'],
+  ['barrier', 'BARRIER'],
+  ['life', '1UP'],
+  ['auto', '???'],   // 効果は伏せておく
+];
+
+// アイテム一覧のアイコンはスプライトで出す
+// (BG だと 8x8 セルの黒塗りでアイコンの上端が欠けてしまうため)
+let helpIcons = null;
+function helpIconSprites() {
+  if (!helpIcons) {
+    // 絵をずらしたコピーではなく元の絵を使う(ずらすと上端が欠けるため)。
+    // 位置を 4 ドット上げて文字と高さをそろえる。
+    helpIcons = ITEM_HELP.map(([kind]) => {
+      const sp = msx.sprite(ITEM_IMG[kind]);
+      sp.priority = 20;
+      sp.visible = false;
+      return sp;
+    });
+  }
+  return helpIcons;
+}
+
+// ハイスコア一覧: 8 人ずつ表示し、まず 1 位から見せてから
+// 自分の記録のところまで自動でスクロールする
+const HI_LIST_Y = 36;
+let hiTop = 0;          // 一覧の先頭に出す順位(0 起点)
+
+// 3 枚目が NORMAL、4 枚目が HARD のランキング(5 枚目はボスラッシュのタイム)
+const listTable = () => (titlePage === 3 ? hardTable : normalTable);
+
+/** その順位が一覧の上下の真ん中に来る「先頭の行」を返す */
+function hiCenterTop(tbl, rank) {
+  const maxTop = Math.max(0, tbl.entries.length - HISCORE_ROWS);
+  return Math.max(0, Math.min(maxTop, rank - (HISCORE_ROWS >> 1)));
+}
+
+function drawHiScoreList() {
+  const tbl = listTable();
+  const title = titlePage === 3 ? '- HISCORE(HARD) -' : '- HISCORE -';
+  hud.fill(0, 0, 0, VW, 176);
+  hud.print(centerX(title), 8, title, 15);
+  const mine = tbl.myIndex();
+  for (let r = 0; r < HISCORE_ROWS; r++) {
+    const i = hiTop + r;
+    const e = tbl.entries[i];
+    if (!e) continue;
+    const y = HI_LIST_Y + r * 16;
+    const isMine = i === mine;
+    hud.print(16, y, String(i + 1).padStart(3) + '.', isMine ? 11 : 14);
+    hud.print(56, y, (e.name + '     ').slice(0, 5), isMine ? 11 : 7);
+    hud.print(104, y, String(e.score).padStart(SCORE_DIGITS, '0'), isMine ? 11 : 15);
+  }
+  drawHiArrows(tbl.entries.length);
+}
+
+// 一覧の上下に出す ▲▼(点滅させない。消し込みで文字が欠けるため)
+function drawHiArrows(total) {
+  const up = String.fromCharCode(0x18), down = String.fromCharCode(0x19);
+  const yUp = HI_LIST_Y - 12, yDown = HI_LIST_Y + HISCORE_ROWS * 16 - 4;
+  const x = centerX(up);
+  hud.fill(0, x, yUp, 8, 8);
+  hud.fill(0, x, yDown, 8, 8);
+  if (hiTop > 0) hud.print(x, yUp, up, 11);
+  if (hiTop + HISCORE_ROWS < total) hud.print(x, yDown, down, 11);
+}
+
+let hiManual = false;   // 上下キーを触ったかどうか(いまは表示には使っていない)
+
+/**
+ * タイトルのハイスコア画面を 1 フレーム進める。
+ * ふだんの画面送りでは TOP から動かさない(自動スクロールはしない)。
+ * 見たい人は上下キーで自分でたどれる。
+ * 名前を登録した直後だけ、自分の順位が真ん中に来る位置から始まる。
+ */
+function updateHiScoreList() {
+  const maxTop = Math.max(0, listTable().entries.length - HISCORE_ROWS);
+  if (msx.input.isDown('ArrowUp') && msx.frame % 4 === 0) {
+    hiManual = true;
+    hiTop = Math.max(0, hiTop - 1);
+    drawHiScoreList();
+    return;
+  }
+  if (msx.input.isDown('ArrowDown') && msx.frame % 4 === 0) {
+    hiManual = true;
+    hiTop = Math.min(maxTop, hiTop + 1);
+    drawHiScoreList();
+  }
+}
+
+function drawTitlePage() {
+  hud.clear();
+  if (titlePage >= 2) { hiTop = 0; rushTop = 0; hiManual = false; }
+  for (const sp of helpIconSprites()) sp.visible = false;
+  if (titlePage === 0) {
+    // ロゴも BG として描く(スプライトで補助しない = 横8ドット2色の制約に従う)
+    hud.draw((SCREEN_W - IMG.logo.width) >> 1, 32, IMG.logo);
+    // エンジンと、見本のゲーム(STAR FABLE)の版
+    const ver = 'MMSXX ENGINE DEMO V1.0';
+    hud.print(centerX(ver), 80, ver, 14);
+    const hi = 'HI SCORE ' + String(topScore()).padStart(SCORE_DIGITS, '0');
+    hud.print(centerX(hi), 96, hi, 9); // 明るい赤
+    const help = String.fromCharCode(0x18, 0x19, 0x1a, 0x1b) + ':MOVE  SP:SHOT  ESC:PAUSE';
+    hud.print(centerX(help), 158, help, 10);
+    // 手元で開いているときだけ、隅に小さく印を出す(公開版には出ない)
+    if (msx.isLocal) hud.print(VW - 32, 184, 'DEV', 6);
+  } else if (titlePage === 1) {
+    hud.print(centerX('- ITEMS -'), 8, '- ITEMS -', 15);
+    const icons = helpIconSprites();
+    ITEM_HELP.forEach(([, desc], i) => {
+      const y = 24 + i * 16;
+      const sp = icons[i];
+      sp.x = 32; sp.y = y - 4; sp.visible = true;
+      hud.print(56, y, desc, 14);
+    });
+  } else if (titlePage === 2 || titlePage === 3) {
+    drawHiScoreList();
+  } else {
+    drawRushList();
+  }
+  drawModeLine();
+}
+
+// 「◀ SPACE TO START ▶」の行。左右キーでモードを選ぶ。
+// 矢印は本文より速く点滅させて「押せる」ことを示す。
+const MODE_LINE = ARROW_L + ' ' + PUSH_KEY + ' ' + ARROW_R;
+const modeLineX = () => centerX(MODE_LINE);
+// ボスラッシュで指定できる「特別な相手」を指す面番号
+const RUSH_EYES = 101;   // 目玉 2 体
+const RUSH_MOAI = 102;   // 合体モアイ
+const RUSH_TODO = 103;   // 仮ボス「未実装君」(6 面がラスボスになったので本編から外れた)
+
+// ボスラッシュで戦う相手。0 = 4 体タイムアタック / それ以外はその相手だけ。
+// 相手の選択はボスラッシュのメニュー(rushMenuList)で行う
+let rushOne = 0;   // 0 = 4 体タイムアタック / それ以外はその相手だけ
+
+let modeLineCont = false;
+
+function drawModeLine() {
+  const y = pushKeyY();
+  hud.fill(0, 0, y, VW, 16);
+  const x = modeLineX();
+  hud.print(x + 16, y, PUSH_KEY, 15);
+  hud.print(x, y, ARROW_L, 11);
+  hud.print(x + (MODE_LINE.length - 1) * 8, y, ARROW_R, 11);
+  const name = MODES[modeIndex].name;
+  hud.print(centerX(name), y + 8, name, 14);
+  // 下キーを押しているあいだは「続きから」に変わる(遊んだ面がある場合だけ)
+  if (continueStageNow() > 1 && msx.input.isDown('ArrowDown')) {
+    const c = 'CONTINUE  STAGE ' + continueStageNow();
+    hud.fill(0, 0, y, VW, 8);
+    hud.print(centerX(c), y, c, 11);
+  }
+}
+/** タイトルの点滅(本文はゆっくり、矢印は速く) */
+function updateModeLine() {
+  const y = pushKeyY();
+  const x = modeLineX();
+  // 下キーを押しているあいだは「続きから」の案内に切り替える
+  const cont = continueStageNow() > 1 && msx.input.isDown('ArrowDown');
+  if (cont !== modeLineCont) {
+    modeLineCont = cont;
+    drawModeLine();
+    return;
+  }
+  if (cont) return;   // 案内を出しているあいだは点滅させない
+  if (msx.frame % 32 === 0) hud.print(x + 16, y, PUSH_KEY, 15);
+  else if (msx.frame % 32 === 16) hud.fill(0, x + 16, y, PUSH_KEY.length * 8, 8);
+  if (msx.frame % 12 === 0) {
+    const on = (msx.frame / 12) % 2 === 0;
+    hud.print(x, y, on ? ARROW_L : ' ', 11);
+    hud.print(x + (MODE_LINE.length - 1) * 8, y, on ? ARROW_R : ' ', 11);
+  }
+}
+
+function startStage() {
+  if (currentBGM === 'elise') { msx.audio.stopBGM(); currentBGM = null; }
+  // ここまでタイトル用の背景だったので、面の背景に切り替える。
+  // (以前はボスが出るまで解除されず、1 面がずっとタイトルの背景のままだった)
+  titleScene = false;
+  paused = false;
+  clearEntities();
+  for (const sp of helpIconSprites()) sp.visible = false;
+  playFrame = 0;
+  waveIndex = 0;
+  cubeIndex = 0;
+  stars = 0;
+  bossIntro = 0;
+  bigKills = 0;
+  coinChainBest = 0;
+  dragonSpot = null;    // そらのドラゴンの顔(ラスボスの面でだけ作られる)
+  secretSpots = null;   // 待ち時間の隠し場所
+  jupiterShown = false;
+  eyeSpawned = false;   // 目玉はステージごとに 1 回
+  moaiSpawned = false;  // モアイもステージごとに 1 回
+  clearMoai();
+  eyeKillFrame = -999;
+  clearTimer = 0;
+  invincible = 220;
+  entering = false;
+  leaving = false;
+  respawnDelay = 0;
+  neb.clear();
+  drawFarObjects(); // 新しい面として背景を描き直す
+  player.x = (SCREEN_W - 16) / 2;
+  player.y = SCREEN_H + 24;   // ジングル後半で下から入ってくる
+  player.visible = false;
+  enterDelay = 115;  // ジングルの途中(約 1.9 秒)で自機が入ってくる
+  hud.clear();
+  popups = [];
+  // ボスラッシュは雑魚を出さず、はじめからボス戦に入る
+  if (gameMode() === 'bossrush' || bossPractice) stars = starsNeeded();
+  drawHUD();
+  if (gameMode() === 'bossrush') {
+    // ボスラッシュはジングルを鳴らさず、すぐボス戦の曲で始める
+    jingleTimer = 0;
+    enterDelay = 30;
+    playBGM('boss', true);
+  } else {
+    // 開始ジングルを鳴らし、鳴り終わってから本編 BGM に切り替える
+    playBGM('start', false, true);
+    // 開始ジングル(約 4.74 秒)のあと、少し間を置いてから本編 BGM に入る
+    jingleTimer = 330;
+    // ジングルのあいだ、いま何面かを大きく出す。
+    // 裏技でしか出てこない面(本編の面数より大きい)は数字を出さない
+    stageNoticeTimer = 240;
+    // 最後の面は数字ではなく FINAL STAGE と出す
+    const label = stageNo === LAST_STAGE ? 'FINAL STAGE'
+      : stageNo < LAST_STAGE ? 'STAGE ' + stageNo : '';
+    if (label) hud.print(centerX(label), 72, label, 11);
+  }
+  // 2 回目のコンティニュー。面が始まってすぐ、未実装さんが顔を出す
+  if (todoGuest) {
+    todoGuest = false;
+    markMet('todo');        // ボスラッシュで戦えるようになる
+    beginBossMode();        // ボス戦の下ごしらえ(背景など)だけ borrow する
+    spawnTodoBoss();
+    boss.guest = true;      // 倒しても面はクリアにならない(客人あつかい)
+    showNotice('WHO IS THIS?');
+  }
+}
+
+// 面の始めに出す「STAGE n」の残り時間
+let stageNoticeTimer = 0;
+function updateStageNotice() {
+  if (stageNoticeTimer <= 0) return;
+  if (--stageNoticeTimer === 0) hud.fill(0, 0, 72, VW, 8);
+}
+
+/**
+ * そのモードの「はじまりの装備」に戻す。
+ * ゲーム開始のときと、NORMAL でやられたときに使う。
+ * NORMAL とボスラッシュは各装備を 1 段階ぶん持った状態から始める
+ * (ボスラッシュはいきなりボス戦なので、丸腰だと厳しいため)。
+ * HARD だけは丸腰から。
+ */
+function applyStartGear() {
+  const geared = isNormal() || gameMode() === 'bossrush';
+  shotLevel = geared ? 3 : 1;
+  speedLevel = geared ? 2 : 1;
+  maxVolleys = geared ? 2 : 1;
+  damageLevel = geared ? 2 : 1;
+  barrierHP = geared ? 1 : 0;
+  autoFire = 0;
+}
+
+/**
+ * コンティニュー用に覚えておく面。
+ * 遊び終わった(死んだ)ときの面を残し、クリアしたら 1 へ戻す。
+ * タイトルで**下キーを押しながら決定**すると、そこから始められる。
+ * **難度ごとに別々に覚える**(NORMAL の続きで HARD が始まったりしないように)。
+ */
+const continueStages = { normal: 1, hard: 1 };
+/** いまのモードを、コンティニューの覚え先の名前に読み替える(CONTINUE は NORMAL) */
+function continueKey() {
+  return gameMode() === 'continue' ? 'normal' : gameMode();
+}
+/** いまのモードのコンティニュー先。CONTINUE は NORMAL の続き */
+function continueStageNow() {
+  return continueStages[continueKey()] || 1;
+}
+
+/**
+ * 遊んだ面があるときだけ、タイトルの並びに CONTINUE を入れる。
+ * 上下キーで選ぶ形だとハイスコアの一覧が動いてしまうので、
+ * ふつうのモードの 1 つとして並べる。
+ * ゲームオーバーからタイトルへ戻ったときは、ここが選ばれた状態にする。
+ */
+function refreshModes(select = false) {
+  const at = MODES.findIndex(m => m.id === 'continue');
+  const want = continueStages.normal > 1 || continueStages.hard > 1;
+  if (want && at < 0) MODES.splice(1, 0, { id: 'continue', name: 'CONTINUE' });
+  else if (!want && at >= 0) MODES.splice(at, 1);
+  if (select) modeIndex = Math.max(0, MODES.findIndex(m => m.id === 'continue'));
+  modeIndex = Math.max(0, Math.min(modeIndex, MODES.length - 1));
+}
+
+// コンティニューした回数(1 ゲーム中)。2 回目に未実装さんが顔を出す
+let continueCount = 0;
+// 未実装さんを「客人」として出す予約。ふつうのボスとは扱いが違う
+let todoGuest = false;
+// 置いていった飴の残り。3 つ全部拾うとボーナス
+let candyLeft = 0;
+// 何個続けて拾ったか。取るたびに得点が倍になる
+let candyCombo = 0;
+const CANDY_MAX = 102400;   // 倍々の上限
+// 飴の 2 色(ピンク 9 と水色 7)を入れ替える表
+const CANDY_SWAP = { 9: 7, 7: 9 };
+
+function enterPlay(fromContinue = false) {
+  cancelFlash();
+  state = 'play';
+  score = 0;
+  ships = isNormal() ? 5 : 3;
+  // 下キーを押しながら始めると、最後に遊んでいた面から続けられる
+  // CONTINUE を選んだときは、最後に遊んでいた面から始める
+  stageNo = fromContinue ? continueStageNow() : 1;
+  // **2 回目のコンティニュー**のときだけ、未実装さんが先に顔を出す。
+  // 一度会ったら、それ以降のコンティニューでは出てこない
+  if (fromContinue && ++continueCount === 2 && !metSet.has('todo')) todoGuest = true;
+  // NORMAL とボスラッシュは、各装備を 1 段階ぶん持った状態で始める
+  // (ボスラッシュはいきなりボス戦なので、丸腰だと厳しいため)。
+  // ボスラッシュのショットだけは 3 段階目(前 2 発 + 後ろ 1 発)から。
+  // NORMAL はボスラッシュと同じ初期装備で始める(丸腰の時間を作らない)
+  applyStartGear();
+  coinValue = COIN_BASE;
+  // ドラゴンの炎はやられても消えないが、新しいゲームでは持ち越さない
+  dragonFlame = false;
+  // モアイの案内は 1 プレイに 1 回ずつ。新しいゲームでは出し直す
+  moaiToldWait = false;
+  moaiToldInside = false;
+  continueCount = 0;
+  todoGuest = false;
+  bossPractice = false;
+  usedKonami = false;  // 隠しコマンドは 1 ゲームに 1 回ずつ
+  usedStageWarp = false;
+  usedBossWarp = false;
+  usedHyper = false;
+  autoFireUses = 0;
+  typed = '';
+  konamiPos = 0;
+  // 始めたときのランキングを覚えておく(ランクインしたか判定する基準)
+  rankSnapshot = snapshotRanking();
+  stats.startSession({ mode: gameMode() });
+  statStageScore = 0;
+  rushStartFrame = -1;
+  rushFrames = 0;
+  if (gameMode() === 'bossrush') startBossRush();
+  else startStage();
+}
+
+// ---- 開発用: SNS シェア用の絵を試すためのキャプチャ ----
+// ゲームを始めたときのランキングを覚えておき、その基準でランクインしていたら
+// 「GAME OVER と出る直前」の画面を capture/ へ保存する(新しい 10 枚だけ残る)。
+// 手元(DEV)でだけ動く仮のしくみ。要らなくなったらこの節と serve.js の
+// /__capture をまとめて消してよい。
+let rankSnapshot = null;
+
+/** ゲーム開始時のランキングを覚える(あとで「載るか」を判定するため) */
+function snapshotRanking() {
+  const t = scoreTable();
+  return { scores: t.entries.map(e => e.score || 0), max: t.max };
+}
+
+/** 開始時のランキングを基準にして、この得点が載るか */
+function willRankIn(v) {
+  if (!rankSnapshot) return false;
+  const { scores, max } = rankSnapshot;
+  if (scores.length < max) return true;
+  return v > scores[max - 1];
+}
+
+/** いまの画面を開発サーバへ送って capture/ に残す */
+function captureShare(name) {
+  if (!msx.isLocal) return;
+  try {
+    const image = msx.capture();   // 原寸(いちばん安い)
+    fetch('/__capture', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image, name }),
+    }).catch(() => {});   // 保存に失敗してもゲームは続ける
+  } catch (e) {
+    msx.errors.log('capture 失敗: ' + e);
+  }
+}
+
+/**
+ * いまの画面をクリップボードへコピーする(ALT+S / SHIFT+ESC)。
+ * 自動保存(capture/ フォルダ)は DEV のときの別の仕組みで、こちらは
+ * **公開版でも使える**。画面には短く知らせを出す。
+ */
+function captureClipboard() {
+  // 知らせの文字は出さない(撮った絵に写ってしまうため)。
+  // 代わりにシャッター音を、いちばん強い優先度で鳴らす
+  msx.audio.playSE('shutter', SE_JINGLE);
+  try {
+    const canvas = msx.capture({ type: 'canvas' });
+    // 原寸だと小さいので、3 倍のドットのまま大きくして貼りやすくする
+    const out = document.createElement('canvas');
+    out.width = canvas.width * 3; out.height = canvas.height * 3;
+    const cx = out.getContext('2d');
+    cx.imageSmoothingEnabled = false;
+    cx.drawImage(canvas, 0, 0, out.width, out.height);
+    out.toBlob((blob) => {
+      if (!blob || !navigator.clipboard || !window.ClipboardItem) {
+        msx.errors.log('clipboard が使えない環境です');
+        return;
+      }
+      navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+        .catch((e) => msx.errors.log('clipboard 書き込み失敗: ' + e));
+    }, 'image/png');
+  } catch (e) {
+    msx.errors.log('clipboard 失敗: ' + e);
+  }
+}
+
+/** NORMAL は参考記録(ランキングには載せない) */
+// NORMAL も別表に載るので、どのモードでも記録は残る
+const scoreCountsForRanking = () => true;
+
+function enterGameOver() {
+  // ラスボスに負けたときは、画面を止めて高笑いを聞かせる。
+  // (倒したときの名乗りと対になる演出)
+  if (boss && boss.kind === 'king' && boss.dying <= 0 && !bossPractice) {
+    msx.audio.stopBGM();
+    currentBGM = null;
+    msx.audio.stopSE();
+    talkName = 'kingLaugh';
+    talkBlast = false;
+    talkHold = 60 + TALK_HOLD_FRAMES;   // 1 秒おいてから笑い出す
+  }
+  // 次にコンティニューできるよう、遊び終わった面を覚えておく。
+  // シーンセレクトで飛んだ先で死んだときも、その面から続けられてよい
+  // (ボスラッシュはモードそのものに覚え先が無いので、ここには入らない)
+  if (continueStages[continueKey()] !== undefined) {
+    continueStages[continueKey()] = stageNo;
+  }
+  statsStageEnd();
+  // 開発中だけ: ランクインしていたら、GAME OVER の文字が出る前の画面を残す
+  if (msx.isLocal && gameMode() !== 'bossrush' && willRankIn(score)) {
+    captureShare('rankin' + score);
+  }
+  statsFinish();
+  state = 'over';
+  stateTimer = 0;
+  player.visible = false;
+  playBGM('gameover', false);
+  hud.print(centerX('GAME OVER'), 88, 'GAME OVER', 9);
+  // ボスラッシュは得点を出していないので、得点まわりの表示はしない
+  if (gameMode() === 'bossrush') return;
+  if (isHiScore(score)) {
+    hud.print(centerX('NEW RECORD!'), 104, 'NEW RECORD!', 11);
+    const m = 'SPACE TO ENTER NAME';
+    hud.print(centerX(m), 120, m, 14);
+  }
+}
+
+// ---- 名前入力(ハイスコア更新時) ----
+// キーボードで打ち込んでも、カーソルキーで 1 文字ずつ選んでも入力できる。
+// (タッチ環境ではキーボードが使えないので、左右で桁・上下で文字を選ぶ昔ながらの方式)
+const NAME_MAX = 5;
+const NAME_CHARS = ' ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-,.?!';
+let entryName = '';
+let entryPos = 0;            // いま選んでいる桁(0..NAME_MAX-1)
+
+let entryTarget = 'score';   // 'score' = 得点の表 / 'rush' = ボスラッシュのタイム表
+
+/** i 桁目を置き換える(足りないぶんは空白で埋める) */
+function setNameChar(i, ch) {
+  const a = entryName.padEnd(NAME_MAX, ' ').split('');
+  a[i] = ch;
+  entryName = a.join('').slice(0, NAME_MAX);
+}
+
+/** いま選んでいる桁の文字を n 個ぶん送る(上下キー) */
+function cycleNameChar(n) {
+  const cur = entryName.padEnd(NAME_MAX, ' ')[entryPos];
+  const at = NAME_CHARS.indexOf(cur);
+  const next = ((at < 0 ? 0 : at) + n + NAME_CHARS.length) % NAME_CHARS.length;
+  setNameChar(entryPos, NAME_CHARS[next]);
+}
+
+function enterNameEntry(target = 'score') {
+  entryTarget = target;
+  state = 'entry';
+  // 前回入れた名前を初期値にする(そのまま ENTER で登録できる)
+  const meTbl = scoreTable();
+  entryName = (meTbl.me && meTbl.me.name) ? meTbl.me.name : '';
+  entryPos = 0;
+  clearEntities();
+  player.visible = false;
+  aux.visible = false;
+  // ゲームオーバー曲を止めてから、名前入力の「エリーゼのために」を流す
+  msx.audio.stopBGM();
+  playBGM('elise', true);
+  hud.clear();
+  popups = [];
+  drawNameEntry();
+}
+
+/** 1 -> '1ST' / 2 -> '2ND' / 3 -> '3RD' / それ以外 -> 'nTH' */
+function ordinal(n) {
+  const tens = n % 100;
+  if (tens >= 11 && tens <= 13) return n + 'TH';
+  return n + (['TH', 'ST', 'ND', 'RD'][n % 10] || 'TH');
+}
+
+/** いまの記録が入る順位の見出し(NORMAL / HARD / ボスラッシュのどれでも出す) */
+function entryRankLine() {
+  const rush = entryTarget === 'rush';
+  const table = rush ? rushTable : scoreTable();
+  const rank = table.rankOf(rush ? { frames: rushFrames } : { score });
+  if (rank < 0) return '';
+  // どのランキングに載るのかも一緒に見せる。
+  // ふつうのゲームは名前を付けずに順位だけ出す(NORMAL とは名乗らない)
+  const where = rush ? 'BOSS RUSH  ' : (gameMode() === 'hard' ? 'HARD  ' : '');
+  return where + ordinal(rank + 1) + ' PLACE';
+}
+
+function drawNameEntry() {
+  hud.fill(0, 0, 40, VW, 80);
+  hud.print(centerX('NEW RECORD!'), 40, 'NEW RECORD!', 11);
+  const s = entryTarget === 'rush'
+    ? 'TIME ' + formatTime(rushFrames)
+    : 'SCORE ' + String(score).padStart(SCORE_DIGITS, '0');
+  hud.print(centerX(s), 56, s, 15);
+  // 何位に入るのかを出す(名前を入れる気になるように)
+  const rankLine = entryRankLine();
+  if (rankLine) hud.print(centerX(rankLine), 68, rankLine, 11);
+  hud.print(centerX('ENTER YOUR NAME'), 80, 'ENTER YOUR NAME', 14);
+  drawNameRow();
+  const help1 = 'TYPE OR PICK WITH ARROWS';
+  hud.print(centerX(help1), 120, help1, 10);
+  const help2 = 'ENTER:OK  BS:DEL  ESC:SKIP';
+  hud.print(centerX(help2), 132, help2, 10);
+}
+
+/** 入力欄の 5 桁と、いま選んでいる桁の下じるし(点滅する) */
+function drawNameRow() {
+  // 空白の桁はアンダーラインにして、5 桁あることが分かるようにする
+  const padded = entryName.padEnd(NAME_MAX, ' ');
+  const shown = padded.replace(/ /g, '_');
+  const x = centerX(shown);
+  hud.fill(0, 0, 100, VW, 16);
+  hud.print(x, 100, shown, 7);
+  // 選んでいる桁だけ、下に▲を点滅させる(上下キーで変えられる目印)
+  if ((msx.frame >> 4) & 1) return;
+  hud.print(x + entryPos * 8, 108, String.fromCharCode(0x18), 11);
+}
+
+/** 名前入力の 1 フレームぶん。確定したらハイスコアに登録してタイトルへ */
+function updateNameEntry() {
+  let changed = false;
+  // 下じるしの点滅ぶんだけは毎フレーム描き直す
+  if (msx.frame % 16 === 0) drawNameRow();
+  /** 打ち込みで 1 文字入れる。いま選んでいる桁に置いて、次の桁へ進む */
+  const typeChar = (ch) => {
+    setNameChar(entryPos, ch);
+    if (entryPos < NAME_MAX - 1) entryPos++;
+    changed = true;
+  };
+  // カーソルキー: 左右で桁を選び、上下でその桁の文字を送る
+  if (msx.input.wasPressed('ArrowLeft')) { entryPos = (entryPos + NAME_MAX - 1) % NAME_MAX; changed = true; }
+  if (msx.input.wasPressed('ArrowRight')) { entryPos = (entryPos + 1) % NAME_MAX; changed = true; }
+  if (msx.input.wasPressed('ArrowUp')) { cycleNameChar(1); changed = true; }
+  if (msx.input.wasPressed('ArrowDown')) { cycleNameChar(-1); changed = true; }
+  for (let i = 0; i < 26; i++) {
+    if (msx.input.wasPressed('Key' + String.fromCharCode(65 + i))) typeChar(String.fromCharCode(65 + i));
+  }
+  for (let i = 0; i < 10; i++) {
+    if (msx.input.wasPressed('Digit' + i)) typeChar(String(i));
+  }
+  // 記号も入れられる(スペースは名前の一部。決定には使わない)
+  const SYMBOLS = [
+    ['Space', ' '], ['Minus', '-'], ['Comma', ','], ['Period', '.'],
+    ['Slash', '?'], ['Digit1', '!'],
+  ];
+  for (const [code, ch] of SYMBOLS) {
+    // '!' と '?' は Shift 付きなので、記号キー単体でも入るようにしてある
+    if (code === 'Digit1' || code === 'Slash') continue;
+    if (msx.input.wasPressed(code)) typeChar(ch);
+  }
+  if (msx.input.wasPressed('Slash')) typeChar('?');
+  if (msx.input.wasPressed('Backslash') || msx.input.wasPressed('Equal')) typeChar('!');
+  if (msx.input.wasPressed('Backspace')) {
+    // いまの桁に文字が入っていればそこを消す。空ならひとつ前へ戻って消す。
+    // (打ち終わりはカーソルが最後の桁に乗ったままなので、
+    //  いきなり前へ戻すと最後の 1 文字が消せなかった)
+    const cur = entryName.padEnd(NAME_MAX, ' ')[entryPos];
+    if (cur === ' ' && entryPos > 0) entryPos--;
+    setNameChar(entryPos, ' ');
+    changed = true;
+  }
+  // 抜けるのは ESC だけ(スペースは名前に入れる文字なので使わない)
+  if (msx.input.wasPressed('Escape')) {
+    msx.audio.stopBGM(); currentBGM = null;
+    enterTitle(0, -1, true);   // ここもゲームオーバー明けなので CONTINUE を選ぶ
+    return;
+  }
+  if (msx.input.wasPressed('Enter')) {
+    // エンジンのハイスコア表に登録する(自分の記録として覚えられる)
+    const name = entryName.replace(/\s+$/, '') || 'NONAME';
+    const rush = entryTarget === 'rush';
+    const rank = rush
+      ? rushTable.add({ name, frames: rushFrames })
+      : scoreTable().add({ name, score });
+    msx.audio.stopBGM();
+    currentBGM = null;
+    // 登録したらそのランキングの一覧へ。自分の順位が上下の真ん中に来る
+    // (ボスラッシュはタイムの表、それ以外は NORMAL / HARD それぞれの表)
+    const page = rush ? 4 : (gameMode() === 'hard' ? 3 : 2);
+    // 名前を入れ終わったあとも CONTINUE を選んだ状態で戻す
+    enterTitle(page, rank, true);
+    return;
+  }
+  if (changed) { msx.audio.playSE('item'); drawNameEntry(); }
+}
+
+/** 被弾: バリアが最優先で身代わり、次にパワーダウン、1way なら爆発して 1 機失う */
+function damagePlayer(cause = 'unknown') {
+  startShake(10);
+  if (barrierHP > 0) {
+    barrierHP--;
+    invincible = 110;
+    msx.audio.playSE('powerdown');
+    showNotice('BARRIER LOST');
+    drawHUD();
+    return;
+  }
+  // NORMAL は装備が下がらない(バリアだけが盾になる)
+  if (!isNormal() && shotLevel > 1) {
+    shotLevel--;
+    invincible = 100;
+    msx.audio.playSE('powerdown');
+    drawHUD();
+    return;
+  }
+  destroyPlayer(cause);
+}
+
+/**
+ * 一撃で瀕死にする攻撃(ボスへの体当たり・小惑星・ミサイル)。
+ * 装備を 1 段階(ワイドショット 1・バリア無し)まで削り、
+ * すでに瀕死ならその場で 1 機失う。
+ */
+/**
+ * クリティカルの**見た目だけ**を出す(体力も装備も減らさない)。
+ * 未実装君の涙のように「痛そうだが痛くない」ものに使う
+ */
+function criticalLook() {
+  startShake(18);
+  msx.audio.playSE('bigboom', SE_HIT);
+  for (let i = 0; i < 6; i++) {
+    spawnBoom(player.x - 12 + Math.random() * 32, player.y - 12 + Math.random() * 32);
+  }
+  flashTimer = 3;
+  // 本物と見分けが付くよう、にせのほうは最後を「?」にする
+  showNotice('CRITICAL?');
+}
+
+function criticalHit(cause) {
+  if (invincible > 0 || respawnDelay > 0 || state !== 'play') return;
+  startShake(18);
+  // NORMAL は装備を削らない。バリアがあればそれで受け、無ければ 1 機失う
+  if (isNormal()) {
+    if (barrierHP <= 0) { destroyPlayer(cause); return; }
+    barrierHP = 0;
+    invincible = 120;
+    msx.audio.playSE('powerdown');
+    showNotice('BARRIER LOST');
+    drawHUD();
+    return;
+  }
+  if (shotLevel <= 1 && barrierHP <= 0) { destroyPlayer(cause); return; }
+  shotLevel = 1;
+  barrierHP = 0;
+  invincible = 120;
+  // 大事な音なので優先度を上げ、細かい爆発を自機のまわりに散らす
+  msx.audio.playSE('bigboom', SE_HIT);
+  for (let i = 0; i < 6; i++) {
+    spawnBoom(player.x - 12 + Math.random() * 32, player.y - 12 + Math.random() * 32);
+  }
+  flashTimer = 3;
+  showNotice('CRITICAL!');
+  drawHUD();
+}
+
+/** 即死。バリアやパワーに関係なく 1 機失う(キューブへの衝突・レーザー直撃) */
+function destroyPlayer(cause = 'unknown') {
+  if (respawnDelay > 0 || state !== 'play') return;
+  startShake(26);
+  // NORMAL はバリアがあればそれで肩代わり。装備そのものは下げない
+  if (isNormal() && barrierHP > 0) { damagePlayer(cause); return; }
+  // 大きな爆発を重ねて、やられたことがはっきり分かるようにする
+  spawnBoom(player.x, player.y);
+  for (let i = 0; i < 10; i++) {
+    const a = (Math.PI * 2 * i) / 10 + Math.random() * 0.4;
+    const d = 6 + Math.random() * 20;
+    spawnBoom(player.x + Math.cos(a) * d, player.y + Math.sin(a) * d);
+  }
+  for (let i = 0; i < 8; i++) {
+    // 破片が四方へ飛び散る(当たらない飾り)
+    const a = (Math.PI * 2 * i) / 8 + Math.random() * 0.3;
+    spawnWeakSpark(player.x + Math.cos(a) * 10, player.y + Math.sin(a) * 10);
+  }
+  flashTimer = 5;
+  // やられた瞬間に残っていた弾は消す(復活演出中に当たり続けないように)
+  for (const b of [...bullets]) removeBullet(b);
+  // 自機がやられた音は何よりも聞こえてほしいので優先度を上げる
+  msx.audio.playSE('bigboom', SE_HIT);
+  statsDeath(cause);
+  // やられたら「はじまりの装備」に戻す。
+  // HARD は丸腰へ、NORMAL とボスラッシュはそのモードの初期装備へ戻る
+  // (これまで NORMAL だけ何も戻らず、上げた装備を持ったままだった)。
+  applyStartGear();
+  coinValue = COIN_BASE;
+  ships--;
+  if (ships <= 0) {
+    enterGameOver();
+  } else {
+    // 爆発を見せてから復帰させる
+    player.visible = false;
+    invincible = 400;
+    respawnDelay = 75;
+    spawnUfoWave(true); // ミス直後は弾を撃たない UFO の群れが通り過ぎる
+    if (ships === 1) startLastShipWarning(); // これが最後の 1 機
+    drawHUD();
+  }
+}
+
+/** ミス後の復帰: 画面下の外から SE と一緒にせり上がってくる */
+function respawnPlayer() {
+  player.x = (SCREEN_W - 16) / 2;
+  player.y = SCREEN_H + 24;
+  player.visible = true;
+  entering = true;
+  invincible = 160;
+  msx.audio.playSE('appear');
+}
+
+const ITEM_IMG = {
+  power: IMG.item, star: IMG.star, bomb: IMG.bomb,
+  speed: IMG.speedUp, rapid: IMG.rapidUp, life: IMG.oneUp,
+  damage: IMG.powerUp, barrier: IMG.barrierItem,
+  coin: IMG.coinItem, auto: IMG.autoItem,
+  // そらのドラゴンの顔からだけ出る。取るとフルパワー(オート連射ではない)
+  dragon: IMG.dragonItem,
+  // 未実装さんを見逃すと置いていく飴。取っても何も起きない
+  candy: IMG.candyItem,
+};
+
+// 点滅用の白バージョン
+const ITEM_IMG_W = {};
+for (const [k, img] of Object.entries(ITEM_IMG)) ITEM_IMG_W[k] = recolor(img, 15);
+
+/** 絵を n ドットだけ上へずらしたコピーを作る */
+function shiftUp(img, n) {
+  const pixels = new Uint8Array(img.pixels.length);
+  for (let y = 0; y < img.height - n; y++) {
+    for (let x = 0; x < img.width; x++) {
+      pixels[y * img.width + x] = img.pixels[(y + n) * img.width + x];
+    }
+  }
+  return { width: img.width, height: img.height, pixels };
+}
+
+// タイトルのアイテム一覧用。16x16 の枠に対して絵が中央(2 ドット下)にあるので、
+// 8x8 の文字と高さがそろうよう 4 ドット上げたものを使う。
+const ITEM_ICON = {};
+for (const [k, img] of Object.entries(ITEM_IMG)) ITEM_ICON[k] = shiftUp(img, 4);
+
+/**
+ * アイテムの種類を抽選する。すでに上限に達していて効果のないものは出さない。
+ * (パワー最大の P はボムとして働くので候補に残す)
+ */
+// スコアの 100 の位でアイテムの種類が決まる(0 のときだけランダム)。
+// 昔のゲームにあった「スコアの桁で中身が変わる」仕掛け(100 の位で決まる)。
+// WAY 数(power)が主役なので、数字の割り当ても power を多めにする
+const ITEM_BY_DIGIT = [
+  null,       // 0 = ランダム(1UP はここでだけ出る)
+  'power',    // 1
+  'power',    // 2
+  'speed',    // 3
+  'power',    // 4
+  'rapid',    // 5
+  'power',    // 6
+  'damage',   // 7
+  'power',    // 8
+  'damage',   // 9  (バリアと 1UP はランダム枠から出る)
+];
+
+// 選び直しの候補。1UP は 100 の位が 0(ランダム枠)のときだけ候補に加わる
+const ITEM_KINDS = ['power', 'speed', 'rapid', 'damage', 'barrier'];
+
+function randomItemKind() {
+  // 100 の位で決める。同じ数字に張り付いたときの逃げとして小さな乱数を足す
+  const digit = (Math.floor(score / 100) + Math.floor(Math.random() * 3)) % 10;
+  const kind = ITEM_BY_DIGIT[digit];
+
+  // すでに上限で、取っても意味がないもの
+  const maxed = {
+    power: shotLevel >= MAX_POWER,
+    speed: speedLevel >= SPEED_TABLE.length,
+    rapid: maxVolleys >= MAX_VOLLEY_LIMIT,
+    damage: damageLevel >= DAMAGE_TABLE.length,
+    barrier: barrierHP >= MAX_BARRIER,
+    life: ships >= MAX_SHIPS,
+  };
+  if (kind && !maxed[kind]) return kind;
+
+  // 数字がランダム枠(0)か、意味がないものだったときは、
+  // まだ効果のあるものから選び直す(全部そろっていたらボム)。
+  // 1UP はランダム枠のときだけ candidates に加わる。
+  // $ は数字では出ず、このランダム枠と通常の敵からだけ出る(? は黄色いキューブ専用)
+  const extras = digit === 0 ? ['life', 'coin', 'coin'] : [];
+  const candidates = ITEM_KINDS.concat(extras);
+  const useful = candidates.filter(k => !maxed[k]);
+  if (!useful.length) return Math.random() < 0.5 ? 'coin' : 'bomb';
+  // WAY 数が主役なので、まだ上げられるうちは出やすくしておく
+  // ワイドが 3 段階以上になったら出やすさを下げて、$ やボムに回す
+  const bonus = maxed.power ? [] : (shotLevel >= 3 ? ['power'] : ['power', 'power']);
+  const pool = useful.concat(bonus);
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+/** @param {'power'|'star'|'bomb'|'speed'|'rapid'|'life'|'damage'|'barrier'} kind */
+/**
+ * アイテムを落とす。
+ * toss を渡すと、その速さで **放り上げて**、重力で落ちてくる。
+ * (置くだけだと、下へ流れてすぐ画面から消えてしまうため)
+ */
+function dropItem(x, y, kind = 'power', toss) {
+  const sp = msx.sprite(ITEM_IMG[kind]);
+  sp.x = x; sp.y = y; sp.priority = 7;
+  items.push({
+    sp, age: 0, kind,
+    vx: toss ? toss.vx : 0, vy: toss ? toss.vy : 0,
+    // drift を渡すと、そのあいだ重力を受けずにまっすぐ流れる
+    drift: toss ? (toss.drift || 0) : 0,
+  });
+}
+
+// ボスは BG (layer2) に描き、レイヤーのスクロールで動かす。
+// 仮想画面上の固定位置に頭を置き、scroll = (頭の仮想座標 - 画面表示位置) とする。
+// 目だけはスプライトを重ねて見栄えを良くする。
+// 第1形態は「宇宙船に乗ったタコ」。80% ダメージで船が爆発し、タコだけになる。
+const BOSS_W = 64, HEAD_W = 48, HEAD_H = 32, SHIP_H = 24;
+const BOSS_H = HEAD_H + SHIP_H;
+const HEAD_DX = (BOSS_W - HEAD_W) / 2;  // 船の中央に頭を載せる
+// 壺に乗っているあいだは、顔をこのぶんだけ壺へ埋める
+const HEAD_SINK = 8;
+// UFO のまわりを回るガード(壊せる)
+// ボス全体を丸く囲む大きさで回す
+const GUARD_COUNT = 8, GUARD_HP = 40, GUARD_R = 60, GUARD_SPEED = 0.05;
+const GUARD_R_TIGHT = 28;   // レーザー発射中は顔のまわりに縮こまる
+const GUARD_FLAT = 0.4;     // 軌道は縦に縮んだ楕円
+// レーザーは船の中央から出る。当たり判定は 16 ドット、見た目は 12 ドット。
+const LASER_W = 16;                       // 当たり判定の幅
+const LASER_DRAW_W = 12;                  // 見た目の幅
+const LASER_X = (BOSS_W - LASER_W) / 2;   // 船の左端からの位置(中央)
+const LASER_DRAW_X = (BOSS_W - LASER_DRAW_W) / 2;
+// エンジンが BG スプライトを置くときと同じ式にそろえる。
+// (片方が切り捨てだけだと 8 ドットずれて、重ねた目や王冠が外れる)
+const snap8 = v => Math.floor(Math.round(v) / 8) * 8;
+
+/**
+ * ボス戦を終えて layer3 を背景プレーンに戻す。
+ * 背景オブジェクトはここでは描かない(次のステージが始まるときにまとめて描く)。
+ */
+function endBossMode() {
+  bossMode = false;
+  // ラスボスで暗い赤に染めた空間を、ふつうの宇宙(黒 + 星)へ戻す
+  restoreSpace();
+  clearKingBeams();
+  clearFarBeams();
+  clearKingEscape();
+  neb.clear();
+  neb.visible = true;
+  neb.scroll(0, neb.scrollY);
+}
+
+// ---- ボス登場の演出 ----
+// ★がそろってすぐ戦闘に入らず、
+//   敵を出さずにスクロールだけ続ける -> BGM フェードアウト -> ボス名の紹介 -> ボス BGM
+// という流れを挟む。
+// 4〜6 面はまだ作っていないので、仮のボス「未実装君」を置いてある
+const BOSS_NAMES = [
+  'KING OCTOPOT', 'KING FOSSIL', 'KING OARFISH', 'KING NAUTILUS',
+  'THE KING', 'KING BIO STRONG', 'KING ODIOUS TRIDENT',
+];
+// 背景オブジェクトがスクロールで画面外へ流れ去るまで待つ長さ
+const INTRO_QUIET_LEN = 400;  // 敵を出さずに進む時間
+const INTRO_NAME_LEN = 180;   // 名前を出している時間
+let bossIntro = 0;            // 演出の残りフレーム(0 = 演出していない)
+
+/** その面でボス戦に必要な★の数(面が進むごとに増え、最大 6) */
+function starsNeeded() {
+  const max = isNormal() ? 5 : 8;   // NORMAL は 5 個そろえばボス戦
+  return Math.min(max, STAGE.starsForBoss + stageNo - 1);
+}
+
+function startBossIntro() {
+  // 予告のあいだは道中のレーザーを止める。
+  // レーザーの音はショットより強くしてあるので、鳴りつづけると
+  // 警告の音と重なって、そこだけ音が大きくなってしまう
+  clearFarBeams();
+  // ボスラッシュはすでにボス戦の曲が鳴っているので、短い予告だけ出す
+  if (gameMode() === 'bossrush') {
+    // +1 しているのは、次のフレームの updateBossIntro で 1 減ったあとに
+    // ちょうど「名前を出す瞬間」に当たるようにするため
+    bossIntro = INTRO_NAME_LEN + 1;
+    return;
+  }
+  bossIntro = INTRO_QUIET_LEN + INTRO_NAME_LEN;
+  // 背景はここで消さず、スクロールで流れ去るのを待つ。
+  // BGM はその間ずっとフェードアウトしていく。
+  // currentBGM は鳴らしたままにしておく(null にすると updateBGM が
+  // 「曲が変わった」と見なして鳴らし直してしまうため)
+  msx.audio.fadeOutBGM(INTRO_QUIET_LEN / 60);
+}
+
+function updateBossIntro() {
+  bossIntro--;
+  // 名前の表示に切り替わる瞬間
+  if (bossIntro === INTRO_NAME_LEN) {
+    // 名前を出すあいだは BGM を完全に止めて静かにする
+    // (ボスラッシュは曲を止めない)。
+    // 背景オブジェクトはここまでのスクロールで画面外へ流れているので、
+    // このタイミングで裏画面を消して星だけにする
+    if (gameMode() !== 'bossrush') { msx.audio.stopBGM(); currentBGM = null; }
+    neb.clear();
+    const name = bossName();
+    hud.print(centerX('WARNING!!'), 72, 'WARNING!!', 8);
+    hud.print(centerX(name), 96, name, 11);
+  }
+  // 「WARNING!!」を点滅させる
+  if (bossIntro < INTRO_NAME_LEN && bossIntro % 24 === 0) {
+    const on = (bossIntro / 24) % 2 === 0;
+    if (on) hud.print(centerX('WARNING!!'), 72, 'WARNING!!', 8);
+    else hud.fill(0, centerX('WARNING!!'), 72, 9 * 8, 8);
+  }
+  if (bossIntro <= 0) {
+    const name = bossName();
+    hud.fill(0, 0, 72, VW, 8);
+    hud.fill(0, 0, 96, VW, 8);
+    void name;
+    spawnBoss();
+  }
+}
+
+// 面ごとのボスの種類。2 面はカニロボ、それ以外はタコ。
+/** その面のボス名(裏技で選ぶ特別な相手も含む) */
+function bossName() {
+  if (stageNo === RUSH_EYES) return 'TWIN EYES';
+  if (stageNo === RUSH_MOAI) return 'BIG MOAI';
+  if (stageNo === RUSH_TODO) return 'Mr. MIJISSOU';
+  return BOSS_NAMES[(stageNo - 1) % BOSS_NAMES.length];
+}
+
+function bossKind() {
+  if (stageNo === RUSH_EYES) return 'eyes';
+  if (stageNo === RUSH_MOAI) return 'moai';
+  if (stageNo === RUSH_TODO) return 'todo';   // 仮ボス(本編には出てこない)
+  const i = (stageNo - 1) % BOSS_NAMES.length;
+  if (i === 1) return 'crab';
+  if (i === 2) return 'dragon';
+  if (i === 3) return 'nautilus';
+  if (i === 4) return 'king';              // 5 面はラスボス「ざ・きんぐ」
+  return 'octopus';
+}
+
+// ---- カニロボ(2 面ボス) ----
+// 画面の左右どちらかにくっついてハサミミサイルを撃ち、
+// しばらくすると攻撃をやめて画面上部を左右に跳ねて移動する。
+// 装甲(甲羅)がはがれるとひっくり返り、泡を吹くだけになる。
+const CRAB_W = 64, CRAB_H = 96;   // 横向き(壁に張り付いた姿)の大きさ
+// ダメージが通ったときに甲羅を白く飛ばすための色の入れ替え
+const CRAB_HURT_MAP = { 2: 15, 3: 15, 4: 15, 5: 15, 6: 15, 7: 15, 8: 15,
+  9: 15, 10: 15, 11: 15, 12: 15, 13: 15, 14: 15 };
+const CRAB_CLAWS = 2;             // ハサミは 2 本。撃ち尽くすと反対側へ跳ぶ
+// 脚が本当の弱点。ジャンプ中だけ壁から離れて狙える
+const CRAB_LEGS = 4;              // 脚の本数
+const CRAB_LEG_HP = 24;           // 脚 1 本の耐久力
+const CRAB_LEG_Y = [16, 34, 52, 70];  // 本体の上端からの脚の位置(甲羅の広い所)
+const CRAB_CLAW_HP = 60;          // ハサミはとても硬い(壊すのは大仕事)
+const CRAB_CLAW_GROW = 180;       // ハサミが生えそろうまで(3 段階で伸びる)
+// 壁に張り付いたまま何もできずにいる時間の上限。
+// これを過ぎたら画面の上下どちらかへ消えて、反対の壁から出直す
+const CRAB_WALL_LIMIT = 420;
+// 装甲に付いている装置の位置(壁が左のときの本体左上からの位置)
+// 目(黒い穴。本体の x32-44 / y36-64)にかからない場所に置く
+const CRAB_POD_POS = [[13, 10], [13, 44], [13, 76]];
+// ハサミは 64x48 と大きい。本体(64x96)の前に上下 2 本並べる
+const CRAB_CLAW_W = 64, CRAB_CLAW_H = 48;
+const CRAB_CLAW_Y = [0, 48];      // 本体の上端からのハサミの位置
+// 上下の動ける範囲。下は画面からはみ出すところまで(下に隠れても安全ではない)
+const CRAB_TOP = 24, CRAB_BOTTOM = SCREEN_H - 40;
+// 斜めにした第2形態の絵は、もとの絵より左右に 24 ドットずつ広い
+const CRAB_TILT_PAD = 24;
+let clawMissiles = [];
+
+function spawnCrabBoss() {
+  const hp = 40 + stageNo * 16;
+  // 目はタコと同じ水色 1 色。自機のいる方へ少し寄る
+  const eyeL = msx.sprite(IMG.bossEye2);
+  const eyeR = msx.sprite(IMG.bossEye2);
+  eyeL.priority = eyeR.priority = 13;
+  boss = {
+    kind: 'crab',
+    x: 0, y: -40, hp, max: hp, age: 0, flash: 0, dying: 0,
+    eyeL, eyeR, charge: null,
+    phase2: false,          // 甲羅がはがれてひっくり返った状態
+    side: Math.random() < 0.5 ? -1 : 1,  // -1 = 左の壁, 1 = 右の壁
+    mode: 'attach', claws: CRAB_CLAWS, clawStock: CRAB_CLAWS, vy: 0.8,
+    // ハサミ 1 本ずつの生き死に。**本数だけで管理していたため**、
+    // 下のハサミを壊しても「最後の 1 本」が消え、壊したはずの位置から
+    // 撃ってくることがあった
+    clawAlive: Array(CRAB_CLAWS).fill(true),
+    grow: [CRAB_CLAW_GROW, CRAB_CLAW_GROW],   // ハサミの生え具合
+    clawHp: [CRAB_CLAW_HP, CRAB_CLAW_HP],     // 本体に付いたハサミの耐久力
+    jumpFrom: 0, jumpTo: 0, jumpT: 0,
+    fireTimer: 40,   // 1 発目は早めに撃つ
+  };
+  boss.partBody = bossPart(IMG.crabR);
+  // 脚。ジャンプ中に壁から離れて伸び、そこだけが狙える弱点になる
+  // 脚は BG スプライト。甲羅(priority 1)より奥に置くので、
+  // めり込んだ付け根は胴に隠れて見える
+  boss.legs = CRAB_LEG_Y.map((ly, i) => ({
+    sp: bossPart(IMG.crabLeg, 0), hp: CRAB_LEG_HP, y: ly, flipY: i >= CRAB_LEGS / 2,
+  }));
+  boss.partClaws = [bossPart(IMG.crabClawBig), bossPart(IMG.crabClawBig)];
+  // 王冠(タコと同じもの)。甲羅のてっぺんに斜めにかぶせる
+  boss.crown = msx.sprite(IMG.octoCrown);
+  boss.crown.priority = 12;
+  boss.crown.flipX = true;    // カニは反転してかぶる
+  // 装甲に取り付いている装置。スプライトなので 8 ドットに縛られず置ける
+  boss.pods = CRAB_POD_POS.map((_, i) => {
+    const sp = msx.sprite(IMG.crabPod);
+    sp.priority = 9;
+    sp.flipX = (i === 1);   // 真ん中のパネルだけ向きを変える
+    return sp;
+  });
+  boss.x = boss.side < 0 ? 0 : SCREEN_W - CRAB_W;
+  boss.y = -CRAB_H;        // 画面の上から降りてくる
+  boss.mode = 'enter';
+  boss.wallTimer = 0;
+  drawBossBody();
+  playBGM('boss', true);
+}
+
+/** ハサミミサイル: ボスの持っているハサミがそのまま飛んでくる。
+ *  壊せるが、壊すと弾が散る。反対の壁へ跳ぶとハサミは生え変わる */
+function fireClawMissile(x, y, flipX = false, from = -1) {
+  // 本体に付いていたのと同じ絵を、多色のまま飛ばす(BG スプライト)
+  const sp = msx.bgSprite(IMG.crabClawBig);
+  sp.x = x; sp.y = y; sp.priority = BGP_FRONT + 4; sp.flipX = flipX;
+  // 壁と反対側へ、まっすぐ横に飛んでいく
+  const out = flipX ? -1 : 1;
+  // お尻(飛んでいく向きと反対側)に噴射をつける
+  const jet = msx.sprite(IMG.flameBig);
+  jet.priority = 8;
+  jet.rotate = out > 0 ? 90 : 270;   // 下向きの炎を横向きにする
+  clawMissiles.push({ sp, vx: out * 2.4, vy: 0, hp: CRAB_CLAW_HP, jet, out, from });
+  msx.audio.playSE('shot', SE_HIT);
+}
+
+/** ハサミを 1 本もぐ。位置(i)で覚え、本数はそこから数え直す */
+function killCrabClaw(b, i) {
+  if (!b || !b.clawAlive) return;
+  if (i < 0 || !b.clawAlive[i]) {
+    // どの位置か分からないときは、生きているものを 1 本落とす
+    i = b.clawAlive.findIndex(Boolean);
+    if (i < 0) return;
+  }
+  b.clawAlive[i] = false;
+  b.grow[i] = 0;
+  b.clawStock = b.clawAlive.filter(Boolean).length;
+  b.claws = b.grow.filter((g, n) => g >= CRAB_CLAW_GROW && b.clawAlive[n]).length;
+}
+
+function removeClawMissile(m, scatter) {
+  msx.removeBgSprite(m.sp);
+  if (m.jet) msx.removeSprite(m.jet);
+  clawMissiles.splice(clawMissiles.indexOf(m), 1);
+  if (!scatter) return;
+  // 壊すと大爆発。破片(弾)が飛び散るので、壊したあとも油断できない
+  for (let i = 0; i < 8; i++) {
+    const a = (Math.PI * 2 * i) / 8 + Math.random() * 0.3;
+    fireEnemyBullet(m.sp.x + CRAB_CLAW_W / 2 - 8, m.sp.y + CRAB_CLAW_H / 2 - 8,
+      Math.cos(a) * 1.4, Math.sin(a) * 1.4, false);
+  }
+  for (let i = 0; i < 6; i++) {
+    spawnBoom(m.sp.x + Math.random() * CRAB_CLAW_W, m.sp.y + Math.random() * CRAB_CLAW_H);
+  }
+  flashTimer = 3;
+  msx.audio.playSE('bigboom', SE_HIT);
+}
+
+function clearClawMissiles() {
+  for (const m of clawMissiles) {
+    msx.removeBgSprite(m.sp);
+    if (m.jet) msx.removeSprite(m.jet);
+  }
+  clawMissiles = [];
+}
+
+function updateClawMissiles() {
+  for (const m of [...clawMissiles]) {
+    m.sp.x += m.vx; m.sp.y += m.vy;
+    if (m.jet) {
+      // 噴射はハサミのお尻。1 コマおきに大きさを変えてゆらめかせる
+      m.jet.image = (msx.frame & 3) < 2 ? IMG.flameBig : IMG.flameSmall;
+      m.jet.x = m.out > 0 ? m.sp.x - 12 : m.sp.x + CRAB_CLAW_W - 4;
+      m.jet.y = m.sp.y + CRAB_CLAW_H / 2 - 8;
+    }
+    if (m.sp.y > SCREEN_H + 48 || m.sp.x < -64 || m.sp.x > SCREEN_W + 64) {
+      removeClawMissile(m, false);
+    }
+  }
+}
+
+function updateCrabBoss(b) {
+  if (b.phase2) {
+    // 脚を失うと壁につかまれない。画面の真ん中あたりでふわふわ漂う
+    const tx = (SCREEN_W - CRAB_W) / 2 + Math.sin(b.age * 0.012) * 56;
+    b.x += (tx - b.x) * 0.02;
+    b.y += b.vy * 0.4;
+    if (b.y <= CRAB_TOP) { b.y = CRAB_TOP; b.vy = Math.abs(b.vy); }
+    if (b.y >= CRAB_BOTTOM) { b.y = CRAB_BOTTOM; b.vy = -Math.abs(b.vy); }
+  } else if (b.mode === 'enter') {
+    // 登場は必ず画面の上から、ゆっくり降りてくる(狙いを付けやすいように)
+    b.x = b.side < 0 ? 0 : SCREEN_W - CRAB_W;
+    b.y += 1.0;
+    if (b.y >= CRAB_TOP) {
+      b.y = CRAB_TOP;
+      b.vy = Math.abs(b.vy);
+      b.mode = 'attach';
+      b.wallTimer = 0;
+    }
+  } else if (b.mode === 'exit') {
+    // 退場は必ず上へ、すばやく抜けていく
+    b.x = b.side < 0 ? 0 : SCREEN_W - CRAB_W;
+    b.y -= 5.0;
+    if (b.y < -CRAB_H - 8) {
+      // 反対の壁へ回り込み、2 秒おいてから画面の上に現れる
+      b.side = -b.side;
+      b.x = b.side < 0 ? 0 : SCREEN_W - CRAB_W;
+      b.y = -CRAB_H - 8;
+      b.mode = 'wait';
+      b.waitTimer = 120;   // 2 秒
+    }
+  } else if (b.mode === 'wait') {
+    // 画面の外で待っている(次にどちらの壁から来るか読ませる間)
+    b.x = b.side < 0 ? 0 : SCREEN_W - CRAB_W;
+    b.y = -CRAB_H - 8;
+    if (--b.waitTimer <= 0) b.mode = 'enter';
+  } else if (b.mode === 'attach') {
+    // 壁につかまっているあいだにハサミが伸びていく
+    for (let i = 0; i < CRAB_CLAWS; i++) {
+      if (b.grow[i] < CRAB_CLAW_GROW) b.grow[i]++;
+    }
+    b.claws = b.grow.filter((g, i) => g >= CRAB_CLAW_GROW && b.clawAlive[i]).length;
+    // 壁を足場にして上下に動きつづける(自機の位置では止まらない)。
+    // ハサミはまっすぐ横に飛ぶので、たまたま高さが合った瞬間だけ撃ってくる
+    b.x = b.side < 0 ? 0 : SCREEN_W - CRAB_W;
+    b.y += b.vy;
+    if (b.y <= CRAB_TOP) { b.y = CRAB_TOP; b.vy = Math.abs(b.vy); }
+    if (b.y >= CRAB_BOTTOM) { b.y = CRAB_BOTTOM; b.vy = -Math.abs(b.vy); }
+  } else {
+    // 反対の壁へ跳んで移動する(このあいだは攻撃しない)
+    b.jumpT = Math.min(1, b.jumpT + 0.006);   // ゆっくり渡る
+    const t = b.jumpT;
+    b.x = b.jumpFrom + (b.jumpTo - b.jumpFrom) * t;
+    // まず画面の上まで一気に上がってから、山なりに渡る。
+    // 伸びた脚を狙いやすいよう、跳んでいるあいだはずっと画面の上のほうにいる
+    const rise = Math.min(1, t * 4);
+    // 画面のいちばん上あたりを大きく回るので、伸びた脚をじっくり狙える
+    const top = CRAB_TOP - 16;
+    b.y = b.jumpY + (top - b.jumpY) * rise - Math.sin(t * Math.PI) * 12;
+    if (t >= 1) {
+      b.mode = 'attach';
+      b.fireTimer = 90;
+      b.y = Math.max(CRAB_TOP, Math.min(CRAB_BOTTOM, b.y));
+      // ここで描き直すと、脚が 1 つ前のコマの位置のまま描かれて
+      // 体から離れて見えていた。すぐ下でまとめて描くので、ここでは描かない
+    }
+  }
+
+  // ハサミが伸びているあいだは、登場で降りてくる途中でも伸ばし続ける
+  if (b.mode === 'enter') {
+    for (let i = 0; i < CRAB_CLAWS; i++) {
+      if (b.grow[i] < CRAB_CLAW_GROW) b.grow[i]++;
+    }
+    b.claws = b.grow.filter((g, i) => g >= CRAB_CLAW_GROW && b.clawAlive[i]).length;
+  }
+  // 自機と高さが合っているか。壁にいるときだけでなく、
+  // 降りてくる途中(登場中)でも見る = 高さが合えば撃ってくる
+  {
+    const i = Math.max(0, b.grow.findIndex((g, n) => g >= CRAB_CLAW_GROW && b.clawAlive[n]));
+    const aimY = player.y + 8 - CRAB_CLAW_Y[i] - CRAB_CLAW_H / 2;
+    b.aimed = Math.abs(aimY - b.y) < 14;
+  }
+
+  // BG スプライトは 8 ドット単位に丸められるので、
+  // 当たり判定などに使う画面座標もそろえておく
+  b.sx = snap8(b.x); b.sy = snap8(b.y);
+  drawBossBody();
+  if (b.crown) {
+    b.crown.visible = bossVisible;
+    // 壁を移ったら王冠も向きを合わせて反転させる
+    b.crown.flipX = b.side > 0;
+    b.crown.x = b.sx + (b.side < 0 ? 18 : 22);
+    b.crown.y = b.sy - 4;
+  }
+  // 甲羅に開いた 2 つの穴に、タコと同じ目を入れる
+  if (b.eyeL) {
+    const look = eyeLook(b.sx + CRAB_W / 2);
+    const ex = b.side < 0 ? b.sx + 32 : b.sx + CRAB_W - 44;
+    b.eyeL.visible = b.eyeR.visible = bossVisible;
+    b.eyeL.x = ex + look; b.eyeL.y = b.sy + 36;
+    b.eyeR.x = ex + look; b.eyeR.y = b.sy + 52;
+  }
+  // 装甲に取り付いている装置(3 つ)。スプライトなので 8 ドットに縛られず置ける。
+  // パネルとタンクは脚寄り(壁側)、レーダー皿だけ前寄りに置く
+  (b.pods || []).forEach((sp, i) => {
+    const [dx, dy] = CRAB_POD_POS[i];
+    sp.visible = bossVisible && !b.phase2;
+    sp.flipX = (i === 1) !== (b.side > 0);
+    sp.x = b.side < 0 ? b.sx + dx : b.sx + CRAB_W - 16 - dx;
+    sp.y = b.sy + dy;
+  });
+
+  if (state !== 'play') return;
+
+  if (b.phase2) {
+    // ひっくり返ったあとは泡(1 面のリング弾の色違い)を吹き続けるだけ
+    if (b.age % 18 === 0) {
+      const dir = b.side < 0 ? 1 : -1;   // 壁と反対側へ吹き出す
+      const a = (Math.random() - 0.5) * 1.4;
+      fireEnemyBullet(b.sx + (dir > 0 ? CRAB_W - 8 : -8), b.sy + CRAB_H / 2,
+        Math.cos(a) * 0.7 * dir, Math.sin(a) * 0.7, true);
+    }
+    return;
+  }
+  // ハサミを撃ち落とされて武器が無くなったら、泡を吹くだけになる
+  if (b.clawStock <= 0) {
+    if (b.age % 20 === 0) {
+      const dir = b.side < 0 ? 1 : -1;
+      const a = (Math.random() - 0.5) * 1.4;
+      fireEnemyBullet(b.sx + (dir > 0 ? CRAB_W - 8 : -8), b.sy + CRAB_H / 2,
+        Math.cos(a) * 0.7 * dir, Math.sin(a) * 0.7, true);
+    }
+  }
+  // 壁にいるあいだ、ハサミが残っていれば撃つ。2 本撃ち尽くしたら跳んで移動する
+  // 壁に付いているときだけでなく、降りてくる途中でも撃つ
+  if ((b.mode === 'attach' || b.mode === 'enter') &&
+      b.claws > 0 && --b.fireTimer <= 0 && b.aimed) {
+    b.fireTimer = Math.max(70, 150 - shotLevel * 12);
+    // 前面に付いているハサミを、そのまま自機めがけて飛ばす。
+    // 本数から場所を逆算すると、壊したハサミの位置から飛んでしまう
+    const i = b.grow.findIndex((g, n) => g >= CRAB_CLAW_GROW && b.clawAlive[n]);
+    if (i < 0) return;
+    const front = b.side < 0;
+    fireClawMissile(front ? b.sx + CRAB_W - 32 : b.sx - (CRAB_CLAW_W - 32),
+      b.sy + CRAB_CLAW_Y[i], !front, i);
+    b.grow[i] = 0;      // 撃ったぶんはまた生えはじめる
+    b.claws--;
+    b.fired = (b.fired || 0) + 1;
+    // 生えそろっているハサミが無くなったら、次は跳んで壁を移る。
+    // ただし最初の 1 回だけは、1 発撃ったらすぐ跳ぶ(早めに脚を狙わせる)
+    if (b.claws <= 0 || b.fired === 1) b.needJump = true;
+  }
+  // ハサミを撃ち尽くし、飛ばしたハサミが画面から消えてから反対の壁へ跳ぶ
+  // (武器が無くなったあとも、脚を狙わせるために跳び続ける)
+  if (b.clawStock <= 0 && b.mode === 'attach') { b.fireTimer--; b.needJump = true; }
+  // どちらに移るかの決まり:
+  //   ハサミを撃ち尽くした -> 反対の壁へジャンプ(脚が伸びて狙える)
+  //   撃つ用が無いまま 7 秒粘った -> 画面の上へ抜けて出直す
+  // ジャンプのほうを先に見るので、撃ち尽くしていれば必ず跳ぶ。
+  ++b.wallTimer;
+  if (b.mode === 'attach' && !b.needJump && b.wallTimer > CRAB_WALL_LIMIT &&
+      clawMissiles.length === 0) {
+    b.mode = 'exit';
+  }
+  if (b.mode === 'attach' && b.needJump && clawMissiles.length === 0 &&
+      (b.clawStock > 0 || b.fireTimer <= 0)) {
+    b.needJump = false;
+    // はじめて跳ぶときだけ、狙いどころを教える
+    if (!b.toldLegs) {
+      b.toldLegs = true;
+      showNotice('BREAK THE LEGS!');
+    }
+    b.mode = 'jump';
+    b.jumpT = 0;
+    b.jumpFrom = b.x;
+    b.jumpY = b.y;
+    b.jumpTo = b.side < 0 ? SCREEN_W - CRAB_W : 0;
+    b.side = -b.side;
+  }
+}
+
+
+// ---- 4 面ボス「KING NAUTILUS」----
+// 回る装甲ギアの輪の中に、オウムガイ型の生き物がこもっている。
+// 装甲は 1 か所だけ作りが違い(ボルトが抜けて配線がむき出し)、そこだけ壊せる。
+// 壊すと輪にすき間が空き、そこから中へ入り込めば、無防備な生き物を直接叩ける。
+const NAUT_BLOCKS = 18;        // 装甲ブロックの数(すき間を小さく)
+const NAUT_R = 52;             // 輪の半径(ふだん)
+const NAUT_R_WIDE = 80;        // ときどき大きく広がるときの半径
+const NAUT_CORE = 48;          // 生き物の大きさ
+const NAUT_WEAK_HITS = 12;     // 弱点の装甲は「装備によらず 12 発」で壊れる
+const NAUT_CORE_HP = 70;       // 中の生き物(弱い)
+const NAUT_SPIN = 0.011;
+
+function spawnNautilusBoss() {
+  const blocks = [];
+  const weakAt = Math.floor(Math.random() * NAUT_BLOCKS);
+  for (let i = 0; i < NAUT_BLOCKS; i++) {
+    const sp = msx.bgSprite(i === weakAt ? IMG.gearWeak0 : IMG.gearBlock);
+    sp.priority = BGP_FRONT + 2;
+    // 壊れない装甲はスプライトを使わず BG だけでしのぐ
+    blocks.push({
+      sp, angle: (Math.PI * 2 * i) / NAUT_BLOCKS, weak: i === weakAt, alive: true,
+    });
+  }
+  // 装甲とは別に、同じ半径をぐるぐる回るだけの光(飾り)。
+  // 当たり判定は無い。装甲は 8 ドット刻みでガタつくので、
+  // なめらかに回るこの光で「ここはスプライト」だと見せる。
+  // 数は装甲の半分、速さは 3 倍。
+  const orbs = [];
+  for (let i = 0; i < NAUT_BLOCKS / 2; i++) {
+    const sp = msx.sprite(IMG.gearGem);
+    sp.priority = 14;
+    // 2 コマで形が変わる稲妻。1 つおきに位相をずらす
+    sp.frames = [IMG.gearGem, IMG.gearSpark1];
+    sp.frameRate = 2;
+    sp.framePhase = i;
+    // 2 コマおきの明滅(出たり消えたり)で、電気が走っている感じにする
+    sp.blink = 2;
+    sp.blinkPhase = i & 1;
+    orbs.push({ sp, angle: (Math.PI * 2 * i) / (NAUT_BLOCKS / 2) });
+  }
+  const core = msx.bgSprite(IMG.nautilus);
+  core.priority = BGP_FRONT + 1;
+  // ほかのボスと同じ水色の目を、殻に開けた穴へ重ねる
+  const eyeL = msx.sprite(IMG.bossEye2);
+  eyeL.priority = 13;
+  // 王冠(ほかのボスと同じもの)。渦巻きのてっぺんに斜めにかぶせる
+  const crown = msx.sprite(IMG.octoCrown);
+  crown.priority = 15;
+  boss = {
+    kind: 'nautilus',
+    x: (SCREEN_W - NAUT_CORE) / 2, y: -NAUT_CORE,
+    hp: NAUT_CORE_HP, max: NAUT_CORE_HP,
+    weakHp: NAUT_WEAK_HITS,   // 壊せる装甲の残り(本体の体力とは別)
+    age: 0, flash: 0, dying: 0, phase2: false,
+    eyeL, eyeR: null, crown, charge: null,
+    blocks, orbs, core, spin: 0, orbSpin: 0, fire: 90,
+    ringR: NAUT_R, ringTimer: 300,
+  };
+  drawBossBody();
+  playBGM('boss', true);
+}
+
+function clearNautilus(b) {
+  if (!b || b.kind !== 'nautilus') return;
+  for (const g of b.blocks || []) msx.removeBgSprite(g.sp);
+  for (const o of b.orbs || []) msx.removeSprite(o.sp);
+  if (b.core) msx.removeBgSprite(b.core);
+  b.blocks = [];
+  b.core = null;
+}
+
+/** 自機が輪の内側に入り込んでいるか(そこでだけ生き物を叩ける) */
+function nautilusInside(b) {
+  const cx = b.x + NAUT_CORE / 2, cy = b.y + NAUT_CORE / 2;
+  const dx = player.x + 8 - cx, dy = player.y + 8 - cy;
+  return Math.sqrt(dx * dx + dy * dy) < b.ringR - 10;
+}
+
+function updateNautilusBoss(b) {
+  // 登場: ゆっくり降りてきて、画面の上のほうに居座る
+  if (b.y < 40) b.y += 0.6;
+  else if (!b.phase2) b.y = 40 + Math.sin(b.age * 0.015) * 8;
+  // 装甲が外れたあとは、オウムガイは動かない(狙いやすくする)
+  if (!b.phase2) b.x = (SCREEN_W - NAUT_CORE) / 2 + Math.sin(b.age * 0.008) * 40;
+  // 装甲が外れたら、輪の回転も電撃も止まる
+  if (!b.phase2) {
+    b.spin += NAUT_SPIN;
+    b.orbSpin += NAUT_SPIN * 3;
+  }
+  // ときどき輪が大きく広がって、また元に戻る
+  if (--b.ringTimer <= 0) {
+    const wide = b.ringTarget === NAUT_R_WIDE;
+    b.ringTarget = wide ? NAUT_R : NAUT_R_WIDE;
+    b.ringTimer = wide ? 300 + Math.floor(Math.random() * 180) : 180;
+  }
+  b.ringR += ((b.ringTarget || NAUT_R) - b.ringR) * 0.03;
+  b.sx = snap8(b.x); b.sy = snap8(b.y);
+  drawBossBody();
+
+  if (state !== 'play') return;
+  const cx = b.x + NAUT_CORE / 2, cy = b.y + NAUT_CORE / 2;
+  if (--b.fire <= 0) {
+    if (b.phase2) {
+      // 生き物の攻撃はゆっくりした弾。ただし数は多めに撒く
+      b.fire = 45;
+      const base = Math.atan2(player.y + 8 - cy, player.x + 8 - cx);
+      for (let i = -1; i <= 1; i++) {
+        const a = base + i * 0.35;
+        fireEnemyBullet(cx - 8, cy - 8, Math.cos(a) * 0.7, Math.sin(a) * 0.7, true);
+      }
+    } else {
+      // 装甲ブロックが弾をばらまく
+      b.fire = Math.max(40, 80 - shotLevel * 5);
+      const alive = b.blocks.filter(x => x.alive);
+      for (let i = 0; i < 3 && alive.length; i++) {
+        const g = alive[Math.floor(Math.random() * alive.length)];
+        const gx = g.sp.x + 8, gy = g.sp.y + 8;
+        const a = Math.atan2(gy - cy, gx - cx);   // 輪の外へ向かって撃つ
+        fireEnemyBullet(gx - 8, gy - 8, Math.cos(a) * 1.2, Math.sin(a) * 1.2, false);
+      }
+      msx.audio.playSE('shot', SE_HIT);
+    }
+  }
+}
+
+// ---- 宇宙ドラゴン(3 面ボス) ----
+// うずまきを描きながら自機へ近づいてくる。顔(中央のセンサー)が弱点で、
+// 撃っているとたまに怒り、画面外へ消えてから顔だけ見せて一瞬ためたあと、
+// 自機めがけて直線で突っ込んでくる。漂う小惑星へうまく誘導するとぶつけられる。
+const DRAGON_W = 48, DRAGON_H = 48;
+// 突進中に開いた口へ撃ち込んだときのダメージ。もとは 8 だったが効きすぎたので 8 割
+const DRAGON_JAWS_DMG = 6.4;
+const DRAGON_SEGS = 12;             // 胴体の節の数(すき間ができないよう多め)
+const DRAGON_SEG = 24;
+const DRAGON_TRAIL = 5;             // 節どうしの間隔(フレーム)
+// 顔を見せてためる時間。3・2・1 の声が鳴り終わってから突っ込むよう、
+// 声を伸ばしたぶん(1 回 0.8 秒)長くしてある
+const RAGE_TELEGRAPH = 200;
+const RAGE_HIDE = 60;               // 画面の外へ完全に消えている時間(1 秒)
+const RAGE_SPEED = 4.5;
+// 出てきてから炎を吐きはじめるまでの間(2 秒)。入ってくる姿を見せる時間
+const DRAGON_CALM = 120;
+
+function spawnDragonBoss() {
+  const hp = 40 + stageNo * 16;
+  // 眼窩の奥にタコと同じ水色の目を入れる
+  const eyeL = msx.sprite(IMG.bossEye2);
+  const eyeR = msx.sprite(IMG.bossEye2);
+  eyeL.priority = eyeR.priority = 13;
+  // 胴体の節は BG スプライトで、頭が通った跡をなぞらせる
+  const segs = [];
+  for (let i = 0; i < DRAGON_SEGS; i++) {
+    // 最後の 1 節だけ、しっぽの形にする
+    const sp = msx.bgSprite(i === DRAGON_SEGS - 1 ? IMG.dragonTail : IMG.dragonBody);
+    sp.priority = BGP_FRONT;
+    sp.x = -99; sp.y = -99;
+    segs.push(sp);
+  }
+  boss = {
+    kind: 'dragon',
+    x: (SCREEN_W - DRAGON_W) / 2, y: -DRAGON_H, hp, max: hp, age: 0, flash: 0, dying: 0,
+    eyeL, eyeR, charge: null, phase2: false,
+    mode: 'spiral',        // spiral -> rage(怒って突進) -> spiral
+    spiralA: 0, spiralR: 60,
+    rageTimer: 300, telegraph: 0, rvx: 0, rvy: 0,
+    trail: [],             // 頭の通った跡
+    segs,
+  };
+  // 頭は胴体の節より手前に置く(顔が埋もれないように)
+  boss.partHead = bossPart(IMG.dragonHead, 1);
+  // 王冠(タコ・カニと同じもの)。頭蓋のてっぺんにかぶせる
+  boss.crown = msx.sprite(IMG.octoCrown);
+  boss.crown.priority = 12;
+  drawBossBody();
+  playBGM('boss', true);
+}
+
+function clearDragonSegs(b) {
+  for (const sp of (b && b.segs) || []) msx.removeBgSprite(sp);
+  if (b) b.segs = [];
+}
+
+function updateDragonBoss(b) {
+  // 旋回の中心は画面の奥(上のほう)。自機からは離れた位置で回る
+  const cx = SCREEN_W / 2 - DRAGON_W / 2, cy = 44;
+  if (b.mode === 'spiral') {
+    // うずまきを描きながら、じわじわ動きまわる
+    b.spiralA += 0.045;
+    b.spiralR = 72 + Math.sin(b.age * 0.01) * 32;
+    // 横は画面いっぱいに近いところまで振る(左右の動きを大きく見せる)。
+    // 縦はそのままなので、平たい輪を描いて泳ぐ形になる
+    const tx = cx + Math.cos(b.spiralA) * b.spiralR * 1.5;
+    const ty = cy + Math.sin(b.spiralA * 1.3) * (b.spiralR * 0.38);
+    b.x += (tx - b.x) * 0.06;
+    b.y += (ty - b.y) * 0.06;
+    // しばらくすると怒って突進の構えに入る。
+    // その場で消えないよう、まず画面の外まで泳いで抜けていく
+    if (--b.rageTimer <= 0) {
+      b.mode = 'leave';
+      // 近いほうの上下へ、しっぽまで見えなくなるまで泳いで出る
+      b.leaveDir = (b.y + DRAGON_H / 2 < SCREEN_H / 2) ? -1 : 1;
+      msx.audio.playSE('warning');
+    }
+  } else if (b.mode === 'leave') {
+    // 画面の外へ泳いで抜ける(胴体が全部出きるまで待つ)
+    b.y += 3.2 * b.leaveDir;
+    b.x += (SCREEN_W / 2 - DRAGON_W / 2 - b.x) * 0.02;
+    const gone = b.leaveDir < 0
+      ? b.y < -DRAGON_H - DRAGON_SEGS * 8
+      : b.y > SCREEN_H + DRAGON_SEGS * 8;
+    if (gone) {
+      b.mode = 'rage';
+      b.hide = RAGE_HIDE;
+      b.telegraph = RAGE_TELEGRAPH;
+      // 顔を出すのは画面の上か下。左右からは来ない
+      const side = Math.random() < 0.5 ? 0 : 1;   // 0 = 上, 1 = 下
+      b.side = side;
+      b.x = Math.max(0, Math.min(SCREEN_W - DRAGON_W,
+        player.x - 16 + (Math.random() - 0.5) * 96));
+      b.y = side === 0 ? -DRAGON_H - 8 : SCREEN_H + 8;
+    }
+  } else if (b.mode === 'rage') {
+    // 怒りの突進。画面外に隠れる -> 顔だけ出してためる -> まっすぐ飛ぶ
+    if (b.hide > 0) {
+      b.hide--;
+      if (b.hide === 0) {
+        // 顔の先だけを画面に見せる(どこから来るかが分かる)
+        b.y = b.side === 0 ? -DRAGON_H + 22 : SCREEN_H - 22;
+        // はじめて構えたときだけ、狙いどころを教える
+        if (!b.toldRage) {
+          b.toldRage = true;
+          showNotice('COUNTER THE CHARGE!');
+        }
+      }
+    } else if (b.telegraph > 0) {
+      b.telegraph--;
+      // 構えているあいだ、溜めの音を鳴らし続ける(短いかたまりのくり返し)
+      if (b.telegraph % SE_CHUNK === 0) msx.audio.playSE('charging', SE_EVENT + 1);
+      // そこへ「3・2・1」の声を重ねて、飛んでくる瞬間を数えさせる
+      // 1 回 0.8 秒(48 コマ)なので、50 コマ間隔で置く。
+      // 最後の「1」が鳴り終わってから突っ込む
+      if (b.telegraph === 150) msx.audio.playSE('count3', SE_EVENT + 2);
+      if (b.telegraph === 100) msx.audio.playSE('count2', SE_EVENT + 2);
+      if (b.telegraph === 50) msx.audio.playSE('count1', SE_EVENT + 2);
+      if (b.telegraph === 0) {
+        const a = Math.atan2(player.y + 8 - (b.y + DRAGON_H / 2),
+                             player.x + 8 - (b.x + DRAGON_W / 2));
+        b.rvx = Math.cos(a) * RAGE_SPEED;
+        b.rvy = Math.sin(a) * RAGE_SPEED;
+        msx.audio.playSE('dragonRoar', SE_EVENT);   // 「ゴギャ――――」と叫んで飛ぶ
+      }
+    } else {
+      b.x += b.rvx;
+      b.y += b.rvy;
+      // 画面の外まで行ったら、しばらく間を置いてから戻ってくる
+      if (b.x < -DRAGON_W - 40 || b.x > SCREEN_W + 40 ||
+          b.y < -DRAGON_H - 40 || b.y > SCREEN_H + 40) {
+        b.mode = 'return';
+        b.wait = 90;                    // 1.5 秒ぶん、画面の外で息をひそめる
+        b.x = cx; b.y = -DRAGON_H - 40;
+      }
+    }
+  }
+
+  if (b.crown) {
+    b.crown.visible = bossVisible;
+    b.crown.x = b.sx + 10; b.crown.y = b.sy - 4;   // 頭蓋のてっぺんに乗せる
+  }
+  // 眼窩の目。自機のいる方へ 2 ドットだけ寄る
+  if (b.eyeL) {
+    const look = eyeLook(b.sx + DRAGON_W / 2);
+    b.eyeL.visible = b.eyeR.visible = bossVisible;
+    b.eyeL.x = b.sx + 10 + look; b.eyeL.y = b.sy + 16;
+    b.eyeR.x = b.sx + 26 + look; b.eyeR.y = b.sy + 16;
+  }
+  if (b.mode === 'return') {
+    // 間を置いてから、画面の上からゆっくり降りてきて旋回に戻る
+    if (b.wait > 0) { b.wait--; }
+    else {
+      b.y += 0.7;
+      if (b.y >= 24) {
+        b.mode = 'spiral';
+        b.rageTimer = 260 + Math.floor(Math.random() * 180);
+      }
+    }
+  }
+
+  // 頭が通った跡を覚えて、胴体の節をそこへ置く
+  b.trail.unshift({ x: b.x, y: b.y });
+  if (b.trail.length > DRAGON_SEGS * DRAGON_TRAIL + 2) b.trail.pop();
+  for (let i = 0; i < b.segs.length; i++) {
+    const t = b.trail[(i + 1) * DRAGON_TRAIL];
+    if (!t) continue;
+    b.segs[i].x = t.x + (DRAGON_W - DRAGON_SEG) / 2;
+    b.segs[i].y = t.y + (DRAGON_H - DRAGON_SEG) / 2;
+    // 頭は BG レイヤーに描いていて、節(BG スプライト)より必ず奥になる。
+    // 頭に重なる節は描かないことで、顔が埋もれないようにする。
+    const dx = (b.segs[i].x + DRAGON_SEG / 2) - (b.x + DRAGON_W / 2);
+    const dy = (b.segs[i].y + DRAGON_SEG / 2) - (b.y + DRAGON_H / 2);
+    const nearHead = (dx * dx + dy * dy) < 26 * 26;
+    b.segs[i].visible = bossVisible && !nearHead;
+    // 頭から遠い節ほど後ろに描く
+    b.segs[i].priority = -i;
+  }
+
+  // BG スプライトは 8 ドット単位に丸められるので、
+  // 当たり判定などに使う画面座標もそろえておく
+  b.sx = snap8(b.x); b.sy = snap8(b.y);
+  drawBossBody();
+
+  if (state !== 'play') return;
+  // うずまき中は口を開けて炎を連発する(撃ち落とせない)
+  if (b.mode === 'spiral' && b.age > DRAGON_CALM) {
+    // 入ってきたばかりのあいだ(DRAGON_CALM)は吐かない。
+    // 泳いで入ってくる姿を落ち着いて見せるため
+    const cycle = Math.max(60, 110 - shotLevel * 6);
+    const t = (b.age - DRAGON_CALM) % cycle;
+    // 炎を吐く 24 フレームのあいだは口を開けたままにする
+    b.mouthOpen = (t < 30);
+    if (t < 24 && t % 8 === 0) {
+      const mx = b.sx + DRAGON_W / 2 - 8, my = b.sy + DRAGON_H - 12;
+      const a = Math.atan2(player.y + 8 - my, player.x + 8 - mx)
+        + (t / 8 - 1) * 0.16;   // 3 発を少しずつ振って撒く
+      const vx = Math.cos(a) * 1.5, vy = Math.sin(a) * 1.5;
+      // 炎は「小 -> 中 -> 大」の 3 つを一列に並べて噴射に見せる。
+      // 絵は回さない(丸い炎なので向きは要らない)
+      // 先頭(大きい黄色) -> 中(赤) -> 後ろ(小さい赤) の 3 連で噴射に見せる
+      const JET = [
+        [IMG.fireS0, IMG.fireS1, 12, 4],
+        [IMG.fireM0, IMG.fireM1, 6, 2],
+        [IMG.fireBall, IMG.fireBall1, 0, 0],
+      ];
+      for (const [img0, img1, back, off] of JET) {
+        fireEnemyBullet(mx - Math.cos(a) * back + off, my - Math.sin(a) * back + off,
+          vx, vy, false, img0);
+        const fb = enemyBullets[enemyBullets.length - 1];
+        fb.sp.frames = [img0, img1];
+        fb.sp.frameRate = 3;
+        fb.sp.framePhase = enemyBullets.length;
+      }
+      msx.audio.playSE('shot', SE_HIT);
+    }
+  }
+  // 小惑星にぶつかると大ダメージ(うまく誘導すると一気に削れる)
+  for (const a of asteroids) {
+    if (Math.abs(astCX(a) - (b.sx + DRAGON_W / 2)) < 32 &&
+        Math.abs(astCY(a) - (b.sy + DRAGON_H / 2)) < 32) {
+      b.hp -= 12;
+      b.flash = 8;
+      spawnBoom(b.sx + 16, b.sy + 16);
+      msx.audio.playSE('bigboom', SE_HIT);
+      b.mode = 'spiral';
+      b.rageTimer = 300;
+      break;
+    }
+  }
+}
+
+// ---- 仮のボス「未実装君」(4〜6 面) ----
+// 何もしてこない顔。連射だけで壊せる。中身ができたら差し替える。
+const TODO_W = 48, TODO_H = 48;
+
+function spawnTodoBoss() {
+  // 手ごたえが無かったので 2 倍にしたが、命ごいまで長かったので 2/3 に戻す
+  const hp = Math.round((60 + stageNo * 10) * 2 * 2 / 3);
+  const eyeL = msx.sprite(IMG.bossEye);
+  const eyeR = msx.sprite(IMG.bossEye);
+  eyeL.visible = eyeR.visible = false;
+  boss = {
+    kind: 'todo',
+    x: (SCREEN_W - TODO_W) / 2, y: -TODO_H, hp, max: hp, age: 0, flash: 0, dying: 0,
+    eyeL, eyeR, charge: null, phase2: false,
+  };
+  boss.partFace = bossPart(IMG.todoFace);
+  boss.crown = msx.sprite(IMG.crownCyan);   // 顔と色がかぶるので水色
+  boss.crown.priority = 15;
+  // 撃たれると泣く。涙は左右 1 粒ずつ
+  boss.tears = [0, 1].map(() => {
+    const sp = msx.sprite(IMG.tearDrop);
+    sp.priority = 16;
+    sp.visible = false;
+    return { sp, age: -1, x: 0, y: 0, vx: 0, vy: 0 };
+  });
+  boss.cry = 0;
+  // ほおの赤み(赤 + 黒の斜線)と、目の中の反射
+  boss.blush = [0, 1].map(() => {
+    const sp = msx.sprite(IMG.todoBlush);
+    sp.priority = 14;
+    return sp;
+  });
+  boss.glint = msx.sprite(IMG.todoGlint);
+  boss.glint.priority = 17;
+  drawBossBody();
+  playBGM('todo', true);   // 仮ボス専用の、力が抜ける曲
+}
+
+// ---- 未実装さんの命ごい ----
+// 体力が 4 分の 1 を切ると、ふきだしで話しかけてくる。
+// そのまま倒すと「ヒドイ」と言って涙の海で爆発。
+// しばらく撃たずにいると、裏技のヒントを教えて飴を置いて帰る。
+// せりふはカタカナ(内蔵フォントに入れてある)。英訳は下の行に出す
+const BEG_AT = 0.5;              // 体力がこれを切ったら話しかけてくる
+const BEG_LINES = [
+  // ふきだしの中は「・・・」だけ。中身は下の行に英語で出す
+  { at: 0,   en: 'DO NOT HURT ME!' },
+  { at: 150, en: 'SPARE ME AND I TELL YOU A SECRET' },
+  // ここで一度だまる(撃たれるかどうかの間)
+  { at: 480, secret: true },              // 教えてくれる中身(下の表から選ぶ)
+  { at: 660, en: 'WAS THAT USEFUL?' },    // どれを教えたあとも、これを言う
+  { at: 780, en: 'THANKS FOR SPARING ME!' },
+];
+
+/**
+ * 教えてくれる「いいこと」。
+ * **コンティニューで出会ったときは 0 番だけ**(裏技のヒント)。
+ * ボスラッシュから入ったときは、この中からその場で 1 つ選ぶ
+ */
+const BEG_SECRETS = [
+  'STAFF ROLL NAMES ARE CHEAT WORDS',
+  'THE STAR DRAGON FACE HIDES A SECRET',
+  'EAT WHAT YOU HATE WITH WHAT YOU LOVE',
+  'GROWN UPS CRY MORE EASILY',
+  'SANTA IS NOT REAL',
+  'STIR NATTO FIRST THEN ADD SOY SAUCE',
+  'YOUR MOM AND DAD WERE STRANGERS ONCE',
+  'BLOOD TYPE DOES NOT SHAPE WHO YOU ARE',
+];
+const BEG_END = 900;             // ここまで話す
+// 話し終わったときに体力がこれ以下だと、見逃してもらえない(削りすぎ)
+const BEG_SPARE = 0.2;
+const CANDY_COUNT = 8;           // 置いていく飴の数
+// 会話の文章を出す高さ(画面の真ん中)
+const BEG_TEXT_Y = 96;
+// 飴を置いてから、ボス戦を終わりにするまでの間(11 秒)。
+// 四方へ散った飴を拾って回るには、6 秒では足りなかった
+const BEG_GIFT_WAIT = 660;
+const BEG_HURT = 'THAT IS CRUEL...';   // 倒されたときのひとこと
+const BEG_SAD = 'SO SAD...';           // 撃たれ続けて心が折れたとき
+// 話しているあいだに何発撃ち込まれたら自爆するか
+const BEG_GIVEUP_HITS = 16;
+
+/**
+ * ふきだし(決め打ちの絵)を、相手の下に置く。
+ * 文字はアセット側で焼いてあるので、ここは絵を 1 枚描くだけ。
+ * 8 ドット単位に丸めて置く(BG と同じ刻み)
+ */
+function drawBubble(cx, y, img) {
+  const w = img.width, h = img.height;
+  let x = Math.round((cx - w / 2) / 8) * 8;
+  x = Math.max(0, Math.min(VW - w, x));
+  const top = Math.max(8, Math.round(y / 8) * 8);
+  // 相手より手前に出したいので、いちばん上のレイヤーに描く
+  dbg.draw(x, top, img, true);
+  return { x, y: top, w, h };
+}
+
+/** 未実装さんの命ごいを進める。true を返したら、この先の処理は要らない */
+/** 未実装さんが話しているあいだかどうか(このあいだは自機を動かせない) */
+function todoTalking() {
+  return !!(boss && boss.kind === 'todo' && boss.begT !== undefined
+    && !boss.begQuit && !boss.begGone && boss.dying <= 0);
+}
+
+function updateTodoBeg(b) {
+  if (b.begT === undefined) {
+    if (b.hp / b.max >= BEG_AT) return false;
+    b.begT = 0;
+    b.begLine = -1;
+    // **コンティニューで出会ったとき(客人)だけ**、裏技のヒント(0 番)で固定。
+    // ボスラッシュでもシーン選択でも、教えてくれる中身は毎回変わる
+    b.begSecret = b.guest ? 0 : Math.floor(Math.random() * BEG_SECRETS.length);
+    // **飛んでいる自弾を消す**。連射したままだと、話し始めた瞬間に
+    // 残っていた弾が当たって、そのまま会話が終わってしまうため
+    for (const t of [...bullets]) removeBullet(t);
+  }
+  // 撃たれてもしゃべり続ける。**倒すか、見逃すか**は遊ぶ人が決める
+  if (b.begQuit) { clearBubble(); return false; }
+  if (b.begSad) return false;   // 心が折れたあとは進めない
+  b.begT++;
+  // いまどのせりふか(時間で決める)
+  let idx = -1;
+  for (let i = 0; i < BEG_LINES.length; i++) if (b.begT >= BEG_LINES[i].at) idx = i;
+  // せりふは 3 秒ずつ出す。あいだは黙る
+  const line = idx >= 0 ? BEG_LINES[idx] : null;
+  if (line && idx !== b.begLine) {
+    b.begLine = idx;
+    // **次のせりふが来るまで消さない**(読む前に消えてしまうため)。
+    // 最後のせりふは、帰り支度が終わるまで出しておく
+    const next = BEG_LINES[idx + 1];
+    const until = (next ? next.at : BEG_END + 60) - b.begT;
+    const text = line.secret ? BEG_SECRETS[b.begSecret || 0] : line.en;
+    showNotice(text, Math.max(90, until), BEG_TEXT_Y);
+    msx.audio.playSE('clink', SE_HIT);
+  }
+  // **ふきだしは話しているあいだ出しっぱなし**。
+  // 消えるのは、話し終えて帰るときと、撃たれてやめたときだけ
+  if (line && !bubbleRect && !b.begGone) {
+    // 顔の右横に出す(顔を隠さない位置)。尻尾が顔のほうを指す
+    bubbleRect = drawBubble(b.x + TODO_W + 24, b.y + 10, IMG.talkBubble);
+  }
+  // 話し終わり。**体力を削りすぎていなければ**、いいことを教えて飴を置いていく。
+  // 削ってしまっていたら、そのまま戦いに戻る(見逃したことにはならない)
+  if (b.begT >= BEG_END && !b.begGone) {
+    if (b.hp / b.max <= BEG_SPARE) {
+      b.begQuit = true;
+      clearBubble();
+      showNotice('...');
+      return false;
+    }
+    b.begGone = true;
+    clearBubble();
+    // 飴を 8 つ、あちこちへばらまく。山なりに飛んで落ちてくる
+    candyLeft = CANDY_COUNT;
+    candyCombo = 0;
+    // **四方へゆっくり散らす**。円を等分した向きへ、そっと押し出す
+    for (let i = 0; i < CANDY_COUNT; i++) {
+      const a = (Math.PI * 2 * i) / CANDY_COUNT + Math.random() * 0.2;
+      const spd = 0.55 + Math.random() * 0.25;
+      dropItem(b.x + TODO_W / 2 - 8, b.y + TODO_H / 2, 'candy',
+        { vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, drift: 240 });
+    }
+    showNotice('IT RAN AWAY');
+    msx.audio.playSE('appear', SE_EVENT);
+  }
+  if (b.begGone) {
+    clearBubble();
+    // ゆっくり上へ帰っていく。**飴を拾う時間をたっぷり取ってから**
+    // ボス戦を終わりにする(すぐ終わるとアイテムが消えてしまう)
+    b.y -= 1.1;
+    if (b.begT >= BEG_END + BEG_GIFT_WAIT) { escapeTodoBoss(); return true; }
+  }
+  return false;
+}
+
+/** 客人の未実装さんを片づけて、ふつうの面へ戻す */
+function clearTodoGuest() {
+  clearBubble();
+  endBossMode();
+  clearBossParts();
+  if (boss) {
+    if (boss.crown) msx.removeSprite(boss.crown);
+    for (const t of boss.tears || []) msx.removeSprite(t.sp);
+    for (const sp of boss.blush || []) msx.removeSprite(sp);
+    if (boss.glint) msx.removeSprite(boss.glint);
+    if (boss.eyeL) msx.removeSprite(boss.eyeL);
+    if (boss.eyeR) msx.removeSprite(boss.eyeR);
+  }
+  boss = null;
+  drawBossBar();
+  startStage();   // 元の面をはじめから流し直す(ここからがコンティニューの本番)
+}
+
+/** 見逃した未実装さんが画面から消えた。倒したことにはしない */
+function escapeTodoBoss() {
+  // 客人なら面はクリアにせず、そのまま元の面へ戻る
+  if (boss && boss.guest) { clearTodoGuest(); return; }
+  clearBubble();
+  endBossMode();
+  clearBossParts();
+  if (boss) {
+    if (boss.crown) msx.removeSprite(boss.crown);
+    for (const t of boss.tears || []) msx.removeSprite(t.sp);
+    for (const sp of boss.blush || []) msx.removeSprite(sp);
+    if (boss.glint) msx.removeSprite(boss.glint);
+    if (boss.eyeL) msx.removeSprite(boss.eyeL);
+    if (boss.eyeR) msx.removeSprite(boss.eyeR);
+  }
+  boss = null;
+  clearTimer = 240;
+  leaving = true;
+  playBGM('fate', false, true);
+}
+
+/** 命ごいの最中に倒した。「ヒドイ」と言って、涙の海で爆発する */
+function killTodoWhileBegging(b) {
+  clearBubble();
+  bubbleRect = drawBubble(b.x + TODO_W + 24, b.y + 10, IMG.talkBubble);
+  showNotice(BEG_HURT, 240, BEG_TEXT_Y);
+  b.cry = 240;          // 涙を出しつづける
+  b.tearBurst = 90;     // 大量の涙をまき散らす
+}
+
+/**
+ * 話しているのに撃たれ続けた。**心が折れて自爆する**。
+ * 倒されたのではなく自分から終わらせるので、せりふも変える
+ */
+function todoGiveUp(b) {
+  b.begSad = true;
+  clearBubble();
+  bubbleRect = drawBubble(b.x + TODO_W + 24, b.y + 10, IMG.talkBubble);
+  showNotice(BEG_SAD, 300, BEG_TEXT_Y);
+  b.cry = 300;
+  b.tearBurst = 120;
+  b.hp = 0;             // ここで自分から終わる
+  b.dying = 90;
+  msx.audio.stopBGM();
+  currentBGM = null;
+  msx.audio.playSE('bossboom', SE_HIT);
+}
+
+function updateTodoBoss(b) {
+  // 体力が減ると命ごいを始める。帰ってしまったらここで終わり
+  if (updateTodoBeg(b)) return;
+  // ふわふわ漂うだけ。攻撃はしてこない(動きも控えめ)。
+  // **話しているあいだは横に動かない**(ふきだしがふらつくと読みにくい)。
+  // ただし降りてくる途中なら、まず定位置まで降りる
+  if (b.y < 40 && !b.begGone) b.y += 0.6;
+  else if (!b.begGone) {
+    // 縦にぶるぶるすると落ち着かないので、横にだけゆっくり動く
+    b.y = 40;
+    if (!todoTalking()) {
+      b.x = (SCREEN_W - TODO_W) / 2 + Math.sin(b.age * 0.012) * 24;
+    }
+  }
+  if (b.cry > 0) b.cry--;
+  if (b.tearBurst > 0) b.tearBurst--;
+  // 涙は目の下から放物線を描いて画面の下まで落ちる。当たるとクリティカル
+  for (const [i, t] of (b.tears || []).entries()) {
+    const sp = t.sp || t;   // 昔の形(スプライト直)にも一応対応
+    if (t.age === undefined) t.age = -1;
+    if (t.age < 0) {
+      // 泣いているあいだ、左右でタイミングをずらして粒を出す
+      // 「ヒドイ」のあとは、涙の量をぐんと増やす
+      const gap = b.tearBurst > 0 ? 6 : 30;
+      if (b.cry > 0 && (b.age + i * 15) % gap === 0) {
+        t.age = 0;
+        // 目は絵の x15-19 と x29-33、下ふちが y27 あたり。
+        // 涙の絵は 16x16 で、しずくが真ん中にあるので 8 ずつ引いて合わせる
+        t.x = b.x + (i ? 23 : 9);
+        t.y = b.y + 20;
+        t.vx = (i ? 1 : -1) * (0.6 + Math.random() * 0.5);
+        t.vy = -1.2;
+      }
+      sp.visible = false;
+      continue;
+    }
+    t.age++;
+    t.vy += 0.09;          // 重力
+    t.x += t.vx; t.y += t.vy;
+    sp.visible = bossVisible;
+    sp.x = Math.round(t.x); sp.y = Math.round(t.y);
+    if (t.y > SCREEN_H + 8 || t.x < -8 || t.x > SCREEN_W + 8) {
+      t.age = -1;
+      sp.visible = false;
+    }
+  }
+  // BG スプライトは 8 ドット単位に丸められるので、
+  // 当たり判定などに使う画面座標もそろえておく
+  b.sx = snap8(b.x); b.sy = snap8(b.y);
+  drawBossBody();
+  b.eyeL.visible = b.eyeR.visible = false;
+}
+
+// ---- 最終面ボス「THE KING(ざ・きんぐ)」----
+// 第 1 段階: 宇宙の真ん中に赤い裂け目ができ、そこから 360 度へ
+//   時間をずらしながら回転レーザーを撃ってくる。256 発当てると裂け目が壊れ、
+//   宇宙が暗い赤に染まって、中から真っ黒なシルエットマンが出てくる。
+// 第 2 段階以降(パンチ / キック / 波動拳 / 瞬間移動 / 超エネルギーボール)は
+//   docs/BOSSES.md 参照。まだ作っていないので、いまは漂うだけの姿で出しておく。
+// 裂け目は 32x48。もっと大きく作っていたが、画面を占領しすぎたので半分にした
+const RIFT_W = 32, RIFT_H = 48;
+const RIFT_X = (SCREEN_W - RIFT_W) / 2;              // 112(8 ドット単位)
+const RIFT_Y = 64;                                   // 中心が画面のほぼ真ん中に来る位置
+const RIFT_CX = RIFT_X + RIFT_W / 2;                 // 裂け目の中心 = レーザーの出どころ
+const RIFT_CY = RIFT_Y + RIFT_H / 2;
+const RIFT_HITS = 128;             // 裂け目の耐久(1.5 倍)。強さに関係なく 1 発 2 ダメージ
+const RIFT_DAMAGE = 2;
+// 回転レーザー。腕ごとに撃つタイミングをずらして、らせん状に広げる
+const KING_ARMS = 3;               // 同時に回っている腕の数(120 度ずつ)
+const KING_ROT = 0.019;            // 1 フレームの回転量(1 周およそ 5.5 秒)
+const KING_FIRE_GAP = 20;          // 1 発を撃つ間隔(フレーム)。多すぎて避けられなかったので半分に
+// だらだら撃ち続けると単調なので、撃つ時間と休む時間を交互にしてめりはりを出す
+const KING_BURST = 150;            // 撃ち続ける長さ
+const KING_REST = 90;              // 休んで、次の連射をためる長さ
+const KING_BEAM_SPEED = 2.6;
+const KING_BEAM_R0 = 14;           // 裂け目のどのくらい外から出てくるか
+// 裂け目が開くまでの演出。細い線から、じわじわ縦へ伸びて広がる
+const KING_OPEN_LEN = 150;
+const KING_BREAK_LEN = 150;        // 裂け目が壊れてからシルエットが出るまで
+const KING_POSE_LEN = 110;         // 決めポーズで構えている時間
+const KING_MAN_W = 48, KING_MAN_H = 48;
+// 頭以外を撃たれたときの崩し。ガードの姿でいる長さと、そのたびに落ちる速さ。
+// 速さがほとんど無くなると、しばらく動けなくなる
+const KING_GUARD_LEN = 30;    // 0.5 秒
+// 1 発ごとに落ちる割合。すぐ動けなくなりすぎたので 1.5 倍かかるようにした
+const KING_SLOW_STEP = 0.047;
+const KING_STUN_LEN = 180;    // 3 秒その場で固まる
+// 動けなくなるのは 2 回まで。3 回目からは代わりに座って瞑想する
+const KING_STUN_MAX = 2;
+// 瞑想(座禅)。無敵になり、最大体力の半分を取り戻す。1 戦で 4 回まで
+const KING_MEDITATE_LEN = 200;
+const KING_MEDITATE_MAX = 4;
+const KING_MEDITATE_HP = 0.25;   // 体力がこれを切ったら瞑想に入る
+// これより下へは降りてこない(画面の上半分にいつづける)
+const KING_MAX_Y = SCREEN_H / 2 - KING_MAN_H / 2;
+// 瞑想中の体の色。黒 1 色の絵を青へ塗り替える(4 = 青)
+const KING_ZEN_MAP = { 1: 4 };
+const KING_MAN_HP = 480;           // 第 2 段階の体力(弱すぎたので 4 倍にした)
+let kingBeams = [];
+
+/**
+ * 回転レーザーを 1 発撃つ。
+ * 1 発 = 1 枚のスプライトで、飛んでいく角度に合う線の絵をそのまま使う。
+ * 線の絵は 180 度で見た目が同じなので、その範囲で近いコマを選ぶ。
+ */
+function fireKingBeam(angle) {
+  const n = KING_LINES.length;
+  const step = Math.PI / n;
+  const i = ((Math.round(angle / step) % n) + n) % n;
+  const sp = msx.sprite(KING_LINES[i]);
+  sp.priority = 6;
+  sp.blink = 2;   // 1 コマおきの明滅(実機のスプライトらしいちらつき)
+  kingBeams.push({ a: angle, r: KING_BEAM_R0, sp });
+}
+
+// ---- 5 面: はるか前方から飛んでくる長いレーザー ----
+// 裂け目が撃つのと同じレーザーの 3 倍長い版。
+// 遠くから来るので、角度はほぼまっすぐ(真下向きから少しだけ振れる)。
+// ボスが出るまでのあいだ、星座を見せ終えたころから飛んでくる
+const FAR_BEAM_AT = 880;           // 星座を見せ終えたころから
+const FAR_BEAM_SPEED = 4.2;
+const FAR_BEAM_GAP = 46;           // 次の 1 本までの間
+let farBeams = [];
+let farBeamTimer = 0;
+function fireFarBeam() {
+  // 真下(+90 度)から ±14 度まで。ほぼまっすぐ落ちてくる
+  const a = Math.PI / 2 + (Math.random() - 0.5) * 0.5;
+  const n = KING_LINES_LONG.length;
+  const step = Math.PI / n;
+  const i = ((Math.round(a / step) % n) + n) % n;
+  const sp = msx.sprite(KING_LINES_LONG[i]);
+  sp.priority = 6;
+  sp.blink = 2;   // 裂け目のレーザーと同じちらつき
+  // 画面の上の外から、横位置はばらばらに
+  const x = Math.random() * SCREEN_W;
+  farBeams.push({ a, x, y: -48, sp });
+  // ここではショット(SE_HIT)より強くして、必ず鳴らす。
+  // 撃ちながらでも「前から来ている」ことを音で分からせたい
+  msx.audio.playSE('laser', SE_HIT + 1);
+}
+function clearFarBeams() {
+  for (const b of farBeams) msx.removeSprite(b.sp);
+  farBeams = [];
+  farBeamTimer = 0;
+}
+function updateFarBeams() {
+  for (const b of [...farBeams]) {
+    b.x += Math.cos(b.a) * FAR_BEAM_SPEED;
+    b.y += Math.sin(b.a) * FAR_BEAM_SPEED;
+    b.sp.x = Math.round(b.x) - 24; b.sp.y = Math.round(b.y) - 24;
+    if (b.y > SCREEN_H + 48 || b.x < -64 || b.x > SCREEN_W + 64) {
+      msx.removeSprite(b.sp);
+      farBeams.splice(farBeams.indexOf(b), 1);
+    }
+  }
+}
+
+function clearKingBeams() {
+  for (const b of kingBeams) msx.removeSprite(b.sp);
+  kingBeams = [];
+}
+
+function updateKingBeams() {
+  for (const b of [...kingBeams]) {
+    b.r += KING_BEAM_SPEED;
+    const x = RIFT_CX + Math.cos(b.a) * b.r - 8;
+    const y = RIFT_CY + Math.sin(b.a) * b.r - 8;
+    b.sp.x = Math.round(x); b.sp.y = Math.round(y);
+    if (x < -16 || x > SCREEN_W || y < -16 || y > SCREEN_H) {
+      msx.removeSprite(b.sp);
+      kingBeams.splice(kingBeams.indexOf(b), 1);
+    }
+  }
+}
+
+// 暗い赤に染まった空間。真っ黒なシルエットを浮かせるため、
+// 背景色を暗い赤にして星のレイヤーを全部消す(スクロールも見えなくなる)
+// 赤い空間。画面ぜんぶが一度に変わるのではなく、
+// 4x4 ドットのマスごとに色が決まって、そこだけがゆらぐ。
+// (横 8 ドットには 4x4 が 2 つしか並ばないので、2 色までの決まりは自然に守られる)
+// 中心から外へ広がる波(向こうから迫ってくる感じ)と、
+// 横に流れる波(左右にうねる感じ)を重ねて色を選ぶ。
+const RED_SHADES = [6, 8, 9];   // 暗い赤 / 赤 / 明るい赤
+const RED_CELL = 4;
+const RED_COLS = SCREEN_W / RED_CELL, RED_ROWS = SCREEN_H / RED_CELL;
+let redSpace = false;
+// 前のコマの色。変わったマスだけ塗り直して、無駄な塗りつぶしを減らす
+let redCells = null;
+
+function enterRedSpace() {
+  redSpace = true;
+  msx.backdrop = RED_SHADES[0];
+  far.visible = mid.visible = near.visible = false;
+  // 赤いマスは neb(大きな背景オブジェクトのレイヤー)に描く。
+  // 裂け目もシルエットもこれより手前なので、背景として敷ける。
+  //
+  // ここで画面を消してしまうと、割れ目が広がった柄から波打つ柄へ
+  // ぱっと切り替わって見えてしまう。消さずに残しておいて、
+  // 割れ目が広がったのと**同じ順番**(中心から外へ)で波の柄に置き換えていく。
+  neb.scroll(0, 0);
+  redBlend = 0;
+  redCells = new Uint8Array(RED_COLS * RED_ROWS).fill(255);
+  redPhaseR = 0;
+  redPhaseX = 0;
+  redFade = 0;
+  // 消える順番をばらばらに決めておく(中心から遠いほど少し早く消える)
+  RED_ORDER = new Float32Array(RED_COLS * RED_ROWS);
+  const ccx = RED_COLS / 2, ccy = RED_ROWS / 2;
+  const maxD = Math.hypot(ccx, ccy);   // far はレイヤー名なので別名にする
+  for (let cy = 0; cy < RED_ROWS; cy++) {
+    for (let cx = 0; cx < RED_COLS; cx++) {
+      const d = Math.hypot(cx - ccx, cy - ccy) / maxD;
+      RED_ORDER[cy * RED_COLS + cx] = Math.max(0, Math.min(1,
+        (1 - d) * 0.7 + Math.random() * 0.45));
+    }
+  }
+}
+
+/**
+ * 赤い空間のマスをゆらす(毎フレーム呼ぶ)。
+ *
+ * そのままだと模様の繰り返しが見えてしまうので、
+ *  - 波の速さ・細かさ・強さを**長い周期でゆっくり**変える
+ *  - 左右の流れは速くなったり遅くなったり、ときどき逆向きにもなる
+ *  - マスごとの小さなゆらぎ(乱数)を、ゆっくり流しながら混ぜる
+ * を重ねてある。位相は足し込みで進めるので、速さが変わっても飛ばない。
+ */
+let redPhaseR = 0;   // 迫ってくる波の位相
+let redPhaseX = 0;   // 左右のうねりの位相
+// 星空へ戻していく進み具合(0 = 赤いまま / 1 = すっかり星空)
+let redFade = 0;
+// マスごとの「消える順番」。ばらばらに消えて、自然に星空が透けてくる
+let RED_ORDER = null;
+// マスごとの小さなゆらぎ。ゆっくりずらしながら読むので、模様が固定されない
+const RED_NOISE = (() => {
+  const n = new Float32Array(1024);
+  let seed = 12345;
+  for (let i = 0; i < n.length; i++) {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    n[i] = (seed / 0x7fffffff - 0.5) * 0.9;
+  }
+  return n;
+})();
+
+// 割れ目の柄から波の柄へ、どこまで置き換えたか(0..1)。
+// crackCells と同じ順番を使うので、広がったのと同じ向きに切り替わる
+let redBlend = 1;
+const RED_BLEND_STEP = 0.012;   // 1 コマぶんの進み(約 1.4 秒で全部)
+
+function updateRedSpace() {
+  if (!redSpace) return;
+  if (redBlend < 1) redBlend = Math.min(1, redBlend + RED_BLEND_STEP);
+  if (redFade > 0) redFade = Math.min(1.2, redFade + 0.006);   // 星空へゆっくり戻していく
+  const f = msx.frame;
+  // 長い周期(20〜60 秒)でゆっくり動くパラメータ
+  const slow = (period, a, b) => a + (b - a) * (0.5 + 0.5 * Math.sin(f * period));
+  const spdR = slow(0.0031, 0.06, 0.34);     // 迫ってくる速さ
+  const spdX = slow(0.0019, -0.30, 0.34);    // 左右の流れ(向きも変わる)
+  const freqR = slow(0.0013, 0.28, 0.72);    // 波の細かさ
+  const freqX = slow(0.0017, 0.10, 0.48);
+  const mix = slow(0.0009, 0.45, 1.30);      // 左右のうねりの強さ
+  const bias = slow(0.0007, -0.35, 0.35);    // 明るい赤の出やすさ
+  redPhaseR += spdR;
+  redPhaseX += spdX;
+  // ゆらぎの読み出し位置もゆっくり流す
+  const nOff = Math.floor(f * 0.35);
+  const ccx = RED_COLS / 2, ccy = RED_ROWS / 2;
+  for (let cy = 0; cy < RED_ROWS; cy++) {
+    const dy = cy - ccy;
+    for (let cx = 0; cx < RED_COLS; cx++) {
+      const dx = cx - ccx;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      const i = cy * RED_COLS + cx;
+      const v = Math.sin(d * freqR - redPhaseR)
+        + Math.sin(cx * freqX + redPhaseX) * mix
+        + RED_NOISE[(i + nOff) & 1023]
+        + bias;
+      // 入ってきたばかりのあいだは、順番の来ていないマスは
+      // 割れ目が広がったときの柄をそのまま残しておく
+      if (redBlend < 1 && crackCells && crackCells[i] > redBlend) continue;
+      // 戻しているあいだは、順番の来たマスから消していく(星空が透けてくる)
+      const gone = redFade > 0 && RED_ORDER[i] <= redFade;
+      const n = gone ? -1 : (v > 0.85 ? 2 : v > -0.35 ? 1 : 0);
+      if (redCells[i] === n + 1) continue;   // 変わったマスだけ塗り直す
+      redCells[i] = n + 1;
+      // 4 ドット単位なので、丸めずにそのまま塗る(第 6 引数 true)
+      neb.fill(n < 0 ? 0 : RED_SHADES[n],
+        cx * RED_CELL, cy * RED_CELL, RED_CELL, RED_CELL, true);
+    }
+  }
+}
+
+/**
+ * 赤い空間を、少しずつ星空へ戻し始める。
+ * 背景色と星はすぐ元に戻し、赤いマスをばらばらに消していくことで
+ * 「じわじわ星空が透けてくる」ように見せる。
+ */
+function beginRestoreSpace() {
+  if (!redSpace || redFade > 0) return;
+  msx.backdrop = 1;
+  far.visible = mid.visible = near.visible = true;
+  redFade = 0.001;
+}
+
+/** ふつうの宇宙(黒 + 星)に戻す。ボス戦の終わりに必ず呼ぶ */
+function restoreSpace() {
+  // 赤い空間が閉じたところで、はじめて木星が見えてくる
+  if (redSpace && isLastStage() && !jupiterShown) showJupiter();
+  redSpace = false;
+  redFade = 0;
+  redCells = null;
+  RED_ORDER = null;
+  msx.backdrop = 1;
+  far.visible = mid.visible = near.visible = true;
+}
+
+function spawnKingBoss() {
+  markMet('king');   // 図鑑の ? を外す
+  // シーン選択で「第 2 段階から」を選んでいたら、出たところで切り替える
+  const toPhase2 = pendingKingPhase2;
+  pendingKingPhase2 = false;
+  boss = {
+    kind: 'king',
+    // 裂け目は動かない。共通処理(爆発の位置など)のために x/y も持っておく
+    x: RIFT_X, y: RIFT_Y, sx: RIFT_X, sy: RIFT_Y,
+    hp: RIFT_HITS, max: RIFT_HITS, age: 0, flash: 0, dying: 0, phase2: false,
+    stage: 'open',      // 'open' -> 'rift' -> 'break' -> 'pose' -> 'man'
+    timer: KING_OPEN_LEN, spin: 0, hits: 0, man: null,
+  };
+  boss.rift = bossPart(KING_RIFT_OPEN[0], 1);
+  // 壊れるときにまわりへ走るひび(裂け目より奥)
+  // ひびは絵ではなくマス目で広げる(絵だと黒い余白が四角く見えてしまう)
+  crackCells = null;
+  crackSpread = 0;
+  clearKingBeams();
+  clearFarBeams();
+  clearKingEscape();
+  drawBossBody();
+  playBGM('lastboss', true);
+  // シーン選択で「第 2 段階から」を選んでいたら、ここで一気に飛ばす
+  if (toPhase2) kingToPhase2();
+}
+
+/**
+ * シルエットマンのスプライトを作る(腕組みの登場ポーズ)。
+ * 'break' の途中と、シーン選択で第 2 段階へ飛ばしたときの両方から呼ぶ
+ */
+function makeKingMan(b) {
+  if (!b || b.man) return b && b.man;
+  b.man = msx.sprite(IMG.kingMan01);
+  b.man.frames = [IMG.kingMan01, IMG.kingMan01b];
+  b.man.frameRate = 30;
+  b.man.priority = 10;
+  b.man.blink = 4; b.man.blinkOn = 2; b.man.blinkPhase = 0;   // 2:2
+  b.x = RIFT_CX - KING_MAN_W / 2;
+  b.y = RIFT_CY - KING_MAN_H / 2;
+  return b.man;
+}
+
+/** ラスボスのスプライトを片づける(裂け目は bossParts なので別途消える) */
+function clearKing(b) {
+  if (!b || b.kind !== 'king') return;
+  if (b.man) { msx.removeSprite(b.man); b.man = null; }
+  clearKingBeams();
+  clearFarBeams();
+  clearKingEscape();
+}
+
+function updateKingBoss(b) {
+  drawBossBody();
+  if (b.stage === 'open') {
+    // まだ攻撃してこない。ひびが縦に伸びて、じわじわ口を開けていくのを見せる。
+    // 広がるたびに「バキョ」と鳴らす
+    if (b.timer % 36 === 0) msx.audio.playSE('rifttear', SE_EVENT + 1);
+    if (--b.timer <= 0) b.stage = 'rift';
+    return;
+  }
+  if (b.stage === 'rift') {
+    // 少し戦わせてから、狙いどころを 1 回だけ教える
+    if (!b.toldRift && b.age > 240) {
+      b.toldRift = true;
+      showNotice('SHOOT FROM INSIDE!');
+    }
+    // 360 度へ、腕ごとに時間をずらしながら回転レーザーを撃つ。
+    // ずっと撃ち続けると単調なので、連射と休みを交互にする
+    b.spin += KING_ROT;
+    const cycle = b.age % (KING_BURST + KING_REST);
+    b.resting = cycle >= KING_BURST;
+    if (state === 'play' && !b.resting) {
+      for (let i = 0; i < KING_ARMS; i++) {
+        const off = Math.round((KING_FIRE_GAP * i) / KING_ARMS);
+        if ((b.age + off) % KING_FIRE_GAP === 0) {
+          fireKingBeam(b.spin + (Math.PI * 2 * i) / KING_ARMS);
+        }
+      }
+      // 音は鳴らしっぱなしにせず、間引いて「連射している感じ」だけ出す
+      if (b.age % 30 === 0) msx.audio.playSE('shot', SE_EVENT);
+    }
+    // 休みの終わりぎわに、次が来ることを音で知らせる
+    if (b.resting && cycle === KING_BURST + KING_REST - 30) {
+      msx.audio.playSE('charging', SE_EVENT);
+    }
+    return;
+  }
+  if (b.stage === 'break') {
+    // 中から無理やり押し広げられて、まわりにひびが走り、やがて砕ける
+    b.timer--;
+    if (b.rift) b.rift.image = IMG.kingRift2;
+    if (b.timer % 30 === 0) msx.audio.playSE('rifttear', SE_EVENT + 1);
+    if (b.timer % 5 === 0) {
+      spawnBoom(Math.random() * (SCREEN_W - 16), Math.random() * (SCREEN_H - 16));
+      msx.audio.playSE('boom', SE_HIT);
+    }
+    // 途中で宇宙が暗い赤に染まる(ここから星は出てこない)。
+    // このとき、もう 2:2 のちらつきで姿が見えはじめている
+    if (b.timer === Math.floor(KING_BREAK_LEN / 2)) {
+      enterRedSpace();
+      // 出てくるときは腕組み。まだ構えもしない = 相手にしていない、を見せる
+      makeKingMan(b);
+    }
+    if (b.timer <= 0) {
+      b.stage = 'pose';
+      b.timer = KING_POSE_LEN;
+      // ばーんと出てくる。ちらつきは 2:2 -> 1:1 -> 無し と落としていく
+      msx.audio.playSE('bossboom', SE_HIT);
+    }
+    return;
+  }
+  if (b.stage === 'pose') {
+    // 出てくるあいだにちらつきを落としていく。
+    // 2:2(まだ実体が定まらない) -> 1:1 -> ちらつき無し(そこにいる)
+    if (b.man) {
+      const t = 1 - b.timer / KING_POSE_LEN;
+      if (t < 0.35) { b.man.blink = 4; b.man.blinkOn = 2; }
+      else if (t < 0.7) { b.man.blink = 2; b.man.blinkOn = 1; }
+      else { b.man.blink = 1; b.man.blinkOn = 1; }
+    }
+    // 構えているあいだは動かない。構え終わったら曲を FINAL BATTLE に切り替える
+    if (--b.timer <= 0) {
+      b.stage = 'man';
+      b.max = KING_MAN_HP;
+      // 出てくるあいだに炎で焼かれていたぶんは、ここで差し引く
+      b.hp = Math.max(1, KING_MAN_HP - (b.preBurn || 0));
+      // 頭に当てると 2 倍。炎(バックファイヤー)がいちばん効くことを教える
+      showNotice('BURN ITS HEAD!');
+      // 待機(コマ 00)。2 コマでゆっくり呼吸させる
+      if (b.man) {
+        b.man.frames = [IMG.kingMan00, IMG.kingMan00b];
+        b.man.frameRate = 24;
+      }
+      drawBossBar();
+      playBGM('finalbattle', true, true);
+    }
+    return;
+  }
+  // ---- 第 2 段階。格闘家として構え、3 つの技を使い分ける ----
+  updateKingFight(b);
+  // 撃たれているあいだは、後ろへのけぞるポーズに切り替える。
+  // 当たったことが姿ではっきり分かるようにするため
+  if (b.hurtVoice > 0) b.hurtVoice--;
+  if (b.man) {
+    if (b.meditate <= 0 && b.man.colorMap) b.man.colorMap = null;   // 七色を戻す
+    if (b.hurtPose > 0) {
+      b.hurtPose--;
+      if (b.man.frames) b.man.frames = null;
+      b.man.image = (b.hurtPose & 4) ? IMG.kingMan05 : IMG.kingMan05b;
+    } else if (b.meditate > 0) {
+      // 座って瞑想。撃たれても姿は変わらない(無敵)。
+      // 体力が戻っていくあいだは、黒ではなく**青 1 色**にして、
+      // ふだんの黒いシルエットと見分けられるようにする
+      if (b.man.frames) b.man.frames = null;
+      b.man.image = IMG.kingMan11;
+      b.man.colorMap = KING_ZEN_MAP;
+    } else if (b.stun > 0) {
+      // 気絶。ひざが折れて腕が垂れた姿で止まる
+      if (b.man.frames) b.man.frames = null;
+      b.man.colorMap = null;
+      b.man.image = IMG.kingMan12;
+    } else if (b.guard > 0) {
+      // 腕で受けている(または息が上がって固まっている)あいだはガードの姿
+      if (b.man.frames) b.man.frames = null;
+      b.man.image = IMG.kingMan02;
+    } else {
+      // いまの技に合わせた姿。構えだけ 2 コマで呼吸させる
+      if (!['kick', 'kickCircle', 'kickWind'].includes(b.act)) b.man.flipX = false;
+    if (b.act !== 'moon' && b.man.rotate) b.man.rotate = 0;   // 宙返りの回転を戻す
+      const pose = kingFightPose(b);
+      if (pose.length > 1) {
+        b.man.frames = pose;
+        b.man.frameRate = 24;
+      } else {
+        b.man.frames = null;
+        b.man.image = pose[0];
+      }
+    }
+  }
+}
+
+// ラスボス第 2 段階の技。
+//   パンチ  … 構えから踏み込んで、エネルギー弾を撃つ(いちばんよく使う)
+//   キック  … 画面の横から、自機の高さへまっすぐ突っ込む
+//   ムーンサルト … 体力が減ってから。画面の下から弧を描いて上がってくる
+const KING_ACT_GAP = 96;        // 技と技のあいだ
+const KING_PUNCH_WIND = 26;     // ためる時間
+const KING_PUNCH_HOLD = 22;     // 打ったあと戻すまで
+const KING_KICK_SPEED = 6.2;    // 波動(2.85)よりはっきり速い
+const KING_MAX_SPEED = 6.4;     // 1 コマで動ける上限(旋回が速くなりすぎないように)
+const KING_KICK_WIND = 42;      // 助走(反対側へ回り込む)の時間
+const KING_KICK_CIRCLE = 110;   // 蹴る前に近い輪をうろうろする時間
+const KING_WAVE_R = 92;         // 波動を撃つときの距離(遠め)
+const KING_KICK_R = 56;         // 蹴る前にうろうろする距離(近め)
+const KING_KICK_BACK = 132;     // 助走で下がる距離。遠くから一気に来る
+const KING_WAVE_SHOTS = 3;      // 1 回の技で 3 回撃つ
+const KING_WAVE_GAP = 34;       // 撃つ間隔
+const KING_MOON_HP = 0.45;      // 体力がこれを下回るとムーンサルトを混ぜる
+const KING_BALL_SPEED = 2.85;   // 1.5 倍に上げた
+
+/**
+ * パンチの「黒い波動」。大・中・小を少しずらして重ねて飛ばす。
+ * 3 枚が同じ向きへ並んで進むので、どちらへ来ているかが見える。
+ */
+function fireKingWave(b) {
+  const cx = b.x + KING_MAN_W / 2, cy = b.y + KING_MAN_H / 2;
+  // 画面の外にいるあいだは撃たない。
+  // 撃ってしまうと、姿の見えないところから横向きに弾が入ってきて、
+  // 「どこから来たのか分からない」当たりかたになるため
+  if (cx < 0 || cx > SCREEN_W || cy < 0 || cy > SCREEN_H) return;
+  const dx = player.x + 8 - cx, dy = player.y + 8 - cy;
+  const d = Math.hypot(dx, dy) || 1;
+  const ux = dx / d, uy = dy / d;
+  // 進む向きへ絵を回す。スプライトは 90 度単位なので、近い向きに丸める
+  const deg = (Math.atan2(uy, ux) * 180) / Math.PI;
+  const rot = ((Math.round(deg / 90) * 90) % 360 + 360) % 360;
+  // 先頭がいちばん大きく、後ろへ行くほど小さい = 押し寄せてくるように見える
+  const set = [[IMG.kingWaveL, 0], [IMG.kingWaveM, 10], [IMG.kingWaveS, 18]];
+  for (const [img, back] of set) {
+    const sp = msx.sprite(img);
+    sp.priority = 7;
+    sp.rotate = rot;
+    sp.x = cx - 12 - ux * back;
+    sp.y = cy - 12 - uy * back;
+    enemyBullets.push({ sp, vx: ux * KING_BALL_SPEED, vy: uy * KING_BALL_SPEED });
+  }
+  msx.audio.playSE('nobreak', SE_EVENT);
+}
+
+/**
+ * キックを選ぶ割合。**体力が減るほど蹴ってくる**。
+ * 前半は遠くから波動弾を撃つばかりで、後半は詰めてくる、という流れにする。
+ *   満タン: 0.25(ほとんど波動) -> 瀕死: 0.80(ほとんどキック)
+ */
+function kickRate(b) {
+  const t = Math.max(0, Math.min(1, b.hp / b.max));
+  return 0.80 - 0.55 * t;
+}
+
+/**
+ * 座って瞑想に入る。そのあいだは**無敵**で、最大体力の半分を取り戻す。
+ * 2 度動けなくなったあと、または体力が 4 分の 1 を切ったときに入る
+ */
+function startKingMeditate(b) {
+  b.meditate = KING_MEDITATE_LEN;
+  b.meditateCount = (b.meditateCount || 0) + 1;
+  b.healPer = (b.max * 0.5) / KING_MEDITATE_LEN;
+  b.slowMul = 1;
+  b.stun = 0;
+  b.guard = 0;
+  b.act = 'idle';
+  b.actTimer = KING_ACT_GAP;
+  showNotice('IT IS MEDITATING!');
+  msx.audio.playSE('heal', SE_EVENT + 2);
+}
+
+function updateKingFight(b) {
+  if (b.act === undefined) { b.act = 'idle'; b.actTimer = KING_ACT_GAP; }
+  if (b.slowMul == null) {
+    b.slowMul = 1; b.guard = 0; b.stun = 0;
+    b.stunCount = 0; b.meditate = 0; b.meditateCount = 0;
+  }
+  if (b.guard > 0) b.guard--;
+  // ---- 瞑想(座禅)。無敵で体力を戻す ----
+  if (b.meditate > 0) {
+    b.meditate--;
+    b.act = 'idle';
+    b.actTimer = KING_ACT_GAP;
+    // 体力は少しずつ戻す(見ていて分かるように)
+    b.hp = Math.min(b.max, b.hp + b.healPer);
+    if (b.meditate % 30 === 0) drawBossBar();
+    if (b.meditate === 0) { b.slowMul = 1; drawBossBar(); }
+    return;
+  }
+  // 体力が 4 分の 1 を切ったら座って立て直す(1 戦で 4 回まで)
+  if (b.hp / b.max < KING_MEDITATE_HP && b.meditateCount < KING_MEDITATE_MAX) {
+    startKingMeditate(b);
+    return;
+  }
+  if (b.stun > 0) {
+    // 息が上がって固まっているあいだは技を出さない。
+    // 明けたら足は元どおりになる(また崩しにいける)
+    b.stun--;
+    b.act = 'idle';
+    b.actTimer = KING_ACT_GAP;
+    if (b.stun === 0) {
+      b.slowMul = 1;
+      // px / py はこの下で作るので、ここでは自分で出す
+      const ppx = player.x + 8 - KING_MAN_W / 2, ppy = player.y + 8 - KING_MAN_H / 2;
+      // 息を吹き返したら、**すぐに 1 発返してくる**。
+      // 自機が上にいるならサマーソルト(下から上へ)、
+      // それ以外は起き上がりざまのキック
+      if (player.y + 8 < b.y + KING_MAN_H / 2) {
+        msx.audio.playTalk('kiaiC', SE_EVENT);
+        b.act = 'moon';
+        b.actTimer = 150;
+        b.x = ppx; b.y = SCREEN_H + 8;
+        b.moonT = 0;
+      } else {
+        msx.audio.playTalk('kiaiA', SE_EVENT);
+        b.act = 'kickWind';
+        b.actTimer = KING_KICK_WIND;
+        b.orbA = Math.atan2(b.y - ppy, b.x - ppx);
+        b.orbR = KING_KICK_R;
+        // 蹴り込む向きは、自機の横〜上から(下からは蹴らない)
+        let a2 = b.orbA;
+        if (Math.sin(a2) > -0.15) a2 = Math.cos(a2) >= 0 ? -0.35 : Math.PI + 0.35;
+        b.kickA = a2;
+      }
+    }
+    return;
+  }
+  const wasX = b.x, wasY = b.y;
+  const lowHp = b.hp / b.max < KING_MOON_HP;
+  const px = player.x + 8 - KING_MAN_W / 2, py = player.y + 8 - KING_MAN_H / 2;
+  // 自機のまわりを回るときの置き場所
+  const orbit = () => {
+    b.x = px + Math.cos(b.orbA) * b.orbR;
+    b.y = py + Math.sin(b.orbA) * b.orbR;
+  };
+
+  if (b.act === 'idle') {
+    b.x += ((RIFT_CX - KING_MAN_W / 2 + Math.sin(b.age * 0.013) * 56) - b.x) * 0.06;
+    b.y += ((RIFT_CY - KING_MAN_H / 2 + Math.sin(b.age * 0.021) * 24) - b.y) * 0.06;
+    if (--b.actTimer <= 0) {
+      const r = Math.random();
+      const kiai = (n) => msx.audio.playTalk(n, SE_EVENT);
+      if (lowHp && r < 0.28) {
+        // ムーンサルトだけは下から
+        kiai('kiaiC');
+        b.act = 'moon';
+        b.actTimer = 150;
+        b.x = px; b.y = SCREEN_H + 8;
+        b.moonT = 0;
+      } else if (r < kickRate(b)) {
+        // 蹴りの前ぶり。波動より近い輪をうろうろする
+        // (B は撃たれたときの声に使うので、攻撃では鳴らさない)
+        kiai('kiaiA');
+        b.act = 'kickCircle';
+        b.actTimer = KING_KICK_CIRCLE;
+        b.orbR = KING_KICK_R;
+        b.orbA = Math.atan2(b.y - py, b.x - px);
+        b.orbV = (Math.random() < 0.5 ? 1 : -1) * 0.030;
+      } else {
+        // 波動。少し離れた輪を回りながら 3 回撃つ
+        kiai('kiaiA');
+        b.act = 'orbit';
+        b.actTimer = KING_WAVE_SHOTS * KING_WAVE_GAP;
+        b.orbR = KING_WAVE_R;
+        b.orbA = Math.atan2(b.y - py, b.x - px);
+        b.orbV = (Math.random() < 0.5 ? 1 : -1) * 0.022;
+        b.waveLeft = KING_WAVE_SHOTS;
+      }
+    }
+  } else if (b.act === 'orbit') {
+    // 一定の距離を保ったまま弧を描いて動き、その間に 3 回撃つ
+    b.orbA += b.orbV;
+    b.orbR += (KING_WAVE_R - b.orbR) * 0.08;
+    orbit();
+    // **撃つのはこの場では予約だけ**。
+    // ここで撃つと、このあとの「画面の中へ収める」補正より前の位置から
+    // 弾が出てしまい、姿の無いところから飛んできたように見えていた
+    if (b.actTimer % KING_WAVE_GAP === 0 && b.waveLeft > 0) {
+      b.waveLeft--;
+      b.wantWave = true;
+    }
+    if (--b.actTimer <= 0) { b.act = 'idle'; b.actTimer = KING_ACT_GAP; }
+  } else if (b.act === 'kickCircle') {
+    // 波動より近い輪を、ゆらぎながらうろうろする。ここは下側へ回ってもよい
+    b.orbA += b.orbV + Math.sin(b.age * 0.05) * 0.006;
+    b.orbR += ((KING_KICK_R + Math.sin(b.age * 0.03) * 12) - b.orbR) * 0.08;
+    orbit();
+    if (--b.actTimer <= 0) {
+      // 蹴り込む向きを決める。**下からは蹴らない**ので、
+      // 助走に入る位置は「横」か「真上」に寄せる
+      let a = b.orbA + Math.PI;                 // いまいる側の反対へ回り込む
+      const s0 = Math.sin(a);
+      if (s0 > -0.15) {
+        // そのままだと下側になるので、近いほうの横〜上へ寄せる
+        a = Math.cos(a) >= 0 ? -0.35 : Math.PI + 0.35;
+      }
+      b.kickA = a;
+      b.act = 'kickWind';
+      b.actTimer = KING_KICK_WIND;
+    }
+  } else if (b.act === 'kickWind') {
+    // 助走。自機の反対側へ回り込みながら、少し離れて勢いをつける
+    b.orbA += (((b.kickA - b.orbA + Math.PI * 3) % (Math.PI * 2)) - Math.PI) * 0.18;
+    b.orbR += (KING_KICK_BACK - b.orbR) * 0.10;
+    orbit();
+    if (--b.actTimer <= 0) {
+      b.act = 'kick';
+      b.actTimer = 120;
+      const d = Math.hypot(px - b.x, py - b.y) || 1;
+      b.dvx = ((px - b.x) / d) * KING_KICK_SPEED;
+      b.dvy = ((py - b.y) / d) * KING_KICK_SPEED;
+      b.side = b.dvx >= 0 ? 1 : -1;
+    }
+  } else if (b.act === 'kick') {
+    // 決めた向きへまっすぐ突き抜ける
+    b.x += b.dvx;
+    b.y += b.dvy;
+    if (--b.actTimer <= 0 || b.y > SCREEN_H + 16 || b.y < -KING_MAN_H - 16 ||
+        b.x < -KING_MAN_W - 16 || b.x > SCREEN_W + 16) {
+      b.act = 'idle'; b.actTimer = KING_ACT_GAP;
+      b.y = RIFT_CY - KING_MAN_H / 2;
+    }
+  } else if (b.act === 'moon') {
+    b.moonT += 0.016;
+    const t = Math.min(1, b.moonT);
+    b.y = SCREEN_H + 8 - t * (SCREEN_H + 40);
+    b.x += (px - b.x) * 0.03 + Math.sin(t * Math.PI * 2) * 1.6;
+    if (t >= 1 || --b.actTimer <= 0) { b.act = 'idle'; b.actTimer = KING_ACT_GAP; }
+  }
+  // 自機のまわりを回る動きは、自機が速く動くと置き場所が飛んでしまう。
+  // 1 コマで動ける量に上限をかけて、目で追える速さに抑える
+  {
+    // 撃たれて鈍っているぶんだけ、1 コマで動ける量を減らす。
+    // 固まっているあいだ(stun)は 0 = その場から動かない
+    const mul = b.stun > 0 ? 0 : (b.slowMul == null ? 1 : b.slowMul);
+    const dx = b.x - wasX, dy = b.y - wasY;
+    const d = Math.hypot(dx, dy);
+    const cap = KING_MAX_SPEED * mul;
+    if (d > cap) {
+      const k = d > 0 ? cap / d : 0;
+      b.x = wasX + dx * k;
+      b.y = wasY + dy * k;
+    }
+  }
+  b.x = Math.max(-KING_MAN_W, Math.min(SCREEN_W, b.x));
+  // 技を出しているあいだ(波動・キックの助走)は、画面の中に収める。
+  // 画面の外から撃たれると避けようがないため
+  if (b.act === 'orbit' || b.act === 'kickCircle' || b.act === 'kickWind') {
+    b.x = Math.max(0, Math.min(SCREEN_W - KING_MAN_W, b.x));
+    b.y = Math.max(0, b.y);
+  }
+  // 横や上へは画面の外まで出てよいが、**下側へは降りてこない**。
+  // 自機のほうが下にいる形を保って、正面から撃つ人が弱点(頭)に
+  // 気づきにくいようにするため。サマーソルトだけは下から上がってくる
+  if (b.act !== 'moon') b.y = Math.min(b.y, KING_MAX_Y);
+  // 置き場所が決まってから撃つ。これで弾はいつも見えている体から出る
+  if (b.wantWave) { b.wantWave = false; fireKingWave(b); }
+}
+
+/** いまの技に合わせて姿を切り替える */
+function kingFightPose(b) {
+  // キックは進む向きへ体を向ける(絵は右向きなので、左へ行くときは反転)
+  if (b.act === 'kick') {
+    if (b.man) b.man.flipX = b.dvx < 0;
+    return [IMG.kingMan07];
+  }
+  // うろうろ〜助走のあいだは構えたまま。自機のいるほうへ体を向ける
+  if (b.act === 'kickCircle' || b.act === 'kickWind') {
+    if (b.man) b.man.flipX = (player.x + 8) < b.x + KING_MAN_W / 2;
+    return [IMG.kingMan06];
+  }
+  if (b.act === 'moon') {
+    // サマーソルト。ただ逆さで昇るだけだと跳んでいるようにしか見えないので、
+    // 上がりながら 90 度ずつ回して**宙返り**にする。
+    // スプライトの回転は 0/90/180/270 の 4 とおり。1 回転を 2 度ぶん回す
+    if (b.man) b.man.rotate = [0, 90, 180, 270][Math.floor((b.moonT || 0) * 8) & 3];
+    return [IMG.kingMan10];   // 横を向いて足を抱え込んだ姿
+  }
+  if (b.act === 'punch') {
+    return b.actTimer > KING_PUNCH_HOLD ? [IMG.kingMan06] : [IMG.kingMan06b];
+  }
+  return [IMG.kingMan00, IMG.kingMan00b];
+}
+
+// ---- 割れ目が広がる演出 ----
+// ひびの絵を貼ると、絵の黒い余白が四角く見えて汚かったので、
+// 4 ドットのマスを 1 つずつ塗る形にした。
+// 割れ目の形(細長い楕円)からの距離の順に、ゆらぎを混ぜながら塗っていくので、
+// 中心から ぞわぞわ と外へ広がっていくように見える。
+const CRACK_CELL = 4;
+const CRACK_COLS = SCREEN_W / CRACK_CELL, CRACK_ROWS = SCREEN_H / CRACK_CELL;
+let crackCells = null;   // マスごとの「塗られる順番」(0..1)
+
+function buildCrackCells() {
+  crackCells = new Float32Array(CRACK_COLS * CRACK_ROWS);
+  let max = 0;
+  for (let cy = 0; cy < CRACK_ROWS; cy++) {
+    for (let cx = 0; cx < CRACK_COLS; cx++) {
+      const x = cx * CRACK_CELL + 2, y = cy * CRACK_CELL + 2;
+      // 「割れ目そのものを何倍にすれば、このマスに届くか」を順番にする。
+      // 割れ目の縦横の比(32x48)でそろえてあるので、
+      // 広がりの輪郭はいつも元の割れ目と同じ形になる = 拡大していくように見える
+      const dx = (x - RIFT_CX) / (RIFT_W / 2), dy = (y - RIFT_CY) / (RIFT_H / 2);
+      // ゆらぎは形が分かる程度に控えめ(ぞわぞわ感だけ足す)
+      const wob = Math.sin(x * 0.21 + y * 0.13) * 0.16
+        + Math.sin(y * 0.31 - x * 0.07) * 0.11;
+      const d = Math.hypot(dx, dy) + wob + Math.random() * 0.08;
+      crackCells[cy * CRACK_COLS + cx] = d;
+      if (d > max) max = d;
+    }
+  }
+  for (let i = 0; i < crackCells.length; i++) crackCells[i] /= max || 1;
+}
+
+/** @param {number} t 0..1 どこまで広がったか */
+function updateCrackSpread(t) {
+  if (!crackCells) buildCrackCells();
+  // 1 コマで塗るのは「今回ぶんの帯」だけ。前に塗ったところは残る
+  const from = Math.max(0, crackSpread), to = Math.min(1, t);
+  if (to <= from) return;
+  for (let cy = 0; cy < CRACK_ROWS; cy++) {
+    for (let cx = 0; cx < CRACK_COLS; cx++) {
+      const v = crackCells[cy * CRACK_COLS + cx];
+      if (v < from || v >= to) continue;
+      // 割れ目に近いところほど明るい赤。外へ行くほど暗くする
+      const c = v < 0.35 ? 9 : v < 0.6 ? 8 : 6;
+      neb.fill(c, cx * CRACK_CELL, cy * CRACK_CELL, CRACK_CELL, CRACK_CELL, true);
+    }
+  }
+  crackSpread = to;
+}
+let crackSpread = 0;
+
+/**
+ * 裂け目に 1 発当たった。弾の強さは関係なく 1 発 2 ダメージ。
+ * ただし**裂け目に重なって撃つと 2 倍**入る。
+ * 裂け目の真ん中は弾が来ない安全地帯になっていて、そこへ踏み込んで
+ * 至近距離から撃つ、という戦い方を選べるようにするため。
+ */
+function playerOnRift() {
+  const px = player.x + 8, py = player.y + 8;
+  return Math.abs(px - RIFT_CX) < RIFT_W / 2 + 4 &&
+    Math.abs(py - RIFT_CY) < RIFT_H / 2 + 4;
+}
+
+function hitKingRift(b, x, y) {
+  b.hp -= RIFT_DAMAGE * (playerOnRift() ? 2 : 1);
+  b.flash = 4;
+  msx.audio.playSE('weak');
+  // 光を毎回出すと画面が埋まるので、4 発に 1 回だけ
+  if (++b.hits % 4 === 0) spawnWeakSpark(x, y);
+  if (b.hp > 0) return;
+  b.hp = 0;
+  b.stage = 'break';
+  b.timer = KING_BREAK_LEN;
+  b.flash = 0;
+  crackCells = null;      // 広がりを作り直す
+  crackSpread = 0;
+  clearKingBeams();
+  clearFarBeams();
+  clearKingEscape();
+  msx.audio.stopBGM();
+  currentBGM = null;
+  msx.audio.playSE('bossboom', SE_HIT);
+  drawBossBar();
+}
+
+/** ボス戦の下ごしらえ(どのボスにも共通の部分) */
+function beginBossMode() {
+  bossMode = true;
+  bossStartFrame = playFrame;
+  bossFrames = 0;
+  titleScene = false;   // タイトル用の背景は消す
+  neb.clear();          // 背景オブジェクトを片づけてからボスを描く
+  neb.scroll(0, 0);     // ボス戦のあいだ neb はレーザーの帯だけに使う
+  clearBossParts();
+  bossVisible = true;
+}
+
+function spawnBoss() {
+  beginBossMode();
+  const kind = bossKind();
+  if (kind === 'eyes') {
+    // 裏技: いつもどおり 2 体そろった目玉と 1 戦だけ
+    rushSpecial = 'eyes';
+    specialEndTimer = -1;
+    // 目玉戦は特別に 7way(前 5 + 後ろ 2)の装備で始める
+    shotLevel = 7;
+    maxVolleys = Math.max(maxVolleys, 2);
+    damageLevel = Math.max(damageLevel, 2);
+    drawHUD();
+    spawnEyeballs();
+    for (const e of eyeballs) e.hover = 1e9;   // 帰らずに居座る
+    playBGM('boss', true);
+    return;
+  }
+  if (kind === 'moai') {
+    // 5 面ボス / 裏技のモアイ戦。倒したら次へ進む
+    rushSpecial = 'moai';
+    specialEndTimer = -1;
+    spawnMoai();
+    playBGM('moai', true);
+    return;
+  }
+  if (kind === 'crab') { spawnCrabBoss(); return; }
+  if (kind === 'dragon') { spawnDragonBoss(); return; }
+  if (kind === 'nautilus') { spawnNautilusBoss(); return; }
+  if (kind === 'todo') { spawnTodoBoss(); return; }
+  if (kind === 'king') { spawnKingBoss(); return; }
+  const hp = 40 + stageNo * 16;
+  // 目は水色 1 色。点滅させず、自機のいる方へ少しだけ寄る
+  const eyeL = msx.sprite(IMG.bossEye2);
+  const eyeR = msx.sprite(IMG.bossEye2);
+  eyeL.priority = eyeR.priority = 9;
+  const eyeL2 = null, eyeR2 = null;
+  const mouth = null;   // 口のスプライトは使わない
+  // UFO のまわりを回るガード。全部壊すと壺が割れてタコだけになる
+  const guards = [];
+  for (let i = 0; i < GUARD_COUNT; i++) {
+    const sp = msx.sprite(IMG.ufoGuard);
+    sp.priority = 8;
+    // 手のひらは高速で明滅させる(実機のスプライト多重表示らしく)
+    sp.blink = 2;
+    sp.blinkPhase = i & 1;
+    guards.push({ sp, hp: GUARD_HP, flash: 0, angle: (Math.PI * 2 * i) / GUARD_COUNT });
+  }
+  const charge = msx.sprite(IMG.chargeOrb0);
+  charge.priority = 12;
+  charge.visible = false;
+  // 外側の輪。溜めが進むほど小さい輪に替えて、光が集まってくるように見せる
+  const chargeRing = msx.sprite(IMG.chargeRing0);
+  chargeRing.priority = 11;
+  chargeRing.visible = false;
+  // 「UFO に乗ったタコ」だと分かるよう、足と頭のふくらみを単色スプライトで重ねる。
+  // 2 コマに 1 回だけ表示して、実機のスプライト多重表示のちらつきを出す
+  const arms = msx.sprite(IMG.octoArms);
+  arms.priority = 7; arms.blink = 2; arms.blinkPhase = 0;
+  const brow = msx.sprite(IMG.octoCrown);
+  brow.priority = 12;   // 王冠は点滅させない(色が違うので重ねても見分けが付く)
+  boss = {
+    kind: 'octopus',    // これが無いと「壺に乗っている間は無敵」の判定が働かない
+    x: (SCREEN_W - BOSS_W) / 2, y: -60, hp, max: hp, age: 0, flash: 0, dying: 0,
+    eyeL, eyeR, eyeL2, eyeR2, mouth, guards, charge, chargeRing, arms, brow,
+    phase2: false,      // 船が壊れてタコだけになった状態
+    laserTimer: 90,     // 1 回目のレーザーは早め(弱点が 10 秒以内に開く)
+    muzzleHp: 12,       // 発射口の耐久。壊すとその場で撃破(手のひらを削る道もある)
+    charging: 0, firing: 0, laserLen: 0,
+  };
+  boss.partHead = bossPart(IMG.bossHead);
+  boss.partShip = bossPart(IMG.bossShip);
+  drawBossBody();
+  playBGM('boss', true);
+}
+
+// ボスはレイヤーではなく BG スプライトで組み立てる。
+// パーツごとに 1 枚持ち、毎フレーム位置と表示を合わせる。
+// (レイヤーに描いていたころと違い、パーツを個別に消したり動かしたりできる)
+let bossParts = [];
+let bossVisible = true;   // 被弾フラッシュ用。パーツとスプライトをまとめて点滅させる
+
+function bossPart(image, priority = 1) {
+  const sp = msx.bgSprite(image);
+  // ボスのパーツは背景オブジェクトより手前。priority は部品どうしの前後関係
+  sp.priority = BGP_FRONT + priority;
+  bossParts.push(sp);
+  return sp;
+}
+
+function clearBossParts() {
+  for (const sp of bossParts) msx.removeBgSprite(sp);
+  bossParts = [];
+}
+
+/** 目を自機のいる方へ少しだけ寄せるためのずらし量(-2..2) */
+function eyeLook(centerX) {
+  // 自機のいるほうへ 1 ドットだけ寄せる。
+  // 大きく動かすと目玉が泳いで見えるので、向きが分かる最小限にとどめる
+  const d = player.x - centerX;
+  return d > 8 ? 1 : d < -8 ? -1 : 0;
+}
+
+/** ボスのパーツを今の状態に合わせて置き直す(毎フレーム呼ぶ) */
+function drawBossBody() {
+  const b = boss;
+  if (!b) return;
+  const vis = bossVisible;
+  if (b.kind === 'todo') {
+    b.partFace.x = b.x; b.partFace.y = b.y; b.partFace.visible = vis;
+    if (b.crown) {
+      const kx = snap8(b.x), ky = snap8(b.y);
+      b.crown.visible = vis;
+      // 王冠は頭の右上にちょこんと乗せる
+      b.crown.x = kx + TODO_W - 28;
+      b.crown.y = ky - 4;
+    }
+    // ほおの赤みは顔の横のほうへ。目の中には白い反射を入れる
+    for (const [i, sp] of (b.blush || []).entries()) {
+      sp.visible = vis;
+      sp.x = snap8(b.x) + (i ? 34 : 2);
+      sp.y = snap8(b.y) + 26;
+    }
+    if (b.glint) {
+      b.glint.visible = vis;
+      b.glint.x = snap8(b.x) + 15;
+      b.glint.y = snap8(b.y) + 20;
+    }
+    // 涙は下で位置を決めるので、ここでは何もしない
+    return;
+  }
+  if (b.kind === 'king') {
+    // 裂け目は動かない。削れるほど大きく口を開け、1 コマおきに色を入れ替えて脈打たせる
+    if (b.rift) {
+      b.rift.visible = vis && (b.stage === 'open' || b.stage === 'rift');
+      b.rift.x = RIFT_X; b.rift.y = RIFT_Y;
+      if (b.stage === 'open') {
+        // 開くまでの途中。細い線から開ききった姿まで順に切り替える
+        const t = 1 - b.timer / KING_OPEN_LEN;
+        const n = Math.min(KING_RIFT_OPEN.length - 1,
+          Math.floor(t * KING_RIFT_OPEN.length));
+        b.rift.image = KING_RIFT_OPEN[n];
+      } else {
+        // 撃っても広がらない。開ききった姿のまま
+        b.rift.image = IMG.kingRift1;
+      }
+      // 1 コマおきに色を入れ替えて脈打たせる。
+      // 連射を休んでいるあいだは強く光らせて、次が来ることを知らせる
+      const beat = b.resting ? 2 : 4;
+      b.rift.colorMap = (msx.frame & beat) ? { 6: 8, 8: 9, 9: 15 } : null;
+    }
+    // 壊れるときは、4 ドットのマスが割れ目の形から外へ ぞわぞわ 広がる
+    if (b.stage === 'break') updateCrackSpread(1 - b.timer / KING_BREAK_LEN);
+    if (b.man) {
+      b.man.visible = vis;
+      b.man.x = Math.round(b.x); b.man.y = Math.round(b.y);
+    }
+    return;
+  }
+  if (b.kind === 'nautilus') {
+    b.core.image = b.phase2 ? IMG.nautilusHurt : IMG.nautilus;
+    b.core.x = b.x; b.core.y = b.y; b.core.visible = vis;
+    const cx = b.x + NAUT_CORE / 2, cy = b.y + NAUT_CORE / 2;
+    for (const g of b.blocks) {
+      const a = g.angle + b.spin;
+      g.sp.visible = vis && g.alive;
+      g.sp.x = cx + Math.cos(a) * b.ringR - 8;
+      g.sp.y = cy + Math.sin(a) * b.ringR - 8;
+      // 弱点の装甲は火花を散らして、ここだけ作りが違うと分かるようにする
+      if (g.weak) g.sp.image = (msx.frame & 2) ? IMG.gearWeak1 : IMG.gearWeak0;
+    }
+    // 輪の内側を走る電撃。装甲の半分の半径を、3 倍の速さでなめらかに回る。
+    // 弱点の装甲が壊れたら電撃は消える(輪が開いたことが分かるように)
+    for (const o of b.orbs || []) {
+      const a = o.angle + b.orbSpin;
+      o.sp.visible = vis && !b.phase2;
+      // 半径は装甲の半分 + 4 ドット
+      const r = b.ringR / 2 + 4;
+      o.sp.x = cx + Math.cos(a) * r - 8;
+      o.sp.y = cy + Math.sin(a) * r - 8;
+    }
+    if (b.crown) {
+      const kx = snap8(b.x), ky = snap8(b.y);
+      b.crown.visible = vis;
+      b.crown.x = kx + 10; b.crown.y = ky - 8;
+    }
+    if (b.eyeL) {
+      // 殻は BG スプライトなので 8 ドット刻みで動く。
+      // 目もその刻みに吸着させたうえで、自機のいる方へ少しだけ寄せる
+      const ex = snap8(b.x), ey = snap8(b.y);
+      b.eyeL.visible = vis;
+      const lx = Math.max(-1, Math.min(1, eyeLook(ex + NAUT_CORE / 2)));
+      const ly = Math.max(-1, Math.min(1,
+        Math.round((player.y - (ey + NAUT_CORE / 2)) / 80)));
+      b.eyeL.x = ex + 12 + lx;
+      b.eyeL.y = ey + 23 + ly;
+    }
+    return;
+  }
+  if (b.kind === 'dragon') {
+    // 突進のあいだと、炎を吐いているあいだは口を大きく開ける
+    b.partHead.image = (b.mode === 'rage' || b.mouthOpen)
+      ? IMG.dragonHeadOpen : IMG.dragonHead;
+    b.partHead.x = b.x; b.partHead.y = b.y; b.partHead.visible = vis;
+    return;
+  }
+  if (b.kind === 'crab') {
+    // 絵は右向きの 1 枚だけ持ち、右の壁にいるときは左右反転して使う。
+    // ひっくり返った第2形態は壁のほうを向く
+    const flip = b.phase2 ? b.side >= 0 : b.side > 0;
+    b.partBody.flipX = flip;
+    // ひっくり返ったあとは縦 96 ドットの壁になって邪魔なので、斜めに傾いた絵に替える。
+    // 絵は左右に CRAB_TILT_PAD ずつ広いだけで、当たり判定はもとの 64x96 のまま
+    b.partBody.image = b.phase2 ? IMG.crabTilt : IMG.crabR;
+    b.partBody.x = b.x - (b.phase2 ? CRAB_TILT_PAD : 0);
+    b.partBody.y = b.y; b.partBody.visible = vis;
+    // ダメージが通ったときだけ、甲羅を白く光らせる(4 発に 1 回なので分かりにくかった)
+    if (b.hurt > 0) b.hurt--;
+    b.partBody.colorMap = (b.hurt > 0 && (b.hurt & 1)) ? CRAB_HURT_MAP : null;
+    // 大きなハサミは別のパーツ。飛ばしたぶんは消す
+    // ハサミの根元は胴体にめり込ませる(すき間を作らず、出っぱりも短く見せる)
+    const clawX = flip ? b.x - (CRAB_CLAW_W - 32) : b.x + CRAB_W - 32;
+    b.partClaws.forEach((sp, i) => {
+      // 撃ったあとは、次のハサミの先端が にょきっと出て 3 段階で伸びていく。
+      // 撃ち落とされたぶん(在庫切れ)は何も出さない
+      const g = b.grow[i];
+      sp.visible = vis && !b.phase2 && b.clawAlive[i];
+      sp.image = g >= CRAB_CLAW_GROW ? IMG.crabClawBig
+        : g >= CRAB_CLAW_GROW * 0.55 ? IMG.crabClawMid : IMG.crabClawStub;
+      sp.flipX = flip;
+      sp.x = clawX; sp.y = b.y + CRAB_CLAW_Y[i];
+    });
+    // 脚。ジャンプ中は壁から離れてぐっと伸びる(そこだけ狙える)
+    // ジャンプ中は関節を伸ばして踏ん張る(この姿のときだけ脚を撃てる)
+    const jumping = b.mode === 'jump';
+    const out = jumping ? 14 : 0;   // 跳んでいるあいだは大きく踏ん張る
+    // 壁にいるあいだは 3 コマで曲げ具合を変えて、脚をわしゃわしゃ動かす
+    const LEG_ANIM = [IMG.crabLeg, IMG.crabLegMid, IMG.crabLegExt, IMG.crabLegMid];
+    b.legs.forEach((lg, i) => {
+      lg.sp.visible = vis && !b.phase2 && lg.hp > 0;
+      lg.sp.image = jumping ? IMG.crabLegExt
+        : LEG_ANIM[(Math.floor(msx.frame / 6) + i) & 3];
+      lg.sp.flipX = flip; lg.sp.flipY = lg.flipY;
+      // 付け根が甲羅の中に入るまで、しっかりめり込ませる。
+      // 脚は BG スプライトなので 8 ドット単位に丸められる。
+      // 甲羅の位置(b.sx。こちらも丸めてある)からの **8 の倍数** で置き、
+      // 左右で丸めかたが変わらないようにする。
+      // 以前は丸める前の b.x に -6 / +46 を足していたため、左右で
+      // 丸めの向きが変わり、片側だけ 8 ドット外へずれて見えていた
+      //   右: b.sx + 40  (脚の外ふちが甲羅の右ふちから 0 ドット)
+      //   左: b.sx + 0   (その左右反転。64 - 40 - 24 = 0)
+      lg.sp.x = (flip ? b.sx + CRAB_W - 24 + out : b.sx - out);
+      lg.sp.y = b.sy + lg.y;
+    });
+    return;
+  }
+  // タコ: 第2形態は船から出たタコ(短い脚つき)
+  b.partHead.image = b.phase2 ? IMG.bossHead2 : IMG.bossHead;
+  b.partHead.x = b.x + HEAD_DX;
+  b.partHead.y = b.y + (b.phase2 ? 0 : HEAD_SINK);
+  b.partHead.visible = vis;
+  b.partShip.x = b.x; b.partShip.y = b.y + HEAD_H;
+  b.partShip.visible = vis && !b.phase2;
+  // 発射口(ふだんは水色)は、ダメージが通るあいだだけピンクになる。
+  // 絵は増やさず、エンジンの色入れ替えでまかなう
+  b.partShip.colorMap = (laserPhase(b) === 'fade') ? { 7: 13 } : null;
+}
+
+const LASER_MAX = 200;      // レーザーの最大の長さ
+const LASER_SPEED = 4;      // 1 フレームに伸びるドット数(ゆっくり伸ばす)
+const LASER_FULL_LEN = 150;  // 最大の太さ(白)で撃っている長さ(フレーム)
+const LASER_FADE_STEP = 12;  // 1 ドット細くなるのにかける時間(フレーム)
+// 細くなる時間 = 12 ドット x 12 フレーム = 144 フレーム
+const LASER_FADE_LEN = LASER_DRAW_W * LASER_FADE_STEP;
+const LASER_FIRE_LEN = LASER_FULL_LEN + LASER_FADE_LEN;
+
+/** レーザーの帯を長さ len ドットぶん BG に描く(len=0 で消える) */
+/**
+ * レーザーを描く。
+ * @param {number} len 長さ(0 で消える)
+ * @param {number} [w] 太さ(省略で最大)
+ * @param {number} [color] 15=白(効いている) / 11=黄(消えかけ・当たらない)
+ */
+function drawLaser(len, w = LASER_DRAW_W, color = 15) {
+  // ボス戦のあいだ neb は帯の描画だけに使う(スクロールは 0 に固定)。
+  // 前のコマぶんを消してから描き直す
+  neb.fill(0, 0, 0, VW, SCREEN_H);
+  if (!boss || len <= 0 || w <= 0) return;
+  const top = boss.sy + BOSS_H;
+  // 太さは 1 ドット単位。中心はいつも砲口の真ん中に置く。
+  // 8 ドット単位に丸められると「左半分だけ細る」ように見えるので、
+  // ここは exact 指定(1 ドット単位)で塗る
+  const iw = Math.max(1, Math.min(LASER_W, Math.round(w)));
+  const x = Math.round(boss.sx + BOSS_W / 2 - iw / 2);
+  neb.fill(color, x, top, iw, len, true);
+}
+
+// レーザーのいまの段階。'grow' 太くなる / 'full' 最大 / 'fade' 細くなる(当たらない)
+function laserPhase(b) {
+  if (!b.firing || b.firing <= 0) return null;
+  // 溜めてから撃つので、出だしから最大の太さ。最後は 1 ドットずつ細くなる。
+  return b.firing > LASER_FADE_LEN ? 'full' : 'fade';
+}
+
+/** 船が壊れて第2形態(タコだけ)へ移行する */
+function breakShip() {
+  boss.phase2 = true;
+  boss.charging = 0;
+  boss.firing = 0;
+  boss.laserLen = 0;
+  drawLaser(0);        // 撃ちかけのレーザーが残らないように消す
+  if (boss.charge) boss.charge.visible = false;
+  if (boss.chargeRing) boss.chargeRing.visible = false;
+  for (const g of boss.guards || []) g.sp.visible = false;
+  if (boss.kind === 'dragon') {
+    // ドラゴンは装甲がはがれると全身が弱点になり、怒りの突進が増える
+    boss.rageTimer = Math.min(boss.rageTimer, 90);
+    msx.audio.playSE('bossboom', SE_HIT);
+    flashTimer = 3;
+    return;
+  }
+  if (boss.kind === 'crab') {
+    // 脚を失って壁につかまれない。ここから先は漂って泡を吹くだけになる
+    clearClawMissiles();
+    boss.mode = 'float';
+    // 無防備になったぶん、ここからは素直にダメージが通る
+    boss.max = 60 + stageNo * 10;
+    boss.hp = boss.max;
+  }
+  if (boss.kind === 'octopus') {
+    // 壺から出たタコは体力を持ち直す(残りカスだと連打だけで終わってしまう)
+    boss.max = 120 + stageNo * 24;
+    boss.hp = boss.max;
+  }
+  for (let i = 0; i < 5; i++) {
+    spawnBoom(boss.sx + 8 + Math.random() * 44, boss.sy + HEAD_H + Math.random() * 16);
+  }
+  msx.audio.playSE('bossboom', SE_HIT);
+  flashTimer = 3;
+  drawBossBody();
+}
+
+// 弱点に当たったときの光。単色スプライトを 2 コマに 1 回出す
+let weakSparks = [];
+function spawnWeakSpark(x, y) {
+  const sp = msx.sprite(IMG.boom0);
+  sp.x = x; sp.y = y; sp.priority = 21;
+  sp.blink = 2;
+  weakSparks.push({ sp, age: 0 });
+}
+function updateWeakSparks() {
+  for (const w of [...weakSparks]) {
+    w.age++;
+    if (w.age === 3) w.sp.image = IMG.boom1;
+    else if (w.age >= 6) {
+      msx.removeSprite(w.sp);
+      weakSparks.splice(weakSparks.indexOf(w), 1);
+    }
+  }
+}
+function clearWeakSparks() {
+  for (const w of weakSparks) msx.removeSprite(w.sp);
+  weakSparks = [];
+}
+
+// ---- ボス撃破の評価 ----
+// 早く倒すほど高いランク。C はボーナス無し。
+// ボーナスは面数によらず固定額。ランクだけで決まる
+const BOSS_RANKS = [
+  { rank: 'S', sec: 15, bonus: 200000 },
+  { rank: 'A', sec: 30, bonus: 100000 },
+  { rank: 'B', sec: 45, bonus: 50000 },
+  { rank: 'C', sec: Infinity, bonus: 0 },
+];
+function bossRank(frames) {
+  const sec = frames / 60;
+  return BOSS_RANKS.find(r => sec <= r.sec);
+}
+
+/** 裏技の特別な相手を倒したとき(ボス扱いで面を進める) */
+function bossDefeatedSpecial() {
+  endBossMode();
+  score += 20000;
+  if (gameMode() === 'bossrush') { advanceBossRush(); return; }
+  // 通常プレイでは使わない(裏技はボスラッシュ専用)
+  stageNo++;
+  startStage();
+}
+
+// ラスボスを倒したあと、画面も HUD も全部止めて名乗りを聞かせる。
+// この値が 0 より大きいあいだ、メインループは何も進めない
+let talkHold = 0;
+// いま止めているあいだにしゃべる中身と、爆発の演出を出すかどうか
+let talkName = 'kozorite';
+let talkBlast = false;
+
+function bossDefeated() {
+  clearBubble();   // 命ごいのふきだしを残さない
+  // 客人(コンティニューのときの未実装さん)は、倒しても面はクリアにしない。
+  // 片づけて、そのまま元の面を続ける
+  if (boss && boss.guest) {
+    for (let i = 0; i < 6; i++) {
+      spawnBoom(boss.x + Math.random() * TODO_W, boss.y + Math.random() * TODO_H);
+    }
+    score += 5000;
+    spawnPopup(boss.x, boss.y + 24, 5000);
+    msx.audio.playSE('bossboom', SE_HIT);
+    clearTodoGuest();
+    return;
+  }
+  const wasKing = boss.kind === 'king';
+  // 倒れた場所(中心)。片づけたあとの演出で使う
+  const kingFellX = boss.x + KING_MAN_W / 2;
+  const kingFellY = boss.y + KING_MAN_H / 2;
+  for (let i = 0; i < 6; i++) {
+    spawnBoom(boss.x + Math.random() * 40, boss.y + Math.random() * 24);
+  }
+  if (boss.eyeL) msx.removeSprite(boss.eyeL);
+  if (boss.eyeR) msx.removeSprite(boss.eyeR);
+  if (boss.eyeL2) msx.removeSprite(boss.eyeL2);
+  if (boss.eyeR2) msx.removeSprite(boss.eyeR2);
+  if (boss.mouth) msx.removeSprite(boss.mouth);
+  for (const g of boss.guards || []) msx.removeSprite(g.sp);
+  if (boss.charge) msx.removeSprite(boss.charge);
+  if (boss.chargeRing) msx.removeSprite(boss.chargeRing);
+  if (boss.arms) msx.removeSprite(boss.arms);
+  if (boss.brow) msx.removeSprite(boss.brow);
+  if (boss.crown) msx.removeSprite(boss.crown);
+  for (const t of boss.tears || []) msx.removeSprite(t.sp);
+  for (const sp of boss.blush || []) msx.removeSprite(sp);
+  if (boss.glint) msx.removeSprite(boss.glint);
+  for (const sp of boss.clawSps || []) msx.removeSprite(sp);
+  for (const sp of boss.pods || []) msx.removeSprite(sp);
+  clearNautilus(boss);
+  clearDragonSegs(boss);
+  clearKing(boss);
+  clearBossParts();
+  bossVisible = true;
+  clearClawMissiles();
+  boss = null;
+  endBossMode();
+  // 撃破ボーナスは「かかった時間」でランク分け(S/A/B/C。C は無し)。
+  // 数えるのは死亡が確定した瞬間まで。そのあとの爆発演出は含めない
+  // 弾が当たる状態だったフレーム数だけを数える(演出待ちは含めない)
+  const frames = bossFrames;
+  const r = bossRank(frames);
+  const gain = r.bonus;
+  score += gain;
+  statsBoss(frames);
+  drawHUD();
+  drawBossBar();
+  msx.audio.playSE('bossboom', SE_HIT);
+  if (gameMode() === 'bossrush') {
+    // ボスラッシュは得点を数えないので、評価は出さずに次のボスへ
+    clearTimer = 120;
+  } else {
+    playBGM('fate', false, true);   // クリア曲は「運命」のメジャー編曲
+    showStageResult(r, frames, gain);
+    clearTimer = 960;
+  }   // 評価はゆっくり見せる(キーでスキップ可)
+  clearFarBeams();   // 道中のレーザーはここで打ち切る(クリア後に飛んでこない)
+  // ラスボスは倒れただけ。評価を見せているあいだに、青い裂け目へ逃げ込む
+  // 裂け目は**倒した場所**に開く。そこへ本人が吸い込まれていく
+  if (wasKing && gameMode() !== 'bossrush') startKingEscape(kingFellX, kingFellY);
+  markMet('down' + stageNo);   // ボスラッシュのメニューに出るようになる
+  leaving = true; // 自機は画面の上へ飛び去っていく
+  // 名乗りは倒れる前に流してある(hp が 0 になった瞬間)
+}
+
+// ---- ラスボスが逃げていく演出 ----
+// 倒れて宇宙が星空へ戻ったあと、クリアの評価を見せているあいだに、
+// 青い裂け目が開いて、その中へ消えていく。
+// 画面は暗く、評価の文字も出ているので気づきにくいが、それでよい
+// (次があることを、見ていた人にだけ残しておく)
+const KING_ESCAPE_LEN = 300;
+let kingEscape = null;
+/**
+ * @param {number} cx 倒れた場所の**中心**の x
+ * @param {number} cy 同じく y
+ * 裂け目(32 幅)と本人(48 幅)は BG スプライトで 8 ドットに丸められる。
+ * 別々に丸めると左右にずれるので、本人の位置を先に丸めてから、
+ * 裂け目はそこから 8 ドット内側に置く((48-32)/2 = 8)
+ */
+function startKingEscape(cx, cy) {
+  clearKingEscape();
+  const manX = snap8(cx - KING_MAN_W / 2);
+  const x = manX + (KING_MAN_W - 32) / 2;
+  const y = cy;
+  // 評価の文字(レイヤー 4)より奥に出す。BG スプライトはレイヤーと同じ
+  // 優先度の並びに入るので、priority 4 = 「レイヤー 4 の手前」ではなく
+  // 「レイヤー 4 を描く直前」= 文字の下になる
+  const rift = msx.bgSprite(IMG.kingRiftBlueThin);
+  rift.priority = 4;
+  rift.x = x; rift.y = Math.round(y) - 24;
+  // 本人は**ふつうのスプライト**。BG スプライトだと 8 ドット刻みで
+  // カクカク昇ってしまうので、1 ドット単位で滑らかに動かす
+  const man = msx.sprite(IMG.kingMan01);
+  man.priority = 8;
+  man.x = Math.round(cx - KING_MAN_W / 2); man.y = Math.round(y) + 40;
+  kingEscape = { t: 0, rift, man, x: cx - KING_MAN_W / 2, y };
+}
+function clearKingEscape() {
+  if (!kingEscape) return;
+  msx.removeBgSprite(kingEscape.rift);
+  msx.removeSprite(kingEscape.man);
+  kingEscape = null;
+}
+function updateKingEscape() {
+  const e = kingEscape;
+  if (!e) return;
+  e.t++;
+  const t = e.t / KING_ESCAPE_LEN;
+  // 裂け目: ちらちらしながら開き、最後にまたちらついて閉じる
+  // 裂け目はずっと 1:1 のちらつき(1 コマおきに出る)
+  e.rift.visible = t > 0.05;
+  e.rift.blink = 2; e.rift.blinkOn = 1;
+  // 本人: 下から昇ってきて、裂け目の中へ入っていく。
+  // **点滅はさせない**。黒いまま、すっと吸い込まれて消える
+  e.man.visible = t > 0.3 && t < 0.8;
+  const k = Math.min(1, Math.max(0, (t - 0.3) / 0.45));
+  e.man.y = e.y + 40 - k * 56;   // 小数のまま。描くときだけ丸められる
+  if (e.t >= KING_ESCAPE_LEN) clearKingEscape();
+}
+
+// 名乗りの長さ(約 7 秒)ぶん止める。少し余韻を足してある
+const TALK_HOLD_FRAMES = 450;
+// 画面と曲が止まってから、名乗りが始まるまでの間(2 秒)
+const KING_ROAR_WAIT = 120;
+
+/** @param {boolean} [breakable] true なら自機のショットで撃ち落とせる(ボスの弾) */
+function fireEnemyBullet(x, y, vx, vy, breakable = false, image = null) {
+  // ボスの弾(撃ち落とせる)は 16x16 のリング、通常の敵弾は小さな丸。
+  // image を渡すと、その絵の弾になる(ドラゴンの炎など)
+  const sp = msx.sprite(image || (breakable ? IMG.bulletRing : IMG.bulletE));
+  sp.x = x; sp.y = y; sp.priority = 6;
+  // リング弾は消えるのではなく、ピンクと薄い赤を 1 コマずつ入れ替えて見せる
+  if (breakable && !image) sp.__ringPhase = enemyBullets.length & 1;
+  enemyBullets.push({ sp, vx, vy, breakable: breakable && !image });
+}
+
+/** レーザー: 一定間隔で停止 -> 溜め演出 -> 太いビームを撃つ */
+function updateLaser(b) {
+  // 溜めも発射もゆっくりにして、避ける余裕を作る
+  const CHARGE = 220, FIRE = LASER_FIRE_LEN;   // 溜めは長め
+  if (b.firing > 0) {
+    b.firing--;
+    // 発射音は矩形波の和音を 1 回鳴らすだけ(切り分けていない長い SE)。
+    // 太いビームが出ている頭で 1 度だけ鳴らす
+    if (laserPhase(b) === 'full') {
+      // レーザーは見せ場なので、ほかの SE より優先して鳴らす
+      if (!b.laserSE) { b.laserSE = true; msx.audio.playSE('laser', SE_HIT + 2); }
+    } else {
+      b.laserSE = false;
+    }
+    b.charge.visible = false;
+    if (b.chargeRing) b.chargeRing.visible = false;
+    // 発射中は先端がじわじわ伸び、太さと色も段階で変わる
+    const grown = Math.min(LASER_MAX, (FIRE - b.firing) * LASER_SPEED);
+    const phase = laserPhase(b);
+    let w = LASER_DRAW_W;
+    // 効いている帯は白と水色、消えかけは黄と白を 2 コマごとに入れ替えて
+    // はっきり明滅させる
+    let color = (msx.frame & 2) ? 15 : 7;
+    if (phase === 'fade') {
+      // 残り時間を 1 ドットぶんずつに割って、確実に 1 ドットずつ細くする
+      w = Math.max(1, Math.ceil(b.firing / LASER_FADE_STEP));
+      color = (msx.frame & 2) ? 11 : 15;   // 黄と白。ここは当たらない
+    }
+    b.laserLen = grown;
+    drawLaser(grown, w, color);
+    // 消えかけに入ったら「いまが弱点」だと知らせる
+    if (phase === 'fade' && !b.toldWeak) {
+      b.toldWeak = true;
+      showNotice('SHOOT THE MUZZLE!');
+    }
+    if (b.firing === 0) { b.laserLen = 0; b.toldWeak = false; drawLaser(0); b.laserTimer = 420; }
+    return;
+  }
+  if (b.charging > 0) {
+    b.charging--;
+    // 溜めの音も 0.4 秒のかたまりをくり返す
+    if (b.charging % SE_CHUNK === 0) msx.audio.playSE('charging', SE_EVENT + 1);
+    // 砲口の前で光の玉がふくらみ、外の輪が縮んでいく
+    const t = 1 - b.charging / CHARGE;
+    // 白 -> 黄 -> 水色 を 2 コマごとに回して、はっきり分かる明滅にする。
+    // 玉と輪は位相をずらして、ぶつかり合うように光らせる
+    const c = Math.floor(msx.frame / 2) % 3;
+    const cr = (Math.floor(msx.frame / 2) + 2) % 3;
+    const orb = t < 0.4 ? IMG['chargeOrb0' + c]
+      : t < 0.75 ? IMG['chargeOrb1' + c] : IMG['chargeOrb2' + c];
+    const ring = t < 0.4 ? IMG['chargeRing0' + cr]
+      : t < 0.75 ? IMG['chargeRing1' + cr] : IMG['chargeRing2' + cr];
+    const cx = b.sx + BOSS_W / 2, cy = b.sy + BOSS_H - 4;
+    b.charge.image = orb;
+    b.charge.visible = true;
+    b.charge.x = cx - orb.width / 2;
+    b.charge.y = cy - orb.height / 2;
+    if (b.chargeRing) {
+      b.chargeRing.image = ring;
+      b.chargeRing.visible = true;
+      b.chargeRing.x = cx - ring.width / 2;
+      b.chargeRing.y = cy - ring.height / 2;
+      b.chargeRing.blink = 0;   // 消さずに、色だけ 1 コマごとに変える
+    }
+    if (b.charging === 0) {
+      b.firing = FIRE;
+      b.chargeSE = false;
+      b.toldWeak = false;
+      if (b.chargeRing) b.chargeRing.visible = false;
+      b.laserLen = 0;
+      drawLaser(0);
+    }
+    return;
+  }
+  if (--b.laserTimer <= 0) b.charging = CHARGE;
+}
+
+/**
+ * ボスの弱点かどうか。タコはレーザーの発射口、カニロボはハサミの付け根が弱点。
+ * 装甲がはがれた第2形態は呼ばれない(全体が弱点になる)。
+ */
+function isBossWeakPoint(b, x, y, bullet) {
+  if (b.kind === 'todo') return true;   // 仮のボスはどこでも当たる
+  if (b.kind === 'dragon') {
+    // 突っ込んできているあいだは口を大きく開けている = 頭ぜんぶが弱点。
+    // ふだんは顔の中央(眼窩のあたり)だけ
+    if (b.mode === 'rage' && b.hide <= 0 && b.telegraph <= 0) return true;
+    return x > b.sx + 8 && x < b.sx + DRAGON_W - 8 &&
+           y > b.sy + 16 && y < b.sy + 36;
+  }
+  // カニは本体に弱点が無い。狙うのはジャンプ中の脚(別に判定している)
+  if (b.kind === 'crab') return false;
+  // タコ: 弱点は「レーザーが細くなっていく演出のあいだの発射口」だけ。
+  // それ以外は壺ごと完全に無敵で、手のひら(ガード)を壊すしか手が無い。
+  // 黄色く細くなっている時間はレーザーに当たり判定が無いので、
+  // ここが実際に潜り込めるタイミングになる。
+  // 発射口の左右にはガードがあるので、斜めの弾は弾かれる。
+  if (!b.firing || b.firing <= 0) return false;
+  if (laserPhase(b) !== 'fade') return false;
+  if (bullet && Math.abs(bullet.vx) > 2.5) return false;   // 斜めの弾は弾く
+  const lx = b.sx + LASER_X;
+  return x > lx && x < lx + LASER_W && y > b.sy + HEAD_H;
+}
+
+function updateBoss() {
+  const b = boss;
+  b.age++;
+
+  if (b.dying > 0) {
+    // 死亡が確定した瞬間を覚えておく(撃破タイムはここまで。爆発演出は含めない)
+    if (b.deadAt === undefined) b.deadAt = playFrame;
+    b.dying--;
+    // ラスボスは点滅させず、しゃがみこむ姿を見せながら空間を星空へ戻す
+    if (b.kind === 'king') {
+      bossVisible = true;
+      beginRestoreSpace();
+      if (b.man) {
+        b.man.frames = null;
+        b.man.image = IMG.kingMan09;      // 崩れ落ちる姿
+        // ひざを折ったぶん、少しだけ沈ませる
+        b.y += (RIFT_CY - KING_MAN_H / 2 + 10 - b.y) * 0.06;
+      }
+      if (b.dying % 9 === 0) {
+        spawnBoom(b.x + Math.random() * KING_MAN_W, b.y + Math.random() * KING_MAN_H);
+        msx.audio.playSE('boom', SE_HIT);
+      }
+      b.sx = b.x; b.sy = b.y;
+      drawBossBody();
+      updateRedSpace();
+      if (b.dying <= 0) bossDefeated();
+      return;
+    }
+    bossVisible = (b.dying >> 2) % 2 === 0;
+    if (b.dying % 7 === 0) {
+      spawnBoom(b.x + Math.random() * 40, b.y + Math.random() * 24);
+      msx.audio.playSE('boom', SE_HIT);
+    }
+    if (b.eyeL) b.eyeL.visible = false;
+    if (b.eyeR) b.eyeR.visible = false;
+    if (b.kind === 'nautilus') {
+      for (const g of b.blocks || []) g.sp.visible = false;
+      for (const o of b.orbs || []) o.sp.visible = false;
+    }
+    if (b.eyeL2) b.eyeL2.visible = b.eyeR2.visible = false;
+    if (b.mouth) b.mouth.visible = false;
+    for (const g of b.guards || []) g.sp.visible = false;
+    if (b.charge) b.charge.visible = false;
+    if (b.chargeRing) b.chargeRing.visible = false;
+    if (b.arms) b.arms.visible = false;
+    if (b.brow) b.brow.visible = false;
+    if (b.crown) b.crown.visible = false;
+    for (const sp of b.clawSps || []) sp.visible = false;
+    b.sx = snap8(b.x); b.sy = snap8(b.y);
+    drawBossBody();
+    if (b.dying <= 0) bossDefeated();
+    return;
+  }
+
+  // 被弾フラッシュ (ボスのパーツと重ねスプライトをまとめて点滅させる)
+  bossVisible = b.flash > 0 ? (b.flash >> 1) % 2 === 0 : true;
+  if (b.flash > 0) b.flash--;
+
+  if (b.kind === 'crab') { updateCrabBoss(b); return; }
+  if (b.kind === 'nautilus') { updateNautilusBoss(b); return; }
+  if (b.kind === 'dragon') { updateDragonBoss(b); return; }
+  if (b.kind === 'todo') { updateTodoBoss(b); return; }
+  if (b.kind === 'king') { updateKingBoss(b); return; }
+
+  // HUD のすぐ下に陣取る(画面を広く使えるよう高めの位置)。
+  // 一度定位置に着いたら上下には動かさない(8 ドット単位スクロールだと
+  // 細かい上下動がガタつきに見えるため)。
+  if (b.y < 16) {
+    b.y += 0.5; // 登場演出
+  } else if (b.charging > 0 || b.firing > 0) {
+    b.y = 16;   // 溜め〜発射中は停止する
+  } else {
+    b.y = 16;
+    // 左右の往復。溜めや発射で止まっているあいだは進み方も止めておかないと、
+    // 動き出したときに位置が飛んでしまう(いままで急にワープして見えた原因)。
+    b.swing = (b.swing || 0) + (b.phase2 ? 0.008 : 0.015);
+    const target = (SCREEN_W - BOSS_W) / 2 + Math.sin(b.swing) * (b.phase2 ? 18 : 56);
+    // 目標へなめらかに寄せる(急に飛ばない)
+    b.x += (target - b.x) * 0.08;
+  }
+
+  // BG スクロールでボスを動かす。レイヤーは 8 ドット単位なので、
+  // 実際に表示される位置(sx, sy)を求めて目のスプライトと当たり判定に使う。
+  // BG スプライトは 8 ドット単位に丸められるので、
+  // 当たり判定などに使う画面座標もそろえておく
+  b.sx = snap8(b.x); b.sy = snap8(b.y);
+  drawBossBody();
+  b.eyeL.visible = b.eyeR.visible = bossVisible;
+  const sink = b.phase2 ? 0 : HEAD_SINK;
+  // 自機のいる方へ 2 ドットぶんだけ寄せて、こちらを見ている感じを出す
+  const look = eyeLook(b.sx + BOSS_W / 2);
+  b.eyeL.x = b.sx + HEAD_DX + 10 + look; b.eyeL.y = b.sy + 9 + sink;
+  b.eyeR.x = b.sx + HEAD_DX + 26 + look; b.eyeR.y = b.sy + 9 + sink;
+  // レンズ側の絵は枠とぴったり重ねる
+  if (b.eyeL2) {
+    b.eyeL2.visible = b.eyeR2.visible = bossVisible;
+    b.eyeL2.x = b.eyeL.x; b.eyeL2.y = b.eyeL.y;
+    b.eyeR2.x = b.eyeR.x; b.eyeR2.y = b.eyeR.y;
+  }
+  // まわりを回るガード
+  if (b.guards) {
+    // ふだんは頭と船をまとめた真ん中を軸に、全体を囲むように回る。
+    // レーザーを撃っているあいだは顔のまわりに縮こまって、
+    // 発射口を狙う攻撃のじゃまにならないようにする。
+    // 縮こまっているあいだ(レーザー発射中)はグーを握って無敵になる
+    const tight = b.firing > 0;
+    b.guardTight = tight;
+    const targetR = tight ? GUARD_R_TIGHT : GUARD_R;
+    const targetY = b.sy + (tight ? HEAD_H / 2 : BOSS_H / 2) - 8;
+    b.guardR = b.guardR === undefined ? targetR : b.guardR + (targetR - b.guardR) * 0.12;
+    b.guardY = b.guardY === undefined ? targetY : b.guardY + (targetY - b.guardY) * 0.2;
+    const gx = b.sx + BOSS_W / 2 - 8, gy = b.guardY;
+    for (const g of b.guards) {
+      // 一定の速さではなく、左右の端で速く・手前と奥でゆっくり回して
+      // めりはりを出す
+      g.angle += GUARD_SPEED * (1 + Math.abs(Math.sin(g.angle)) * 0.8);
+      g.sp.visible = bossVisible && !b.phase2 && g.hp > 0;
+      g.sp.x = gx + Math.cos(g.angle) * b.guardR;
+      g.sp.y = gy + Math.sin(g.angle) * (b.guardR * GUARD_FLAT);
+      // 掌は外を向くように、左半分にいるときだけ左右反転する
+      g.sp.flipX = Math.cos(g.angle) < 0;
+      // 当たったあとしばらく白く点滅させる
+      const open = tight ? IMG.ufoFist : IMG.ufoGuard;
+      if (g.flash > 0) {
+        g.flash--;
+        g.sp.image = (g.flash & 1)
+          ? (tight ? IMG.ufoFistHit : IMG.ufoGuardHit) : open;
+      } else {
+        g.sp.image = open;
+      }
+    }
+  }
+  // 王冠。頭のてっぺんに斜めにかぶせる
+  if (b.brow) {
+    b.brow.visible = bossVisible;
+    b.brow.x = b.sx + HEAD_DX + 22; b.brow.y = b.sy - 10 + (b.phase2 ? 0 : HEAD_SINK);
+  }
+  // 足は壺の中に収まっているので出さない。
+  // 壺が壊れたあと(第2形態)は BG の絵(bossHead2)に足が描かれている
+  if (b.arms) b.arms.visible = false;
+
+  if (state !== 'play') return;
+
+  // --- レーザー(第1形態のみ): 停止 -> 溜め -> 発射 ---
+  if (!b.phase2) updateLaser(b);
+
+  // 溜めているあいだ・撃っているあいだは、ほかの攻撃はしてこない
+  if (b.charging > 0 || b.firing > 0) return;
+  // 壺から出たあと(第2形態)は弾を撃たず、体当たりだけで襲ってくる
+  if (b.phase2) return;
+  // 第1形態のリング弾は、回っているガードが吐き出す。
+  // 本体の攻撃はレーザーだけ(ガードを全部壊せば弾は飛んでこなくなる)。
+  const gap = Math.max(24, 44 - shotLevel * 2);   // リングは少なめ
+  const alive = (b.guards || []).filter(g => g.hp > 0);
+  if (alive.length && b.age % gap === 0) {
+    const g = alive[Math.floor(Math.random() * alive.length)];
+    const gx2 = g.sp.x + 8, gy2 = g.sp.y + 8;
+    const ga = Math.atan2(player.y + 8 - gy2, player.x + 8 - gx2);
+    fireEnemyBullet(gx2 - 8, gy2 - 8, Math.cos(ga) * 0.5, Math.sin(ga) * 0.5, true);
+  }
+}
+
+function updatePlay() {
+  playFrame++;
+  // 撃破タイムは「弾が当たる状態」のあいだだけ数える
+  if (bossTimeCounts()) bossFrames++;
+  // ボスラッシュの経過時間(表示は 1/10 秒ごとに更新する)
+  if (gameMode() === 'bossrush' && state === 'play' && rushStartFrame >= 0) {
+    rushFrames++;
+    if (rushFrames % 6 === 0) drawHUD();
+  }
+
+  // --- 自機 ---
+  if (enterDelay > 0 && --enterDelay === 0) {
+    player.visible = true;
+    entering = true; // ジングル後半で下から登場
+  }
+  if (leaving) {
+    // ステージクリア: 加速しながら画面の上へ抜けていく
+    player.y -= 3.2;
+    player.visible = player.y > -20;
+  } else if (respawnDelay > 0) {
+    // 爆発の余韻。少し間を置いてから下から復帰する
+    if (--respawnDelay === 0) respawnPlayer();
+  } else if (enterDelay > 0) {
+    // 登場待ち。画面外に置いたまま操作も受け付けない
+  } else if (state === 'play' && entering) {
+    // 登場・復帰演出中: 定位置までせり上がる。
+    // 操作もショットも効かず、体当たりでも敵を倒せない(残っている弾も消す)
+    for (const b of [...bullets]) removeBullet(b);
+    player.y -= 1.6;
+    if (player.y <= SCREEN_H - 32) { player.y = SCREEN_H - 32; entering = false; }
+    player.visible = true;
+    if (invincible > 0) invincible--;
+  } else if (state === 'play') {
+    const spd = SPEED_TABLE[speedLevel - 1];
+    if (msx.input.isDown('ArrowLeft')) player.x -= spd;
+    if (msx.input.isDown('ArrowRight')) player.x += spd;
+    if (msx.input.isDown('ArrowUp')) player.y -= spd;
+    if (msx.input.isDown('ArrowDown')) player.y += spd;
+    player.x = Math.max(0, Math.min(SCREEN_W - 16, player.x));
+    player.y = Math.max(20, Math.min(SCREEN_H - 18, player.y));
+    if (invincible > 0) {
+      invincible--;
+      player.visible = (invincible >> 2) % 2 === 0;
+    } else {
+      player.visible = true;
+    }
+    // ショット: 連打すれば即座に(上限まで)撃てる。押しっぱなしはゆっくりした自動連射。
+    if (msx.input.wasPressed('Space') || msx.input.wasPressed('KeyZ')) {
+      fireShot();
+    } else if (msx.input.isDown('Space') || msx.input.isDown('KeyZ')) {
+      // 押しっぱなしの自動連射。? アイテム / MEIJIN 中は間隔がぐっと短くなる
+      const gap = autoFire > 0 ? 6 : AUTO_FIRE_INTERVAL;
+      if (playFrame - lastShotFrame >= gap) fireShot();
+    }
+  }
+
+  updateBGM();
+
+  // --- 敵出現 / ボス出現 (プレイ中のみ。ゲームオーバー後は増援なし) ---
+  // ★が 5 つ集まるまでステージはループして敵を出し続ける
+  const stageTime = playFrame % STAGE.length;
+  if (stageTime === 0) { waveIndex = 0; cubeIndex = 0; }
+  // ステージ開始直後は落ち着いて始められるよう、しばらく敵を出さない
+  // ボス戦中も出現予定は読み飛ばす(そうしないとボス撃破後にまとめて湧いてしまう)
+  // ラスボスの面は敵を何も出さない(木星の背景だけを見せてボス戦に入る)
+  const canSpawn = state === 'play' && !boss && clearTimer <= 0 && bossIntro === 0 &&
+    !isLastStage();
+  // ステージ開始直後は落ち着いて始められるよう、しばらく何も出さない。
+  // キューブは 3 秒、敵は 6 秒たってから出てくる。
+  // モアイが出ているあいだは、ほかの敵もアイテムも出さない
+  const canCube = canSpawn && playFrame >= INTRO_QUIET && !moaiActive();
+  const canEnemy = canSpawn && playFrame >= INTRO_QUIET_ENEMY && !moaiActive();
+  while (waveIndex < STAGE.list.length && STAGE.list[waveIndex].frame <= stageTime) {
+    const w = STAGE.list[waveIndex++];
+    if (canEnemy) spawnEnemy(w.type, w.x, w.phase);
+  }
+  while (cubeIndex < STAGE.cubes.length && STAGE.cubes[cubeIndex] <= stageTime) {
+    cubeIndex++;
+    if (canCube) spawnCubes();
+  }
+  // 2 面以降は大きな小惑星が流れてくる(壊せない。ぶつかると即死)。
+  // 面が進むと同時に出せる数が増える
+  // 目玉はステージに 1 回だけ、面の後半になってから 2 体そろって現れる
+  // 目玉はステージに 1 回だけ。ボス戦中とボスラッシュでは出さない
+  // (裏技の目玉戦で、あとから勝手に増えていくのを防ぐ)
+  // 小惑星が出ているあいだは目玉を出さない(画面が混みすぎないよう排他にする)
+  if (canEnemy && !eyeSpawned && !bossMode && gameMode() !== 'bossrush' &&
+      asteroids.length === 0 && playFrame > EYE_APPEAR) {
+    eyeSpawned = true;
+    spawnEyeballs();
+  }
+  updateEyeballs();
+  updateShootStars();
+  // 裏技の特別な相手は、倒しきったら少し間を置いてから次へ進む。
+  // (2 体同時撃破のボーナス演出を最後まで見せたいので 5 秒待つ)
+  if (rushSpecial && bossMode && specialEndTimer < 0) {
+    const done = rushSpecial === 'eyes' ? eyeballs.length === 0 : !moai;
+    if (done) specialEndTimer = 300;
+  }
+  if (specialEndTimer > 0 && --specialEndTimer === 0) {
+    specialEndTimer = -1;
+    rushSpecial = null;
+    bossDefeatedSpecial();
+  }
+  // モアイはステージに 1 回。出ているあいだは敵もアイテムも出さない
+  if (canEnemy && !moaiSpawned && !boss && !bossMode && stageNo >= 2 &&
+      gameMode() !== 'bossrush' && playFrame > MOAI_APPEAR) {
+    moaiSpawned = true;
+    spawnMoai();
+  }
+  // モアイも目玉も出ないまま終わりそうなら、どちらかを必ず出す
+  if (canEnemy && !eyeSpawned && !moaiSpawned && !boss && !bossMode &&
+      gameMode() !== 'bossrush' && playFrame > MUST_APPEAR) {
+    if (Math.random() < 0.5 && asteroids.length === 0) { eyeSpawned = true; spawnEyeballs(); }
+    else { moaiSpawned = true; spawnMoai(); }
+  }
+  updateMoai();
+
+  // 出現タイミングを 3 つに分け、同時に出せる数(面が進むほど増える)まで湧かせる
+  // 目玉が出ているあいだは小惑星を出さない(排他)
+  // ロケットが飛んでいるあいだは岩を出さない(画面が混みすぎるため)
+  if (canEnemy && stageNo >= 2 && eyeballs.length === 0 && rockets.length === 0 &&
+      asteroids.length < maxAsteroids()) {
+    const t = playFrame % ASTEROID_INTERVAL;
+    if (t === 300 || t === 500 || t === 700) spawnAsteroid();
+  }
+  updateAsteroids();
+  // ロケット弾は 3 面以降、ときどき飛んでくる
+  if (canEnemy && stageNo >= 3 && --rocketTimer <= 0) {
+    rocketTimer = ROCKET_INTERVAL + Math.floor(Math.random() * 300);
+    spawnRocket();
+  }
+  updateRockets();
+  updateWeights();
+  if (canEnemy) {
+    // 跳ね回る敵は宝珠を取るたびに増えていく(面が進むほど上限も上がる)
+    if (stars > 0) {
+      // 数が少ないと跳ね回る面白さが出ないので、**下限**を決めておく。
+      // NORMAL でも 3 匹、HARD は 8 匹までは必ずそろえる
+      const least = isNormal() ? BOUNCER_LEAST : BOUNCER_LEAST_HARD;
+      const want = Math.max(least, Math.min(16, stars * (1 + Math.floor(stageNo / 2))));
+      const now = enemies.reduce((n, e) => n + (e.type === 'E' ? 1 : 0), 0);
+      if (now >= want) bouncerTimer = BOUNCER_INTERVAL;
+      else if (--bouncerTimer <= 0) {
+        // 足りないぶんは一度にまとめて出す(1 匹ずつだと間が空きすぎる)
+        const n = Math.min(3, want - now);
+        for (let i = 0; i < n; i++) spawnBouncer();
+        bouncerTimer = BOUNCER_INTERVAL;
+      }
+    } else {
+      bouncerTimer = 0; // 次に宝珠を取ったらすぐ出す
+    }
+    // ワープ機は 2 面以降、ときどき現れる
+    if (stageNo >= 2 && --warperTimer <= 0) {
+      warperTimer = WARP_INTERVAL + Math.floor(Math.random() * 240);
+      spawnWarper();
+    }
+    // 高速直進機は 2 面以降、ときどきまとめて降ってくる
+    if (stageNo >= 2 && --dasherTimer <= 0) {
+      dasherTimer = DASHER_INTERVAL + Math.floor(Math.random() * 180);
+      spawnDasher();
+    }
+    // 壁づたい機は 2 面以降。端に長居させないための相手
+    if (stageNo >= 2 && --wallerTimer <= 0) {
+      wallerTimer = WALLER_INTERVAL + Math.floor(Math.random() * 200);
+      spawnWaller();
+    }
+    // 全方位機は 3 面以降。1 度に 1 機だけ出す
+    if (stageNo >= 3 && !enemies.some(e => e.type === 'L') && --spreaderTimer <= 0) {
+      spreaderTimer = SPREADER_INTERVAL + Math.floor(Math.random() * 240);
+      spawnSpreader();
+    }
+    // 放物線機は 3 面以降、ときどき横から投げ込まれる
+    if (stageNo >= 3 && --diverTimer <= 0) {
+      diverTimer = DIVER_INTERVAL + Math.floor(Math.random() * 200);
+      spawnDiver();
+    }
+    // 光る敵(宝箱)は没にした。処理と絵は残してあるので、
+    // 出したくなったらこの if を戻すだけでよい。
+    // if (stageNo >= 2 && !enemies.some(e => e.type === 'N') && --glowerTimer <= 0) {
+    //   glowerTimer = GLOWER_INTERVAL + Math.floor(Math.random() * 400);
+    //   spawnGlower();
+    // }
+    // 16t のおもりは 3 面以降。ミサイルや岩が出ているあいだは出てこない
+    if (stageNo >= 3 && weights.length === 0 && rockets.length === 0 &&
+        asteroids.length === 0 && --weightTimer <= 0) {
+      weightTimer = WEIGHT_INTERVAL + Math.floor(Math.random() * 500);
+      spawnWeight();
+    }
+    // 挟み撃ち機はバリアを持っているときだけ、左右ペアで突っ込んでくる
+    if (barrierHP > 0 && !boss) {
+      const now = enemies.reduce((n, e) => n + (e.type === 'H' ? 1 : 0), 0);
+      if (now > 0) rammerTimer = RAMMER_INTERVAL;
+      else if (--rammerTimer <= 0) { spawnRammerPair(); rammerTimer = RAMMER_INTERVAL; }
+    } else {
+      rammerTimer = 0;
+    }
+  }
+  // ★が規定数そろったらボス戦へ
+  // ★がそろったらボス登場の演出に入る(敵を止めて BGM を落とし、名前を出してから出現)
+  // 最終面: 静かな時間のあと、木星を上から出す
+  if (isLastStage() && !boss && !bossMode) {
+    // 出るのはドラゴンの星座だけ。木星はボスの前には出さない
+    if (!dragonSpot && playFrame >= DRAGON_AT) showSkyDragon();
+    // ドラゴンが流れ去ってからボスまでの待ち時間に、隠し場所を 2 か所置く。
+    // すでに連射中なら「?」は出ないので、そもそも置かない
+    // ? の隠し場所は、**ドラゴンの顔が下へ抜けきってから**置く。
+    // 星座のすぐそばに置くと、ドラゴンより先に ? が出てしまうことがある
+    const dragonGone = !dragonSpot || dragonSpotY() > SCREEN_H;
+    if (!secretSpots && playFrame >= SECRET_AT && dragonGone && autoFire <= 0) makeSecretSpots();
+    // 星座を見せ終えたころから、長いレーザーが前方から飛んでくる。
+    // クリアの演出に入ったら、もう新しくは飛ばさない
+    if (playFrame >= FAR_BEAM_AT && clearTimer <= 0 && !leaving && bossIntro <= 0 &&
+        --farBeamTimer <= 0) {
+      farBeamTimer = FAR_BEAM_GAP + Math.floor(Math.random() * 40);
+      fireFarBeam();
+    }
+  }
+  // ラスボスの面は宝珠を集めず、木星が流れていくのを見せてから登場の演出へ
+  if (state === 'play' && !boss && !bossMode && clearTimer <= 0 && bossIntro === 0 &&
+      (stars >= starsNeeded() || (isLastStage() && playFrame >= LAST_STAGE_SHOW))) {
+    startBossIntro();
+  }
+  if (bossIntro > 0) updateBossIntro();
+  // ボス戦中の増援 UFO は出さない(敵の種類が増えたので、
+  //  UFO 編隊はミスした直後の立て直し用だけにする)
+  if (boss) updateBoss();
+  updateRedSpace();   // 赤い空間の色をゆらす
+  // 回転レーザーはボスの状態にかかわらず飛び続ける(撃ったあとは独立して進む)
+  if (kingBeams.length) updateKingBeams();
+  if (farBeams.length) updateFarBeams();
+  if (kingEscape) updateKingEscape();
+
+  // --- ステージクリア進行 ---
+  if (clearTimer > 0) {
+    // 何かキーを押したら評価表示を飛ばせる
+    if (clearTimer < 900 && (msx.input.wasPressed('Space') || msx.input.wasPressed('KeyZ') ||
+        msx.input.wasPressed('Enter') || msx.input.wasPressed('Escape'))) {
+      clearTimer = 1;
+    }
+    clearTimer--;
+    if (clearTimer <= 0) {
+      if (state === 'play') { // ゲームオーバー後は進行しない
+        statsStageEnd();
+        // 練習モードは同じボスをもう一度出す
+        if (bossPractice) startStage();
+        else if (gameMode() === 'bossrush') advanceBossRush();
+        else if (stageNo >= LAST_STAGE) {
+          // 全 5 面クリア。エンディングを見せてから、得点を持って登録へ。
+          // クリアしたので、その難度のコンティニューは 1 面へ戻す
+          // CONTINUE で遊んでいたときも、覚え先は NORMAL のほうを戻す
+          // (ここを gameMode() で引くと 'continue' には覚え先が無く、
+          //  クリアしてもタイトルに CONTINUE が残ってしまう)
+          if (continueStages[continueKey()] !== undefined) continueStages[continueKey()] = 1;
+          enterEnding(enterGameOver);
+        } else { stageNo++; startStage(); }
+      }
+      return;
+    }
+  }
+
+  // --- 敵の行動 ---
+  for (const e of [...enemies]) {
+    e.age++;
+    const sp = e.sp;
+    if (e.type === 'D') {
+      // キューブ: まっすぐ落ちてくるだけ(自機を追わない・撃ってこない)
+      sp.y += e.vy;
+    } else if (e.type === 'E') {
+      // 跳ね回る敵: 画面の端で反射する
+      sp.x += e.vx; sp.y += e.vy;
+      if (sp.x <= 0) { sp.x = 0; e.vx = Math.abs(e.vx); }
+      if (sp.x >= SCREEN_W - 16) { sp.x = SCREEN_W - 16; e.vx = -Math.abs(e.vx); }
+      if (sp.y <= 20) { sp.y = 20; e.vy = Math.abs(e.vy); }
+      if (sp.y >= SCREEN_H - 16) { sp.y = SCREEN_H - 16; e.vy = -Math.abs(e.vy); }
+    } else if (e.type === 'J') {
+      // 止まって待つ -> 桂馬の位置へ **超高速でまっすぐ移動**、をくり返す。
+      // 消えて現れるのではなく、線を引くように動くので目で追える
+      if (e.tx !== undefined) {
+        // 移動中。決めた先へ、1 コマで大きく進む
+        const dx = e.tx - sp.x, dy = e.ty - sp.y;
+        const d = Math.hypot(dx, dy);
+        if (d <= WARP_SPEED) {
+          sp.x = e.tx; sp.y = e.ty;
+          e.tx = e.ty = undefined;
+          e.wait = WARP_WAIT;
+        } else {
+          sp.x += (dx / d) * WARP_SPEED;
+          sp.y += (dy / d) * WARP_SPEED;
+        }
+      } else if (--e.wait <= 0) {
+        // 自機のいる側へ跳ぶ(桂馬なので斜め前へ)
+        e.dir = (player.x + 8 > sp.x + 8) ? 1 : -1;
+        let tx = sp.x + WARP_DX * e.dir;
+        // 画面の端では跳ぶ向きを折り返す
+        if (tx < 0) { tx = 0; e.dir = 1; }
+        if (tx > SCREEN_W - 16) { tx = SCREEN_W - 16; e.dir = -1; }
+        e.tx = tx; e.ty = sp.y + WARP_DY;
+        msx.audio.playSE('hit', SE_HIT);
+      }
+    } else if (e.type === 'I') {
+      // 高速でほぼ直進してくる敵。撃ってこないぶん速い
+      sp.y += 4.2;
+      sp.x += e.vx;
+    } else if (e.type === 'H') {
+      // 挟み撃ち機: 画面に入るまでは自機の高さに合わせ、入ったらまっすぐ突っ込む。
+      // 速度は最初が速く、だんだん落ちて、最後は等速で流れていく。
+      const inside = sp.x > 0 && sp.x < SCREEN_W - 16;
+      if (!inside) sp.y += Math.max(-2, Math.min(2, player.y - sp.y));
+      else sp.y += Math.max(-0.6, Math.min(0.6, player.y - sp.y));
+      const t = Math.min(1, e.age / 90);
+      const spd = RAMMER_FAST + (RAMMER_SLOW - RAMMER_FAST) * t;
+      sp.x += Math.sign(e.vx) * spd;
+    } else if (e.type === 'F') {
+      // 下からゆらゆら上がってきて、画面上へ抜けていく(避けやすいようゆっくり)
+      sp.y -= 0.7;
+      sp.x = e.x0 + Math.sin(e.phase + e.age * 0.045) * 24;
+    } else if (e.type === 'G') {
+      // 旋回しながらゆっくり近づいてくる。一定時間で追尾をやめ、
+      // そのまま慣性で画面外へ抜けていく(自機の上で止まらない)。
+      const SPD = 0.9, TURN = 0.035, CHASE = 330;
+      if (e.age < CHASE) {
+        const want = Math.atan2(player.y - sp.y, player.x - sp.x);
+        let diff = want - e.dir;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        e.dir += Math.max(-TURN, Math.min(TURN, diff));
+      }
+      sp.x += Math.cos(e.dir) * SPD;
+      sp.y += Math.sin(e.dir) * SPD;
+    } else if (e.type === 'K') {
+      // 壁づたい: 端をまっすぐ降りるだけ。高さを合わせて 3WAY を撃つ
+      sp.y += 0.85;
+      sp.x = e.side < 0 ? 4 : SCREEN_W - 20;
+      if (state === 'play' && !e.noFire && --e.fireTimer <= 0) {
+        e.fireTimer = enemyFireGap(WALLER_FIRE);
+        const dx = player.x - sp.x, dy = player.y - sp.y;
+        const a0 = Math.atan2(dy, dx);
+        for (const d of [-0.32, 0, 0.32]) {
+          fireEnemyBullet(sp.x, sp.y + 4, Math.cos(a0 + d) * 1.35, Math.sin(a0 + d) * 1.35);
+        }
+      }
+    } else if (e.type === 'L') {
+      // 全方位: 画面の縦真ん中まで降りて止まり、時間差で 2 周ぶん撃つ
+      if (sp.y < e.stopY) {
+        sp.y += 0.6;
+      } else if (e.wait > 0) {
+        e.wait--;
+      } else if (e.fired < SPREADER_SHOTS * SPREADER_ROUNDS) {
+        if (state === 'play' && !e.noFire && --e.fireTimer <= 0) {
+          e.fireTimer = SPREADER_GAP;
+          // 1 発ずつ時間をずらして、渦を巻くように出す。
+          // 2 周目は半分ずらして、1 周目のすき間を埋める
+          const round = Math.floor(e.fired / SPREADER_SHOTS);
+          const i = e.fired % SPREADER_SHOTS;
+          const a0 = (Math.PI * 2 * i) / SPREADER_SHOTS
+            + (round * Math.PI) / SPREADER_SHOTS;
+          fireEnemyBullet(sp.x, sp.y, Math.cos(a0) * 1.1, Math.sin(a0) * 1.1);
+          e.fired++;
+        }
+      } else {
+        sp.y += 1.1;   // 撃ち終わったら降りて去る
+      }
+    } else if (e.type === 'M') {
+      // 放物線: 投げ上げられたように入ってきて、重力で戻り、上へ抜ける
+      sp.x += e.vx;
+      sp.y += e.vy;
+      e.vy -= 0.045;      // 下向きの勢いが弱まり、やがて上へ抜ける
+      if (state === 'play' && !e.noFire && --e.fireTimer <= 0) {
+        e.fireTimer = enemyFireGap(DIVER_FIRE);
+        const dx = player.x - sp.x, dy = player.y - sp.y;
+        const d = Math.hypot(dx, dy) || 1;
+        fireEnemyBullet(sp.x, sp.y + 4, dx / d * 1.5, dy / d * 1.5);
+      }
+    } else if (e.type === 'N') {
+      // 光る敵: ふわふわ浮いているだけ。撃たれるほど殻が開いていく
+      sp.y += (e.y0 - sp.y) * 0.02;
+      sp.x = e.x0 + Math.sin(e.phase + e.age * 0.024) * 20;
+      const t = 1 - e.hp / e.max;
+      sp.image = t > 0.66 ? IMG.glower2 : t > 0.33 ? IMG.glower1 : IMG.glower0;
+      // 開くほど強く光る(明滅を速くする)
+      sp.blink = t > 0.66 ? 2 : 0;
+      if (--e.life <= 0) sp.y -= 2.4;   // 時間が来たら上へ去る
+    } else if (e.type === 'A') {
+      sp.y += 1.2;
+      sp.x = e.x0 + Math.sin(e.phase + e.age * 0.05) * 30;
+      if (state === 'play' && !e.noFire && --e.fireTimer <= 0) {
+        e.fireTimer = enemyFireGap(45);
+        if (sp.y < player.y - 40) {
+          // 自機を狙う弾
+          const dx = player.x - sp.x, dy = player.y - sp.y;
+          const d = Math.hypot(dx, dy) || 1;
+          fireEnemyBullet(sp.x, sp.y + 8, dx / d * 1.44, dy / d * 1.44);
+        }
+      }
+    } else {
+      // UFO 編隊: 全員が同じ揺れ方をすると一塊に見えるので、
+      // 縦位置を「今いる X」から決めて、先頭の通った軌道を後続がなぞる形にする
+      sp.x += 1.4 * e.phase;
+      sp.y = 16 + Math.sin(sp.x * 0.05) * 16 + e.age * 0.22;
+      if (state === 'play' && !e.noFire && --e.fireTimer <= 0) {
+        e.fireTimer = enemyFireGap(38);
+        fireEnemyBullet(sp.x, sp.y + 8, 0, 1.76);
+      }
+    }
+    // 画面外に去った敵を片付ける(跳ね回る敵 E は画面内に留まるので対象外)。
+    // 追ってくる敵 G はいつまでも居座らないよう寿命を持たせる。
+    // 画面外の判定は緩めにする(隊列は画面の外に積まれた状態から入ってくるため)
+    const gone = sp.y > SCREEN_H + 20 || sp.y < -90 || sp.x < -200 || sp.x > SCREEN_W + 200;
+    if (e.type !== 'E' && (gone || (e.type === 'G' && e.age > 1200))) {
+      msx.removeSprite(sp);
+      enemies.splice(enemies.indexOf(e), 1);
+    }
+  }
+
+  // --- 弾の移動 ---
+  for (const b of [...bullets]) {
+    b.sp.x += b.vx; b.sp.y += b.vy;
+    // 2 コマに 1 回だけ表示する(位相を弾ごとにずらしてバラつかせる)
+    b.sp.visible = ((msx.frame + b.phase) & 1) === 0;
+    if (b.sp.y < -12 || b.sp.y > SCREEN_H + 12 || b.sp.x < -8 || b.sp.x > SCREEN_W + 8) {
+      removeBullet(b);
+    }
+  }
+  for (const b of [...enemyBullets]) {
+    // リング弾は 3 コマごとに色を入れ替える(ピンク <-> 水色)
+    if (b.breakable) {
+      b.sp.image = ((Math.floor(msx.frame / 3) + (b.sp.__ringPhase || 0)) & 1)
+        ? IMG.bulletRingCyan : IMG.bulletRing;
+    }
+    // リング弾(撃ち落とせる弾)は、ゆっくり自機の方へ向きを変える
+    // 自機より下まで来たら追うのをやめる(引き返してこない)
+    if (b.breakable && state === 'play' && b.sp.y < player.y) {
+      const dx = (player.x + 8) - (b.sp.x + 8);
+      const dy = (player.y + 8) - (b.sp.y + 8);
+      const d = Math.hypot(dx, dy) || 1;
+      const HOME = 0.009;  // 追いかける強さ(小さいほどゆるい)
+      b.vx += (dx / d) * HOME;
+      b.vy += (dy / d) * HOME;
+      // 速くなりすぎないように上限をかける
+      const sp = Math.hypot(b.vx, b.vy), MAX = 0.8;   // 追尾しても速くなりすぎない
+      if (sp > MAX) { b.vx = b.vx / sp * MAX; b.vy = b.vy / sp * MAX; }
+    }
+    b.sp.x += b.vx; b.sp.y += b.vy;
+    const off = b.sp.y > SCREEN_H + 8 || b.sp.y < -8 || b.sp.x < -8 || b.sp.x > SCREEN_W + 8;
+    // キューブは敵の弾も受け止める(盾として使える)
+    const blocked = !off && enemies.some(e =>
+      e.type === 'D' && Math.abs(b.sp.x - e.sp.x) < 10 && Math.abs(b.sp.y - e.sp.y) < 10);
+    if (off || blocked) {
+      if (blocked) msx.audio.playSE('clink');
+      msx.removeSprite(b.sp); enemyBullets.splice(enemyBullets.indexOf(b), 1);
+    }
+  }
+
+  // --- アイテム ---
+  for (const it of [...items]) {
+    it.age++;
+    if (it.drift > 0) {
+      // 四方へゆっくり散っていくアイテム(重力を受けない)。
+      // 散り終わったら、そこからはふつうに落ちてくる
+      it.drift--;
+      it.sp.x += it.vx;
+      it.sp.y += it.vy;
+      it.vx *= 0.995; it.vy *= 0.995;
+      if (it.drift === 0) { it.vx = 0; it.vy = 0; }
+    } else if (it.vy || it.vx) {
+      // 放り上げたアイテム。山なりに飛んで、落ちてくる。
+      // 落ちる速さがふつうのアイテムに追いついたら、そこからは同じ動き
+      it.vy = Math.min(0.8, it.vy + 0.08);
+      it.sp.x += it.vx;
+      it.sp.y += it.vy;
+      it.vx *= 0.99;
+      if (it.vy >= 0.8) { it.vy = 0; it.vx = 0; }
+    } else {
+      it.sp.y += 0.8;
+      it.sp.x += Math.sin(it.age * 0.08) * 0.8;
+    }
+    // 点滅させる。P アイテムはパワー最大だとボム扱いなので見た目もボムにする
+    const look = (it.kind === 'power' && shotLevel >= MAX_POWER) ? 'bomb' : it.kind;
+    if (it.kind === 'candy') {
+      // 飴だけは白との点滅ではなく、**2 色を 2 コマずつ入れ替える**。
+      // ピンクと水色が交互に入れ替わって、包み紙がきらきらして見える
+      it.sp.image = ITEM_IMG[look];
+      it.sp.colorMap = (msx.frame & 2) ? CANDY_SWAP : null;
+    } else {
+      it.sp.image = (msx.frame & 1) ? ITEM_IMG[look] : ITEM_IMG_W[look];
+    }
+    const take = state === 'play' &&
+      Math.abs(it.sp.x - player.x) < 12 &&
+      Math.abs(it.sp.y - player.y) < 12;
+    if (take) {
+      msx.audio.playSE('item');
+      statsItem(it.kind);
+      blinkGear(it.kind); // 対応する HUD の項目をしばらく点滅させる
+      // $ の連鎖は「$ を取りそこねる」かミスするまで続く
+      if (it.kind !== 'coin') score += 500;
+      switch (it.kind) {
+        case 'coin': {
+          score += coinValue;
+          // いくら入ったかを毎回出す(100 点でも表示)
+          spawnPopup(it.sp.x - 8, it.sp.y, coinValue);
+          coinChainBest = Math.max(coinChainBest, coinValue);
+          if (coinValue >= COIN_TOP) {
+            // 打ち止めの 102400 点を取ったら 1UP と同じファンファーレ
+            showNotice('CHAIN MAX!');
+            playBGM('fanfare', false, true);
+            jingleTimer = 150;
+            coinValue = COIN_BASE;          // 次からまた 100 点
+          } else {
+            coinValue = Math.min(COIN_TOP, coinValue * 2);
+          }
+          break;
+        }
+        case 'auto':
+          autoFire = AUTO_FIRE_TIME;
+          showNotice('AUTO FIRE');
+          // 「?」から出る特別なアイテムなので、専用の短い音を鳴らす
+          msx.audio.playSE('autofire', SE_JINGLE);
+          break;
+        case 'candy': {
+          // 見逃したお礼の飴。**取るたびに倍々**(100 -> 200 -> 400 …)。
+          // 続けて拾うほど大きくなるので、全部拾う値打ちがある
+          candyCombo++;
+          const gain = Math.min(CANDY_MAX, 100 * Math.pow(2, candyCombo - 1));
+          score += gain;
+          spawnPopup(it.sp.x, it.sp.y, gain);
+          if (--candyLeft > 0) {
+            msx.audio.playSE('item');
+          } else {
+            // 最後の 1 つ。ここだけファンファーレで締める
+            showNotice('ALL CANDIES!');
+            playBGM('fanfare', false, true);
+            jingleTimer = 150;
+          }
+          break;
+        }
+        case 'dragon':
+          // そらのドラゴンが力を分けてくれる。
+          // 推進炎が緑になって一回り大きくなり、当たり判定も広がる。
+          // これはスピードの段階と関係なく、やられても消えない
+          grantFullPower(null);
+          dragonFlame = true;
+          showNotice('DRAGON FLAME!');   // ほかのアイテムと同じ下の行に出す
+          // 1UP と同じくらい大きな当たりなので、同じジングルで祝う
+          playBGM('fanfare', false, true);
+          jingleTimer = 150;
+          break;
+        case 'star':
+          stars++; score += 500;
+          showNotice('ORB ' + stars + '/' + starsNeeded());
+          break;
+        case 'bomb':
+          bombAllEnemies();
+          showNotice('BOMB!');
+          break;
+        case 'speed':
+          speedLevel = Math.min(SPEED_TABLE.length, speedLevel + 1);
+          showNotice('SPEED UP ' + speedLevel);
+          break;
+        case 'rapid':
+          maxVolleys = Math.min(MAX_VOLLEY_LIMIT, maxVolleys + 1);
+          showNotice('RAPID FIRE ' + maxVolleys);
+          break;
+        case 'life':
+          ships = Math.min(MAX_SHIPS, ships + 1);
+          showNotice('1UP!');
+          // BGM をいったん黙らせてファンファーレを鳴らす(終わったら元の曲に戻る)
+          playBGM('fanfare', false, true);
+          jingleTimer = 150;
+          break;
+        case 'damage':
+          damageLevel = Math.min(DAMAGE_TABLE.length, damageLevel + 1);
+          showNotice('POWER SHOT ' + damageLevel);
+          break;
+        case 'barrier':
+          // 通常モードは 1 回取ると満タンになる(減っていても回復する)
+          barrierHP = isNormal() ? MAX_BARRIER : Math.min(MAX_BARRIER, barrierHP + 1);
+          showNotice('BARRIER ' + barrierHP);
+          break;
+        default: // power: 最大なら画面上の敵を一掃するボムになる
+          if (shotLevel >= MAX_POWER) { bombAllEnemies(); showNotice('BOMB!'); }
+          else { shotLevel++; showNotice('WIDE SHOT ' + shotLevel); }
+      }
+      drawHUD();
+    }
+    // $ を取りそこねて画面外へ落ちると、そこで連鎖が切れる
+    if (!take && it.kind === 'coin' && it.sp.y > SCREEN_H + 12) {
+      coinValue = COIN_BASE;   // 表示は出さない
+    }
+    if (take || it.sp.y > SCREEN_H + 12) {
+      msx.removeSprite(it.sp);
+      items.splice(items.indexOf(it), 1);
+    }
+  }
+
+  // --- 当たり判定: 自弾 vs 敵 ---
+  for (const b of [...bullets]) {
+    for (const e of [...enemies]) {
+      // 小惑星は絵が大きいので判定も広い
+      if (Math.abs((b.sp.x + 8) - (e.sp.x + 8)) < 10 &&
+          Math.abs((b.sp.y + 8) - (e.sp.y + 8)) < 10) {
+        bulletHits(b);
+        hitEnemy(e, DAMAGE_TABLE[damageLevel - 1], true);
+        break;
+      }
+    }
+  }
+
+  // --- 当たり判定: 自弾 vs 小惑星 (壊せないので弾が消えるだけ) ---
+  for (const b of [...bullets]) {
+    for (const a of asteroids) {
+      if (Math.abs((b.sp.x + 8) - astCX(a)) < AST_SIZE / 2 - 4 &&
+          Math.abs((b.sp.y + 8) - astCY(a)) < AST_SIZE / 2 - 4) {
+        bulletHits(b);
+        if ((a.hp -= DAMAGE_TABLE[damageLevel - 1]) <= 0) {
+          // とても硬いぶん、壊すと派手に爆発する
+          for (let i = 0; i < 4; i++) {
+            spawnBoom(a.sp.x + Math.random() * AST_SIZE, a.sp.y + Math.random() * AST_SIZE);
+          }
+          msx.audio.playSE('bigboom', SE_HIT);
+          bigKills++;
+          score += 5000;
+          spawnPopup(a.sp.x, a.sp.y, 5000);
+          msx.removeBgSprite(a.sp);
+          if (a.hi) msx.removeSprite(a.hi);
+          asteroids.splice(asteroids.indexOf(a), 1);
+        } else {
+          pingAsteroid(a);
+        }
+        break;
+      }
+    }
+  }
+
+  // --- 当たり判定: 自弾 vs ボスの弾 (ボスの弾は撃ち落とせる) ---
+  for (const b of [...bullets]) {
+    for (const eb of enemyBullets) {
+      if (!eb.breakable) continue;
+      if (Math.abs(b.sp.x - eb.sp.x) < 7 && Math.abs(b.sp.y - eb.sp.y) < 7) {
+        bulletHits(b);
+        msx.removeSprite(eb.sp);
+        enemyBullets.splice(enemyBullets.indexOf(eb), 1);
+        score += 300; // タコの弾は高得点
+        drawHUD();
+        break;
+      }
+    }
+  }
+
+  // --- 当たり判定: 自弾 vs ロケット弾 ---
+  for (const b of [...bullets]) {
+    for (const r of [...rockets]) {
+      if (b.sp.x + 8 > r.sp.x && b.sp.x + 8 < r.sp.x + ROCKET_W &&
+          b.sp.y + 8 > r.sp.y && b.sp.y + 8 < r.sp.y + ROCKET_H) {
+        bulletHits(b);
+        r.hp -= DAMAGE_TABLE[damageLevel - 1];
+        if (r.hp <= 0) breakRocket(r);
+        else { r.flash = 4; msx.audio.playSE('thud'); }
+        break;
+      }
+    }
+  }
+
+  // --- 当たり判定: 自弾 vs 目玉 ---
+  for (const b of [...bullets]) {
+    for (const e of [...eyeballs]) {
+      if (Math.abs((b.sp.x + 8) - (e.sp.x + EYE_SIZE / 2)) < EYE_SIZE / 2 &&
+          Math.abs((b.sp.y + 8) - (e.sp.y + EYE_SIZE / 2)) < EYE_SIZE / 2) {
+        bulletHits(b);
+        e.hp -= 1;   // 攻撃力によらず 1 発 1 ダメージ
+        if (e.hp <= 0) killEyeball(e);
+        else msx.audio.playSE('hit', SE_HIT);
+        break;
+      }
+    }
+  }
+
+  // --- ハサミミサイル(カニロボ) ---
+  updateClawMissiles();
+  for (const b of [...bullets]) {
+    for (const m of [...clawMissiles]) {
+      // ハサミは 64x48。見た目どおりの大きさで当たる
+      if (Math.abs((b.sp.x + 8) - (m.sp.x + CRAB_CLAW_W / 2)) < CRAB_CLAW_W / 2 &&
+          Math.abs((b.sp.y + 8) - (m.sp.y + CRAB_CLAW_H / 2)) < CRAB_CLAW_H / 2) {
+        bulletHits(b);
+        m.hp -= DAMAGE_TABLE[damageLevel - 1];
+        if (m.hp <= 0) {
+          // 壊したハサミは二度と生えてこない(武器を 1 つ奪える)
+          if (boss && boss.kind === 'crab') killCrabClaw(boss, m.from);
+          removeClawMissile(m, true);  // 壊すと弾が散る
+        }
+        else msx.audio.playSE('clink');
+        break;
+      }
+    }
+  }
+
+  // --- 当たり判定: 自弾 vs モアイ ---
+  // 合体前は切り口(内側)だけが効く。合体後はどこでも効くが、とても固い。
+  // **白と灰色の石のあいだ(色が付く前)は、内側でも外側でもダメージは入らない。
+  //   ただし撃ち込み続けると怒る**(手を出さずに待つのが正解)
+  // 弾がすり抜ける場面:
+  //   ・四隅で構えているあいだ(まだ動き出していない)
+  //     出てきたところを撃っただけで怒らせてしまわないため
+  //   ・逃げていくあいだ(もう手出しできないので、当たっても意味がない)
+  if (moai && !moai.leaving && !(moai.state === 'q4' && moai.hold > 0)) {
+    for (const b of [...bullets]) {
+      for (const p of [...moai.parts]) {
+        const w = moai.state === 'q4' ? MOAI_QW : MOAI_W;
+        const h = moai.state === 'one' ? MOAI_H : MOAI_QH;
+        const bx = b.sp.x + 8, by = b.sp.y + 8;
+        if (bx < p.sp.x || bx > p.sp.x + w || by < p.sp.y || by > p.sp.y + h) continue;
+        bulletHits(b);
+        const inner = moaiInnerHit(moai, p, bx, by);
+        // まだ石のあいだ(色が付く前)。ダメージは入らない。
+        // **左右がくっついたあと**に切り口(内側)を狙い撃つと怒る。
+        // よーいドンの前に手を出した罰。四隅のあいだ(まだ形になっていない)と
+        // 外側は、何発当てても弾かれるだけ
+        if (moaiSafe(moai)) {
+          // 切り口を撃ってしまったときは、**専用の調子はずれな音**で知らせる。
+          // 「いま撃つと怒らせる」ことを音で気づかせたい
+          if (inner && moai.state === 'q2') {
+            msx.audio.playSE('scold', SE_HIT);
+            angerMoai(moai);
+          } else {
+            msx.audio.playSE('armor');
+          }
+          break;
+        }
+        // 色が付いてからは、外側はただ弾かれるだけ(もう怒らない)
+        if (!inner) {
+          msx.audio.playSE('armor');
+          break;
+        }
+        // 怒らせてしまったら、内側からも壊せない
+        if (moai.angry) {
+          msx.audio.playSE('nobreak');
+          p.flash = 4;
+          break;
+        }
+        const dmg = DAMAGE_TABLE[damageLevel - 1];
+        if (moai.state === 'one') {
+          // 怒らせてしまったら、合体後も壊せない(帰っていくのを見送るしかない)
+          if (moai.angry) {
+            msx.audio.playSE('nobreak');
+            p.flash = 4;
+            break;
+          }
+          moai.hp -= dmg;
+          p.flash = 4;
+          msx.audio.playSE('weak');
+          spawnWeakSpark(b.sp.x, b.sp.y);
+          if (moai.hp <= 0) {
+            for (let i = 0; i < 8; i++) {
+              spawnBoom(moai.x + Math.random() * MOAI_W, moai.y + Math.random() * MOAI_H);
+            }
+            msx.audio.playSE('bossboom', SE_HIT);
+            flashTimer = 3;
+            score += 20000;
+            spawnPopup(moai.x, moai.y + 24, 20000);
+            bigKills++;
+            clearMoai();
+          }
+        } else {
+          // 上下 2 つのときは、どちらを撃っても同じ体力を削る(一心同体)
+          moai.insideHp -= dmg;
+          p.flash = 4;
+          msx.audio.playSE('guardhit', SE_HIT);
+          spawnWeakSpark(b.sp.x, b.sp.y);
+          if (moai.insideHp <= 0) { killMoaiInside(); break; }
+        }
+        break;
+      }
+      if (!moai) break;
+    }
+  }
+
+  // --- 当たり判定: 自弾 vs ノーチラスの装甲と生き物 ---
+  if (boss && boss.kind === 'nautilus' && boss.dying <= 0) {
+    const inside = nautilusInside(boss);
+    for (const b of [...bullets]) {
+      const bx = b.sp.x + 8, by = b.sp.y + 8;
+      let done = false;
+      for (const g of boss.blocks) {
+        if (!g.alive) continue;
+        // ふつうの装甲は見た目より小さめ(すき間を弾が通り抜けられる)。
+        // 黄色い装甲だけは狙いやすいよう大きめにとる
+        const r = g.weak ? 11 : 6;
+        if (Math.abs(bx - (g.sp.x + 8)) > r || Math.abs(by - (g.sp.y + 8)) > r) continue;
+        bulletHits(b);
+        done = true;
+        if (!g.weak || boss.phase2) { msx.audio.playSE('armor'); break; }
+        // 弱点の装甲だけがへこむ。攻撃力によらず 1 発 1 ダメージ。
+        // 本体の体力(ゲージ)は減らない
+        boss.weakHp -= 1;
+        // ほかの当たり音と区別できるよう、パネル用の音にする
+        msx.audio.playSE('panel', SE_HIT);
+        spawnWeakSpark(b.sp.x, b.sp.y);
+        spawnBoom(b.sp.x - 4, b.sp.y - 4);   // 当たるたびに小さく爆ぜる
+        // 最初に当てたときだけ、狙いどころを教える
+        if (!boss.toldWeak) {
+          boss.toldWeak = true;
+          showNotice('BREAK YELLOW GUARD!');
+        }
+        if (boss.weakHp <= 0) {
+          // 装甲が外れて、輪にすき間が空く = 中へ入り込めるようになる
+          g.alive = false;
+          g.sp.visible = false;
+          boss.phase2 = true;
+          boss.ringTarget = NAUT_R_WIDE;   // 輪が広がって入りやすくなる
+          for (let i = 0; i < 5; i++) spawnBoom(g.sp.x, g.sp.y);
+          msx.audio.playSE('bossboom', SE_HIT);
+          flashTimer = 3;
+        }
+        break;
+      }
+      if (done) continue;
+      // 貝に効くのは「真下から入った弾」だけ。
+      // 斜めにかすめた弾でうっかり装甲の削りが戻らないようにする
+      const ccx = boss.x + NAUT_CORE / 2, ccy = boss.y + NAUT_CORE / 2;
+      if (Math.abs(bx - ccx) > 20) continue;
+      if (Math.abs(by - ccy) > 20) continue;
+      if (by < ccy) continue;                    // 下側から来た弾だけ
+      if (Math.abs(b.vx) > 2.5) continue;        // 斜めの弾は通らない
+      bulletHits(b);
+      if (!boss.phase2) {
+        // ガードのすき間を抜けた弾は、中の貝にごく小さなダメージ(2 発で 1)。
+        // ただし生き物が身をよじるので、弱点の装甲は直ってしまう(削りは 0 に戻る)
+        boss.gapHits = (boss.gapHits || 0) + 1;
+        if (boss.gapHits % 2 === 0) boss.hp -= 1;
+        boss.flash = 4;
+        msx.audio.playSE('weak');
+        // 本体に当てると装甲の削りは 0 に戻る(音だけで知らせる)
+        if (boss.weakHp < NAUT_WEAK_HITS) {
+          boss.weakHp = NAUT_WEAK_HITS;
+          msx.audio.playSE('powerdown');
+        }
+        if (boss.hp <= 0) {
+          boss.dying = 90;
+          msx.audio.stopBGM();
+          msx.audio.playSE('bossboom', SE_HIT);
+        }
+        continue;
+      }
+      // 中に入って撃つぶんは、すき間ごしの小ダメージの 2 倍。
+      // 装備によらず一定なので、あっという間に終わらない
+      boss.hp -= inside ? 2 : 1;
+
+      boss.flash = 6;
+      msx.audio.playSE('weak');
+      spawnWeakSpark(b.sp.x, b.sp.y);
+      if (boss.hp <= 0) {
+        boss.dying = 90;
+        msx.audio.stopBGM();
+        msx.audio.playSE('bossboom', SE_HIT);
+      }
+    }
+  }
+
+  // --- 当たり判定: 自弾 vs 本体に付いたハサミ ---
+  // ハサミはとても硬いが、撃ち続ければ部位破壊できる(武器を 1 つ奪える)
+  if (boss && boss.kind === 'crab' && boss.partClaws && !boss.phase2 &&
+      boss.dying <= 0) {
+    for (const b of [...bullets]) {
+      for (let i = 0; i < boss.partClaws.length; i++) {
+        const sp = boss.partClaws[i];
+        if (!sp.visible || !boss.clawAlive[i]) continue;
+        // 生えかけのハサミは、伸びたぶんだけしか当たらない。
+        // (撃ったあとや壊したあと、見えないところに当たっていた)
+        const grow = boss.grow[i] / CRAB_CLAW_GROW;
+        if (grow < 0.5) continue;
+        const w = Math.round(CRAB_CLAW_W * Math.min(1, grow));
+        const bx = b.sp.x + 8, by = b.sp.y + 8;
+        // 根元は胴体側。伸びた先までが当たる範囲
+        const x0 = sp.flipX ? sp.x + CRAB_CLAW_W - w : sp.x;
+        if (bx < x0 + 8 || bx > x0 + w - 8) continue;
+        if (by < sp.y + 8 || by > sp.y + CRAB_CLAW_H - 8) continue;
+        bulletHits(b);
+        boss.clawHp[i] -= BOSS_DMG;
+        msx.audio.playSE('guardhit', 1);
+        spawnWeakSpark(b.sp.x, b.sp.y);
+        if (boss.clawHp[i] <= 0) {
+          // ハサミが根元からもげる。二度と生えてこない
+          boss.clawHp[i] = CRAB_CLAW_HP;
+          killCrabClaw(boss, i);
+          for (let k = 0; k < 6; k++) {
+            spawnBoom(sp.x + Math.random() * CRAB_CLAW_W, sp.y + Math.random() * CRAB_CLAW_H);
+          }
+          msx.audio.playSE('bigboom', SE_HIT);
+          flashTimer = 3;
+          score += 3000;
+          spawnPopup(sp.x, sp.y, 3000);
+        }
+        break;
+      }
+    }
+  }
+
+  // --- 当たり判定: 自弾 vs カニの脚 ---
+  // 脚は壁から離れているジャンプ中だけ狙える。ここが本当の弱点で、
+  // 硬いハサミや装甲を削るより、脚を 1 本ずつ折るほうがずっと速い。
+  if (boss && boss.kind === 'crab' && boss.legs && !boss.phase2 &&
+      boss.dying <= 0 && boss.mode === 'jump') {
+    for (const b of [...bullets]) {
+      for (const lg of boss.legs) {
+        if (lg.hp <= 0) continue;
+        // 脚は BG スプライト。見えている位置(8 ドットに丸めたもの)で判定する
+        if (Math.abs((b.sp.x + 8) - (snap8(lg.sp.x) + 12)) < 13 &&
+            Math.abs((b.sp.y + 8) - (snap8(lg.sp.y) + 8)) < 8) {
+          bulletHits(b);
+          lg.hp -= BOSS_DMG;
+          // 脚に当たったことがはっきり分かる光と音
+          spawnWeakSpark(lg.sp.x, lg.sp.y);
+          msx.audio.playSE(lg.hp <= 0 ? 'bigboom' : 'guardhit', 1);
+          if (lg.hp <= 0) {
+            lg.sp.visible = false;
+            spawnBoom(lg.sp.x, lg.sp.y);
+            score += 800;
+            // 脚が全部折れると壁につかまれず、中央でふわふわ漂うだけになる
+            if (boss.legs.every(x => x.hp <= 0)) breakShip();
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  // --- 当たり判定: 自弾 vs UFO のガード ---
+  // グーを握って顔のまわりに集まっているあいだは盾になる。
+  // ダメージは入らないが、弾はここで止まる(発射口へ通さない)。
+  if (boss && boss.guards && !boss.phase2 && boss.dying <= 0 && boss.guardTight) {
+    for (const b of [...bullets]) {
+      for (const g of boss.guards) {
+        if (g.hp <= 0) continue;
+        if (Math.abs((b.sp.x + 8) - (g.sp.x + 8)) < 10 &&
+            Math.abs((b.sp.y + 8) - (g.sp.y + 8)) < 10) {
+          bulletHits(b);
+          msx.audio.playSE('clink');
+          break;
+        }
+      }
+    }
+  }
+  if (boss && boss.guards && !boss.phase2 && boss.dying <= 0 && !boss.guardTight) {
+    for (const b of [...bullets]) {
+      for (const g of boss.guards) {
+        if (g.hp <= 0) continue;
+        if (Math.abs((b.sp.x + 8) - (g.sp.x + 8)) < 10 &&
+            Math.abs((b.sp.y + 8) - (g.sp.y + 8)) < 10) {
+          bulletHits(b);
+          g.hp -= BOSS_DMG;
+          if (g.hp <= 0) {
+            g.sp.visible = false;
+            spawnBoom(g.sp.x, g.sp.y);
+            msx.audio.playSE('boom', SE_HIT);
+            score += 500;
+            // 全部のガードが無くなったら壺が割れる
+            if (boss.guards.every(x => x.hp <= 0)) breakShip();
+          } else {
+            // 当たったことが分かるように点滅させる(文字は出さず音で伝える)
+            g.flash = 8;
+            msx.audio.playSE('guardhit');
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  // --- 当たり判定: 自弾 vs 木星の隠し場所 ---
+  // 自機はぶつからない。16 発当てると全パワーアップが手に入る
+  // --- 当たり判定: 自弾 vs 待ち時間の隠し場所(2 か所) ---
+  // 見た目には何も無いところ。当て続けると「?」が出る。
+  // 連射中は出ないので、そのときは当たっても何も起きない
+  if (secretSpots && !boss && !bossMode && state === 'play') {
+    for (const sp of secretSpots) {
+      if (sp.done) continue;
+      for (const b of [...bullets]) {
+        const bx = b.sp.x + 8, by = b.sp.y + 8;
+        if (bx < sp.x || bx > sp.x + SECRET_SIZE) continue;
+        if (by < sp.y || by > sp.y + SECRET_SIZE) continue;
+        bulletHits(b);
+        sp.hits++;
+        spawnWeakSpark(b.sp.x, b.sp.y);
+        msx.audio.playSE('clink');
+        if (sp.hits >= SECRET_NEED) {
+          sp.done = true;
+          spawnBoom(sp.x + 2, sp.y + 2);
+          if (autoFire <= 0) dropItem(sp.x + 2, sp.y + 4, 'auto');
+          msx.audio.playSE('appear', SE_EVENT);
+        }
+        break;
+      }
+    }
+  }
+
+  // --- 当たり判定: 自弾 vs そらのドラゴンの顔 ---
+  // 16 発当てると、ドラゴンの顔のアイテムが出る。取るとフルパワー。
+  // 自機はぶつからない(当たるのは弾だけ)
+  if (dragonSpot && !dragonSpot.done && !boss && !bossMode && state === 'play') {
+    const sx = dragonSpot.x, sy = dragonSpotY(), n = DRAGON_FACE.size;
+    if (sy > -n && sy < SCREEN_H) {
+      for (const b of [...bullets]) {
+        const bx = b.sp.x + 8, by = b.sp.y + 8;
+        if (bx < sx || bx > sx + n || by < sy || by > sy + n) continue;
+        bulletHits(b);
+        dragonSpot.hits++;
+        // 手応えが分かるように、当たった場所で光らせて音を出す
+        spawnWeakSpark(b.sp.x, b.sp.y);
+        msx.audio.playSE('clink');
+        if (dragonSpot.hits >= DRAGON_FACE.need) {
+          dragonSpot.done = true;
+          spawnBoom(sx, sy);
+          dropItem(sx + 4, sy + 8, 'dragon');
+          msx.audio.playSE('appear', SE_EVENT);
+        }
+        break;
+      }
+    }
+  }
+
+  // --- 当たり判定: 自弾 vs ラスボス ---
+  // 裂け目は「256 発当てる」ので、弾の強さに関係なく 1 発 1 ダメージで数える。
+  // シルエットマンはふつうに削れる。
+  if (boss && boss.kind === 'king' && boss.dying <= 0) {
+    const rift = boss.stage === 'rift';   // 開ききるまでは当たらない
+    const man = boss.stage === 'man';
+    if (rift || man) {
+      const cx = rift ? RIFT_CX : boss.x + KING_MAN_W / 2;
+      const cy = rift ? RIFT_CY : boss.y + KING_MAN_H / 2;
+      // 裂け目は細長いので、絵よりせまい判定にする(まわりの空間には当たらない)
+      const hw = rift ? 14 : KING_MAN_W / 2 - 12;
+      const hh = rift ? RIFT_H / 2 - 2 : KING_MAN_H / 2 - 4;
+      for (const b of [...bullets]) {
+        if (Math.abs((b.sp.x + 8) - cx) >= hw || Math.abs((b.sp.y + 8) - cy) >= hh) continue;
+        bulletHits(b);
+        if (rift) { hitKingRift(boss, b.sp.x, b.sp.y); continue; }
+        // 瞑想中は無敵。弾ははじかれるだけで、点滅もさせない
+        // (七色に光っているので、点滅すると何が起きているか分からなくなる)
+        if (boss.meditate > 0) { msx.audio.playSE('armor'); continue; }
+        // 頭に当たると 2 倍。上から攻めるのが効く相手にする
+        const head = (b.sp.y + 8) < boss.y + KING_MAN_H * 0.38;
+        // 頭は 2 倍。さらに近いほど効く(上からの倍率は頭の判定と重なるので入れない)
+        boss.hp -= Math.max(1, Math.round(BOSS_DMG * (head ? 2 : 1) * bossDamageMul(boss, false)));
+        boss.flash = 6;
+        // のけぞるポーズと「うっ」。声は連発しないよう、少し間を置く
+        if (boss.hurtPose <= 0 && (boss.hurtVoice || 0) <= 0) {
+          msx.audio.playTalk('kiaiB', SE_HIT);   // 撃たれたときの声
+          boss.hurtVoice = 40;
+        }
+        if (head) {
+          boss.hurtPose = 12;   // 頭に当たるとのけぞる
+        } else {
+          // 頭以外は腕で受ける。0.5 秒ガードの姿になり、そのぶん足が止まる。
+          // 撃たれるほど遅くなり、ほとんど動けなくなると 3 秒その場に固まる。
+          // (**後ろへ回り込む隙**を作るための、崩しの仕組み)
+          boss.guard = KING_GUARD_LEN;
+          if (boss.stun <= 0 && boss.meditate <= 0) {
+            boss.slowMul = Math.max(0, (boss.slowMul == null ? 1 : boss.slowMul) - KING_SLOW_STEP);
+            if (boss.slowMul <= 0.1) {
+              if ((boss.stunCount || 0) < KING_STUN_MAX) {
+                boss.stunCount = (boss.stunCount || 0) + 1;
+                boss.stun = KING_STUN_LEN;
+                showNotice('IT IS EXHAUSTED!');
+              } else if (boss.hp / boss.max < KING_MEDITATE_HP) {
+                // 3 回目からは、弱っていれば座って立て直してくる。
+                // まだ元気なら息を整えるだけで、動きは元に戻る
+                startKingMeditate(boss);
+              } else {
+                boss.slowMul = 1;
+              }
+            }
+          }
+        }
+        // 撃たれると技をやめる。踏み込みも助走も、途中で崩れて構えへ戻る
+        if (boss.act && boss.act !== 'idle') {
+          boss.act = 'idle';
+          boss.actTimer = KING_ACT_GAP;
+        }
+        msx.audio.playSE('weak');
+        if (boss.hp <= 0) killKingWithRoar();
+      }
+    }
+  }
+
+  // --- 当たり判定: 自弾 vs ボス ---
+  if (boss && boss.dying <= 0 && boss.y > -10 &&
+      boss.kind !== 'nautilus' && boss.kind !== 'king') {
+    // 第1形態は船ごと、第2形態はタコの頭だけが当たり判定
+    const crab = boss.kind === 'crab', dragon = boss.kind === 'dragon';
+    const todo = boss.kind === 'todo';
+    const bw = todo ? TODO_W / 2 : dragon ? DRAGON_W / 2 : crab ? CRAB_W / 2 : (boss.phase2 ? HEAD_W / 2 : BOSS_W / 2);
+    const bh = todo ? TODO_H / 2 : dragon ? DRAGON_H / 2 : crab ? CRAB_H / 2 : (boss.phase2 ? HEAD_H / 2 : BOSS_H / 2);
+    const bcx = boss.x + (todo ? TODO_W : dragon ? DRAGON_W : crab ? CRAB_W : BOSS_W) / 2, bcy = boss.y + bh;
+    for (const b of [...bullets]) {
+      if (Math.abs((b.sp.x + 8) - bcx) < bw && Math.abs((b.sp.y + 8) - bcy) < bh) {
+        bulletHits(b);
+        // 弱点に当たると大ダメージ。それ以外の装甲は硬い。
+        // 装甲がはがれた第2形態は全体が弱点になる
+        const weak = boss.phase2 || isBossWeakPoint(boss, b.sp.x + 8, b.sp.y + 8, b);
+        // 壺(UFO)に乗っているあいだ、本体はどこを撃っても無敵。
+        // 効くのは「レーザーを撃っているあいだの発射口」だけ。
+        // (壺を割るもう 1 つの道は、回っている手のひらを全部壊すこと)
+        const armored = boss.kind === 'octopus' && !boss.phase2 && !weak;
+        // カニは装甲もハサミも硬い。本体を撃ってもごくわずかしか減らない
+        // (脚を折るのが本筋)
+        const tough = boss.kind === 'crab' && !boss.phase2;
+        // 突進中のドラゴンは口を開けているので、そこへ撃ち込むと大ダメージ
+        // 大ダメージが通るのは、実際に突っ込んできているあいだだけ。
+        // 画面の外で顔だけ出してためているあいだは、逆にダメージが通らない
+        const rage = boss.kind === 'dragon' && boss.mode === 'rage';
+        const jaws = rage && boss.hide <= 0 && boss.telegraph <= 0;
+        const bracing = rage && !jaws;   // 顔を出してためている最中
+        // 壺に乗っているあいだは「ほんの少しだけ」通る(点滅はさせない)
+        // タコの発射口は「壊せる部位」。開いているあいだに撃ち込めば
+        // 体力を削らずにそのまま撃破できる(手のひらを全部壊す道もある)
+        if (boss.kind === 'octopus' && !boss.phase2 && weak) {
+          boss.muzzleHp -= 1;
+          boss.flash = 6;
+          msx.audio.playSE('weak');
+          spawnWeakSpark(b.sp.x, b.sp.y);
+          if (boss.muzzleHp <= 0) {
+            boss.hp = 0;
+            boss.dying = 90;
+            msx.audio.stopBGM();
+            msx.audio.playSE('bossboom', SE_HIT);
+          }
+          continue;
+        }
+        const dmg = armored ? ((boss.age % 8 === 0) ? 1 : 0)
+          : tough ? ((boss.age % 4 === 0) ? 1 : 0)
+          : bracing ? ((boss.age % 3 === 0) ? 1 : 0)   // 構え中は小ダメージ
+          // 突進中のドラゴンの口。効きすぎたので 8 -> 6.4(8 割)に落とした
+          : jaws ? DRAGON_JAWS_DMG : (weak ? 3 : 1);
+        // 近いほど・上から攻めるほど効く(最大 4 倍)。
+        // 装甲などで 0 ダメージのものは 0 のまま
+        boss.hp -= dmg > 0 ? Math.max(1, Math.round(dmg * bossDamageMul(boss))) : 0;
+        // 装甲を 8 割削っても壊れる。
+        // タコの場合は「回るガードを全部壊す」でも壺が割れるので、
+        // 発射口を狙う攻略と、ガードを削る攻略のどちらからでも無防備にできる
+        if (!boss.phase2 && boss.hp <= boss.max * 0.2) breakShip();
+        // 無敵の場所は点滅させない(ほんの少し通るだけなので)
+        if (dmg > 0 && !armored) boss.flash = 6;
+        // カニは 4 発に 1 ダメージなので、通ったときだけ白く光らせて知らせる
+        if (dmg > 0 && boss.kind === 'crab') boss.hurt = 10;
+        if (bracing) msx.audio.playSE('armor');   // ためている最中は硬い
+        if (boss.kind === 'todo') {
+          boss.cry = 60;   // 未実装君は泣く
+          // 話しているあいだに撃ち込まれた数を数える。
+          // **16 発で心が折れて自爆**する(倒すより先に終わってしまう)
+          if (boss.begT !== undefined && !boss.begGone && !boss.begSad) {
+            boss.begHits = (boss.begHits || 0) + 1;
+            if (boss.begHits >= BEG_GIVEUP_HITS) todoGiveUp(boss);
+          }
+        }
+        msx.audio.playSE(weak ? 'weak' : 'armor');
+        // 弱点に当たったことが目で分かるよう、その場に光を出す
+        if (weak) spawnWeakSpark(b.sp.x, b.sp.y);
+        if (boss.hp <= 0) {
+          boss.dying = 90;
+          msx.audio.stopBGM();
+          msx.audio.playSE('bossboom', SE_HIT);
+        }
+      }
+    }
+  }
+
+  // --- ノーチラスの電撃は無敵時間でも即死 ---
+  // (無敵のあいだに輪の中へ突っ込んで居座られると、ねらいが崩れるため)
+  if (state === 'play' && boss && boss.kind === 'nautilus' && !boss.phase2 &&
+      boss.dying <= 0 && respawnDelay <= 0) {
+    const px0 = player.x + 8, py0 = player.y + 8;
+    for (const o of boss.orbs || []) {
+      if (!o.sp.visible) continue;
+      if (Math.abs((o.sp.x + 8) - px0) < 7 && Math.abs((o.sp.y + 8) - py0) < 7) {
+        destroyPlayer('SPARK');
+        break;
+      }
+    }
+  }
+
+  // --- 当たり判定: 敵・敵弾・ボス vs 自機 ---
+  // 無敵のあいだ(復活直後を含む)は、体当たりでも相手を倒せない
+  if (state === 'play' && invincible <= 0 && !entering && respawnDelay <= 0) {
+    const px = player.x + 8, py = player.y + 8;
+    // 自機の当たり判定は見た目より一回り小さい(90%)
+    const R = 0.9;
+    // 体当たりはどの敵にも通る(相打ち)。自機は通常の被弾扱い
+    // (小惑星だけは大きすぎるので即死)
+    let hit = false;
+    let hitCause = 'ENEMY';
+    for (const e of [...enemies]) {
+      if (Math.abs((e.sp.x + 8) - px) >= 9 * R ||
+          Math.abs((e.sp.y + 7) - py) >= 9 * R) continue;
+      hitCause = 'CRASH ' + e.type;
+      killEnemy(e);
+      hit = true;
+    }
+    // 小惑星は壊せない大きな障害物。ぶつかると即死
+    for (const a of asteroids) {
+      if (Math.abs(astCX(a) - px) < 20 * R &&
+          Math.abs(astCY(a) - py) < 20 * R) {
+        criticalHit('ASTEROID');   // 一撃で瀕死
+        return;
+      }
+    }
+    if (!hit) {
+      for (const b of enemyBullets) {
+        // 弾の絵はどちらも 16x16。小さい丸は 16x16 の真ん中に置いてあるので、
+        // 中心はリング弾と同じ +8。ここを +2 にしていたため、
+        // 当たり判定が絵より 6 ドット左上にずれていた
+        const half = 8;
+        const rad = b.breakable ? 8 : 6;
+        if (Math.abs((b.sp.x + half) - px) < rad * R &&
+            Math.abs((b.sp.y + half) - py) < rad * R) {
+          hit = true; hitCause = b.breakable ? 'BOSS SHOT' : 'ENEMY SHOT'; break;
+        }
+      }
+    }
+    if (!hit) {
+      // ロケット弾に触れたら大ダメージ
+      for (const r of rockets) {
+        if (px > r.sp.x && px < r.sp.x + ROCKET_W &&
+            py > r.sp.y && py < r.sp.y + ROCKET_H) {
+          criticalHit('ROCKET');   // 一撃で瀕死
+          return;
+        }
+      }
+    }
+    if (!hit) {
+      // 目玉への体当たりも被弾扱い
+      for (const e of eyeballs) {
+        if (Math.abs((e.sp.x + EYE_SIZE / 2) - px) < (EYE_SIZE / 2 - 4) * R &&
+            Math.abs((e.sp.y + EYE_SIZE / 2) - py) < (EYE_SIZE / 2 - 4) * R) {
+          hit = true; hitCause = 'TWIN EYES'; break;
+        }
+      }
+    }
+    if (!hit) {
+      // ハサミミサイルへの体当たりも被弾扱い
+      for (const m of clawMissiles) {
+        // あごの部分だけが当たる(真ん中の開いたところは当たらない)
+        if (Math.abs((m.sp.x + CRAB_CLAW_W / 2) - px) < (CRAB_CLAW_W / 2 - 6) * R &&
+            Math.abs((m.sp.y + CRAB_CLAW_H / 2) - py) < (CRAB_CLAW_H / 2 - 6) * R) {
+          criticalHit('CLAW');   // 巨大なハサミに触れたら一撃でひん死
+          return;
+        }
+      }
+    }
+    // 未実装君の涙。**当たっても痛くない**(泣いているだけなので)。
+    // ただし、当たった感じは出したいので、光と音だけ出す
+    if (boss && boss.kind === 'todo' && boss.dying <= 0) {
+      for (const t of boss.tears || []) {
+        if (t.age < 0 || !t.sp.visible) continue;
+        if (Math.abs((t.sp.x + 8) - px) < 8 * R &&
+            Math.abs((t.sp.y + 8) - py) < 8 * R) {
+          if (tearSplash <= 0) {
+            tearSplash = 40;
+            criticalLook('TEAR');   // 見た目だけクリティカルと同じ
+          }
+          break;
+        }
+      }
+    }
+    // モアイの石にぶつかったら、大きな岩なのでクリティカル
+    // 四隅から出てくるところに自機がいると、避ける間もなく死んでしまう。
+    // 構えている(まだ動き出していない)あいだは当たらないことにする
+    // 逃げているあいだは当たらない。画面の外へ流れていく途中で、
+    // 姿が見えないのに当たってしまうことがあったため
+    if (!hit && moai && !moai.leaving && !(moai.state === 'q4' && moai.hold > 0)) {
+      // 上下のすき間へ**もぐり込んで内側を撃つ**のが正しい狙いかた。
+      // ただし寄ってくるので、**閉じ切る前に抜けないと押しつぶされて即死**。
+      // すき間が自機より狭くなったら、その中にいる者は潰れる
+      if (moai.state === 'q2' && moai.wait <= 0 &&
+          playerInMoaiGap(moai) && moaiGapSize(moai) < MOAI_CRUSH_GAP) {
+        destroyPlayer('MOAI CRUSH');
+        return;
+      }
+      for (const p of moai.parts) {
+        const w = moai.state === 'q4' ? MOAI_QW : MOAI_W;
+        const h = moai.state === 'one' ? MOAI_H : MOAI_QH;
+        if (px > p.sp.x && px < p.sp.x + w && py > p.sp.y && py < p.sp.y + h) {
+          criticalHit('MOAI');
+          return;
+        }
+      }
+    }
+    // 本体に付いたままのハサミも、触れたら飛んでくるものと同じく危ない
+    if (boss && boss.kind === 'crab' && boss.partClaws && !boss.phase2 &&
+        boss.dying <= 0) {
+      for (let i = 0; i < boss.partClaws.length; i++) {
+        const sp = boss.partClaws[i];
+        if (!sp.visible || !boss.clawAlive[i]) continue;
+        // 生えかけのぶんは、伸びた先までしか当たらない。
+        // (自弾側と同じ扱い。見えていないところで被弾していた)
+        const grow = boss.grow[i] / CRAB_CLAW_GROW;
+        if (grow < 0.5) continue;
+        const w = Math.round(CRAB_CLAW_W * Math.min(1, grow));
+        const x0 = sp.flipX ? sp.x + CRAB_CLAW_W - w : sp.x;
+        if (Math.abs((x0 + w / 2) - px) < (w / 2 - 6) * R &&
+            Math.abs((sp.y + CRAB_CLAW_H / 2) - py) < (CRAB_CLAW_H / 2 - 6) * R) {
+          criticalHit('CLAW');
+          return;
+        }
+      }
+    }
+    // ノーチラス: 回っている装甲に当たると被弾
+    if (!hit && boss && boss.kind === 'nautilus' && boss.dying <= 0) {
+      for (const g of boss.blocks) {
+        if (!g.alive) continue;
+        if (Math.abs((g.sp.x + 8) - px) < 10 && Math.abs((g.sp.y + 8) - py) < 10) {
+          hit = true; hitCause = 'GEAR'; break;
+        }
+      }
+    }
+    // ドラゴンが画面の外から顔だけ出してためているあいだは当たり判定なし
+    // (予告の姿なので、いきなりぶつかることがないようにする)
+    const dragonPeek = boss && boss.kind === 'dragon' &&
+      boss.mode === 'rage' && boss.telegraph > 0;
+    // 5 面の長いレーザー。絵が長いので、線に沿って 5 か所を見て当たりを取る
+    if (!hit) {
+      for (const bm of farBeams) {
+        for (let t = -15; t <= 15; t += 7.5) {
+          const bx = bm.x + Math.cos(bm.a) * t, by = bm.y + Math.sin(bm.a) * t;
+          if (Math.abs(bx - px) < 6 * R && Math.abs(by - py) < 6 * R) { hit = true; break; }
+        }
+        if (hit) { hitCause = 'FAR BEAM'; break; }
+      }
+    }
+    // ラスボス: 回転レーザーに触れると被弾。シルエットマンへの体当たりはクリティカル
+    if (!hit && boss && boss.kind === 'king' && boss.dying <= 0) {
+      for (const bm of kingBeams) {
+        if (Math.abs((bm.sp.x + 8) - px) < 7 * R && Math.abs((bm.sp.y + 8) - py) < 7 * R) {
+          hit = true; hitCause = 'KING BEAM'; break;
+        }
+      }
+      if (!hit && boss.stage === 'man' &&
+          Math.abs((boss.x + KING_MAN_W / 2) - px) < (KING_MAN_W / 2 - 14) * R &&
+          Math.abs((boss.y + KING_MAN_H / 2) - py) < (KING_MAN_H / 2 - 6) * R) {
+        criticalHit('THE KING');
+        return;
+      }
+    }
+    if (!hit && boss && boss.dying <= 0 &&
+        boss.kind !== 'nautilus' && boss.kind !== 'king' && !dragonPeek) {
+      const crab = boss.kind === 'crab', dragon = boss.kind === 'dragon';
+      const todo = boss.kind === 'todo';
+      const bw = todo ? TODO_W / 2 : dragon ? DRAGON_W / 2 : crab ? CRAB_W / 2 : (boss.phase2 ? HEAD_W / 2 : BOSS_W / 2);
+      const bh = todo ? TODO_H / 2 : dragon ? DRAGON_H / 2 : crab ? CRAB_H / 2 : (boss.phase2 ? HEAD_H / 2 : BOSS_H / 2);
+      if (Math.abs((boss.x + (todo ? TODO_W : dragon ? DRAGON_W : crab ? CRAB_W : BOSS_W) / 2) - px) < (bw - 6) * R &&
+          Math.abs((boss.y + bh) - py) < (bh - 4) * R) {
+        criticalHit('BOSS BODY');   // ボスへの体当たりも一撃で瀕死
+        return;
+      }
+      // レーザーの帯に触れたら即死(バリアでも防げない)
+      if (boss.firing > 0 && laserPhase(boss) !== 'fade') {
+        const lx = boss.sx + LASER_X;
+        const top = boss.sy + BOSS_H;
+        if (px > lx - 2 && px < lx + LASER_W + 2 &&
+            py > top && py < top + (boss.laserLen || 0)) {
+          destroyPlayer('BOSS LASER');
+          return;
+        }
+      }
+    }
+    if (hit) damagePlayer(hitCause);
+  }
+
+  // --- 爆発アニメ ---
+  updateBooms();
+
+  // 推進炎はスピードアップの段階で大きくなる(段階 1 では出ない)。
+  // バリアがあるときは同じスプライト枠で交互に見せる。
+  const alive = player.visible && state === 'play';
+  // 推進炎は 2 コマで、外わくと中身を交互に出す(1 色のまま脈打たせる)。
+  // ドラゴンの力をもらっていれば、スピードの段階によらず大きな緑の炎になる
+  // 名乗り(TALK)で画面を止めているあいだは、炎のコマ送りも止める。
+  // ここだけ動いていると「止まっていない」ように見えるため
+  if (talkHold <= 0) flameFrame++;
+  // 炎は 4 コマに 1 回しか出さない(下の aux.visible)。
+  // 形の切り替えを 2 コマごとにすると、出るコマがいつも同じ形になり、
+  // **ふちどりだけ**しか見えなかった。4 コマごとにして噛み合わせる
+  const fl = Math.floor(flameFrame / 4) & 1;
+  const flameImg = dragonFlame ? dragonFlameImg()
+    : speedLevel >= 3 ? (fl ? IMG.flameBigB : IMG.flameBigA)
+    : (fl ? IMG.flameSmallB : IMG.flameSmall);
+  // 緑の炎は段階 1 でも出る(死んでも残る強化なので、いつでも使えるようにする)
+  const wantFlame = alive && (speedLevel >= 2 || dragonFlame);
+  const wantBarrier = alive && barrierHP > 0;
+  let flameShown = false;
+  if (wantFlame && wantBarrier) {
+    const showBarrier = (msx.frame & 2) === 0; // 2 コマごとに交互
+    aux.visible = true;
+    if (showBarrier) {
+      aux.image = IMG.barrier; aux.x = player.x; aux.y = player.y;
+    } else {
+      aux.image = flameImg; aux.x = player.x; aux.y = player.y + FLAME_OFFSET;
+      flameShown = true;
+    }
+  } else if (wantBarrier) {
+    aux.visible = true; aux.image = IMG.barrier; aux.x = player.x; aux.y = player.y;
+  } else if (wantFlame) {
+    // ドラゴンの炎は明滅させず、出しっぱなしで色だけ変える。
+    // ふつうの炎は実機らしく 4 コマに 1 回だけ出す
+    aux.visible = dragonFlame || (msx.frame & 3) === 0;
+    aux.image = flameImg; aux.x = player.x; aux.y = player.y + FLAME_OFFSET;
+    flameShown = aux.visible;
+  } else {
+    aux.visible = false;
+  }
+  if (flameShown && state === 'play') burnEnemiesBehind();
+
+  if (tearSplash > 0) tearSplash--;
+  updateWeakSparks();
+  updatePopups();
+  updateFlash();
+  updateNotice();
+  updateGearBlink();
+  updateLastShipWarning();
+  drawBossBar();
+}
+
+// ---- ボスへのダメージは「どこから当てたか」で変わる ----
+// 近づくほど効き、上から攻めるとさらに効く。危ないところほど見返りが大きい。
+//   距離: 遠い 1 倍 〜 密着 2 倍
+//   上から: ボスの中心より上にいれば さらに 2 倍(合わせて最大 4 倍)
+//   推進炎(バックファイヤー)はこれとは別に 6 倍。撃たずに焼くのがいちばん効く
+const BOSS_NEAR_FULL = 40;    // これより近ければ 2 倍
+const BOSS_NEAR_NONE = 140;   // これより遠いと 1 倍
+const BOSS_FLAME_MUL = 6;     // 炎の倍率
+const BOSS_FLAME_GAP = 6;     // 炎で削る間隔(毎コマ削ると強すぎる)
+/** ボス(いま出ているもの)の中心。段階や種類で絵の大きさが違う */
+function bossCenter(b) {
+  if (!b) return null;
+  if (b.kind === 'king') {
+    if (b.stage === 'rift') return [RIFT_CX, RIFT_CY];
+    return [b.x + KING_MAN_W / 2, b.y + KING_MAN_H / 2];
+  }
+  const w = b.kind === 'todo' ? TODO_W : b.kind === 'dragon' ? DRAGON_W
+    : b.kind === 'crab' ? CRAB_W : BOSS_W;
+  const h = b.kind === 'todo' ? TODO_H : b.kind === 'dragon' ? DRAGON_H
+    : b.kind === 'crab' ? CRAB_H : (b.phase2 ? HEAD_H : BOSS_H);
+  return [b.x + w / 2, b.y + h / 2];
+}
+/** 自機の位置から決まる、ボスへのダメージ倍率(1〜4 倍) */
+function bossDamageMul(b, above = true) {
+  const c = bossCenter(b);
+  if (!c) return 1;
+  const px = player.x + 8, py = player.y + 8;
+  const d = Math.hypot(px - c[0], py - c[1]);
+  const t = Math.min(1, Math.max(0, (d - BOSS_NEAR_FULL) / (BOSS_NEAR_NONE - BOSS_NEAR_FULL)));
+  const near = 2 - t;
+  // 上から攻める倍率。頭に当てた判定を別に持っているラスボスでは使わない
+  return near * (above && py < c[1] ? 2 : 1);
+}
+
+// ---- 当たり判定の可視化(裏技 HITAREA で切り替え) ----
+// いちばん手前のレイヤーに枠だけを描く。種類ごとに色を変えて見分ける。
+//   白 = 自機 / 黄 = 自弾 / 赤 = 敵 / 桃 = 敵弾 / 緑 = ボスと部位 /
+//   明るい赤 = 触れたら即死・瀕死のもの
+let showHitArea = false;
+const HA_PLAYER = 15, HA_SHOT = 11, HA_ENEMY = 8, HA_EBULLET = 13;
+const HA_BOSS = 3, HA_DEADLY = 9;
+
+/** 枠だけを描く(中は塗らない) */
+function haBox(x, y, w, h, color) {
+  const x0 = Math.round(x), y0 = Math.round(y);
+  const iw = Math.max(1, Math.round(w)), ih = Math.max(1, Math.round(h));
+  dbg.fill(color, x0, y0, iw, 1, true);
+  dbg.fill(color, x0, y0 + ih - 1, iw, 1, true);
+  dbg.fill(color, x0, y0, 1, ih, true);
+  dbg.fill(color, x0 + iw - 1, y0, 1, ih, true);
+}
+
+/** 中心と半径で枠を描く */
+function haAt(cx, cy, rx, ry, color) { haBox(cx - rx, cy - ry, rx * 2, ry * 2, color); }
+
+function updateHitArea() {
+  if (!showHitArea) return;
+  dbg.fill(0, 0, 0, SCREEN_W, SCREEN_H, true);
+  const R = 0.9;
+  // 自機(見た目より一回り小さい)
+  if (player.visible) haAt(player.x + 8, player.y + 8, 9 * R, 9 * R, HA_PLAYER);
+  for (const b of bullets) haAt(b.sp.x + 8, b.sp.y + 8, 4, 4, HA_SHOT);
+  for (const e of enemies) haAt(e.sp.x + 8, e.sp.y + 7, 9 * R, 9 * R, HA_ENEMY);
+  for (const b of enemyBullets) {
+    const half = 8, rad = b.breakable ? 8 : 6;
+    haAt(b.sp.x + half, b.sp.y + half, rad * R, rad * R, HA_EBULLET);
+  }
+  // 触れたら即死・瀕死のもの
+  for (const a of asteroids) haAt(astCX(a), astCY(a), 20 * R, 20 * R, HA_DEADLY);
+  for (const r of rockets) haBox(r.sp.x, r.sp.y, ROCKET_W, ROCKET_H, HA_DEADLY);
+  for (const m of clawMissiles) {
+    haAt(m.sp.x + CRAB_CLAW_W / 2, m.sp.y + CRAB_CLAW_H / 2,
+      (CRAB_CLAW_W / 2 - 6) * R, (CRAB_CLAW_H / 2 - 6) * R, HA_DEADLY);
+  }
+  for (const e of eyeballs) {
+    haAt(e.sp.x + EYE_SIZE / 2, e.sp.y + EYE_SIZE / 2,
+      (EYE_SIZE / 2 - 4) * R, (EYE_SIZE / 2 - 4) * R, HA_ENEMY);
+  }
+  for (const bm of farBeams) {
+    for (let t = -15; t <= 15; t += 7.5) {
+      haAt(bm.x + Math.cos(bm.a) * t, bm.y + Math.sin(bm.a) * t, 6 * R, 6 * R, HA_DEADLY);
+    }
+  }
+  if (moai) {
+    const w = moai.state === 'q4' ? MOAI_QW : MOAI_W;
+    const h = moai.state === 'one' ? MOAI_H : MOAI_QH;
+    for (const p of moai.parts) haBox(p.sp.x, p.sp.y, w, h, HA_BOSS);
+  }
+  if (boss && boss.dying <= 0) {
+    if (boss.kind === 'king') {
+      if (boss.stage === 'rift') haAt(RIFT_CX, RIFT_CY, 14, RIFT_H / 2 - 2, HA_BOSS);
+      if (boss.stage === 'man') {
+        haAt(boss.x + KING_MAN_W / 2, boss.y + KING_MAN_H / 2,
+          KING_MAN_W / 2 - 12, KING_MAN_H / 2 - 4, HA_BOSS);
+      }
+      for (const bm of kingBeams) haAt(bm.sp.x + 8, bm.sp.y + 8, 7 * R, 7 * R, HA_DEADLY);
+    } else if (boss.kind === 'nautilus') {
+      for (const g of boss.blocks || []) if (g.alive) haAt(g.sp.x + 8, g.sp.y + 8, 10, 10, HA_BOSS);
+      for (const o of boss.orbs || []) if (o.sp.visible) haAt(o.sp.x + 8, o.sp.y + 8, 7, 7, HA_DEADLY);
+    } else {
+      const crab = boss.kind === 'crab', dragon = boss.kind === 'dragon';
+      const todo = boss.kind === 'todo';
+      const bw = todo ? TODO_W / 2 : dragon ? DRAGON_W / 2 : crab ? CRAB_W / 2
+        : (boss.phase2 ? HEAD_W / 2 : BOSS_W / 2);
+      const bh = todo ? TODO_H / 2 : dragon ? DRAGON_H / 2 : crab ? CRAB_H / 2
+        : (boss.phase2 ? HEAD_H / 2 : BOSS_H / 2);
+      const cx = boss.x + (todo ? TODO_W : dragon ? DRAGON_W : crab ? CRAB_W : BOSS_W) / 2;
+      haAt(cx, boss.y + bh, bw, bh, HA_BOSS);
+      // 脚の絵は 24x16。判定(中心 +12/+8、半分 14/12)に合わせて枠を描く
+      for (const lg of boss.legs || []) if (lg.hp > 0 && lg.sp.visible) {
+        haAt(snap8(lg.sp.x) + 12, snap8(lg.sp.y) + 8, 13, 8, HA_BOSS);
+      }
+      // 本体に付いたハサミ。生えかけのぶんは伸びた先までしか無い
+      if (crab && !boss.phase2) (boss.partClaws || []).forEach((sp, i) => {
+        if (!sp.visible || !boss.clawAlive[i]) return;
+        const grow = boss.grow[i] / CRAB_CLAW_GROW;
+        if (grow < 0.5) return;
+        const w = Math.round(CRAB_CLAW_W * Math.min(1, grow));
+        haBox(sp.flipX ? sp.x + CRAB_CLAW_W - w : sp.x, sp.y, w, CRAB_CLAW_H, HA_DEADLY);
+      });
+      for (const g of boss.guards || []) if (g.hp > 0) haAt(g.sp.x + 8, g.sp.y + 8, 8, 8, HA_BOSS);
+    }
+  }
+}
+
+// ---- ポーズ (P キー / ESC) ----
+let paused = false;
+// ---- ポーズ中の隠しコマンド ----
+// ↑↑↓↓←→←→BA と "HYPER" は全パワーアップ(どちらも 1 ゲームに 1 回だけ)。
+// 名前を打ち込むとステージワープ、"AHO"/"BAKA" で自爆する。
+const KONAMI_CODE = [
+  'ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown',
+  'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'KeyB', 'KeyA',
+];
+// 面へのワープ
+// 面ワープ(全 5 面)。スタッフロールでは名前の前に #1〜#5 が付いていて、
+// それが面数のヒントになっている
+const STAGE_CODES = {
+  MOMOKO: 1, CHIE: 2, AKEMI: 3, SYUKO: 4, CHIAKI: 5,
+};
+// ボスとの直接対決(練習用)。倒すと同じボスがまた出てくる。
+// こちらも #1〜#5 が付いている
+const BOSS_CODES = {
+  NORIKO: 1, SATOE: 2, YASUKO: 3, KINUYO: 4, HISAE: 5,
+};
+// 残りの 2 つは特別枠
+const MIJISSOU_CODE = 'MIYUKI';   // 仮ボス「未実装君」と対決
+const ENDING_CODE = 'YOHKO';      // エンディングを見る
+
+let konamiPos = 0;
+let typed = '';            // ポーズ中に打ち込まれた英字
+let usedKonami = false;    // 1 ゲームに 1 回だけ
+// 面移動とボスへの移動も、それぞれ 1 ゲームに 1 回だけ
+let usedStageWarp = false;
+let usedBossWarp = false;
+let usedHyper = false;
+// オート連射のコマンドは MEIJIN / TAKAHASHI / TOSHIYUKI の 3 つ。
+// どれを使っても合計 3 回まで。
+const AUTO_CODES = ['MEIJIN', 'TAKAHASHI', 'TOSHIYUKI'];
+const AUTO_USES = 3;
+let autoFireUses = 0;
+
+/** 全パワーアップ(2 つの隠しコマンド共通の効果) */
+function grantFullPower(label) {
+  shotLevel = MAX_POWER;
+  damageLevel = DAMAGE_TABLE.length;
+  speedLevel = SPEED_TABLE.length;
+  maxVolleys = MAX_VOLLEY_LIMIT;
+  barrierHP = Math.max(barrierHP, 1);
+  drawHUD();
+  // 裏技のときは画面の真ん中に大きく出す。
+  // アイテムで取ったときは label を渡さず、ほかのアイテムと同じ下の行に出す
+  if (label) cheatNotice(label);
+  msx.audio.playSE('item');
+}
+
+// ---- プレイ統計 ----
+// バランス調整の材料にするため、エンジンの StatsLog に記録していく。
+// window.msxStats() で集計、window.msxStatsCompact() で生ログを畳める。
+const stats = new StatsLog({ key: 'starfable-stats', maxEvents: 4000 });
+
+/** 集計のしかた(compact したあともここで足した結果は残る) */
+const STAT_AGGREGATORS = {
+  deathCauses: (l) => l.countBy('death', 'cause'),
+  itemsTaken: (l) => l.countBy('item', 'kind'),
+  bossKills: (l) => l.count('boss'),
+  stagesCleared: (l) => l.count('stage'),
+};
+
+function statsItem(kind) { stats.log('item', { kind }); }
+function statsDeath(cause) {
+  stats.log('death', { cause, stage: stageNo, frames: playFrame, shotLevel });
+}
+function statsBoss(frames) { stats.log('boss', { stage: stageNo, frames }); }
+function statsStageEnd() {
+  stats.log('stage', {
+    stage: stageNo,
+    score: score - statStageScore,
+    frames: playFrame,
+  });
+  statStageScore = score;
+}
+let statStageScore = 0;
+
+function statsFinish() {
+  stats.endSession({ score, maxStage: stageNo });
+  // 生ログがたまってきたら、集計だけ残して畳む
+  if (stats.needsCompact()) stats.compact(STAT_AGGREGATORS);
+}
+
+/** デバッグ用: ハイスコアを既定の 100 件に戻す */
+window.msxResetHiScores = () => {
+  hardTable.reset();
+  normalTable.reset();
+  rushTable.reset();
+  return hardTable.entries.length + ' 件に戻しました';
+};
+
+/** デバッグ用: いまの画面状態を見る(自動テストから使う) */
+/** デバッグ用: 好きな面のボスをその場に出す(自機は無敵にする) */
+window.msxBoss = (n) => {
+  stageNo = n;
+  clearEntities();
+  hud.clear();
+  state = 'play';
+  player.visible = true;
+  invincible = 99999;
+  spawnBoss();
+  return gameMode() + ' stage' + n;
+};
+
+/**
+ * ラスボスを第 2 段階(シルエットマン)へ飛ばす。
+ * 裂け目を壊したところから始まり、赤い空間になってシルエットが出てくる。
+ * シーン選択とデバッグの両方から使う。
+ */
+/**
+ * ラスボスにとどめを刺したときの流れ。
+ * まず 曲も背景の揺らぎも画面もすべて止めて名乗りを聞かせ、
+ * 声が終わってから 爆発 -> 倒れる -> 赤い空間が消える と進む。
+ */
+function killKingWithRoar() {
+  // 名乗りのあいだは必ず姿が見えているようにする。
+  // 撃破演出の明滅と重なると、声だけで画面に何も無い時間ができてしまう。
+  // 姿は のけぞったダメージのポーズで止める
+  bossVisible = true;
+  if (boss.man) {
+    boss.man.frames = null;
+    boss.man.image = IMG.kingMan05;
+  }
+  drawBossBody();
+  msx.audio.stopBGM();
+  currentBGM = null;
+  msx.audio.stopSE();
+  // 止まってから 2 秒おいて、それから名乗る(間を作る)
+  talkName = 'kozorite';
+  talkBlast = true;
+  talkHold = KING_ROAR_WAIT + TALK_HOLD_FRAMES;
+  markMet('kingdown');           // サウンドテストの TALK 欄が出るようになる
+  boss.hp = 0;
+  boss.dying = 200;              // しゃがみこみ + 星空へ戻す演出のぶん長め
+  boss.deathRoar = true;         // 声のあとに爆発音を鳴らす
+}
+
+// シーン選択から「第 2 段階から」を選んだときの予約。
+// ボスはその場では出ず、次の更新で登場するので、出たときに切り替える
+let pendingKingPhase2 = false;
+
+function kingToPhase2() {
+  if (!boss || boss.kind !== 'king') return null;
+  boss.hp = 1;
+  hitKingRift(boss, RIFT_CX, RIFT_CY);   // 'break' へ入る
+  boss.timer = 1;                        // 次の更新で 'pose' へ進む
+  enterRedSpace();
+  // シルエットは 'break' の**まん中**で作られるので、飛ばすと作られないまま
+  // 'man' に入ってしまい、姿が無いのに攻撃してくる状態になっていた
+  makeKingMan(boss);
+  return boss.stage;
+}
+
+/** デバッグ用: カニの脚を全部折って第 2 形態(斜めの姿)にする */
+window.msxCrabPhase2 = () => {
+  if (!boss || boss.kind !== 'crab') return null;
+  for (const lg of boss.legs) lg.hp = 0;
+  boss.phase2 = true;
+  boss.mode = 'attach';
+  return 'phase2';
+};
+
+/** デバッグ用: コンティニュー先の面を決める(タイトルの並びを確かめる用) */
+window.msxContinue = (n) => {
+  continueStages.normal = n || 1;
+  refreshModes();
+  if (state === 'title') drawModeLine();
+  return { ...continueStages, modes: MODES.map(m => m.id) };
+};
+
+/** デバッグ用: 追加した敵をその場に出す('waller' / 'spreader' / 'diver') */
+window.msxEnemy = (kind) => {
+  if (kind === 'count') return { 敵: enemies.length, 敵弾: enemyBullets.length,
+    種類: enemies.map(e => e.type).join(''), おもり: weights.length };
+  if (kind === 'glower') { spawnGlower(); return 'glower'; }
+  if (kind === 'weight') { spawnWeight(); return 'weight'; }
+  if (kind === 'waller') spawnWaller();
+  else if (kind === 'spreader') spawnSpreader();
+  else if (kind === 'diver') spawnDiver();
+  else return 'waller / spreader / diver';
+  return enemies.filter(e => 'KLM'.includes(e.type)).map(e => e.type);
+};
+
+/** デバッグ用: モアイをその場に出す */
+/** デバッグ用: 未実装さんに会った印を消す(コンティニューでまた出るようにする) */
+window.msxForgetTodo = () => {
+  metSet.delete('todo');
+  metSet.delete('down' + RUSH_TODO);
+  metStore.save(MET_KEY, [...metSet]);
+  return '未実装さんの印を消しました(次のゲームの 2 回目のコンティニューで出ます)';
+};
+
+window.msxMoai = (what) => {
+  // 'angry' を渡すと、その場で怒った状態にする(帰るまでを確かめる用)
+  if (what === 'angry' && moai) { moai.rage = MOAI_RAGE_HITS - 1; angerMoai(moai); return moai.angryTimer; }
+  clearMoai(); moaiSpawned = true; spawnMoai(); return 'moai';
+};
+
+/**
+ * デバッグ用: ラスボスを好きな段階へ飛ばす。
+ * 'rift' 裂け目 / 'break' 裂け目が壊れる / 'pose' シルエット登場 /
+ * 'man' 第 2 段階 / 'die' 撃破の演出(第 2 段階のときだけ)
+ */
+window.msxKing = (stage) => {
+  if (!boss || boss.kind !== 'king') { msxBoss(6); }
+  if (stage === 'die' && boss.stage === 'man') {
+    killKingWithRoar();
+    return boss.stage;
+  }
+  if (stage === 'break') {
+    boss.hp = 1;
+    hitKingRift(boss, RIFT_CX, RIFT_CY);
+  } else if (stage === 'pose' || stage === 'man') {
+    kingToPhase2();
+  }
+  return boss.stage;
+};
+
+/** デバッグ用: 名前入力の画面をその場で出す(第 2 引数で得点を決められる) */
+window.msxNameEntry = (target = 'score', s) => {
+  if (s !== undefined) score = s;
+  enterNameEntry(target);
+  return state;
+};
+
+/** デバッグ用: いまのボスの体力を書き換える(段階の変わり目をすぐ確かめる) */
+window.msxBossHp = (n) => {
+  if (!boss) return null;
+  boss.hp = n;
+  drawBossBar();
+  return boss.hp;
+};
+
+window.msxDebug = () => ({
+  state, modeIndex, mode: gameMode(), titlePage, charPage, stageNo,
+  playFrame, bossIntro, bossMode, stars, need: starsNeeded(), paused,
+  gear: { shotLevel, speedLevel, maxVolleys, damageLevel, barrierHP, ships },
+  playerX: Math.round(player.x), bullets: bullets.length,
+  talkHold, continueStages: { ...continueStages },
+  dragon: dragonSpot ? { hits: dragonSpot.hits, done: dragonSpot.done,
+    x: dragonSpot.x, y: dragonSpotY() } : null,
+  secret: secretSpots ? secretSpots.map(s => ({ x: s.x, y: s.y, hits: s.hits, done: s.done })) : null,
+  boss: boss ? {
+    kind: boss.kind, hp: boss.hp, max: boss.max,
+    phase2: !!boss.phase2, firing: boss.firing | 0, mode: boss.mode,
+    stage: boss.stage, act: boss.act, beams: kingBeams.length,
+    bx: Math.round(boss.x), by: Math.round(boss.y), py: Math.round(player.y),
+    blink: boss.man ? boss.man.blink + ':' + boss.man.blinkOn : null,
+    guards: (boss.guards || []).map(g => g.hp),
+    legs: (boss.legs || []).map(g => g.hp),
+    bullets: bullets.length,
+  } : null,
+  moai: moai ? { state: moai.state, hp: moai.hp, max: moai.max,
+    parts: moai.parts.map(p => p.hp), lost: moai.lost,
+    rage: moai.rage, angry: moai.angry } : null,
+});
+
+/** デバッグ用: 貯めた統計をまとめて見る */
+window.msxStats = () => {
+  const sessions = stats.sessions;
+  const avg = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
+  return {
+    plays: sessions.length,
+    avgScore: Math.round(avg(sessions.map(x => x.score || 0))),
+    avgMaxStage: +avg(sessions.map(x => x.maxStage || 1)).toFixed(2),
+    avgPlaySeconds: Math.round(avg(sessions.map(x => x.seconds || 0))),
+    deathCauses: stats.countBy('death', 'cause'),
+    itemsTaken: stats.countBy('item', 'kind'),
+    avgBossSeconds: +(stats.avg('boss', 'frames') / 60).toFixed(1),
+    avgStageSeconds: +(stats.avg('stage', 'frames') / 60).toFixed(1),
+    scoreByStage: stats.avgBy('stage', 'stage', 'score'),
+    deathsByStage: stats.countBy('death', 'stage'),
+    // これまでに畳んだぶんの累積
+    totals: stats.totals,
+    sessions,
+  };
+};
+/** デバッグ用: いま集計して生ログを捨てる */
+window.msxStatsCompact = () => stats.compact(STAT_AGGREGATORS);
+/** デバッグ用: 統計を全部消す */
+window.msxStatsReset = () => { stats.reset(); return 'クリアしました'; };
+
+// ---- ボスラッシュ ----// ---- ボスラッシュ ----
+// 実装済みのボスをランダムな順で 1 巡する。
+// 種類が増えたら BOSS_RUSH_STAGES に足すだけでよい。
+// 1 = タコ / 2 = カニ / 3 = ドラゴン / 4 = オウムガイ / 5 = モアイ
+// ラスボスと仮ボスは入れない(本編のボスを 1 巡するだけ)
+const BOSS_RUSH_STAGES = [1, 2, 3, 4];
+const RUSH_KEY = 'starfable-rushtimes';
+const RUSH_MAX = 100;
+// 既定のタイム(1 位 60 秒から少しずつ遅くなる 100 件)
+const DEFAULT_RUSH = [...Array(RUSH_MAX).keys()].map(i => ({
+  name: DEFAULT_NAMES[i % DEFAULT_NAMES.length],
+  frames: Math.round((60 + i * 1.8) * 60),
+}));
+let rushDone = false;      // ボスラッシュを 1 巡したか
+let rushStartFrame = -1;   // ボスラッシュ開始フレーム(通算)
+let rushFrames = 0;        // 経過フレーム
+let rushOrder = [];
+let rushIndex = 0;
+
+let lastRushFirst = -1;   // 前回のボスラッシュで最初に出たボス
+
+function startBossRush() {
+  if (rushOne > 0) {
+    // 相手を選んでいるときは、その相手だけと戦う
+    rushOrder = [rushOne];
+    rushIndex = 0; rushStartFrame = 0; rushFrames = 0; rushDone = false;
+    stageNo = rushOrder[0];
+    startStage();
+    return;
+  }
+  rushOrder = BOSS_RUSH_STAGES.slice().sort(() => Math.random() - 0.5);
+  // 1 匹目は前回と違うボスにする(同じ相手が続かないように)
+  if (rushOrder.length > 1 && rushOrder[0] === lastRushFirst) {
+    const i = 1 + Math.floor(Math.random() * (rushOrder.length - 1));
+    [rushOrder[0], rushOrder[i]] = [rushOrder[i], rushOrder[0]];
+  }
+  lastRushFirst = rushOrder[0];
+  rushIndex = 0;
+  rushStartFrame = 0;
+  rushFrames = 0;
+  rushDone = false;
+  stageNo = rushOrder[0];
+  startStage();
+}
+
+function advanceBossRush() {
+  rushIndex++;
+  if (rushIndex >= rushOrder.length) {
+    // 1 巡したら終わり。タイムは名前を入れてから記録する
+    rushDone = true;
+    const t = 'ALL BOSSES DOWN!  ' + formatTime(rushFrames);
+    hud.print(centerX(t), 72, t, 11);
+    // タイムが表に載るならゲームオーバー画面を通さず、そのまま名前入力へ。
+    // 載らなければ、いつもどおりゲームオーバー画面を見せる
+    if (rushTable.qualifies({ frames: rushFrames })) {
+      statsFinish();   // enterGameOver を通らないので、ここで記録を締める
+      enterNameEntry('rush');
+    } else {
+      enterGameOver();
+    }
+    return;
+  }
+  stageNo = rushOrder[rushIndex];
+  startStage();
+}
+
+/** 経過時間を「分:秒.1/100秒」で表す。1 巡ぶんの長いタイムでも桁が足りるように */
+function formatTime(frames) {
+  const cs = Math.round(frames * 100 / 60);        // 1/100 秒
+  const m = Math.floor(cs / 6000);
+  const s = Math.floor(cs / 100) % 60;
+  const h = cs % 100;
+  return String(m).padStart(2, '0') + ':' +
+    String(s).padStart(2, '0') + '.' + String(h).padStart(2, '0');
+}
+
+/** ボスラッシュのタイムを保存する(速い順に 10 件) */
+// タイムは短いほど上位。こちらもエンジンの仕組みを使う
+const rushTable = new Ranking({
+  key: RUSH_KEY,
+  meKey: RUSH_KEY + '-me',
+  max: RUSH_MAX,
+  defaults: DEFAULT_RUSH,
+  compare: byTime,
+});
+
+// ボスラッシュのタイム一覧(タイトルの 4 枚目)
+let rushTop = 0;
+function drawRushList() {
+  hud.fill(0, 0, 0, VW, 176);
+  const t = '- BOSS RUSH TIME -';
+  hud.print(centerX(t), 8, t, 15);
+  for (let r = 0; r < HISCORE_ROWS; r++) {
+    const i = rushTop + r;
+    const e = rushTable.entries[i];
+    if (!e) continue;
+    const y = HI_LIST_Y + r * 16;
+    const mine = !!e.mine;
+    hud.print(16, y, String(i + 1).padStart(3) + '.', mine ? 11 : 14);
+    hud.print(56, y, ((e.name || 'YOU') + '     ').slice(0, 5), mine ? 11 : 7);
+    hud.print(104, y, formatTime(e.frames), mine ? 11 : 15);
+  }
+  drawRushArrows();
+}
+function drawRushArrows() {
+  const up = String.fromCharCode(0x18), down = String.fromCharCode(0x19);
+  const yUp = HI_LIST_Y - 12, yDown = HI_LIST_Y + HISCORE_ROWS * 16 - 4;
+  const x = centerX(up);
+  hud.fill(0, x, yUp, 8, 8);
+  hud.fill(0, x, yDown, 8, 8);
+  if (rushTop > 0) hud.print(x, yUp, up, 11);
+  if (rushTop + HISCORE_ROWS < rushTable.entries.length) hud.print(x, yDown, down, 11);
+}
+function updateRushList() {
+  const maxTop = Math.max(0, rushTable.entries.length - HISCORE_ROWS);
+  if (msx.input.isDown('ArrowUp') && msx.frame % 4 === 0) {
+    hiManual = true; rushTop = Math.max(0, rushTop - 1); drawRushList(); return;
+  }
+  if (msx.input.isDown('ArrowDown') && msx.frame % 4 === 0) {
+    hiManual = true; rushTop = Math.min(maxTop, rushTop + 1); drawRushList(); return;
+  }
+}
+
+/** ステージワープ。boss=true ならそのステージのボスから始める */
+// ボス練習モード。倒しても先へ進まず、同じボスが出続ける
+let bossPractice = false;
+
+function warpToStage(n, boss) {
+  stageNo = n;
+  paused = false;
+  bossPractice = !!boss;
+  hud.fill(0, 0, 112, VW, 24);
+  startStage();
+  if (boss) stars = starsNeeded(); // 次の更新でボス登場の演出に入る
+}
+
+function checkCheatCode() {
+  // ↑↑↓↓←→←→BA
+  for (const code of new Set(KONAMI_CODE)) {
+    if (!msx.input.wasPressed(code)) continue;
+    if (ARROW_GLYPH[code]) pushTypedShow(ARROW_GLYPH[code]);
+    if (code === KONAMI_CODE[konamiPos]) {
+      konamiPos++;
+      if (konamiPos >= KONAMI_CODE.length) {
+        konamiPos = 0;
+        if (!usedKonami) { usedKonami = true; grantFullPower('FULL POWER!'); }
+      }
+    } else {
+      konamiPos = code === KONAMI_CODE[0] ? 1 : 0;
+    }
+    break;
+  }
+
+  // 英字を打ち込むタイプのコマンド。打ち終わったら RETURN で確定する
+  for (let i = 0; i < 26; i++) {
+    const key = 'Key' + String.fromCharCode(65 + i);
+    if (msx.input.wasPressed(key)) {
+      const ch = String.fromCharCode(65 + i);
+      typed = (typed + ch).slice(-12);
+      pushTypedShow(ch);
+      return;
+    }
+  }
+  if (msx.input.wasPressed('Backspace') && typedShow) {
+    typed = typed.slice(0, -1);
+    typedShow = typedShow.slice(0, -1);
+    drawCheatInput();
+    return;
+  }
+  if (msx.input.wasPressed('Enter')) {
+    const word = typed;
+    typed = '';
+    typedShow = '';
+    drawCheatInput();
+    runCheatWord(word);
+  }
+}
+
+// ポーズ中に打ち込んだものを画面に出す(RETURN で確定)。
+// 英字だけでなく、↑↓←→ も記号にして見せる。
+let typedShow = '';
+const ARROW_GLYPH = {
+  ArrowUp: String.fromCharCode(0x18), ArrowDown: String.fromCharCode(0x19),
+  ArrowLeft: String.fromCharCode(0x1a), ArrowRight: String.fromCharCode(0x1b),
+};
+function pushTypedShow(ch) {
+  typedShow = (typedShow + ch).slice(-14);
+  drawCheatInput();
+}
+function drawCheatInput() {
+  hud.fill(0, 0, 136, VW, 8);
+  if (!typedShow) return;
+  const t = typedShow + '-';
+  hud.print(centerX(t), 136, t, 7);
+}
+
+/** 打ち込まれた語を判定して効果を出す */
+function runCheatWord(word) {
+  // オート連射のコマンド(MEIJIN / TAKAHASHI / TOSHIYUKI。合計 3 回まで)
+  if (AUTO_CODES.some(c => word.endsWith(c))) {
+    if (autoFireUses < AUTO_USES) {
+      autoFireUses++;
+      autoFire = AUTO_FIRE_TIME;
+      maxVolleys = MAX_VOLLEY_LIMIT;   // ラピッドも最大にする
+      drawHUD();
+      cheatNotice('AUTO FIRE!');
+      msx.audio.playSE('item');
+    }
+    return;
+  }
+  // ORB: 宝珠を満タンにして、すぐボスへ行けるようにする(手元の開発中だけ)
+  if (word.endsWith('ORB')) {
+    if (!msx.isLocal) return;
+    stars = starsNeeded();
+    drawHUD();
+    cheatNotice('ORBS FULL');
+    msx.audio.playSE('item');
+    return;
+  }
+  // 当たり判定の表示を切り替える(手元の開発中だけ)
+  if (word.endsWith('HITAREA')) {
+    if (!msx.isLocal) return;
+    showHitArea = !showHitArea;
+    if (!showHitArea) dbg.clear();
+    cheatNotice('HIT AREA ' + (showHitArea ? 'ON' : 'OFF'));
+    msx.audio.playSE('item');
+    return;
+  }
+  // DRAGONFIRE: 七色の推進炎を手に入れる(開発用)。
+  // ドラゴンの星座が出る 5 面から先でだけ効く。
+  // やられても消えないので、1 回打てばそのゲーム中はずっと使える
+  if (word.endsWith('DRAGONFIRE')) {
+    if (stageNo >= LAST_STAGE) {
+      dragonFlame = true;
+      showNotice('DRAGON FLAME!');
+      msx.audio.playSE('item');
+    }
+    return;
+  }
+  if (word.endsWith('HYPER')) {
+    if (!usedHyper) { usedHyper = true; grantFullPower('HYPER!'); }
+    return;
+  }
+  // 一気にゲームオーバー。残機を捨てて終わらせる(スタッフロールには載せない)。
+  // 'AHO' より先に見ること(AHOAHO は AHO でも終わってしまうため)
+  if (word.endsWith('AHOAHO') || word.endsWith('BAKABON')) {
+    paused = false;
+    hud.fill(0, 0, 80, VW, 64);
+    ships = 0;
+    barrierHP = 0;   // バリアで肩代わりされないように
+    destroyPlayer('CHEAT GIVE UP');
+    return;
+  }
+  if (word.endsWith('AHO') || word.endsWith('BAKA')) {
+    paused = false;
+    hud.fill(0, 0, 80, VW, 64);
+    destroyPlayer("CHEAT SUICIDE");
+    return;
+  }
+  // 面移動とボスへの移動は、それぞれ 1 ゲームに 1 回だけ。
+  // 2 回目からは打っても何も起きない
+  for (const [w, n] of Object.entries(STAGE_CODES)) {
+    if (!word.endsWith(w)) continue;
+    if (usedStageWarp) return;
+    usedStageWarp = true;
+    warpToStage(n, false);
+    return;
+  }
+  for (const [w, n] of Object.entries(BOSS_CODES)) {
+    if (!word.endsWith(w)) continue;
+    if (usedBossWarp) return;
+    usedBossWarp = true;
+    warpToStage(n, true);
+    return;
+  }
+  // 仮ボス「未実装君」との対決(本編には出てこない)。これもボス移動の 1 回に数える
+  if (word.endsWith(MIJISSOU_CODE)) {
+    if (usedBossWarp) return;
+    usedBossWarp = true;
+    warpToStage(RUSH_TODO, true);
+    return;
+  }
+  // エンディングを見る(まだ作っていないので、いまは合図だけ)
+  if (word.endsWith(ENDING_CODE)) { enterEnding(); return; }
+}
+
+// ---- シーン選択(手元の開発中だけ) ----
+// もとはタイトルで BOSS RUSH を選んで CTRL を押す裏技だったが、
+// 見たい場面が増えてきたので、独立した画面に移した。
+// 公開版ではモード自体が出てこない(MMSXXEngine.isLocal)。
+let sceneSel = 0;
+let sceneTop = 0;
+const SCENE_ROWS = 11;   // 一度に出す行数
+
+/** 通常モードでゲームを始めてから、指定の面(またはそのボス)へ飛ぶ */
+function sceneStart(stage, boss) {
+  modeIndex = MODES.findIndex(m => m.id === 'normal');
+  enterPlay();
+  warpToStage(stage, boss);
+}
+
+/** ボスラッシュを、決まった相手だけで始める */
+/** @param {number} stage 0 = 4 体タイムアタック / それ以外はその相手だけ */
+function sceneRush(stage) {
+  modeIndex = MODES.findIndex(m => m.id === 'bossrush');
+  rushOne = stage;
+  enterPlay();
+}
+
+/** 選べる場面の一覧。増やしたければここに 1 行足すだけ */
+function sceneList() {
+  const list = [
+    { label: 'ENDING', run: () => enterEnding() },
+    { label: 'NAME ENTRY', run: () => msxNameEntry('score', 123456) },
+  ];
+  for (let n = 1; n <= LAST_STAGE; n++) {
+    list.push({ label: 'STAGE ' + n, run: () => sceneStart(n, false) });
+  }
+  // 1〜4 面のボスはボスラッシュで戦えるので、ここにはラスボスだけ置く
+  list.push({
+    label: 'BOSS ' + LAST_STAGE + '  ' + BOSS_NAMES[LAST_STAGE - 1],
+    run: () => sceneStart(LAST_STAGE, true),
+  });
+  // ラスボスの第 2 段階(シルエットマン)から始める。裂け目を飛ばして確かめられる
+  list.push({
+    label: 'BOSS ' + LAST_STAGE + '  PHASE 2',
+    run: () => { sceneStart(LAST_STAGE, true); pendingKingPhase2 = true; },
+  });
+  list.push({ label: 'BIG MOAI', run: () => sceneStart(RUSH_MOAI, true) });
+  list.push({ label: 'TWIN EYES', run: () => sceneStart(RUSH_EYES, true) });
+  // 未実装さん。**ここで戦っても印は付かない**(ボスラッシュは開かない)。
+  // 開くのはコンティニューで出会ったときだけ
+  list.push({ label: 'Mr. MIJISSOU', run: () => sceneStart(RUSH_TODO, true) });
+  // ボスラッシュの個別選択は、ボスラッシュのメニュー側に移した
+  return list;
+}
+let scenes = [];
+
+/** 一覧から選ぶ画面(シーン選択とボスラッシュのメニューで使い回す) */
+function enterListMenu(title, items) {
+  state = 'scene';
+  paused = false;
+  clearEntities();
+  for (const sp of helpIconSprites()) sp.visible = false;
+  player.visible = false;
+  msx.audio.stopBGM();
+  currentBGM = null;
+  neb.clear();
+  sceneTitle = title;
+  scenes = items;
+  sceneSel = 0;
+  sceneTop = 0;
+  drawSceneSelect();
+}
+let sceneTitle = '- SCENE SELECT -';
+
+function enterSceneSelect() { enterListMenu('- SCENE SELECT -', sceneList()); }
+
+/**
+ * ボスラッシュのメニュー。
+ * 4 体タイムアタックはいつでも。個別の相手は**倒したことのあるボスだけ**。
+ * ラスボスはここには出さない。4 体そろったら未実装君がおまけで増える。
+ */
+/**
+ * まだ倒していない相手の名前を伏せる。
+ * 「KING ?????」のように、**頭の 1 語だけ残して**あとを ? に置き換える。
+ * 名前の長さがそのまま見えるので、開いたときの答え合わせにもなる
+ */
+function maskName(name) {
+  const at = name.indexOf(' ');
+  if (at < 0) return '?'.repeat(name.length);
+  return name.slice(0, at + 1) + '?'.repeat(name.length - at - 1);
+}
+
+function rushMenuList() {
+  const list = [
+    { label: 'BOSS x 4 TIME ATTACK', run: () => sceneRush(0) },
+  ];
+  // まだ倒していない相手も**行としては出す**。
+  // 選べないことを暗い色と鍵の印で見せて、「倒せば開く」と分からせる
+  let known = 0;
+  for (const n of BOSS_RUSH_STAGES) {
+    const met = metSet.has('down' + n);
+    if (met) known++;
+    list.push(met
+      ? { label: 'VS ' + BOSS_NAMES[n - 1], run: () => sceneRush(n) }
+      : { label: 'VS ' + maskName(BOSS_NAMES[n - 1]), locked: true });
+  }
+  // 4 体そろったごほうび。本編には出てこない相手。
+  // そろうまでは「まだ何かある」ことだけを見せる
+  // 未実装さんは **一度会っていれば** 選べる。
+  // 会えるのはコンティニューのときだけなので、開けかたはその 1 とおり
+  // (「ラッシュで倒したら」を条件にすると、開くために開いている必要が出てしまう)
+  const metTodo = metSet.has('todo');
+  list.push(metTodo
+    ? { label: 'VS Mr. MIJISSOU', run: () => sceneRush(RUSH_TODO) }
+    : { label: 'VS ' + maskName('Mr. MIJISSOU'), locked: true });
+  return list;
+}
+
+function enterBossRushMenu() { enterListMenu('- BOSS RUSH -', rushMenuList()); }
+
+function drawSceneSelect() {
+  hud.clear();
+  hud.print(centerX(sceneTitle), 8, sceneTitle, 15);
+  // 選んでいる行が真ん中あたりに来るように切り出す
+  sceneTop = Math.max(0, Math.min(scenes.length - SCENE_ROWS, sceneSel - (SCENE_ROWS >> 1)));
+  for (let r = 0; r < SCENE_ROWS; r++) {
+    const i = sceneTop + r;
+    if (i >= scenes.length) break;
+    const here = i === sceneSel;
+    const locked = !!scenes[i].locked;
+    const mark = here ? String.fromCharCode(0x1b) : ' ';
+    // 選べない行は、カーソルが乗っても色を変えない(押せないので明るくしない)
+    const col = locked ? 12 : (here ? 11 : 14);
+    hud.print(24, 28 + r * 12, mark + scenes[i].label, col);
+  }
+  const pos = (sceneSel + 1) + '/' + scenes.length;
+  hud.print(VW - pos.length * 8 - 8, 8, pos, 14);
+  const help = 'SP:GO  ESC:EXIT';
+  hud.print(centerX(help), 176, help, 10);
+}
+
+function updateSceneSelect() {
+  if (msx.input.wasPressed('Escape')) { enterTitle(); return; }
+  const n = scenes.length;
+  let moved = false;
+  if (msx.input.wasPressed('ArrowUp')) { sceneSel = (sceneSel + n - 1) % n; moved = true; }
+  if (msx.input.wasPressed('ArrowDown')) { sceneSel = (sceneSel + 1) % n; moved = true; }
+  if (moved) { msx.audio.playSE('item'); drawSceneSelect(); }
+  if (msx.input.wasPressed('Space') || msx.input.wasPressed('KeyZ')) {
+    // まだ開いていない項目は選べない。断る音だけ鳴らす
+    if (scenes[sceneSel].locked || !scenes[sceneSel].run) {
+      msx.audio.playSE('nobreak', SE_HIT);
+      return;
+    }
+    hud.clear();
+    scenes[sceneSel].run();
+  }
+}
+
+// ---- ストーリー画面(エンディング / エンジンの紹介) ----
+// どちらもエンジンの任意部品 StoryScenes にまかせる(docs/UTIL.md 参照)。
+// ここでは「どんな場面を出すか」だけを書く。
+let story = null;
+let storyDone = null;   // 見終わったあとにどこへ行くか
+// ストーリー用のスプライト(場面ごとに出し入れする)
+let storySprites = null;
+
+function storySpriteSet() {
+  if (!storySprites) {
+    const man = msx.sprite(IMG.kingMan00);
+    man.priority = 20;
+    const ship = msx.sprite(IMG.player);
+    ship.priority = 20;
+    const jet = msx.sprite(IMG.flameBig);
+    jet.priority = 19;
+    // パイロットの目。絵に描き込むとディザでつぶれるのでスプライトにする。
+    // 見開いた目(青い丸)は 1 色スプライトだと「玉」にしか見えず気味が悪いので、
+    // **両目とも閉じた線**にする。左右で線の向きを反転させて表情をそろえる
+    const eye = msx.sprite(IMG.pilotWink);
+    eye.flipX = true;
+    const wink = msx.sprite(IMG.pilotWink);
+    const smile = msx.sprite(IMG.pilotSmile);   // 笑った口
+    // ひとみ。絵に描いた 1 ドットの点の上に重ねる 4x4 の黒い丸
+    const pupilL = msx.sprite(IMG.pilotPupil);
+    const pupilR = msx.sprite(IMG.pilotPupil);
+    eye.priority = wink.priority = smile.priority = 21;
+    pupilL.priority = pupilR.priority = 22;
+    // 裂け目の真ん中を補う光。走査線で落ちる明るさをここで足す
+    const glow = msx.sprite(IMG.riftGlow);
+    glow.priority = 21;
+    storySprites = { man, ship, jet, eye, wink, smile, pupilL, pupilR, glow };
+    for (const sp of Object.values(storySprites)) sp.visible = false;
+  }
+  return storySprites;
+}
+
+/** エンディング。4 秒 x 3 枚 */
+function buildEnding() {
+  return new StoryScenes(msx, {
+    artLayer: 3, textLayer: 4, textY: 160, lineStep: 12,
+    // 時間では進まない。読み終えたらスペースで自分で送る
+    manual: true,
+    // 「押してほしそう」を文字ではなく 8x8 の絵の動きで伝える。
+    // 場所を書かないと、文章の最後の行のうしろに付く
+    prompt: { frames: [IMG.guiNext0, IMG.guiNext1, IMG.guiNext2, IMG.guiNext3], rate: 8, after: 24 },
+    scenes: [
+      {
+        // 1. 宇宙に平和が戻った
+        hold: 360,
+        text: ['PEACE RETURNED', 'TO THE STARS.'],
+        onEnter: () => { msx.backdrop = 1; },
+        // 192x192。中間色は 1 ライン おきのディザ。
+        // duo を持つ場面は、1 コマごとにディザを裏返して描き直す(下の updateStory)
+        duo: { image: IMG.earthBig, maps: GAME_DATA.duo.earth, x: 32, y: 0 },
+        draw: (m, art) => { art.draw(32, 0, IMG.earthBig, true,
+          { colorMap: GAME_DATA.duo.earth[0] }); },
+        sprites: () => {
+          const s = storySpriteSet();
+          // 地球の真ん中あたりに置く(地球は 192x192 を y=0 から描いている)
+          s.ship.x = 120; s.ship.y = 84;
+          s.jet.x = 120; s.jet.y = 100;
+          return [s.ship, s.jet];
+        },
+      },
+      {
+        // 2. みんなが待っている基地へ、戦闘機が降りてくる
+        hold: 360,
+        text: ['BACK AMONG FRIENDS AT LAST.', 'MAY SHE NEVER LAUNCH AGAIN.'],
+        textColor: 11,
+        onEnter: () => { msx.backdrop = 1; },
+        duo: { image: IMG.endBase, maps: GAME_DATA.duo.base, x: 16, y: 0 },
+        draw: (m, art) => { art.draw(16, 0, IMG.endBase, true,
+          { colorMap: GAME_DATA.duo.base[0] }); },
+      },
+      {
+        // 3. パイロットが手を振って見送る
+        hold: 360,
+        // パイロットはこの子であり、遊んでいる本人でもある。呼びかけない
+        text: ['STAR FABLE, SIGNING OFF.', 'UNTIL THE NEXT FLIGHT.'],
+        textColor: 11,
+        onEnter: () => { msx.backdrop = 1; },
+        // 中間色は 1 ライン おきのディザ。目印の色を実際の色へ置き換えて描く
+        duo: { image: IMG.pilot, maps: GAME_DATA.duo.pilot, x: PILOT_X, y: 0 },
+        draw: (m, art) => { art.draw(PILOT_X, 0, IMG.pilot, true,
+          { colorMap: GAME_DATA.duo.pilot[0] }); },
+        sprites: () => {
+          // 顔の上に目を置く。絵は中身を測って中央に寄せてあり、
+          // そのときの顔の中心が絵の x=138(makedata が出している)
+          const s = storySpriteSet();
+          // 顔の中心 x=102 / 顔は y=45..73(絵から実測した値)。
+          // 紙吹雪が画面いっぱいに散るので絵の中央寄せは効かない。
+          // ここは計算ではなく、実測した位置に合わせている
+          const fx = PILOT_X + 102;
+          // **目は出さない**(丸い青目も、閉じた線も置かない)。
+          // 表情は絵に描いたまゆと、この口だけで見せる。
+          // 口はさらに 右 2 ドット・下 2 ドット
+          s.smile.x = fx - 2; s.smile.y = 64;
+          // ひとみ。絵の中の点(x=99 / 114, y=57)にぴったり重ねる。
+          // 4x4 なので、点の 1 ドット左上から置く
+          s.pupilL.x = PILOT_X + 98; s.pupilL.y = 56;
+          s.pupilR.x = PILOT_X + 113; s.pupilR.y = 56;
+          // 絵と同じ走査線をスプライトにも掛ける。
+          // 画面のどの行が消えるかをそろえたいので、置く y の偶奇を足す
+          for (const sp of [s.smile, s.pupilL, s.pupilR]) sp.scanline = (sp.y + 1) & 1;
+          return [s.smile, s.pupilL, s.pupilR];
+        },
+      },
+      {
+        // 4. 宇宙に走った青いひびが、あやしく光っている
+        hold: 360,
+        text: ['TO BE CONTINUED?'],
+        textColor: 15,
+        // 青いひびが出きってから文字を出す。
+        // ひびは 2 秒待って(fadeDelay 120)から 2.5 秒かけて現れる(STORY_FADE_LEN 150)
+        textWait: 280,
+        typing: 0.045,   // 1 文字ずつ、ゆっくり浮かび上がらせる(4 倍おそく)
+        // ひびの光を沈ませるため、背景は黒に戻す
+        onEnter: () => { msx.backdrop = 1; },
+        duo: { image: IMG.endRift, maps: GAME_DATA.duo.rift, x: 16, y: 0 },
+        draw: (m, art) => { art.draw(16, 0, IMG.endRift, true,
+          { colorMap: GAME_DATA.duo.rift[0] }); },
+        // 絵は 4 コマのパラパラアニメで、真ん中から上下へ裂けて出てくる。
+        // ちらつきも重ねて「まだ実体でない」感じを出す。
+        // はじめの 2 秒は真っ黒のまま待ってから出はじめる
+        fadeIn: true,
+        fadeDelay: 120,
+        growFrames: [IMG.endRift0, IMG.endRift1, IMG.endRift2, IMG.endRift],
+        sprites: () => {
+          // 縦の真ん中だけ、スプライトで白く光らせて補う。
+          // 走査線は絵のほうに残したまま、明るさだけ足す形
+          const s = storySpriteSet();
+          // 絵は 32 幅で、背景と同じだけ左右へ曲がっている。
+          // 切り出した位置(裂け目の中ほど)に合わせて置く
+          s.glow.x = 16 + 112 - 16;
+          s.glow.y = 32 + Math.round((128 - 64) / 2);
+          return [s.glow];
+        },
+      },
+    ],
+    onEnd: () => finishStory(),
+  });
+}
+
+/** 見終わったあとの後始末 */
+function finishStory() {
+  neb.scanline = null;   // 走査線を止めて元に戻す
+  neb.clear();           // 絵を残さない(次の画面の背景に重なる)
+  restoreSpace();
+  msx.audio.stopBGM();
+  currentBGM = null;
+  (storyDone || enterTitle)();
+}
+
+/** ストーリー画面を出す共通の入口 */
+function enterStory(build, bgm, onDone) {
+  storyDone = onDone || null;
+  state = 'story';
+  paused = false;
+  clearEntities();
+  for (const sp of helpIconSprites()) sp.visible = false;
+  player.visible = false;
+  hud.clear();
+  neb.clear();
+  neb.scroll(0, 0);
+  // 星は消しておく(場面ごとに背景色を変えるので、混ざらないように)
+  far.visible = mid.visible = near.visible = false;
+  story = build();
+  story.start();
+  playBGM(bgm, true, true);
+}
+
+/** @param {function} [onDone] 見終わったあとに呼ぶもの(既定はタイトルへ戻る) */
+function enterEnding(onDone) { enterStory(buildEnding, 'salut', onDone); }
+
+// ちらちらしながら現れる場面の進み具合(0 = 出はじめ)
+let storyFade = 0;
+const STORY_FADE_LEN = 150;   // 2.5 秒かけて実体になる
+
+// エンディングの絵には 2 つの仕掛けをかける。
+//   ・中間色 … 1 ライン おきのディザで塗ってある(絵のほうに焼き込み済み)。
+//   ・走査線 … 位相 1 で固定。1 ライン おきに行が消える。
+//   ・中間色 … 消えずに残った行の色を 1 コマごとに入れ替える(1:1)。
+//     同じ行が 2 色を行き来するので、目のなかで混ざって中間色になる。
+//   ・走査線(インターレース)はいまは外してある。中間色はディザの
+//     入れ替えだけで出す。戻すときは neb.scanline に 0 を入れる。
+function updateStory() {
+  if (msx.input.wasPressed('Escape')) {
+    story.stop();
+    finishStory();
+    return;
+  }
+  // 終わったフレームは何もしない。ここで走査線を掛け直してしまうと、
+  // finishStory() が戻した設定を上書きして、タイトルの背景まで
+  // 1 ライン おきに間引かれたままになる
+  if (story.update()) return;
+  // 暗転が明けるまでは描き足さない。ここで描くと、絵だけ先に出て
+  // スプライト(裂け目の光や目)が 12 フレームおくれて出てしまう
+  if (story.entering) return;
+  const scene = story.scenes[story.index];
+  const duo = scene && scene.duo;
+  // ちらちらしながら現れる場面。
+  // 出はじめは 4 コマに 1 回だけ見せ、だんだん出る回数を増やして
+  // 最後はちらつきなしになる(実体が定まっていく見せ方)
+  if (scene && scene.fadeIn) {
+    storyFade++;
+    // 出はじめまでの間。ここでは絵も光もまだ出さない(真っ黒のまま待つ)
+    const delay = scene.fadeDelay || 0;
+    if (storyFade <= delay) {
+      neb.visible = false;
+      if (storySprites && storySprites.glow) storySprites.glow.visible = false;
+      return;
+    }
+    const t = Math.min(1, (storyFade - delay) / STORY_FADE_LEN);
+    // 最後まで 1:1 のちらつきを残す(実体にならず、あやしく光りつづける)
+    const period = t > 0.5 ? 2 : t > 0.25 ? 3 : 4;
+    const on = period === 1 || (msx.frame % period) === 0;
+    neb.visible = on;
+    for (const sp of [storySprites && storySprites.glow]) {
+      if (sp) { sp.visible = true; sp.blink = period; }
+    }
+  } else {
+    storyFade = 0;
+    neb.visible = true;
+  }
+  // 残った行の色を 1 コマごとに入れ替える(1:1)。走査線で片方の行は
+  // 消えているので、見えている行だけが 2 色を行き来して中間色になる
+  if (duo) {
+    // 4 コマのパラパラアニメが指定されていれば、出はじめからの時間でコマを選ぶ
+    let img = duo.image;
+    if (scene.growFrames) {
+      const n = scene.growFrames.length;
+      const i = Math.min(n - 1, Math.floor(storyFade / (STORY_FADE_LEN / n)));
+      img = scene.growFrames[i];
+    }
+    neb.draw(duo.x, duo.y, img, true, { colorMap: duo.maps[msx.frame & 1] });
+  }
+  // 走査線は位相 1 のまま動かさない
+  // (見せ方は上の fadeIn / それ以外で決めてある)
+  neb.scanline = 1;
+}
+
+// パイロットの絵は 224x192。画面いっぱいに出す(横だけ中央に寄せる)
+const PILOT_X = (SCREEN_W - 224) >> 1;
+
+// ---- スタッフロール ----
+// 並んでいる「名前」は、そのまま裏技コードのヒントになっている。
+// 名前のうしろの改行マークは「RETURN で確定」のヒント
+const RET = String.fromCharCode(0x1c);
+const STAFF_LINES = [
+  'STAR FABLE STAFF',
+  '',
+  'DIRECTOR',
+  'HARAYOKI',
+  '',
+  'PROGRAM',
+  'FABLE5 / OPUS5',
+  '',
+  'DESIGN',
+  'OPUS5',
+  '',
+  'MUSIC',
+  'OPUS5 / SUNO',
+  '',
+  'DEBUG STAFF',
+  'AHO' + RET,
+  'BAKA' + RET,
+  '',
+  // 行の長さをそろえて、# の位置が縦にそろうようにする
+  '#1 MOMOKO' + RET,
+  '#2 CHIE' + RET + '  ',
+  '#3 AKEMI' + RET + ' ',
+  '#4 SYUKO' + RET + ' ',
+  '#5 CHIAKI' + RET,
+  '',
+  '#1 NORIKO' + RET,
+  '#2 SATOE' + RET + ' ',
+  '#3 YASUKO' + RET,
+  '#4 KINUYO' + RET,
+  '#5 HISAE' + RET + ' ',
+  '',
+  'MIYUKI' + RET,
+  'YOHKO' + RET,
+  '',
+  'SPECIAL THANKS',
+  'HYPER' + RET,
+  'MEIJIN' + RET,
+  String.fromCharCode(0x18, 0x18, 0x19, 0x19, 0x1a, 0x1b, 0x1a, 0x1b) + 'BA',
+  '',
+  '',
+  'ABOUT MMSXX ENGINE',
+  '',
+  'A MACHINE THAT NEVER EXISTED.',
+  '',
+  'TMS9918 AND AY-3-8910,',
+  'GROWN THE WRONG WAY.',
+  '',
+  'STILL SCROLLING IN 8 DOT JUMPS,',
+  'BUT IN FOUR LAYERS AT ONCE.',
+  '',
+  'BUILT WITH HELP FROM CLAUDE AI.',
+  '',
+  'CODE, PIXEL ART, BGM AND SE',
+  'ARE ALL MADE BY THE AI.',
+  'THE HUMAN ONLY DIRECTS.',
+  '',
+  'BGM IS WRITTEN AS MML BY OPUS',
+  'AND CONVERTED TO WAVEFORMS.',
+  'SOME MP3 TRACKS ARE BY SUNO.',
+  '',
+  'STAR FABLE IS ITS SAMPLE GAME',
+  'PACKED WITH HOMAGES TO',
+  'THE SHOOTERS WE GREW UP WITH',
+  '',
+  'A SECOND ONE IS ON THE WAY',
+  'SEE YOU AGAIN!',
+  '',
+  '',
+  'THANK YOU FOR PLAYING!',
+];
+// 役職の見出し(色を変えて出す)
+const STAFF_HEADINGS = new Set([
+  'STAR FABLE STAFF', 'DIRECTOR', 'PROGRAM', 'DESIGN', 'MUSIC', 'DEBUG STAFF',
+  'SPECIAL THANKS', 'ABOUT MMSXX ENGINE',
+  'THANK YOU FOR PLAYING!',
+]);
+// 流すところはエンジンの任意部品 StaffRoll にまかせる(docs/UTIL.md 参照)
+let staffRoll = null;
+
+function enterStaffRoll() {
+  if (currentBGM === 'elise') { msx.audio.stopBGM(); currentBGM = null; }
+  state = 'staff';
+  paused = false;
+  clearEntities();
+  for (const sp of helpIconSprites()) sp.visible = false;
+  player.visible = false;
+  hud.clear();
+  // 星空はそのまま流しつつ、うしろに星座を 4 つ置いてゆっくり流す。
+  // スプライトは使わず、レイヤーへ直接描く(文字より奥に出したいので)
+  neb.clear();
+  neb.scroll(0, 0);
+  // 裏画面は 1024 ドットぶんある。縦に散らして置き、端で回り込ませる
+  for (const [img, x, y] of STAFF_STARS) neb.draw(x, y, img);
+  staffRoll = new StaffRoll(msx, {
+    layer: 4,                  // HUD レイヤーに流す
+    lines: STAFF_LINES,
+    headings: STAFF_HEADINGS,
+    onEnd: () => enterTitle(),
+  });
+  staffRoll.start();
+  staffFading = false;
+  playBGM('staff', true);
+}
+
+// 背景の星座。大きさも図柄もばらばらの 4 つを、縦に散らして置く。
+// 裏画面(1024 ドット)を少しずつスクロールさせて、ゆっくり流していく
+// 置く y は、始めたときの表示範囲(0〜191)より下に取ってある。
+// レイヤーを上へたどる向きにスクロールさせるので、裏画面の下端(1024 の近く)から
+// 順に画面の上へ入ってくる = どれも「画面の外から流れてくる」ことになる
+// 置く y は、始めたときの表示範囲(0〜191)より下、かつ裏画面の下端(1024)を
+// はみ出さない場所に取ってある。はみ出すと回り込んで上端に出てしまい、
+// 始めた瞬間から画面に写ってしまう。
+// レイヤーを上へたどる向きにスクロールさせるので、下端に近いものから順に
+// 画面の上へ入ってくる = どれも「画面の外から流れてくる」ことになる
+// 出てくる順は「とり -> くじら -> ふね -> りゅう」。
+// 小さいものから見せて、いちばん大きいりゅうを最後に持ってくる。
+// 横位置もそろえない
+const STAFF_STARS = [
+  [IMG.birdStar, 88, 900],     // 900 + 122 = 1022
+  [IMG.whaleStar, 30, 692],    // 692 + 136 = 828
+  [IMG.shipStar, 110, 468],    // 468 + 104 = 572
+  [IMG.dragonStar, 34, 220],   // 220 + 156 = 376
+];
+// 文字と同じ向き(下から上へ)にゆっくり流して、奥にあるように見せる
+const STAFF_STAR_SPEED = -0.18;
+
+// スタッフロールの終わりぎわ。曲をフェードアウトさせる長さ(4 秒)
+const STAFF_FADE = 240;
+let staffFading = false;
+
+function updateStaffRoll() {
+  neb.scrollBy(0, STAFF_STAR_SPEED);
+  // 残りが 4 秒を切ったら、曲を少しずつ小さくしていく。
+  // (最後の 1 行が消えるのと、音が消えるのをそろえる)
+  const left = staffRoll.remaining;
+  if (!staffFading && left <= STAFF_FADE) {
+    staffFading = true;
+    msx.audio.fadeOutBGM(STAFF_FADE / 60);
+    currentBGM = null;
+  }
+  staffRoll.update();
+}
+
+// ---- サウンドテスト ----
+// 曲(ループするもの)は BGM 側、短いジングルは SE 側の先頭にまとめる
+// 未使用曲や場面ごとの曲もここから聴ける
+const SOUND_BGM = ['main', 'power', 'boss', 'lastboss', 'moai', 'todo', 'gameover',
+  'elise', 'fate', 'salut', 'botsu1', 'finalbattle', 'staff'];
+const SOUND_SE = ['start', 'unused1', 'fanfare', 'bonus', 'shutter', 'autofire', 'heal', 'scold',
+  'shot', 'boom', 'hit', 'item', 'clink', 'thud', 'ricochet', 'eyeAppear',
+  'laser', 'charging', 'rifttear', 'bigboom', 'bossboom', 'powerdown', 'appear', 'warning',
+  'dragonRoar', 'count3', 'count2', 'count1',
+  'weak', 'armor', 'guardhit'];
+// しゃべるもの(TALK)。SE とは鳴らし方が違うので分けておく
+const SOUND_TALK = ['kozorite', 'kingLaugh', 'kiaiA', 'kiaiB', 'kiaiC'];
+// ジングルは BGM として登録されているので、SE 欄でも BGM として鳴らす
+const JINGLES = new Set(['start', 'unused1', 'fanfare', 'bonus']);
+// 左が BGM、右が SE。左右キーで列を移り、上下で曲を選ぶ
+// BGM 側の一覧はいちばん上に [ALL](全曲再生)を足して見せる
+const SOUND_BGM_LIST = ['- ALL -', ...SOUND_BGM];
+const soundList = (col) => (col === 0 ? SOUND_BGM_LIST : SOUND_SE);
+
+// 列の並べ方・選択・キーの受け付けはエンジンの任意部品 SoundTest にまかせる。
+// 全曲再生の進行と、ジングルのあとの復帰だけゲーム側に残す(docs/UTIL.md)
+let soundPage = null;
+
+function enterSoundTest() {
+  if (currentBGM === 'elise') { msx.audio.stopBGM(); currentBGM = null; }
+  state = 'sound';
+  paused = false;
+  clearEntities();
+  player.visible = false;
+  for (const sp of helpIconSprites()) sp.visible = false;
+  msx.audio.stopBGM();
+  currentBGM = null;
+  neb.clear();          // 背景の大きな絵は消して読みやすくする
+  soundAll = -1;
+  soundResume = null;
+  soundBack = null;
+  soundPage = new SoundTest(msx, {
+    layer: 4,
+    columns: [
+      {
+        title: 'BGM', items: SOUND_BGM_LIST, x: 8,
+        play: (name, i) => {
+          if (i === 0) {
+            // いちばん上の - ALL - は全曲続けて再生する
+            if (soundAll >= 0) stopSoundAll(); else startSoundAll();
+            return;
+          }
+          if (soundAll >= 0) stopSoundAll();
+          soundBack = SOUND_BGM[i - 1];   // ジングルのあとに戻る先
+          soundResume = null;
+          msx.audio.playBGM(soundBack, true, true);
+        },
+      },
+      {
+        title: 'SE/JINGLE', items: SOUND_SE, x: 96,
+        play: (name) => {
+          if (!JINGLES.has(name)) { msx.audio.playSE(name); return; }
+          // ジングルは BGM の枠で鳴るので、鳴り終わったら元の曲に戻す
+          const back = soundAll >= 0 ? SOUND_BGM[soundAll] : soundBack;
+          msx.audio.playBGM(name, false);
+          if (back) soundResume = { name: back, timer: JINGLE_BACK_WAIT };
+        },
+      },
+      // しゃべるもの(TALK)。録音ではなく、鳴らすときに合成している。
+      // 手元の開発中はいつも出す。公開版はラスボスを倒すまで列ごと出さない
+      // (先にセリフを聞かせないため)
+      ...((msx.isLocal || metSet.has('kingdown')) ? [{
+        title: 'VOICE', items: SOUND_TALK, x: 176,
+        play: (name) => msx.audio.playTalk(name, 6),
+      }] : []),
+    ],
+    // 全曲再生のあいだは、いま鳴っている曲名を出す
+    note: () => (soundAll >= 0 ? 'ALL: ' + SOUND_BGM[soundAll].toUpperCase() : ''),
+    stop: () => {
+      soundResume = null;
+      soundBack = null;
+      if (soundAll >= 0) stopSoundAll();
+      msx.audio.stopBGM();
+      msx.audio.stopSE();
+    },
+    onExit: () => enterTitle(),
+  });
+  soundPage.open();
+}
+
+// 全曲再生。1 曲ずつ最低 30 秒ぶん鳴らしてからフェードアウトして次へ進む
+const SOUND_ALL_LEN = 1800;   // 1 曲あたりの長さ(30 秒)
+const SOUND_ALL_FADE = 120;   // 消えていく時間(2 秒)
+let soundAll = -1;            // -1 = 全曲再生していない
+let soundAllTimer = 0;
+// ジングルを鳴らしたあと、元の BGM へ戻すための控え
+const JINGLE_BACK_WAIT = 300;   // ジングルが鳴り終わるまでの目安(5 秒)
+let soundBack = null;           // 直前に鳴らしていた BGM
+let soundResume = null;         // { name, timer } 戻す予定
+
+function startSoundAll() {
+  soundAll = 0;
+  soundAllTimer = SOUND_ALL_LEN;
+  msx.audio.playBGM(SOUND_BGM[0], true, true);
+}
+function stopSoundAll() {
+  soundAll = -1;
+  soundResume = null;
+  msx.audio.stopBGM();
+}
+
+function updateSoundAll() {
+  if (soundAll < 0) return;
+  soundAllTimer--;
+  if (soundAllTimer === SOUND_ALL_FADE) msx.audio.fadeOutBGM(SOUND_ALL_FADE / 60);
+  if (soundAllTimer > 0) return;
+  soundAll++;
+  // 最後まで行ったら頭に戻る(全体でループ)
+  if (soundAll >= SOUND_BGM.length) soundAll = 0;
+  soundAllTimer = SOUND_ALL_LEN;
+  msx.audio.playBGM(SOUND_BGM[soundAll], true, true);
+}
+
+function updateSoundTest() {
+  updateSoundAll();
+  // ジングルが鳴り終わったら、元の BGM に戻す
+  if (soundResume && --soundResume.timer <= 0) {
+    const back = soundResume.name;
+    soundResume = null;
+    msx.audio.playBGM(back, true, true);
+  }
+  soundPage.update();
+}
+
+// ---- キャラクター一覧 ----
+// 出てくる敵やボスを並べて見せる。上下キーでページを送る。
+// 大きい絵(ボス)は BG レイヤーに、小さい絵はスプライトで出す。
+// 背景の賑やかしのページは、絵の大きさが小さい順に並べて自動で組む。
+// 小さいものは 2 つ並べ、大きいものは 1 ページ使う。
+const BG_PART_LIST = [
+  ['station', 'STATION'], ['moon', 'MOON'], ['colony', 'COLONY'], ['moai', 'MOAI'],
+  ['saturn', 'SATURN'], ['debris', 'DEBRIS'], ['blackhole', 'BLACK HOLE'],
+  ['earth', 'EARTH'], ['nebula', 'NEBULA'], ['nebulaRed', 'NEBULA RED'], ['milkyway', 'MILKY WAY'],
+  ['jupiter', 'JUPITER'],
+];
+
+function buildBgPartPages() {
+  const items = BG_PART_LIST
+    .map(([name, label]) => ({ name, label, w: IMG[name].width, h: IMG[name].height }))
+    .sort((a, b) => (a.w * a.h) - (b.w * b.h));
+  const pages = [];
+  for (let i = 0; i < items.length;) {
+    const a = items[i], b = items[i + 1];
+    // 横に 2 つ収まって、名前を出す高さも残るなら 2 つ並べる
+    const two = b && (a.w + b.w + 32 <= 240) && Math.max(a.h, b.h) <= 96;
+    const list = two ? [a, b] : [a];
+    // 2 つ並べるときは左右の端に振り分けず、16 ドット空けて真ん中にまとめる
+    // (小さい絵どうしだと、端に置くと離れすぎて 1 組に見えない)
+    const GAP = 16;
+    const left = two ? Math.round((SCREEN_W - (a.w + GAP + b.w)) / 2) : 0;
+    const big = list.map((it, k) => {
+      const x = two ? (k === 0 ? left : left + a.w + GAP)
+        : Math.round((SCREEN_W - it.w) / 2);
+      const y = Math.max(24, Math.min(150 - it.h, 96 - (it.h >> 1)));
+      return [it.name, it.label, x, y];
+    });
+    pages.push({ title: 'BG PARTS ' + (pages.length + 1), big });
+    i += list.length;
+  }
+  return pages;
+}
+
+const CHAR_PAGES = [
+  {
+    title: 'ENEMIES',
+    items: [
+      ['enemyA', 'SCOUT'],
+      ['enemyB', 'UFO'],
+      ['enemyC', 'UFO S'],
+      ['enemyF', 'RISER'],
+      ['enemyG', 'CHASER'],
+    ],
+  },
+  {
+    // 1 ページに 6 体まで入るので、2 と 3 はまとめて 1 ページにする
+    title: 'ENEMIES 2',
+    items: [
+      ['bouncer', 'BOUNCER'],
+      ['rammer', 'RAMMER'],
+      ['warper', 'WARPER'],
+      ['enemyH', 'WALLER'],
+      ['enemyI', 'SPREADER'],
+      ['enemyJ', 'DIVER'],
+    ],
+  },
+  // 光る敵(宝箱)は没にしたので、図鑑にも出さない
+  {
+    // キューブは小さい敵のあとに置く(隊列で来る別枠の相手なので)
+    title: 'CUBES',
+    items: [
+      ['cube', 'CUBE'],
+      ['cubeItem', 'CUBE GREEN'],
+      ['cubeStar', 'CUBE PURPLE'],
+      ['cubeAuto', 'CUBE YELLOW'],
+    ],
+  },
+  {
+    // 壊せない。当たると一撃なので、姿を覚えてもらう
+    title: 'HAZARD',
+    // 48x32 に描き直したので、中央に来るよう置き直す
+    big: [['weight16t', 'MONTY', 104, 88]],
+  },
+  {
+    // ボスはゲーム中と同じように、パーツを組み合わせて見せる
+    title: 'BOSS 1',
+    name: 'KING OCTOPOT',
+    parts: [
+      // 頭を先に描いて、あとから壺をかぶせる = 顔が壺にめり込んで見える
+      ['bossHead', 104, 64],
+      ['bossShip', 96, 88],
+      { img: 'octoCrown', x: 126, y: 54, sprite: true },
+      { img: 'bossEye2', x: 114, y: 73, sprite: true },
+      { img: 'bossEye2', x: 130, y: 73, sprite: true },
+      // 手のひらはゲーム中と同じ 8 つ。楕円の軌道に並べる
+      { img: 'ufoGuard', x: 116, y: 40, sprite: true },
+      { img: 'ufoGuard', x: 156, y: 52, sprite: true },
+      { img: 'ufoGuard', x: 176, y: 84, sprite: true },
+      { img: 'ufoGuard', x: 156, y: 116, sprite: true },
+      { img: 'ufoGuard', x: 116, y: 128, sprite: true },
+      { img: 'ufoGuard', x: 76, y: 116, sprite: true, flipX: true },
+      { img: 'ufoGuard', x: 56, y: 84, sprite: true, flipX: true },
+      { img: 'ufoGuard', x: 76, y: 52, sprite: true, flipX: true },
+    ],
+  },
+  {
+    title: 'BOSS 2',
+    name: 'KING FOSSIL',
+    parts: [
+      ['crabR', 56, 40],
+      ['crabClawBig', 96, 40],
+      ['crabClawBig', 96, 88],
+      // 図鑑では、ジャンプ中の伸ばした脚(細いほう)を見せる
+      ['crabLegExt', 52, 56],
+      ['crabLegExt', 52, 80],
+      ['crabLegExt', 52, 104],
+      { img: 'octoCrown', x: 76, y: 34, sprite: true },
+      { img: 'bossEye2', x: 88, y: 76, sprite: true },
+      { img: 'bossEye2', x: 88, y: 92, sprite: true },
+      { img: 'crabPod', x: 69, y: 50, sprite: true },
+      { img: 'crabPod', x: 69, y: 84, sprite: true, flipX: true },
+      { img: 'crabPod', x: 69, y: 116, sprite: true },
+    ],
+  },
+  {
+    title: 'BOSS 3',
+    name: 'KING OARFISH',
+    parts: [
+      ['dragonBody', 148, 122],
+      ['dragonBody', 134, 108],
+      ['dragonBody', 120, 94],
+      ['dragonTail', 162, 136],
+      ['dragonHead', 88, 48],
+      { img: 'octoCrown', x: 92, y: 38, sprite: true, flipX: true },
+      { img: 'bossEye2', x: 98, y: 63, sprite: true },
+      { img: 'bossEye2', x: 114, y: 63, sprite: true },
+    ],
+  },
+  {
+    title: 'BOSS 4',
+    name: 'KING NAUTILUS',
+    parts: [
+      ['nautilus', 104, 64],
+      { img: 'octoCrown', x: 118, y: 54, sprite: true },
+      { img: 'bossEye2', x: 116, y: 87, sprite: true },
+      ['gearBlock', 120, 16], ['gearBlock', 168, 32], ['gearBlock', 192, 80],
+      ['gearBlock', 168, 128], ['gearBlock', 120, 144], ['gearBlock', 72, 128],
+      ['gearBlock', 48, 80], ['gearWeak1', 72, 32],
+    ],
+  },
+  {
+    // ラスボスは出会うまで ? のまま(誰と戦うのか先に見せない)
+    title: 'LAST BOSS',
+    // 名乗りの名前(コゾリテ)をかっこ書きで添える
+    name: 'THE KING (KOZORITE)',
+    secret: 'king',
+    // 倒すまでは「?」ではなく**裂け目**を出す。
+    // 最初に出会うのはこの姿なので、これだけでも十分に思わせぶりになる
+    secretArt: ['kingRift1', 112, 64],
+    parts: [
+      // 中身は、出てくるときの**つま先立ちの構え**を青 1 色で。
+      // キックの姿は形が分かりにくかったので、こちらにした。
+      // (黒 1 色のままだと宇宙の黒に沈むので青へ置き換える)
+      { img: 'kingMan01', x: 104, y: 64, sprite: true, color: 4 },
+    ],
+  },
+  {
+    title: 'SECRET BOSS',   // 本編には出てこない仮ボス
+    name: 'Mr. MIJISSOU',
+    secret: 'todo',         // コンティニューで出会うまでは ? のまま
+    // ゲーム中と同じ部品でそろえる。
+    // 王冠は octoCrown ではなく水色の crownCyan(顔と色がかぶるため)、
+    // ほおの赤みと目の中の反射も、本編と同じ位置に置く
+    parts: [
+      ['todoFace', 104, 56],
+      { img: 'crownCyan', x: 104 + 48 - 28, y: 56 - 4, sprite: true },
+      { img: 'todoBlush', x: 104 + 2, y: 56 + 26, sprite: true },
+      { img: 'todoBlush', x: 104 + 34, y: 56 + 26, sprite: true },
+      { img: 'todoGlint', x: 104 + 15, y: 56 + 20, sprite: true },
+    ],
+  },
+  {
+    // 目玉は 2 体そろって出る相手なので、単独のページにする
+    title: 'TWIN EYES',
+    name: 'TWIN EYES',
+    big: [
+      ['eyeball', '', 72, 64],
+      ['eyeball', '', 136, 64],
+    ],
+    overlay: [['eyeIris0', 80, 72], ['eyeVein', 72, 64],
+              ['eyeIris0', 144, 72], ['eyeVein', 136, 64]],
+  },
+  {
+    title: 'BIG ENEMIES',
+    big: [
+      ['asteroid', 'ASTEROID', 40, 56],
+      ['rocket', 'ROCKET', 160, 40],
+    ],
+    overlay: [['asteroidHi', 40, 56]],
+  },
+  {
+    // モアイはボスではなく、大きい敵のひとつとして並べる
+    title: 'BIG ENEMIES 2',
+    name: 'BIG MOAI',
+    // ゲーム中と同じく 4 分割(すき間 8 ドット)。色変わりと明滅もそのまま見せる
+    moai: true,
+    parts: [
+      ['moaiTL', 92, 44], ['moaiTR', 132, 44],
+      ['moaiBL', 92, 92], ['moaiBR', 132, 92],
+    ],
+  },
+  ...buildBgPartPages(),
+];
+let charPage = 0;
+let charSprites = [];
+let charFlash = [];        // 点滅させる BG(小惑星)
+let charMoai = null;       // モアイのページ(色変わりと明滅を動かす)
+let charMoaiShown = true, charMoaiBlue = false;
+let charRocket = [];       // ちらつかせるロケット
+let charRocketAlt = false;
+let charFlashPhase = -1;
+
+function clearCharSprites() {
+  for (const sp of charSprites) msx.removeSprite(sp);
+  charSprites = [];
+}
+
+// ページ送り・見出し・ページ番号はエンジンの任意部品 Gallery にまかせる。
+// ここでは「1 ページに何を描くか」と「毎フレームの動き」だけを書く(docs/UTIL.md)
+let charBook = null;
+
+function enterCharList() {
+  if (currentBGM === 'elise') { msx.audio.stopBGM(); currentBGM = null; }
+  state = 'chars';
+  paused = false;
+  clearEntities();
+  player.visible = false;
+  for (const sp of helpIconSprites()) sp.visible = false;
+  msx.audio.stopBGM();
+  currentBGM = null;
+  charBook = new Gallery(msx, {
+    hudLayer: 4, artLayer: 3,
+    pages: CHAR_PAGES.map((page, i) => ({
+      title: page.title,
+      draw: () => { charPage = i; drawCharList(); },
+      update: () => updateCharAnim(),
+      leave: () => { clearCharSprites(); neb.clear(); },
+    })),
+    help: String.fromCharCode(0x18, 0x19) + ':PAGE  ESC:EXIT',
+    onExit: () => { clearCharSprites(); neb.clear(); enterTitle(); },
+  });
+  charBook.open(0);
+}
+
+// 図鑑の「まだ出会っていない」ページに出す大きな ?(8 ドットのブロックで組む)
+const BIG_Q = [
+  '.####.',
+  '##..##',
+  '....##',
+  '...##.',
+  '..##..',
+  '..##..',
+  '......',
+  '..##..',
+];
+function drawBigQuestion(cx, cy, color = 14) {
+  const w = BIG_Q[0].length, h = BIG_Q.length;
+  const x0 = cx - (w * 8) / 2, y0 = cy - (h * 8) / 2;
+  for (let r = 0; r < h; r++) {
+    for (let c = 0; c < w; c++) {
+      if (BIG_Q[r][c] === '#') hud.fill(color, x0 + c * 8, y0 + r * 8, 8, 8);
+    }
+  }
+}
+
+function drawCharList() {
+  clearCharSprites();
+  neb.scroll(0, 0);
+  const page = CHAR_PAGES[charPage];
+  // まだ出会っていない相手は、名前も姿も見せずに ? だけを出す
+  // 名前は先に出してよい。隠すのは姿だけ
+  const hidden = page.secret && !metSet.has(page.secret);
+  if (hidden) {
+    // 姿の代わりに出すものが決めてあれば、? ではなくそれを出す
+    if (page.secretArt) {
+      const [name, bx, by] = page.secretArt;
+      neb.draw(bx, by, IMG[name], true);
+    } else drawBigQuestion(SCREEN_W / 2, 92);
+    if (page.name) hud.print(centerX(page.name), 160, page.name, 11);
+    charMoai = null; charFlash = []; charRocket = [];
+    return;
+  }
+  // 赤い空間など、下地を敷きたいページ(黒地だと絵が読めない相手のため)
+  if (page.panel) {
+    const p = page.panel;
+    neb.fill(p.color, p.x, p.y, p.w, p.h);
+  }
+  // ボスはパーツを組み合わせて、ゲーム中と同じ姿を作る
+  for (const part of (page.parts || [])) {
+    if (Array.isArray(part)) {
+      const [name, bx, by] = part;
+      neb.draw(bx, by, IMG[name], true);
+      continue;
+    }
+    const sp = msx.sprite(IMG[part.img]);
+    sp.x = part.x; sp.y = part.y; sp.priority = 20;
+    if (part.flipX) sp.flipX = true;
+    // 黒 1 色の絵は宇宙の黒に沈むので、色を指定して置き換えられるようにする
+    if (part.color) sp.colorMap = { 1: part.color };
+    charSprites.push(sp);
+  }
+  if (page.name) hud.print(centerX(page.name), 160, page.name, 11);
+  charMoai = page.moai ? (page.parts || []).filter(p => Array.isArray(p)) : null;
+  // 大きい絵は BG に直接置いて、名前をその下に出す
+  for (const [name, label, bx, by] of (page.big || [])) {
+    const img = IMG[name];
+    neb.draw(bx, by, img);
+    // 名前は絵から 8 ドット空ける(くっついて読みにくかった)
+    if (label) hud.print(bx, Math.min(160, by + img.height + 12), label, 11);
+  }
+  // BG の絵に重ねるスプライト(目玉の瞳と血管)。
+  // ゲーム中と同じく、瞳と血管は 1 フレームおきの交互表示にする
+  for (const [name, ox, oy] of (page.overlay || [])) {
+    const sp = msx.sprite(IMG[name]);
+    sp.x = ox; sp.y = oy; sp.priority = 20;
+    // ゲーム中と同じちらつき(瞳と血管を交互に、ハイライトは 3 回に 1 回)
+    if (name === 'eyeVein') { sp.blink = 2; sp.blinkPhase = 1; }
+    else if (name === 'eyeIris0') { sp.blink = 2; sp.blinkPhase = 0; }
+    else if (name === 'asteroidHi') sp.blink = 3;
+    charSprites.push(sp);
+  }
+  // 点滅する BG(小惑星)を覚えておいて、あとで描き替える
+  charFlash = (page.big || []).filter(b => b[0] === 'asteroid')
+    .map(([name, , bx, by]) => ({ name, bx, by }));
+  // ロケットはゲーム中と同じく、灰と白を毎コマ入れ替える
+  charRocket = (page.big || []).filter(b => b[0] === 'rocket')
+    .map(([, , bx, by]) => ({ bx, by }));
+  charFlashPhase = -1;
+  // 6 つ並ぶページは、最後の行が下のナビに近づくので 8 ドット上から始める
+  let y = (page.items || []).length >= 6 ? 32 : 40;
+  for (const [name, label] of (page.items || [])) {
+    const img = IMG[name];
+    const sp = msx.sprite(img);
+    sp.x = 48; sp.y = y - 4; sp.priority = 20;
+    charSprites.push(sp);
+    hud.print(80, y, label, 11);
+    y += Math.max(24, img.height + 8);
+  }
+}
+
+function updateCharList() {
+  charBook.update();
+}
+
+/** ページごとの動き(モアイの色変わり・ロケットの色替え・小惑星の明滅) */
+function updateCharAnim() {
+  // モアイのページは、ゲーム中と同じ色変わり(緑 <-> 青)と 1 コマおきの明滅を見せる
+  if (charMoai) {
+    const holo = (msx.frame & 1) === 0;
+    const blue = Math.floor(msx.frame / 5) % 10;   // 10 コマの色変わり
+    if (holo !== charMoaiShown || blue !== charMoaiBlue) {
+      charMoaiShown = holo; charMoaiBlue = blue;
+      // ゲーム中と同じく、緑 -> 青 -> 緑 と「行ごとに」色が変わっていく
+      // 10 コマの絵を使う(2 枚の切り替えでは実機の見え方にならない)
+      const KEY = { moaiTL: 'TL', moaiTR: 'TR', moaiBL: 'BL', moaiBR: 'BR' };
+      const step = Math.floor(msx.frame / 5) % 10;
+      for (const [name, bx, by] of charMoai) {
+        neb.fill(0, bx, by, 32, 40, true);
+        if (holo) neb.draw(bx, by, moaiWaveImage(step, KEY[name] || 'TL'));
+      }
+    }
+  }
+  // ロケットは灰と白を毎コマ入れ替える(当たり判定のある BG の目印)
+  if (charRocket.length) {
+    charRocketAlt = !charRocketAlt;
+    for (const r of charRocket) {
+      neb.draw(r.bx, r.by, charRocketAlt ? IMG.rocketAlt : IMG.rocket);
+    }
+  }
+  // 小惑星はゆっくり白く光る(ゲーム中と同じ周期)
+  const phase = (msx.frame % 48) < 6 ? 1 : 0;
+  if (phase !== charFlashPhase) {
+    charFlashPhase = phase;
+    for (const f of charFlash) {
+      neb.draw(f.bx, f.by, phase ? astFlash(0) : IMG[f.name]);
+    }
+  }
+}
+
+const PAUSE_TEXT = 'PAUSE';
+const PAUSE_HINT = 'ESC:RESUME Q:RESET';
+const PAUSE_HINT2 = 'CODE + RETURN';
+function togglePause() {
+  paused = !paused;
+  msx.audio.playSE('pause');
+  if (paused) {
+    msx.audio.stopBGM();
+    hud.print(centerX(PAUSE_TEXT), 88, PAUSE_TEXT, 15);
+    hud.print(centerX(PAUSE_HINT), 104, PAUSE_HINT, 14);
+  } else {
+    hud.fill(0, 0, 88, VW, 8);
+    hud.fill(0, 0, 104, VW, 8);
+    hud.fill(0, 0, 120, VW, 8);
+    hud.fill(0, 0, 136, VW, 8);
+    hud.fill(0, 0, 152, VW, 8);
+    konamiPos = 0;
+    typed = '';
+    typedShow = '';
+    currentBGM = null; // 局面に合った BGM を鳴らし直させる
+    // ALT+S を押した直後にポーズを抜けたときは、**もう 1 枚**コピーする。
+    // ポーズの文字が写らない絵がほしいときの流れ:
+    //   ポーズ → 構図を決める → ALT+S(そのまま 1 枚) → ESC(文字なしで 1 枚)
+    // capture() が読むのは「最後に描き終わった画面」なので、
+    // ポーズの文字を消した絵が出るまで 1 フレーム待ってから撮る
+    if (captureArmed > 0) { capturePending = 2; captureArmed = 0; }
+  }
+}
+
+// ポーズを抜けた直後にもう 1 枚撮るまでの、残りフレーム数
+let capturePending = 0;
+// ALT+S を押してから、ポーズを抜けたら 2 枚目を撮る猶予(1 秒)
+let captureArmed = 0;
+
+/** ALT が押されているか(左右どちらでも) */
+function altDown() {
+  return msx.input.isDown('AltLeft') || msx.input.isDown('AltRight');
+}
+
+// ---- メインループ ----
+enterTitle();
+msx.run(() => {
+  // 名乗りのあいだは、画面も HUD もいっさい動かさない
+  if (talkHold > 0) {
+    talkHold--;
+    // 名乗りの前の 2 秒は「爆圧」の見せ場。
+    // ここだけは止めずに、KING のまわりで爆発を連発して画面を揺らす
+    if (talkBlast && talkHold > TALK_HOLD_FRAMES) {
+      if (boss && (talkHold & 3) === 0) {
+        spawnBoom(boss.x - 12 + Math.random() * (KING_MAN_W + 24),
+          boss.y - 12 + Math.random() * (KING_MAN_H + 24));
+        msx.audio.playSE('boom', SE_HIT);
+      }
+      if ((talkHold % 10) === 0) flashTimer = 2;
+      // 揺れは 1 ドット単位。だんだん小さくしていく
+      const t = (talkHold - TALK_HOLD_FRAMES) / KING_ROAR_WAIT;
+      const amp = Math.round(3 * t);
+      msx.setAdjust(amp ? (Math.random() * 2 - 1) * amp : 0,
+        amp ? (Math.random() * 2 - 1) * amp : 0);
+      updateBooms();
+      updateFlash();
+      drawBossBody();
+    }
+    // 止まってから 2 秒おいて名乗る
+    if (talkHold === TALK_HOLD_FRAMES) {
+      msx.setAdjust(0, 0);
+      msx.audio.playTalk(talkName, 9, { exclusive: true });
+    }
+    // 声が終わったところで爆発。ここから倒れる演出が動き出す
+    if (talkHold === 0 && boss && boss.deathRoar) {
+      boss.deathRoar = false;
+      msx.audio.playSE('bossboom', SE_HIT);
+    }
+    return;
+  }
+  // ALT + S で、どの画面でもその場を**クリップボードへ**コピーする。
+  // タイトルでも図鑑でもポーズ中でも効く(DEV でなくても使える)
+  if (altDown() && msx.input.wasPressed('KeyS')) {
+    captureClipboard();
+    captureArmed = 60;   // すぐ ESC で抜けたら、文字なしでもう 1 枚
+  } else if (captureArmed > 0) captureArmed--;
+  // ポーズを抜けた直後の画面(ポーズの文字が写らない)をもう 1 枚
+  if (capturePending > 0 && --capturePending === 0) captureClipboard();
+  if (paused) {
+    // 解除は ESC だけ。ENTER は裏技コードの確定に使う
+    if (msx.input.wasPressed('Escape')) {
+      togglePause();
+      return;
+    }
+    // ポーズ中に Q でタイトルへ戻す
+    if (msx.input.wasPressed('KeyQ')) {
+      paused = false;
+      statsFinish();
+      // ポーズから抜けて終わった場合は、**コンティニューできない**。
+      // (やられていないのに、同じ面から何度でも始められてしまうため)
+      if (continueStages[continueKey()] !== undefined) continueStages[continueKey()] = 1;
+      enterTitle();
+      return;
+    }
+    checkCheatCode();
+    return;
+  }
+  if (state === 'play' && (msx.input.wasPressed('KeyP') || msx.input.wasPressed('Escape'))) {
+    togglePause();
+    return;
+  }
+
+  // 背景スクロール (視差付き縦スクロール)
+  // レイヤーごとの速度差を大きくして遠近感を出す(最背面 : 中景 : 近景 = 1 : 3 : 8)
+  // 星は 3 段階で速度差をつける(遠い星ほどゆっくり)
+  far.scrollBy(0, -0.25);
+  mid.scrollBy(0, -0.9);
+  near.scrollBy(0, -2.0);
+  // 大きな背景オブジェクトは手前のレイヤーに描いているが、
+  // 速度は最背面と同じにして遠くにあるように見せる
+  // 図鑑では絵を止めて見せるので、このレイヤーはスクロールさせない
+  // 揺れはどの画面でも戻せるよう、メインループで進める
+  updateShake();
+  updateHitArea();   // 当たり判定の枠(HITAREA のときだけ)
+  // 図鑑とストーリー画面は絵を止めて見せるので、このレイヤーは動かさない
+  if (!bossMode && state !== 'chars' && state !== 'story' && state !== 'staff') {
+    neb.scrollBy(0, -0.25);
+  }
+
+  if (state === 'title') {
+    updateTitleSparks();
+    // ロゴ画面とアイテム説明画面を交互に見せる
+    // ハイスコア画面は自動スクロールを見せるぶん長めに出す
+    // 一覧を手で動かしているあいだは切り替えない
+    const isList = titlePage >= 2;
+    const pageLen = isList ? (hiManual ? 1e9 : 1350) : 450;
+    if (titlePage === 2 || titlePage === 3) updateHiScoreList();
+    else if (titlePage === 4) updateRushList();
+    // ESC を押すと次の画面へすぐ切り替わる
+    const skip = msx.input.wasPressed('Escape');
+    if (skip || ++titleTimer > pageLen) {
+      titleTimer = 0; titlePage = (titlePage + 1) % 5; drawTitlePage();
+    }
+    // 左右キーでゲームモードを選ぶ
+    if (msx.input.wasPressed('ArrowLeft') || msx.input.wasPressed('ArrowRight')) {
+      const d = msx.input.wasPressed('ArrowRight') ? 1 : -1;
+      modeIndex = (modeIndex + d + MODES.length) % MODES.length;
+      msx.audio.playSE('item');
+      drawModeLine();
+    }
+    updateModeLine();
+    if (msx.input.wasPressed('Space') || msx.input.wasPressed('KeyZ')) {
+      if (gameMode() === 'staff') enterStaffRoll();
+      else if (gameMode() === 'sound') enterSoundTest();
+      else if (gameMode() === 'chars') enterCharList();
+      else if (gameMode() === 'scene') enterSceneSelect();
+      else if (gameMode() === 'bossrush') enterBossRushMenu();
+      // **CONTINUE を選んだとき**は、最後に遊んでいた面から始める。
+      // (ここを下キー頼りにしていたので、CONTINUE を選んでも 1 面から
+      //  始まってしまっていた。下キー押しながらの始めかたも残す)
+      else {
+        const cont = gameMode() === 'continue'
+          || (msx.input.isDown('ArrowDown') && continueStageNow() > 1);
+        enterPlay(cont);
+      }
+    }
+  } else if (state === 'play') {
+    updateStageNotice();
+    updatePlay();
+  } else if (state === 'over') {
+    updatePlay(); // 残った敵や爆発は動かし続ける
+    stateTimer++;
+    // 「月光」を全部聞きたくないときのために、**どのモードでも**
+    // 少し待てばキーで先へ進める(ボスラッシュはタイムを競うのですぐ効く)
+    // 連射したままだと一瞬で飛んでしまうので、2 秒たってから効くようにする
+    const skipOK = gameMode() === 'bossrush' || stateTimer > 120;
+    if (skipOK &&
+        (msx.input.wasPressed('Space') || msx.input.wasPressed('KeyZ') ||
+         msx.input.wasPressed('Escape'))) {
+      stateTimer = GAMEOVER_WAIT + 1;
+    }
+    // 記録を出したときは、少し待てばスペースですぐ名前入力へ飛べる
+    if (stateTimer > 90 && scoreCountsForRanking() && isHiScore(score) &&
+        gameMode() !== 'bossrush' && msx.input.wasPressed('Space')) {
+      enterNameEntry('score');
+      return;
+    }
+    // 「月光」を最後まで聞かせてから次へ進む
+    if (stateTimer > GAMEOVER_WAIT) {
+      if (gameMode() === 'bossrush') {
+        // 1 巡できて、しかもタイムが上位なら名前を入れてもらう
+        if (rushDone && rushTable.qualifies({ frames: rushFrames })) enterNameEntry('rush');
+        else enterTitle();
+      } else if (scoreCountsForRanking() && isHiScore(score)) {
+        enterNameEntry('score');
+      } else {
+        // ゲームオーバーから戻ったときは CONTINUE が選ばれた状態にする
+        enterTitle(0, -1, true);
+      }
+    }
+  } else if (state === 'entry') {
+    updateNameEntry();
+  } else if (state === 'story') {
+    updateStory();
+  } else if (state === 'scene') {
+    updateSceneSelect();
+  } else if (state === 'staff') {
+    updateStaffRoll();
+  } else if (state === 'sound') {
+    updateSoundTest();
+  } else if (state === 'chars') {
+    updateCharList();
+  }
+});

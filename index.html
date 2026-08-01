@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>STAR FABLE - MSX-like Engine Demo</title>
+<style>
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #17181f;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+  }
+  canvas {
+    image-rendering: pixelated;
+    border: 4px solid #333;
+    outline: 4px solid #111;
+    max-width: 100%;
+  }
+  p {
+    color: #8890a8;
+    font-family: monospace;
+    font-size: 13px;
+  }
+  #error {
+    display: none;
+    max-width: 90vw;
+    margin: 8px;
+    padding: 12px;
+    background: #2a1520;
+    border: 1px solid #a04060;
+    color: #ffb0c0;
+    font-family: monospace;
+    font-size: 12px;
+    white-space: pre-wrap;
+    overflow-x: auto;
+  }
+</style>
+</head>
+<body>
+<canvas id="screen"></canvas>
+<p>ARROWS: MOVE / SPACE: SHOT / ESC: PAUSE / ALT+S: COPY SCREEN</p>
+<pre id="error"></pre>
+<script>
+  // 読み込みや実行に失敗したとき、原因を画面に出す(サーバに上げたときの切り分け用)
+  function showError(msg) {
+    var el = document.getElementById('error');
+    el.style.display = 'block';
+    el.textContent += msg + '\n';
+  }
+  window.addEventListener('error', function (e) {
+    if (e.target && e.target.tagName === 'SCRIPT') {
+      showError('スクリプトの読み込みに失敗: ' + (e.target.src || ''));
+    } else {
+      showError('エラー: ' + (e.message || e.error) + '\n  at ' + (e.filename || '') + ':' + (e.lineno || ''));
+    }
+  }, true);
+  window.addEventListener('unhandledrejection', function (e) {
+    showError('未処理の例外: ' + (e.reason && e.reason.message ? e.reason.message : e.reason));
+  });
+  if (location.protocol === 'file:') {
+    showError('file:// で直接開くと ES モジュールが読み込めません。\nウェブサーバー経由 (http/https) で開いてください。');
+  }
+</script>
+<script type="module" src="./game/main.js"></script>
+<!-- デバッグ用: コンソールで msxExportWav('main') と打つと WAV を書き出す -->
+<script type="module" src="./game/wavexport.js"></script>
+</body>
+</html>
