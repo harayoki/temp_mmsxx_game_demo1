@@ -364,6 +364,44 @@ const DEFAULT_HISCORES = [...Array(HISCORE_MAX).keys()].map(i => ({
   score: Math.max(500, 50000 - i * 500),
 }));
 
+// ---- ランキングサーバへ送るときの見分け ID ----
+// まだ送っていないが、繋ぐときに要るので先に用意しておく(送らなくても害は無い)。
+
+/** UUID を作る(randomUUID が無い環境のための控えつき) */
+function newUuid() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  const b = new Uint8Array(16);
+  if (crypto.getRandomValues) crypto.getRandomValues(b);
+  else for (let i = 0; i < 16; i++) b[i] = Math.random() * 256 | 0;
+  b[6] = (b[6] & 0x0f) | 0x40;   // 版を 4 に
+  b[8] = (b[8] & 0x3f) | 0x80;   // 変種を決まりどおりに
+  const h = [...b].map(v => v.toString(16).padStart(2, '0')).join('');
+  return h.slice(0, 8) + '-' + h.slice(8, 12) + '-' + h.slice(12, 16) + '-' +
+    h.slice(16, 20) + '-' + h.slice(20);
+}
+
+/**
+ * この端末を見分ける ID。一度作ったら残す。
+ * 消されれば別人になるが、それでよい(荒らしを見つける手がかりのひとつでしかない)
+ */
+function getBrowserId() {
+  const KEY = 'starfable-browser-id';
+  let id = '';
+  try { id = localStorage.getItem(KEY) || ''; } catch (e) { /* 読めなくても続ける */ }
+  if (!id) {
+    id = newUuid();
+    try { localStorage.setItem(KEY, id); } catch (e) { /* 書けなくても続ける */ }
+  }
+  return id;
+}
+const browserId = getBrowserId();
+
+/**
+ * 1 回のプレイを見分ける ID。ゲームを始めるたびに作り直す。
+ * 送り直すときも同じ ID を使うので、同じ記録が二重に載らない
+ */
+let playId = newUuid();
+
 // ランキングの供給元。いまは手元の localStorage。
 // `?delay=5` を付けて開くと「取れるまで 5 秒かかる」ことにできる。
 // サーバがまだ無いので、待っているあいだ何が見えているかを手元で確かめるための仮の設定
@@ -2659,6 +2697,8 @@ function enterPlay(fromContinue = false) {
   autoFireUses = 0;
   typed = '';
   konamiPos = 0;
+  // このプレイを見分ける ID を作り直す(記録を送るときに使う)
+  playId = newUuid();
   // 始めたときのランキングを覚えておく(ランクインしたか判定する基準)
   rankSnapshot = snapshotRanking();
   stats.startSession({ mode: gameMode() });
@@ -7711,6 +7751,7 @@ window.mmsxxDebug = () => ({
   gear: { shotLevel, speedLevel, maxVolleys, damageLevel, barrierHP, ships },
   playerX: Math.round(player.x), bullets: bullets.length,
   talkHold, continueStages: { ...continueStages },
+  rank: { browserId, playId, delay: RANK_DELAY },
   dragon: dragonSpot ? { hits: dragonSpot.hits, done: dragonSpot.done,
     x: dragonSpot.x, y: dragonSpotY() } : null,
   secret: secretSpots ? secretSpots.map(s => ({ x: s.x, y: s.y, hits: s.hits, done: s.done })) : null,
@@ -7893,6 +7934,18 @@ function warpToStage(n, boss) {
   if (boss) stars = starsNeeded(); // 次の更新でボス登場の演出に入る
 }
 
+/**
+ * 裏技で面やボスへ飛ぶ。**得点は 0 に戻す**。
+ * 飛び回って稼ぐ道をふさぐため(飛んだ時点で記録には残せなくなる)。
+ * シーン選択から呼ぶ warpToStage は、始めたばかりで 0 なのでそのままでよい
+ */
+function cheatWarp(n, boss) {
+  score = 0;
+  drawHUD();
+  cheatNotice('SCORE RESET');
+  warpToStage(n, boss);
+}
+
 function checkCheatCode() {
   // ↑↑↓↓←→←→BA
   for (const code of new Set(KONAMI_CODE)) {
@@ -8022,21 +8075,21 @@ function runCheatWord(word) {
     if (!word.endsWith(w)) continue;
     if (usedStageWarp) return;
     usedStageWarp = true;
-    warpToStage(n, false);
+    cheatWarp(n, false);
     return;
   }
   for (const [w, n] of Object.entries(BOSS_CODES)) {
     if (!word.endsWith(w)) continue;
     if (usedBossWarp) return;
     usedBossWarp = true;
-    warpToStage(n, true);
+    cheatWarp(n, true);
     return;
   }
   // 仮ボス「未実装君」との対決(本編には出てこない)。これもボス移動の 1 回に数える
   if (word.endsWith(MIJISSOU_CODE)) {
     if (usedBossWarp) return;
     usedBossWarp = true;
-    warpToStage(RUSH_TODO, true);
+    cheatWarp(RUSH_TODO, true);
     return;
   }
   // エンディングを見る(まだ作っていないので、いまは合図だけ)
