@@ -128,11 +128,12 @@ STAR FABLE では URL に `?delay=5` を付けて開くと効く（既定は 0 =
 | 3 | `game/main.js` の import と 3 表の生成を差し替え | **はい**（import 1 行で戻せる） |
 | 4 | `enterTitle()` で `refresh()` を投げっぱなしにする＋スクロール位置の丸め | はい |
 | 5 | `roundHiScores()` / `reset()` をローカル専用の扱いへ寄せる | はい |
-| 6 | `RemoteRankingSource` を足す（`fetch` を書く初回） | サーバ完成後 |
-| 7 | [UTIL.md](UTIL.md) に口の形を追記 | いいえ |
+| 6 | `RemoteRankingSource` を書く＋`playId` / `browserId` を作る | いいえ（**まだ繋がない**） |
+| 7 | `source` を差し替えて実際に通信する | サーバ完成後 |
+| 8 | [UTIL.md](UTIL.md) に口の形を追記 | いいえ |
 
-**1 と 2 まで完了。** ここまでは既存ファイルを 1 文字も変えていないので、
-ゲームの動きには何の影響も無い。
+**6 まで完了。** ここまでで、ゲームの見た目と遊び心地は何も変わっていない。
+残るは 7（1 行の差し替え）と 8（文書）だけ。
 
 ## 3 のときに気をつけること
 
@@ -145,17 +146,48 @@ STAR FABLE では URL に `?delay=5` を付けて開くと効く（既定は 0 =
 - `drawRushList()` は `myIndex()` ではなく `e.mine` を直接見ている。
   `RankingBoard` は取り直した一覧にも目印を付け直すので、そのままでよい
 
-## 6 のときに実装するもの
+## サーバ版 — `RemoteRankingSource`
 
-`RemoteRankingSource` が仕様書のどの API を叩くか。
+[engine/util/ranking-remote.js](../engine/util/ranking-remote.js)（別ファイル）。
+**サーバを使わないゲームはこれを読み込まない**ので、`fetch` を含むコードが
+一切入らない。エンジンの任意部品という方針どおり。
 
 | 口 | API |
 |---|---|
 | `fetch(key)` | `GET /api/v1/rankings/{gameId}/{rankingKey}?limit=100` |
 | `submit(key, entry)` | `POST /api/v1/runs` → 応答の `data.ranks[rankingKey]` が順位（**1 起点**。`RankingBoard` は 0 起点なので 1 引く） |
-| `peek` / `replace` / `clear` | 実装しない |
+| `peek` / `replace` / `clear` | 持たない（`editable` が false になる） |
 
-- `entries` への変換 … `{ name: playerName, score または frames }`
-- タイムアウトを付ける（失敗しても遊びは止まらないので短くてよい）
-- 再送するときは `playId` を変えない（`409 PLAY_ALREADY_SUBMITTED` を素通しする）
-- 起動時の 3 表ぶんは並列でよい
+表とサーバの対応づけは `games` に書く。`RankingBoard` は自分の `key` で
+問い合わせてくるので、そこから宛先を引く。
+
+```js
+new RemoteRankingSource({
+  baseUrl: 'https://ranking.example.com',
+  browserId, playId: () => playId,     // 値でも関数でもよい
+  games: {
+    'starfable-hiscores-easy': { gameId: 'star-fable-normal', rankingKey: 'high-score', valueKey: 'score' },
+    'starfable-hiscores':      { gameId: 'star-fable-hard',   rankingKey: 'high-score', valueKey: 'score' },
+    'starfable-rushtimes':     { gameId: 'star-fable-rush',   rankingKey: 'fastest',    valueKey: 'frames' },
+  },
+});
+```
+
+決めてあること:
+
+- タイムアウト既定 5 秒。取れなくても遊びは止まらないので、あきらめは早くてよい
+- `409 PLAY_ALREADY_SUBMITTED` は**失敗にしない**（すでに登録できているので、
+  手元の見込み順位をそのまま使う）
+- それ以外の失敗はすべて `RankingRequestError` にそろえる
+- `playId` は 1 プレイに 1 つ。送り直しても同じ ID を使うので二重に載らない
+- `browserId` は `starfable-browser-id` に永続。消されれば別人になるが、それでよい
+
+## 7 のときにやること
+
+`main.js` の `rankSource` を差し替える 1 行。ダメならその 1 行を戻すだけ。
+
+- 切替はフラグにしておく（手元は localStorage、公開版だけサーバ、という運用ができる）
+- 名前登録を `add()` から `await submit()` へ変え、**サーバが数えた順位**を使う。
+  ここで初めてプレイヤーを待たせるので、「登録中です」の見せ方を決める
+  （`?delay=5` で確かめられる）
+- 起動時の 3 表ぶんは並列でよい（`refreshRankings()` がすでにそうなっている）
