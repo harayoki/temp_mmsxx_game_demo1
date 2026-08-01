@@ -316,9 +316,9 @@ BG スプライトはレイヤーと同じ優先度空間を使うので、こ�
 | HYPER | 同上 | 1 ゲーム 1 回 |
 | MEIJIN / TAKAHASHI / TOSHIYUKI | オート連射 | 3 つ合わせて 1 ゲーム 3 回 |
 | AHO / BAKA | 自爆 | 制限なし |
-| MOMOKO / CHIE / AKEMI / SYUKO / CHIAKI | 1〜5 面へワープ | 制限なし |
-| NORIKO / SATOE / YASUKO / KINUYO / HISAE | 1〜5 面のボスと直接対決(練習モード。倒すと同じボスがまた出る) | 制限なし |
-| MIYUKI | 仮ボス「未実装君」と対決(本編には出てこない) | 制限なし |
+| MOMOKO / CHIE / AKEMI / SYUKO / CHIAKI | 1〜5 面へワープ(**得点が 0 に戻る**) | 制限なし |
+| NORIKO / SATOE / YASUKO / KINUYO / HISAE | 1〜5 面のボスと直接対決(練習モード。倒すと同じボスがまた出る。**得点が 0 に戻る**) | 制限なし |
+| MIYUKI | 仮ボス「未実装君」と対決(本編には出てこない。**得点が 0 に戻る**) | 制限なし |
 | YOHKO | エンディングを見る | 制限なし |
 | AHOAHO / BAKABON | 一気にゲームオーバー(残機ごと捨てる) | 制限なし |
 | ORB | 宝珠を満タンにする(開発中だけ) | 制限なし |
