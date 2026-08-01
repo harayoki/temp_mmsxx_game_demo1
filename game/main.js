@@ -201,7 +201,8 @@ const FAR_OBJECTS = [
   // 同じものの 2 か所は 320 ドット以上離してある(地球が 2 つ並ばないように)
   { img: 'station', spots: [[176, 768], [192, 200]] },
   { img: 'moon', spots: [[208, 448], [216, 40]] },
-  { img: 'jupiter', spots: [[24, 616], [8, 136]] },
+  // 木星はここに入れない。**5 面の星座のあとに初めて出る**もので、
+  // ふだんの面に出てしまうと、そのときの驚きが無くなる(showJupiter)
   { img: 'colony', spots: [[24, 288], [136, 904]] },
   { img: 'moai', spots: [[40, 1008], [0, 440]] },
   { img: 'moaiFlip', spots: [[184, 280], [176, 664]] },
@@ -841,6 +842,9 @@ function spawnMoai() {
     // 合体しきったあとに居座る場所
     x: cx, y: 40, vx: 0.5, age: 0, stay: MOAI_STAY, insideHp: 0,
     hold: MOAI_HOLD,   // 四隅で構えている時間
+    // 左右がくっついたあとの待ち時間。**先に決めておく**ことで、
+    // 「まだ撃つな」を合体の動きだしから待ち終わりまで出しっぱなしにできる
+    waitLen: MOAI_WAIT_MIN + Math.floor(Math.random() * (MOAI_WAIT_MAX - MOAI_WAIT_MIN + 1)),
     parts: [
       // 上半分は画面の上から、下半分は下から入ってくる
       mk(IMG.moaiTL, cx - 48, -MOAI_QH - 8, 0),
@@ -874,8 +878,13 @@ function angerMoai(m) {
   if (++m.rage < MOAI_RAGE_HITS) return;
   m.angry = true;
   m.angryTimer = MOAI_ANGRY_LEAVE;
+  // 赤くなったらもう手出しできないので、じらす意味が無い。
+  // 構えている時間と待ち時間をやめて、そのまま合体の動きに入る。
+  // (合体そのものの動き = m.timer は残す。飛ばすと絵が飛んでしまう)
+  m.hold = 0;
+  m.wait = 0;
+  // 赤くなること自体が合図なので、文字は出さない
   mmsxx.audio.playSE('nobreak', SE_HIT);
-  showNotice('IT IS ANGRY NOW!');
   flashTimer = 2;
 }
 
@@ -956,17 +965,12 @@ function mergeMoaiParts() {
     // すぐ上下合体に入らず、2〜5 秒のあいだ そのまま待つ。
     // 待ち終わりに一瞬白く光ってから合体に入るので、合図は出るが
     // タイミングは毎回ちがう
-    // すでに怒っている(壊せない)ときは、じらす意味が無いのでさっさと合体する
-    m.wait = m.angry ? 20
-      : MOAI_WAIT_MIN + Math.floor(Math.random() * (MOAI_WAIT_MAX - MOAI_WAIT_MIN + 1));
-    m.timer = m.angry ? 60 : MOAI_MERGE2;
-    // ここから撃つと怒らせてしまう。まず「待て」と伝える(1 回だけ)
-    if (!moaiToldWait) {
-      moaiToldWait = true;
-      // 色が変わるまでの待ちは 2〜5 秒。**その間ずっと出しておく**
-      // (90 コマだと読む前に消えてしまう)
-      showNotice('DO NOT SHOOT THE MOAI YET!', m.wait + 30);
-    }
+    // 待ちの長さは出てきたときに決めてある(「まだ撃つな」を
+    //  出しっぱなしにする長さを、先に知っておきたいため)。
+    // すでに怒っているときは待たない。そのまま上下合体の動きへ
+    m.wait = m.angry ? 0 : m.waitLen;
+    m.timer = MOAI_MERGE2;
+    // 「まだ撃つな」は左右合体の動きだしのところで出してある。
     // 「内側から撃て」は、**狙えるようになってから**出す(下の待ちが明けたところ)
   } else {
     // 上下をくっつけて 1 体になる
@@ -1095,8 +1099,12 @@ function updateMoai() {
       // 怒っている(壊せない)あいだは、せめて攻めを厳しくする。
       // リング弾の速さを 1.5 倍にして、避けるのに気を使わせる
       const spd = m.angry ? 1.2 : 0.8;
-      for (let i = -1; i <= 1; i++) {
-        const a = base + i * 0.42;
+      // 弾の数も 2 倍(3 発 -> 6 発)。扇の広さは変えたくないので、
+      // 間隔を詰めて同じ範囲に倍の数を撒く
+      const n = m.angry ? 6 : 3;
+      const gap = m.angry ? 0.25 : 0.42;
+      for (let i = 0; i < n; i++) {
+        const a = base + (i - (n - 1) / 2) * gap;
         fireEnemyBullet(cx, cy, Math.cos(a) * spd, Math.sin(a) * spd, true);
       }
       mmsxx.audio.playSE('shot', SE_HIT);
@@ -1115,6 +1123,13 @@ function updateMoai() {
   } else if (m.hold > 0) {
     // 四隅で構えているあいだは合体しない(プレイヤーの準備時間)
     m.hold--;
+    // 左右合体の動きだしと同時に「まだ撃つな」を出す(1 プレイに 1 回)。
+    // 色が付くのと同じタイミングなので、色と文字の合図がそろう。
+    // 待ちが明けるまで**ずっと出しておく**(短いと読む前に消えてしまう)
+    if (m.hold === 0 && !moaiToldWait && !m.angry) {
+      moaiToldWait = true;
+      showNotice('DO NOT SHOOT THE MOAI YET!', MOAI_MERGE1 + m.waitLen + 30);
+    }
   } else if (m.wait > 0) {
     // 左右がくっついたあとの待ち。終わりぎわに一瞬白くする
     m.wait--;
@@ -1124,7 +1139,8 @@ function updateMoai() {
     }
     // 待ちが明けた = 色が付いて、内側を狙えるようになった合図。
     // ここで初めて狙いどころを教える(1 回だけ)
-    if (m.wait === 0 && !moaiToldInside) {
+    // 怒らせたあとは内側からも壊せないので、こちらも言わない
+    if (m.wait === 0 && !moaiToldInside && !m.angry) {
       moaiToldInside = true;
       showNotice('BREAK IT FROM INSIDE!');
     }
@@ -1175,12 +1191,10 @@ function updateMoai() {
         const STEP_LEN = 5;
         const step = Math.floor(m.age / STEP_LEN) % 10;   // 0..9
         p.sp.image = moaiWaveImage(step, key);
-        // **まだ手を出してはいけないあいだ(四隅の 4 つ)は、白と灰色の石**。
-        // 色が変わりはじめたら「内側を狙える」合図。
-        // 撃つと怒るタイミングを、色で見分けられるようにする
-        // 左右がくっついたあとも、**待っているあいだはまだ石のまま**。
-        // 上下が寄りはじめて、内側のすき間を狙えるようになってから色が付く
-        p.sp.colorMap = moaiSafe(m) ? MOAI_STONE_MAP : null;
+        // **四隅で構えているあいだ(弾が当たらない無敵のあいだ)だけ、白と灰色の石**。
+        // 左右合体の動きだしと同時に青緑になる
+        // (合体の移動中も石のままにしていたが、色が無い時間が長すぎた)
+        p.sp.colorMap = (m.state === 'q4' && m.hold > 0) ? MOAI_STONE_MAP : null;
       }
     }
   }
@@ -1957,7 +1971,9 @@ function spawnGlower() {
 // (BG スプライトだと 8 ドット刻みでガタつくので、ふつうのスプライトにした)
 const WEIGHT_W = 48, WEIGHT_H = 32;
 const WEIGHT_INTERVAL = 1100;
+const WEIGHT_VOLLEY = 3;    // 1 回に落ちてくる数
 let weightTimer = WEIGHT_INTERVAL;
+let weightQueue = 0;        // あと何発落とすか(前の 1 発が画面から消えたら次)
 let weights = [];
 function spawnWeight() {
   const sp = mmsxx.sprite(IMG.weight16t);
@@ -1967,9 +1983,17 @@ function spawnWeight() {
   weights.push({ sp, vy: 1.6 });   // 一気に落ちてくる(よけるより逃げる)
   mmsxx.audio.playSE('weight', SE_JINGLE);   // 即死なので、何より先に鳴らす
 }
+// 3 発ぶんの落下を始める。同時には落とさず、
+// 1 発が画面外へ消えてから次を出す(よけ切ったと思ったところへ また来る)
+function startWeightVolley() {
+  weightQueue = WEIGHT_VOLLEY;
+  spawnWeight();
+  weightQueue--;
+}
 function clearWeights() {
   for (const w of weights) mmsxx.removeSprite(w.sp);
   weights = [];
+  weightQueue = 0;
 }
 function updateWeights() {
   for (const w of [...weights]) {
@@ -1994,6 +2018,8 @@ function updateWeights() {
     if (w.sp.y > SCREEN_H + 8) {
       mmsxx.removeSprite(w.sp);
       weights.splice(weights.indexOf(w), 1);
+      // 消えたら次の 1 発。落ちる場所は毎回選び直すので、同じところには来ない
+      if (weightQueue > 0) { spawnWeight(); weightQueue--; }
     }
   }
 }
@@ -3069,12 +3095,15 @@ function criticalHit(cause) {
   drawHUD();
 }
 
-/** 即死。バリアやパワーに関係なく 1 機失う(キューブへの衝突・レーザー直撃) */
-function destroyPlayer(cause = 'unknown') {
+/**
+ * 即死。バリアやパワーに関係なく 1 機失う(キューブへの衝突・レーザー直撃)
+ * @param {boolean} noMercy true ならバリアでも肩代わりできない(16t など)
+ */
+function destroyPlayer(cause = 'unknown', noMercy = false) {
   if (respawnDelay > 0 || state !== 'play') return;
   startShake(26);
   // NORMAL はバリアがあればそれで肩代わり。装備そのものは下げない
-  if (isNormal() && barrierHP > 0) { damagePlayer(cause); return; }
+  if (isNormal() && barrierHP > 0 && !noMercy) { damagePlayer(cause); return; }
   // 大きな爆発を重ねて、やられたことがはっきり分かるようにする
   spawnBoom(player.x, player.y);
   for (let i = 0; i < 10; i++) {
@@ -6162,10 +6191,10 @@ function updatePlay() {
     //   spawnGlower();
     // }
     // 16t のおもりは 3 面以降。ミサイルや岩が出ているあいだは出てこない
-    if (stageNo >= 3 && weights.length === 0 && rockets.length === 0 &&
-        asteroids.length === 0 && --weightTimer <= 0) {
+    if (stageNo >= 3 && weights.length === 0 && weightQueue === 0 &&
+        rockets.length === 0 && asteroids.length === 0 && --weightTimer <= 0) {
       weightTimer = WEIGHT_INTERVAL + Math.floor(Math.random() * 500);
-      spawnWeight();
+      startWeightVolley();
     }
     // 挟み撃ち機はバリアを持っているときだけ、左右ペアで突っ込んでくる
     if (barrierHP > 0 && !boss) {
@@ -6312,8 +6341,9 @@ function updatePlay() {
       sp.x += Math.cos(e.dir) * SPD;
       sp.y += Math.sin(e.dir) * SPD;
     } else if (e.type === 'K') {
-      // 壁づたい: 端をまっすぐ降りるだけ。高さを合わせて 3WAY を撃つ
-      sp.y += 0.85;
+      // 壁づたい: 端をまっすぐ降りるだけ。高さを合わせて 3WAY を撃つ。
+      // 硬くしたぶん、居座る時間が長くなるようゆっくり降ろす
+      sp.y += 0.42;
       sp.x = e.side < 0 ? 4 : SCREEN_W - 20;
       if (state === 'play' && !e.noFire && --e.fireTimer <= 0) {
         e.fireTimer = enemyFireGap(WALLER_FIRE);
@@ -6692,6 +6722,9 @@ function updatePlay() {
         if (bx < p.sp.x || bx > p.sp.x + w || by < p.sp.y || by > p.sp.y + h) continue;
         bulletHits(b);
         const inner = moaiInnerHit(moai, p, bx, by);
+        // 怒らせたあとは、どこを撃っても通らない。
+        // **点滅もさせない**(効いているように見えて、撃ち続けてしまうため)
+        if (moai.angry) { mmsxx.audio.playSE('nobreak'); break; }
         // まだ石のあいだ(色が付く前)。ダメージは入らない。
         // **左右がくっついたあと**に切り口(内側)を狙い撃つと怒る。
         // よーいドンの前に手を出した罰。四隅のあいだ(まだ形になっていない)と
@@ -6712,20 +6745,8 @@ function updatePlay() {
           mmsxx.audio.playSE('armor');
           break;
         }
-        // 怒らせてしまったら、内側からも壊せない
-        if (moai.angry) {
-          mmsxx.audio.playSE('nobreak');
-          p.flash = 4;
-          break;
-        }
         const dmg = DAMAGE_TABLE[damageLevel - 1];
         if (moai.state === 'one') {
-          // 怒らせてしまったら、合体後も壊せない(帰っていくのを見送るしかない)
-          if (moai.angry) {
-            mmsxx.audio.playSE('nobreak');
-            p.flash = 4;
-            break;
-          }
           moai.hp -= dmg;
           p.flash = 4;
           mmsxx.audio.playSE('weak');
@@ -7202,7 +7223,8 @@ function updatePlay() {
       for (const w of weights) {
         if (px > w.sp.x && px < w.sp.x + WEIGHT_W &&
             py > w.sp.y && py < w.sp.y + WEIGHT_H) {
-          destroyPlayer('16 TONS');
+          // バリアでも肩代わりできない。16t は本当によけるしかない
+          destroyPlayer('16 TONS', true);
           return;
         }
       }
@@ -7719,7 +7741,7 @@ window.mmsxxEnemy = (kind) => {
   if (kind === 'count') return { 敵: enemies.length, 敵弾: enemyBullets.length,
     種類: enemies.map(e => e.type).join(''), おもり: weights.length };
   if (kind === 'glower') { spawnGlower(); return 'glower'; }
-  if (kind === 'weight') { spawnWeight(); return 'weight'; }
+  if (kind === 'weight') { startWeightVolley(); return 'weight'; }
   if (kind === 'waller') spawnWaller();
   else if (kind === 'spreader') spawnSpreader();
   else if (kind === 'diver') spawnDiver();
