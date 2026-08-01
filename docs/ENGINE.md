@@ -167,6 +167,10 @@ mmsxx.audio.defineBGM('main', [mml1, mml2, mml3]); // トラックごとの MML 
 mmsxx.audio.defineSE('shot', mml);
 mmsxx.audio.playBGM('main', true);     // 第2引数 = ループ
 mmsxx.audio.fadeOutBGM(1.5);           // 秒数をかけて消す
+mmsxx.audio.playJingle('fanfare');     // ジングル(ファンファーレなど)。
+                                       // **BGM は止めず、鳴っているあいだだけ黙る**ので、
+                                       // 終わると曲の続きが聞こえる(頭出しし直さない)
+mmsxx.audio.jingling;                  // ジングルが鳴っているか
 mmsxx.audio.stopBGM();
 // SE は「空いている音があればそこで鳴る」。ショットと爆発が同時に鳴ることもある。
 // 同時に鳴らせる音の数は new MMSXXEngine(canvas, { maxVoices: 8 }) で決める
