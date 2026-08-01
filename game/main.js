@@ -791,6 +791,7 @@ const MOAI_HP = 320;          // 合体後(とても固い)
 const MOAI_CRUSH_GAP = 20;
 const MOAI_LOST_DAMAGE = 90;  // 合体前に 1 パーツ壊すごとに減る体力
 const MOAI_HOLD = 210;        // 出てきたあと、四隅で構えている時間(3.5 秒)
+const MOAI_TELL_DELAY = 30;   // 合体の動きだしから「まだ撃つな」を出すまで(0.5 秒)
 const MOAI_MERGE1 = 70;       // 左右がくっつくまで(1 段階目はさっと)
 const MOAI_MERGE2 = 300;      // 上下がくっつくまで
 // 左右がくっついたあと、上下合体に入るまでの待ち(2〜5 秒のランダム)。
@@ -844,6 +845,7 @@ function spawnMoai() {
     // 合体しきったあとに居座る場所
     x: cx, y: 40, vx: 0.5, age: 0, stay: MOAI_STAY, insideHp: 0,
     hold: MOAI_HOLD,   // 四隅で構えている時間
+    tellIn: 0,         // 「まだ撃つな」を出すまでの残り(0 は出さない)
     // 左右がくっついたあとの待ち時間。**先に決めておく**ことで、
     // 「まだ撃つな」を合体の動きだしから待ち終わりまで出しっぱなしにできる
     waitLen: MOAI_WAIT_MIN + Math.floor(Math.random() * (MOAI_WAIT_MAX - MOAI_WAIT_MIN + 1)),
@@ -916,6 +918,10 @@ function moaiWaveImage(step, key) {
 // 1 キャラ(8 ドット)ぶん内側に置く
 const MOAI_TOP_Y = 16;
 const MOAI_BOT_Y = SCREEN_H - MOAI_QH - 16;
+// 上下がくっつく場所。**上下がまったく同じだけ動く**ように、
+// 待っている位置のちょうど真ん中に取る
+// (居座る場所(m.y)で合わせていたころは、下半分だけ 3 倍も動いていた)
+const MOAI_MEET_Y = Math.round((MOAI_TOP_Y + MOAI_BOT_Y - MOAI_QH) / 2 / 8) * 8;
 
 function moaiPartTarget(m, p) {
   if (m.hold > 0) {
@@ -939,7 +945,7 @@ function moaiPartTarget(m, p) {
     const t = 1 - m.timer / MOAI_MERGE2;
     const top = p.quad === 0;
     const from = top ? MOAI_TOP_Y : MOAI_BOT_Y;
-    const to = m.y + (top ? 0 : MOAI_QH);
+    const to = MOAI_MEET_Y + (top ? 0 : MOAI_QH);
     return [m.x, Math.round((from + (to - from) * t) / 8) * 8];
   }
   return [m.x, m.y];
@@ -978,6 +984,8 @@ function mergeMoaiParts() {
     // 上下をくっつけて 1 体になる
     for (const p of m.parts) mmsxx.removeBgSprite(p.sp);
     const sp = mmsxx.bgSprite(IMG.moaiFront);
+    // くっついた場所からそのまま始めて、居座る高さへはゆっくり上がっていく
+    m.y = MOAI_MEET_Y;
     sp.x = m.x; sp.y = m.y; sp.priority = BGP_FRONT + 1;
     m.parts = [{ sp, hp: 0, quad: 0, flash: 0 }];
     // 色の変化は 8 ブロック同時。各ブロックが上から 2 行ずつ塗り替わる。
@@ -1076,6 +1084,13 @@ function updateMoai() {
   const m = moai;
   if (!m) return;
   m.age++;
+  // 「まだ撃つな」を、合体の動きだしから少し遅らせて出す。
+  // 待ちが明けるまで出しっぱなしにするので、遅らせたぶんは長さから引く
+  if (m.tellIn > 0 && --m.tellIn === 0 && !moaiToldWait && !m.angry) {
+    moaiToldWait = true;
+    showNotice('DO NOT SHOOT THE MOAI YET!',
+      MOAI_MERGE1 - MOAI_TELL_DELAY + m.waitLen + 30);
+  }
   // 怒って赤くなったあとは壊せない。30 秒たったら上へ帰っていく
   if (m.angry && m.angryTimer > 0 && --m.angryTimer <= 0) m.leaving = true;
   if (m.leaving) {
@@ -1092,7 +1107,9 @@ function updateMoai() {
     m.x += m.vx;
     if (m.x < 8) { m.x = 8; m.vx = Math.abs(m.vx); }
     if (m.x > SCREEN_W - MOAI_W - 8) { m.x = SCREEN_W - MOAI_W - 8; m.vx = -Math.abs(m.vx); }
-    m.y = 24 + Math.sin(m.age * 0.02) * 8;
+    // くっついた場所(画面の中ほど)から、居座る高さへゆっくり上がっていく。
+    // 直に代入すると、合体しきった瞬間に上へ飛んでしまう
+    m.y += (24 + Math.sin(m.age * 0.02) * 8 - m.y) * 0.05;
     if (state === 'play' && --m.fire <= 0) {
       m.fire = Math.max(50, 90 - shotLevel * 4);
       // 口から放射状にリング弾(撃ち落とせる)
@@ -1125,13 +1142,9 @@ function updateMoai() {
   } else if (m.hold > 0) {
     // 四隅で構えているあいだは合体しない(プレイヤーの準備時間)
     m.hold--;
-    // 左右合体の動きだしと同時に「まだ撃つな」を出す(1 プレイに 1 回)。
-    // 色が付くのと同じタイミングなので、色と文字の合図がそろう。
-    // 待ちが明けるまで**ずっと出しておく**(短いと読む前に消えてしまう)
-    if (m.hold === 0 && !moaiToldWait && !m.angry) {
-      moaiToldWait = true;
-      showNotice('DO NOT SHOOT THE MOAI YET!', MOAI_MERGE1 + m.waitLen + 30);
-    }
+    // 左右合体の動きだしから **0.5 秒おいて**「まだ撃つな」を出す。
+    // 大きな動きと文字が同時に出ると、目が散って両方とも入ってこない
+    if (m.hold === 0 && !moaiToldWait && !m.angry) m.tellIn = MOAI_TELL_DELAY;
   } else if (m.wait > 0) {
     // 左右がくっついたあとの待ち。終わりぎわに一瞬白くする
     m.wait--;
@@ -1179,7 +1192,10 @@ function updateMoai() {
     p.sp.x += (tx - p.sp.x) * rate;
     p.sp.y += (ty - p.sp.y) * (m.state === 'q4' ? 0.2 : 0.08);
     if (p.flash > 0) p.flash--;
-    p.sp.visible = holoNow && !(p.flash > 0 && (p.flash & 1));
+    // 光っているあいだは**必ず見せる**。
+    // 「光る = 1 コマおきに消す」にしていたが、ホログラムの明滅と
+    // ちょうど食い違って、上下合体に入るところで丸ごと消えて見えていた
+    p.sp.visible = p.flash > 0 || holoNow;
     // 合体前も、緑 -> 青 -> 緑 と「線で」色が変わっていく。
     // 途中の姿は 1 枚絵として用意してあるので、絵を差し替えるだけでよい。
     // 合体後(one)は 1 枚絵なので、ここでは触らない(別のところで差し替える)
@@ -1196,7 +1212,9 @@ function updateMoai() {
         // **四隅で構えているあいだ(弾が当たらない無敵のあいだ)だけ、白と灰色の石**。
         // 左右合体の動きだしと同時に青緑になる
         // (合体の移動中も石のままにしていたが、色が無い時間が長すぎた)
-        p.sp.colorMap = (m.state === 'q4' && m.hold > 0) ? MOAI_STONE_MAP : null;
+        // 合体に入る直前は、白と灰色にして「一瞬光った」ように見せる
+        p.sp.colorMap = (p.flash > 0 || (m.state === 'q4' && m.hold > 0))
+          ? MOAI_STONE_MAP : null;
       }
     }
   }

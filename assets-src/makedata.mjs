@@ -4156,6 +4156,12 @@ function makeMoaiFront(blue = false) {
 }
 const moaiFront = makeMoaiFront();
 const moaiFrontBlue = makeMoaiFront(true);
+// モアイは BG スプライトとしてレイヤーに描くので、**横 8 ドット 2 色**を守る必要がある。
+// 切り出し(4 分割・上下 2 枚)や色変わりの途中絵はここから作るので、
+// **切り出す前に**均しておく。こうすれば派生した絵もすべて制約に収まる
+// (行ごと丸ごと入れ替える色変わりも、行が制約を守っていれば守られる)
+reduceBgImage(moaiFront);
+reduceBgImage(moaiFrontBlue);
 
 /** 画像の一部を切り出す(モアイの分割に使う) */
 function cropImage(src, sx, sy, w, h) {
@@ -6025,6 +6031,15 @@ const BG_IMAGES = new Set([
   'logo', 'station', 'moon', 'nebula', 'starsFar', 'starsMid', 'starsNear',
   'jupiter', 'saturn', 'colony', 'earthBig', 'nebulaRed', 'moai', 'moaiFlip', 'earth', 'blackhole', 'milkyway', 'debris',
   'bossHead', 'bossHead2', 'bossShip', 'asteroid',
+  // BG スプライトとして使う絵(レイヤーと同じ決まりで見えるので、ここに入れる)
+  'nautilus', 'nautilusHurt', 'gearBlock', 'gearWeak0', 'gearWeak1', 'gearGem',
+  'crabClawBig', 'crabClawMid', 'kingRiftBlueThin', 'shootStar0', 'dragonTail',
+  // モアイの BG スプライト(合体していく途中の絵も含めて全部)
+  'moaiFront', 'moaiFrontBlue', 'moaiTop', 'moaiBottom', 'moaiTopB', 'moaiBottomB',
+  'moaiTL', 'moaiTR', 'moaiBL', 'moaiBR', 'moaiTLb', 'moaiTRb', 'moaiBLb', 'moaiBRb',
+  ...[1, 2, 3, 4].flatMap(n => ['B', 'G'].flatMap(d =>
+    ['', 'TL', 'TR', 'BL', 'BR', 'TOP', 'BOT'].map(k => 'moaiW' + d + n + k))),
+  ...[1, 2, 3, 4].flatMap(n => ['moaiWaveB' + n, 'moaiWaveG' + n]),
   'crabR', 'crabRNo', 'crabTilt', 'eyeball', 'rocket', 'dragonHead', 'dragonBody', 'todoFace', 'pilot', 'pilotBig', 'pilotTurnBig', 'whaleStar', 'birdStar', 'dragonStar', 'shipStar', 'dragonSky',
   'kingRift0', 'kingRift1', 'kingRift2', 'kingRiftBlue', 'kingRiftBlueThin', 'endRift', 'endBase',
   'kingCracks0', 'kingCracks1', 'kingCracks2',

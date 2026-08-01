@@ -21,6 +21,7 @@ class LayerHandle {
    * 交互に描けば、実機に無い中間色を目で作れる。
    * opts.scanline は走査線。null = 入れない / 0 = 奇数行を抜く / 1 = 偶数行を抜く。
    * 抜いた絵は作り置きされるので、描く手数は元の絵と変わらない。
+   * opts.bgCheck に 'off' を渡すと、この絵だけ「横 8 ドット 2 色」の検査を見逃す。
    */
   draw(x, y, image, transparent = true, opts) {
     this._vdp.drawToLayer(this._index, x, y, image, transparent, opts);
@@ -210,11 +211,40 @@ export class MMSXXEngine {
   /**
    * BG スプライトを生成。通常スプライトより奥(レイヤーより手前)に描かれ、
    * 位置は 8 ドット単位に丸められる。大きさ・枚数に制限はない。
+   * opts に `{ bgCheck: 'off' }` を渡すと、この絵だけ「横 8 ドット 2 色」の
+   * 検査を見逃す(わざと破って、上にスプライトを重ねて隠す使い方のため)。
    */
   bgSprite(image, opts) { return this.vdp.createBgSprite(image, opts); }
 
   /** BG スプライトを削除 */
   removeBgSprite(sprite) { this.vdp.removeBgSprite(sprite); }
+
+  /**
+   * BG の絵が「横 8 ドット 2 色(背景色込み)」を守れているかの検査のしかた。
+   * BG スプライトを作ったとき・レイヤーへ描く絵を変換したときに、
+   * **その絵につき 1 度だけ**走る(毎フレーム描いても手数は増えない)。
+   *
+   * - `'warn'` (既定) console に出して、そのまま動かす
+   * - `'throw'` 例外を投げる(作っている最中に取りこぼしたくないとき)
+   * - `'off'` 調べない
+   *
+   * 絵 1 枚だけ見逃したいときは、`bgSprite` / `layer.draw` の opts に
+   * `{ bgCheck: 'off' }` を渡す。
+   * @type {'warn'|'throw'|'off'}
+   */
+  get bgCheck() { return this.vdp.bgCheck; }
+  set bgCheck(v) { this.vdp.bgCheck = v; }
+
+  /** 見つかった違反の記録(まとめて見たいとき) */
+  get bgWarnings() { return this.vdp.bgWarnings; }
+
+  /**
+   * レイヤー 1 枚をまるごと検査する。裏画面(既定 1024x1024)を全部見るので重い。
+   * 自動では走らないので、確かめたいときだけ呼ぶ。
+   * @param {number} layerIndex
+   * @returns {{runs:number, worst:number, samples:string[]}}
+   */
+  checkLayer(layerIndex) { return this.vdp.checkLayer(layerIndex); }
 
   /**
    * base64 RGBA からエンジンに渡せる画像オブジェクトを作る(makedata の出力用)。

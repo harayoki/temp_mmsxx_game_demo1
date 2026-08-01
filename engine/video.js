@@ -242,6 +242,84 @@ export class VDP {
 
     // RGBA -> インデックス画像の変換キャッシュ
     this.convertCache = new Map();
+
+    /**
+     * BG に使う絵が「横 8 ドット 2 色(背景色込み)」を守れているかを、
+     * **定義したときに自動で調べる**。BG スプライトを作ったとき・レイヤーへ描く絵を
+     * 変換したときに 1 度だけ走るので、同じ絵を毎フレーム描いても手数は増えない。
+     * レイヤー全体の検査は重いので自動ではやらない(checkLayer を自分で呼ぶ)。
+     *
+     * 'warn'(既定) 見つけたら console に出すだけで、そのまま動かす
+     * 'throw'      見つけたら例外を投げる(作っている最中に取りこぼさない)
+     * 'off'        調べない
+     *
+     * わざと破る絵もある(上にスプライトを重ねて隠すつもりの絵など)ので、
+     * 描くとき・作るときに `{ bgCheck: 'off' }` を渡せば、その絵だけ見逃せる。
+     * @type {'warn'|'throw'|'off'}
+     */
+    this.bgCheck = 'warn';
+    /** 見つかった違反の記録(name と中身)。あとからまとめて見られるように残す */
+    this.bgWarnings = [];
+    /** 一度調べた絵(同じ絵を何度も調べない) */
+    this._bgChecked = new WeakSet();
+  }
+
+  /**
+   * BG 用の絵が「横 8 ドット 2 色」を守れているか調べる。
+   * 透明(0)は BG では背景色(黒)になるので、黒(1)と同じものとして数える。
+   * @param {{width:number,height:number,pixels:Uint8Array}} img 変換済みの絵
+   * @returns {{runs:number, worst:number, samples:string[]}}
+   *   runs = 3 色以上になっている 8 ドットの本数 / worst = 最大の色数
+   */
+  static inspectBgImage(img) {
+    let runs = 0, worst = 0;
+    const samples = [];
+    const seen = new Set();
+    for (let y = 0; y < img.height; y++) {
+      for (let bx = 0; bx < img.width; bx += 8) {
+        seen.clear();
+        for (let i = 0; i < 8 && bx + i < img.width; i++) {
+          const c = img.pixels[y * img.width + bx + i];
+          seen.add(c === 0 ? 1 : c);   // 透明は黒として数える
+        }
+        if (seen.size > worst) worst = seen.size;
+        if (seen.size <= 2) continue;
+        runs++;
+        if (samples.length < 3) samples.push(`(x=${bx},y=${y}) 色${[...seen].join(',')}`);
+      }
+    }
+    return { runs, worst, samples };
+  }
+
+  /**
+   * BG に使う絵を検査して、破っていたら知らせる(同じ絵は 1 度だけ)。
+   * 直すのは素材側の仕事なので、ここでは絵に手を入れない。
+   * @param {*} img 変換済みの絵
+   * @param {string} where どこで見つけたか(BG スプライト / レイヤー描画)
+   * @param {'warn'|'throw'|'off'} [mode] この 1 枚だけの指定(既定は this.bgCheck)
+   */
+  _checkBgImage(img, where, mode) {
+    const how = mode || this.bgCheck;
+    if (how === 'off' || !img || this._bgChecked.has(img)) return;
+    this._bgChecked.add(img);
+    const r = VDP.inspectBgImage(img);
+    if (r.runs === 0) return;
+    const msg = `[MMSXX] ${where}: 横8ドットに3色以上が ${r.runs} 本`
+      + ` (最大 ${r.worst} 色) ${img.width}x${img.height} 例: ${r.samples.join(' / ')}`;
+    this.bgWarnings.push({ where, ...r, width: img.width, height: img.height });
+    if (how === 'throw') throw new Error(msg);
+    console.warn(msg);
+  }
+
+  /**
+   * レイヤー 1 枚をまるごと検査する(裏画面 1024x1024 ぶんを見るので重い)。
+   * 自動では走らないので、確かめたいときだけ呼ぶ。
+   * @param {number} layerIndex
+   * @returns {{runs:number, worst:number, samples:string[]}}
+   */
+  checkLayer(layerIndex) {
+    const L = this.layers[layerIndex];
+    return VDP.inspectBgImage({ width: L.width, height: L.height, pixels: L.pixels });
   }
 
   /** 表示に出る全体の幅(描画領域 + 左右のボーダー) */
@@ -385,6 +463,9 @@ export class VDP {
    */
   drawToLayer(layerIndex, x, y, src, transparent = true, opts = {}) {
     let img = VDP.isConverted(src) ? src : this.convert(src);
+    // 色の置き換えや走査線をかける**前の絵**を調べる(同じ絵は 1 度だけ)。
+    // 置き換えは 1 対 1 なので、元が守れていれば後も守れている
+    this._checkBgImage(img, 'BG パーツ', opts.bgCheck);
     if (opts.colorMap) img = this._recolored(img, opts.colorMap);
     if (opts.scanline != null) img = this._scanlined(img, opts.scanline);
     // BG は左右反転・上下反転・180 度回転だけ使える
@@ -564,6 +645,8 @@ export class VDP {
    */
   createBgSprite(src, opts) {
     const sprite = new Sprite(VDP.isConverted(src) ? src : this.convert(src, opts));
+    // BG スプライトはレイヤーと同じ決まりで見えるので、定義したここで調べる
+    this._checkBgImage(sprite.image, 'BG スプライト', opts && opts.bgCheck);
     sprite._autoPhase = this._blinkSeq = ((this._blinkSeq | 0) + 1) & 0xffff;
     this.bgSprites.add(sprite);
     return sprite;
