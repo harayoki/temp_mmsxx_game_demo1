@@ -67,14 +67,21 @@ export { LocalStorageStore, MemoryStore };
  * サーバ版と同じ形にそろえるため、非同期でないものまで Promise で返す。
  * こうしておくと、あとでサーバへ替えても呼ぶ側のコードが 1 文字も変わらない。
  *
- * ## 通信の遅さを試す
+ * ## 通信の遅さと失敗を試す
  *
- * `delay` に秒数を渡すと、その秒数だけ待ってから返すようになる。
- * サーバがまだ無いうちに「取れるまでのあいだ何が見えているか」を
- * 手元で確かめるためのもの。
+ * サーバがまだ無いうちに「取れるまでのあいだ何が見えているか」
+ * 「取れなかったときどうなるか」を手元で確かめるためのもの。
  *
- *   new LocalRankingSource({ delay: 5 })       // 5 秒かかることにする
- *   LocalRankingSource.defaultDelay = 5;       // 既定を 5 秒にする
+ *   new LocalRankingSource({ delay: 5 })          // 5 秒かかることにする
+ *   new LocalRankingSource({ errorRate: 0.3 })    // 3 割の見込みで失敗することにする
+ *   LocalRankingSource.defaultDelay = 5;          // 既定を 5 秒にする
+ *   LocalRankingSource.defaultErrorRate = 0.3;    // 既定を 3 割にする
+ *
+ * 失敗するのは通信に当たる `fetch()` と `submit()` だけ。
+ * **遅れを待ってから失敗する**(待たされた末に駄目だった、という一番つらい形)。
+ *
+ * `submit()` が失敗すると手元にも保存されないので、読み込み直すとその記録は消える。
+ * サーバが受け取れなかったときと同じことなので、これでよい。
  *
  * **遅れを入れているあいだは `peek()` が値を返さない。**
  * サーバには「同期で出せる値」が無いので、そこも同じにしてある。
@@ -83,30 +90,41 @@ export { LocalStorageStore, MemoryStore };
 export class LocalRankingSource {
   /** 既定の遅れ(秒)。ここを書き換えると、指定しなかったものすべてに効く */
   static defaultDelay = 0;
+  /** 既定の失敗の割合(0〜1)。同上 */
+  static defaultErrorRate = 0;
 
   /**
    * @param {{
-   *   storage?: object,   保存先(既定は localStorage)
-   *   delay?: number,     取得・登録にかかることにする秒数(既定 0 = 待たない)
+   *   storage?: object,    保存先(既定は localStorage)
+   *   delay?: number,      取得・登録にかかることにする秒数(既定 0 = 待たない)
+   *   errorRate?: number,  失敗することにする割合 0〜1(既定 0 = 失敗しない)
    * }} [opts]
    */
   constructor(opts = {}) {
     this.storage = opts.storage || new LocalStorageStore();
     this.delay = opts.delay ?? LocalRankingSource.defaultDelay;
+    this.errorRate = opts.errorRate ?? LocalRankingSource.defaultErrorRate;
   }
 
-  /** 通信にかかることにした時間だけ待つ */
-  _wait() {
-    if (!(this.delay > 0)) return Promise.resolve();
-    return new Promise(done => setTimeout(done, this.delay * 1000));
+  /**
+   * 通信にかかることにした時間だけ待ち、決めた割合で失敗する。
+   * 待ってから失敗させるのは、そのほうが実際に近いから
+   */
+  async _wait() {
+    if (this.delay > 0) await new Promise(done => setTimeout(done, this.delay * 1000));
+    if (this.errorRate > 0 && Math.random() < this.errorRate) {
+      throw new Error('ためしの失敗(errorRate ' + this.errorRate + ')');
+    }
   }
 
   /**
    * 同期で出せる値を返す。起動直後の初回表示に使う。
-   * 遅れを入れているときは、サーバに合わせて何も返さない
+   * 遅れや失敗を入れて試しているときは、サーバに合わせて何も返さない。
+   * (ここで値を返してしまうと、一覧が最初から並んでしまい、
+   *  待っている様子も取れなかった様子も見えなくなる)
    */
   peek(key) {
-    if (this.delay > 0) return null;
+    if (this.delay > 0 || this.errorRate > 0) return null;
     return this.storage.load(key);
   }
 

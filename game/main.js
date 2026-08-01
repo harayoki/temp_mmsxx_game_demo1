@@ -403,11 +403,17 @@ const browserId = getBrowserId();
 let playId = newUuid();
 
 // ランキングの供給元。いまは手元の localStorage。
-// `?delay=5` を付けて開くと「取れるまで 5 秒かかる」ことにできる。
-// サーバがまだ無いので、待っているあいだ何が見えているかを手元で確かめるための仮の設定
-// (遅れを入れているあいだは既定データから始まり、取れた時点で入れ替わる = 本番と同じ道筋)
-const RANK_DELAY = Number(new URLSearchParams(location.search).get('delay')) || 0;
-const rankSource = new LocalRankingSource({ delay: RANK_DELAY });
+// サーバがまだ無いので、通信の様子を手元で試せるようにしてある(仮の設定)。
+//
+//   ?delay=5     … 取得・登録に 5 秒かかることにする
+//   ?error=0.3   … 3 割の見込みで失敗することにする(?error=1 で必ず失敗)
+//
+// どちらかを付けているあいだは既定データから始まり、取れた時点で入れ替わる。
+// サーバを相手にしたときと同じ道筋になる
+const RANK_QUERY = new URLSearchParams(location.search);
+const RANK_DELAY = Number(RANK_QUERY.get('delay')) || 0;
+const RANK_ERROR = Number(RANK_QUERY.get('error')) || 0;
+const rankSource = new LocalRankingSource({ delay: RANK_DELAY, errorRate: RANK_ERROR });
 
 // ハイスコア表はエンジン側の仕組みを使う(供給元は差し替えられる)
 const hardTable = new RankingBoard({
@@ -7777,7 +7783,7 @@ window.mmsxxDebug = () => ({
   gear: { shotLevel, speedLevel, maxVolleys, damageLevel, barrierHP, ships },
   playerX: Math.round(player.x), bullets: bullets.length,
   talkHold, continueStages: { ...continueStages },
-  rank: { browserId, playId, delay: RANK_DELAY },
+  rank: { browserId, playId, delay: RANK_DELAY, errorRate: RANK_ERROR },
   dragon: dragonSpot ? { hits: dragonSpot.hits, done: dragonSpot.done,
     x: dragonSpot.x, y: dragonSpotY() } : null,
   secret: secretSpots ? secretSpots.map(s => ({ x: s.x, y: s.y, hits: s.hits, done: s.done })) : null,
