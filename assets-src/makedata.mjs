@@ -4103,8 +4103,9 @@ function makeMoaiFront(blue = false) {
     for (let x = 12; x < 52; x++) setPixel(img, x, y, LIT);
   }
   // 落ちくぼんだ目(黒い穴)。
-  // 傾けて彫ってみたが、まっ四角のほうがモアイらしいので戻した
-  for (let y = 24; y < 33; y++) {
+  // 傾けて彫ってみたが、まっ四角のほうがモアイらしいので戻した。
+  // 下を 3 ドット削って、細めの目にしてある
+  for (let y = 24; y < 30; y++) {
     for (let x = 16; x < 28; x++) clearPixel(img, x, y);
     for (let x = 36; x < 48; x++) clearPixel(img, x, y);
   }

@@ -229,7 +229,9 @@ function isLastStage() {
 const DRAGON_AT = 480;           // 8 秒たってからドラゴンが入ってくる
 const JUPITER_AT = 2000;         // ドラゴンが流れ去ってから木星
 const LAST_STAGE_SHOW = 2720;    // 木星を見せ終えたらボスへ
-const JUPITER_X = 56;            // 木星を置く横位置(裏画面の座標)
+// 木星を置く横位置(裏画面の座標)。絵は 144 ドット幅なので、
+// 右端に寄せて 104。星座のあと、画面の右側から降りてくる
+const JUPITER_X = 104;
 const DRAGON_X = 0;              // ドラゴンは画面幅いっぱい
 
 // ドラゴンが流れ去ってからボスが出るまでの、何もない待ち時間のあいだ、
@@ -4627,8 +4629,9 @@ function beginRestoreSpace() {
 
 /** ふつうの宇宙(黒 + 星)に戻す。ボス戦の終わりに必ず呼ぶ */
 function restoreSpace() {
-  // 赤い空間が閉じたところで、はじめて木星が見えてくる
-  if (redSpace && isLastStage() && !jupiterShown) showJupiter();
+  // 赤い空間のマスで塗りつぶされて消えているので、閉じたところで描き直す
+  // (ボスの前に出したぶんは、この裏で消えてしまっている)
+  if (redSpace && isLastStage()) showJupiter();
   redSpace = false;
   redFade = 0;
   redCells = null;
@@ -6209,8 +6212,10 @@ function updatePlay() {
   // ★がそろったらボス登場の演出に入る(敵を止めて BGM を落とし、名前を出してから出現)
   // 最終面: 静かな時間のあと、木星を上から出す
   if (isLastStage() && !boss && !bossMode) {
-    // 出るのはドラゴンの星座だけ。木星はボスの前には出さない
     if (!dragonSpot && playFrame >= DRAGON_AT) showSkyDragon();
+    // 星座が流れ去ったら、**必ず**木星が画面の右から降りてくる。
+    // この面だけの背景なので、ボスの前に見せておく
+    if (!jupiterShown && playFrame >= JUPITER_AT) showJupiter();
     // ドラゴンが流れ去ってからボスまでの待ち時間に、隠し場所を 2 か所置く。
     // すでに連射中なら「?」は出ないので、そもそも置かない
     // ? の隠し場所は、**ドラゴンの顔が下へ抜けきってから**置く。
