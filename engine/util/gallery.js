@@ -4,7 +4,7 @@
 //
 //   import { Gallery } from './engine/util/gallery.js';
 //
-//   const book = new Gallery(msx, {
+//   const book = new Gallery(mmsxx, {
 //     hudLayer: 4, artLayer: 3,
 //     pages: [
 //       { title: 'PLAYER', draw: (m, art) => art.draw(96, 64, IMG.player) },
@@ -20,13 +20,13 @@ const centerX = (text) => (SCREEN_W - text.length * 8) >> 1;
 
 export class Gallery {
   /**
-   * @param {object} msx MMSXXEngine
+   * @param {object} mmsxx MMSXXEngine
    * @param {{
    *   pages: Array<{
    *     title: string,
-   *     draw?: (msx:object, artLayer:object, hudLayer:object) => void,
-   *     update?: (msx:object) => void,   毎フレームの動き(明滅など)
-   *     leave?: (msx:object) => void,    そのページを離れるときの後始末
+   *     draw?: (mmsxx:object, artLayer:object, hudLayer:object) => void,
+   *     update?: (mmsxx:object) => void,   毎フレームの動き(明滅など)
+   *     leave?: (mmsxx:object) => void,    そのページを離れるときの後始末
    *   }>,
    *   hudLayer?: number,     見出し・文字のレイヤー(既定 0)
    *   artLayer?: number,     絵のレイヤー(既定は hudLayer と同じ)
@@ -39,8 +39,8 @@ export class Gallery {
    *   onExit?: () => void,
    * }} opts
    */
-  constructor(msx, opts) {
-    this.msx = msx;
+  constructor(mmsxx, opts) {
+    this.mmsxx = mmsxx;
     this.pages = opts.pages || [];
     this.hudLayer = opts.hudLayer ?? 0;
     this.artLayer = opts.artLayer ?? this.hudLayer;
@@ -65,8 +65,8 @@ export class Gallery {
   draw() {
     const page = this.pages[this.index];
     if (!page) return;
-    const hud = this.msx.layer(this.hudLayer);
-    const art = this.msx.layer(this.artLayer);
+    const hud = this.mmsxx.layer(this.hudLayer);
+    const art = this.mmsxx.layer(this.artLayer);
     hud.clear();
     if (art !== hud) art.clear();
     const t = '- ' + page.title + ' -';
@@ -76,7 +76,7 @@ export class Gallery {
       const pos = (this.index + 1) + '/' + this.pages.length;
       hud.print(SCREEN_W - pos.length * 8 - 8, this.titleY, pos, 14);
     }
-    if (page.draw) page.draw(this.msx, art, hud);
+    if (page.draw) page.draw(this.mmsxx, art, hud);
     if (this.help) hud.print(centerX(this.help), this.helpY, this.help, 10);
   }
 
@@ -85,7 +85,7 @@ export class Gallery {
     const len = this.pages.length;
     if (!len) return;
     const cur = this.pages[this.index];
-    if (cur && cur.leave) cur.leave(this.msx);
+    if (cur && cur.leave) cur.leave(this.mmsxx);
     this.index = this.wrap
       ? (this.index + n + len) % len
       : Math.max(0, Math.min(len - 1, this.index + n));
@@ -95,17 +95,17 @@ export class Gallery {
   /** 毎フレーム呼ぶ。閉じたら true */
   update() {
     for (const k of this.exitKeys) {
-      if (this.msx.input.wasPressed(k)) {
+      if (this.mmsxx.input.wasPressed(k)) {
         const cur = this.pages[this.index];
-        if (cur && cur.leave) cur.leave(this.msx);
+        if (cur && cur.leave) cur.leave(this.mmsxx);
         if (this.onExit) this.onExit();
         return true;
       }
     }
-    if (this.msx.input.wasPressed('ArrowDown') || this.msx.input.wasPressed('ArrowRight')) this.turn(1);
-    else if (this.msx.input.wasPressed('ArrowUp') || this.msx.input.wasPressed('ArrowLeft')) this.turn(-1);
+    if (this.mmsxx.input.wasPressed('ArrowDown') || this.mmsxx.input.wasPressed('ArrowRight')) this.turn(1);
+    else if (this.mmsxx.input.wasPressed('ArrowUp') || this.mmsxx.input.wasPressed('ArrowLeft')) this.turn(-1);
     const page = this.pages[this.index];
-    if (page && page.update) page.update(this.msx);
+    if (page && page.update) page.update(this.mmsxx);
     return false;
   }
 }

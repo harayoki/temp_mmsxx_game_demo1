@@ -6,7 +6,7 @@
 //
 //   import { StoryScenes } from './engine/util/story.js';
 //
-//   const ending = new StoryScenes(msx, {
+//   const ending = new StoryScenes(mmsxx, {
 //     artLayer: 3, textLayer: 4,
 //     scenes: [
 //       { hold: 240, text: ['THE KING FLED', 'INTO A BLUE RIFT.'],
@@ -25,15 +25,15 @@ const centerX = (text) => (SCREEN_W - text.length * 8) >> 1;
 
 export class StoryScenes {
   /**
-   * @param {object} msx MMSXXEngine
+   * @param {object} mmsxx MMSXXEngine
    * @param {{
    *   scenes: Array<{
    *     hold?: number,        この場面を見せるフレーム数(既定 240 = 4 秒)
    *     text?: string[],      下に出す文章(1 行 8 ドット)
    *     textColor?: number,   文字色(既定 15)
-   *     draw?: (msx:object, artLayer:object) => void,   絵を描く
+   *     draw?: (mmsxx:object, artLayer:object) => void,   絵を描く
    *     sprites?: () => object[],   出したいスプライト(場面が終わると隠す)
-   *     onEnter?: (msx:object) => void,   曲を変えるなど
+   *     onEnter?: (mmsxx:object) => void,   曲を変えるなど
    *   }>,
    *   artLayer?: number,      絵を描くレイヤー番号(既定 0)
    *   textLayer?: number,     文字を描くレイヤー番号(既定は artLayer と同じ)
@@ -53,8 +53,8 @@ export class StoryScenes {
    *   onEnd?: () => void,     最後の場面が終わったら呼ばれる
    * }} opts
    */
-  constructor(msx, opts) {
-    this.msx = msx;
+  constructor(mmsxx, opts) {
+    this.mmsxx = mmsxx;
     this.scenes = opts.scenes || [];
     this.artLayer = opts.artLayer ?? 0;
     this.textLayer = opts.textLayer ?? this.artLayer;
@@ -114,8 +114,8 @@ export class StoryScenes {
     this._hideSprites();
     this._textWait = 0;
     this._promptAt = null;   // レイヤーごと消すので、位置も忘れる
-    const art = this.msx.layer(this.artLayer);
-    const text = this.msx.layer(this.textLayer);
+    const art = this.mmsxx.layer(this.artLayer);
+    const text = this.mmsxx.layer(this.textLayer);
     art.clear();
     if (text !== art) text.clear();
     this.index++;
@@ -138,13 +138,13 @@ export class StoryScenes {
   /** 場面の絵を実際に置く(暗転が明けた最初のフレーム) */
   _enter() {
     const s = this.scenes[this.index];
-    const art = this.msx.layer(this.artLayer);
-    if (s.draw) s.draw(this.msx, art);
+    const art = this.mmsxx.layer(this.artLayer);
+    if (s.draw) s.draw(this.mmsxx, art);
     if (s.sprites) {
       this._sprites = s.sprites() || [];
       for (const sp of this._sprites) sp.visible = true;
     }
-    if (s.onEnter) s.onEnter(this.msx);
+    if (s.onEnter) s.onEnter(this.mmsxx);
   }
 
   /** 文章を今の「出した文字数」まで描く */
@@ -152,7 +152,7 @@ export class StoryScenes {
     const s = this.scenes[this.index];
     const lines = s.text || [];
     if (!lines.length) return;
-    const layer = this.msx.layer(this.textLayer);
+    const layer = this.mmsxx.layer(this.textLayer);
     const color = s.textColor ?? 15;
     let left = this.typing > 0 ? Math.floor(this._shown) : Infinity;
     lines.forEach((line, i) => {
@@ -179,12 +179,12 @@ export class StoryScenes {
   _drawPrompt() {
     const p = this.prompt;
     if (!p || !p.frames || !p.frames.length) return;
-    const layer = this.msx.layer(this.textLayer);
+    const layer = this.mmsxx.layer(this.textLayer);
     if (!this._textDone()) { this._promptWait = 0; this._clearPrompt(); return; }
     if (this._promptWait < p.after) { this._promptWait++; return; }
     const at = this._promptPos();
     this._clearPrompt();
-    const n = Math.floor(this.msx.frame / p.rate) % p.frames.length;
+    const n = Math.floor(this.mmsxx.frame / p.rate) % p.frames.length;
     layer.draw(at[0], at[1], p.frames[n]);
     this._promptAt = at;
   }
@@ -205,7 +205,7 @@ export class StoryScenes {
 
   _clearPrompt() {
     if (!this._promptAt) return;
-    this.msx.layer(this.textLayer).fill(0, this._promptAt[0], this._promptAt[1], 8, 8, true);
+    this.mmsxx.layer(this.textLayer).fill(0, this._promptAt[0], this._promptAt[1], 8, 8, true);
     this._promptAt = null;
   }
 
@@ -235,7 +235,7 @@ export class StoryScenes {
       this._ignoreKeys = false;
     } else {
       for (const k of this.skipKeys) {
-        if (this.msx.input.wasPressed(k)) { this.skip(); return this.done; }
+        if (this.mmsxx.input.wasPressed(k)) { this.skip(); return this.done; }
       }
     }
     // 場面ごとの「文章を出しはじめるまでの間」
@@ -259,9 +259,9 @@ export class StoryScenes {
   stop() {
     this._clearPrompt();
     this._hideSprites();
-    this.msx.layer(this.artLayer).clear();
-    const text = this.msx.layer(this.textLayer);
-    if (text !== this.msx.layer(this.artLayer)) text.clear();
+    this.mmsxx.layer(this.artLayer).clear();
+    const text = this.mmsxx.layer(this.textLayer);
+    if (text !== this.mmsxx.layer(this.artLayer)) text.clear();
     this.done = true;
   }
 }

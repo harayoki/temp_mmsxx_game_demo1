@@ -17,7 +17,7 @@ GUI ツールは無く、**ゲームデータをコードで書く**スタイル
 ```js
 import { MMSXXEngine } from './engine/engine.js';
 
-const msx = new MMSXXEngine(canvas, {
+const mmsxx = new MMSXXEngine(canvas, {
   scale: 3,
   virtualWidth: 256, virtualHeight: 1024,   // 既定サイズ
   layers: [{}, {}, {}, {}, {}],             // 5 枚。{width,height} で個別指定も可
@@ -55,34 +55,34 @@ RGBA 画像を書き込むと、自動で MSX1 の制約へ変換されます(�
 
 ```js
 // ---- 画面 ----
-msx.backdrop = 4;                    // 背景色 (パレット番号 1..15)
-msx.screenWidth; msx.screenHeight;   // 描画領域(既定 256x192)
-msx.setScreenSize(240, 176);         // 8 ドット単位で増減できる
-msx.setBorder(16, 8);                // ボーダー(描画領域の外の遊び)の厚み
-msx.outWidth; msx.outHeight;         // ボーダー込みで実際に出ている大きさ
-msx.setAdjust(-2, 1);                // 画面全体を 1 ドットずらす(-15..+16)
+mmsxx.backdrop = 4;                    // 背景色 (パレット番号 1..15)
+mmsxx.screenWidth; mmsxx.screenHeight;   // 描画領域(既定 256x192)
+mmsxx.setScreenSize(240, 176);         // 8 ドット単位で増減できる
+mmsxx.setBorder(16, 8);                // ボーダー(描画領域の外の遊び)の厚み
+mmsxx.outWidth; mmsxx.outHeight;         // ボーダー込みで実際に出ている大きさ
+mmsxx.setAdjust(-2, 1);                // 画面全体を 1 ドットずらす(-15..+16)
                                      // 回り込まず、空いたところは背景色になる
 // ---- 画面のキャプチャ ----
 // 実描画そのものが原寸のオフスクリーンなので、原寸の取り出しがいちばん安い
-msx.capture();                       // data URL (image/png)
-msx.capture({ type: 'blob' });       // Promise<Blob>
-msx.capture({ type: 'canvas' });     // canvas(複製)
-msx.download('shot.png');            // そのまま保存
-msx.layerCount;                      // レイヤー枚数
-msx.isLocal;                         // 手元の開発中か(localhost / file:)
+mmsxx.capture();                       // data URL (image/png)
+mmsxx.capture({ type: 'blob' });       // Promise<Blob>
+mmsxx.capture({ type: 'canvas' });     // canvas(複製)
+mmsxx.download('shot.png');            // そのまま保存
+mmsxx.layerCount;                      // レイヤー枚数
+mmsxx.isLocal;                         // 手元の開発中か(localhost / file:)
                                      // デバッグ機能の出し分けに使う
 
 // ---- エラーログ ----
 // 日付ごとに 1 つ、3 日ぶんだけ残す(起動時に古いものを消す)。
 // 手元の開発中はエラーでそのまま止め、公開版は致命的でなければ続ける。
-msx.errors.log('なにか変');           // 自分で 1 件記録する
-msx.errors.log('致命的', { fatal: true });
-msx.errors.read();                   // 今日のログを読む
-msx.errors.days();                   // 残っている日付(新しい順)
-msx.errors.clear();                  // 全部消す
-msx.virtualWidth; msx.virtualHeight; // 既定の裏画面サイズ
+mmsxx.errors.log('なにか変');           // 自分で 1 件記録する
+mmsxx.errors.log('致命的', { fatal: true });
+mmsxx.errors.read();                   // 今日のログを読む
+mmsxx.errors.days();                   // 残っている日付(新しい順)
+mmsxx.errors.clear();                  // 全部消す
+mmsxx.virtualWidth; mmsxx.virtualHeight; // 既定の裏画面サイズ
 
-const bg = msx.layer(0);             // レイヤー取得 (0 が奥)
+const bg = mmsxx.layer(0);             // レイヤー取得 (0 が奥)
 bg.draw(x, y, rgbaImage);            // RGBA画像を裏画面へ描画(自動MSX変換)
 bg.draw(x, y, img, true, { flipX: true });   // 反転して描く
 bg.draw(x, y, img, true, { rotate: 180 });   // 180度回転(90/270は非対応)
@@ -105,9 +105,9 @@ bg.visible = false;                  // レイヤー表示ON/OFF
 bg.width; bg.height;                 // このレイヤーの裏画面サイズ
 
 // ---- スプライト ----
-const sp = msx.sprite(rgbaImage);           // 生成 (個数制限なし)
-const sp1 = msx.sprite(img, { colors: 1 }); // 単色スプライト(実機風)
-const sp2 = msx.sprite(img, { colors: 2 }); // 2色(スプライト2枚重ね風)
+const sp = mmsxx.sprite(rgbaImage);           // 生成 (個数制限なし)
+const sp1 = mmsxx.sprite(img, { colors: 1 }); // 単色スプライト(実機風)
+const sp2 = mmsxx.sprite(img, { colors: 2 }); // 2色(スプライト2枚重ね風)
 sp.x = 100; sp.y = 50;               // 画面座標 (256x192)
 sp.priority = 10;                    // 大きいほど手前
 sp.visible = false;
@@ -129,30 +129,30 @@ sp.frameLoop = false;                // 最後のコマで止める(1回だけ�
 // 色の入れ替え(同じ絵から色違いを作る。絵を何枚も定義しなくてよい)
 sp.colorMap = { 2: 7, 3: 5, 12: 4 }; // { 元の色: 新しい色 } パレット番号で指定
 sp.colorMap = null;                  // 入れ替えなしに戻す
-msx.removeSprite(sp);
+mmsxx.removeSprite(sp);
 
 // ---- BG スプライト ----
 // 通常スプライトより奥。位置は 8 ドット単位に丸められ、
 // 大きさと枚数に制限はない(大きな敵や小惑星向け)。
 // priority はレイヤーと同じ空間。n = 「レイヤー n の手前」。
-const big = msx.bgSprite(rgbaImage);
+const big = mmsxx.bgSprite(rgbaImage);
 big.priority = 3;                    // レイヤー3の手前・レイヤー4の奥
 big.x = 64; big.y = -32;
 big.flipX = true;                    // 反転と 180 度回転のみ有効
-msx.removeBgSprite(big);
+mmsxx.removeBgSprite(big);
 
 // ---- 画像 ----
 // rgbaImage は {data: Uint8Array(RGBA), width, height} か ImageData。
-const img = msx.convert(rgbaImage);              // 明示的に事前変換もできる
+const img = mmsxx.convert(rgbaImage);              // 明示的に事前変換もできる
 MMSXXEngine.imageFromBase64(b64, w, h);          // gamedata.js の画像を復元
 
 // ---- 走査線と色の置き換え ----
 // 絵を 1 ライン おきに間引く「走査線」は、BG スプライトにも BG パーツにも付けられる。
 // null = 入れない / 0 = 奇数行を抜く / 1 = 偶数行を抜く。
 // 毎コマ 0 と 1 を入れ替えると、抜ける行が交互に動く。
-sprite.scanline = (msx.frame >> 1) & 1;                // スプライト
+sprite.scanline = (mmsxx.frame >> 1) & 1;                // スプライト
 layer.draw(x, y, img, true, { scanline: 0 });          // BG パーツ
-layer.scanline = (msx.frame >> 1) & 1;                 // レイヤーまるごと
+layer.scanline = (mmsxx.frame >> 1) & 1;                 // レイヤーまるごと
 // STAR FABLE のエンディングでは 3 コマで 1 まわり(1:1:1)にしている。
 //   位相 0 -> 位相 1 -> レイヤーごと消す
 // 消す 1 コマをはさむと、位相の入れ替わりだけのときより落ち着いて見える。
@@ -163,11 +163,11 @@ layer.draw(x, y, img, true, { colorMap: { 2: 7, 3: 5 } });
 // 1 ライン おきのディザ + 走査線の位相ずらし で、15 色にない中間色を目で作れる。
 
 // ---- サウンド ----
-msx.audio.defineBGM('main', [mml1, mml2, mml3]); // トラックごとの MML 配列
-msx.audio.defineSE('shot', mml);
-msx.audio.playBGM('main', true);     // 第2引数 = ループ
-msx.audio.fadeOutBGM(1.5);           // 秒数をかけて消す
-msx.audio.stopBGM();
+mmsxx.audio.defineBGM('main', [mml1, mml2, mml3]); // トラックごとの MML 配列
+mmsxx.audio.defineSE('shot', mml);
+mmsxx.audio.playBGM('main', true);     // 第2引数 = ループ
+mmsxx.audio.fadeOutBGM(1.5);           // 秒数をかけて消す
+mmsxx.audio.stopBGM();
 // SE は「空いている音があればそこで鳴る」。ショットと爆発が同時に鳴ることもある。
 // 同時に鳴らせる音の数は new MMSXXEngine(canvas, { maxVoices: 8 }) で決める
 // (エンジン側に上限は無い。BGM が使っているぶんも数に入る)。
@@ -176,34 +176,34 @@ msx.audio.stopBGM();
 // ノイズ(爆発など)は本数が別枠。new MMSXXEngine(canvas, { maxNoise: 2 }) で決める
 // (既定 1 = 実機の PSG と同じ。数えるのは SE のぶんだけで BGM のドラムは別)。
 // あふれたときは優先度の低いノイズ SE を止める。
-msx.audio.playSE('shot');                       // ふつうの SE
-msx.audio.playSE('laser', 3);                   // 大事な SE
-msx.audio.playSE('fanfare', 9, { exclusive: true }); // 独り占め(他を全部止める)
-msx.audio.stopSE();
+mmsxx.audio.playSE('shot');                       // ふつうの SE
+mmsxx.audio.playSE('laser', 3);                   // 大事な SE
+mmsxx.audio.playSE('fanfare', 9, { exclusive: true }); // 独り占め(他を全部止める)
+mmsxx.audio.stopSE();
 
 // ---- しゃべる (TALK) ----
 // 録音データは持たない。鳴らすときに**フォルマント合成**で波形を作る。
 // 音源(インパルス列 / ノイズ) -> 共鳴器 3 つ(母音の口の形) という組み立て。
 // カタカナ(ひらがなも可)を渡すとモーラに分けて並べる。
 // 空白と句読点は間になり、「ー」は伸ばし、「ッ」は詰まる。
-msx.audio.defineTalk('king', 'ワタシハ ウチュウノ テイオウ コゾリテ。');
-msx.audio.playTalk('king', 5);       // 第2引数は SE と同じ優先度
+mmsxx.audio.defineTalk('king', 'ワタシハ ウチュウノ テイオウ コゾリテ。');
+mmsxx.audio.playTalk('king', 5);       // 第2引数は SE と同じ優先度
 // 既定はわざと粗い(8 ビット機の声にする)。オプションで変えられる:
 //   rate  書き出すサンプリング周波数(既定 8000)。低いほど粗い
 //   bits  量子化ビット数(既定 6)。低いほどざらつく
 //   pitch 声の高さ Hz(既定 120) / speed しゃべる速さ(既定 1)
 //   fall  語尾へ向かって下がる量(半音。既定 3) / growl だみ声(既定 0)
-msx.audio.defineTalk('boss', 'タオサレハセン', { pitch: 92, bits: 4, growl: 0.7 });
+mmsxx.audio.defineTalk('boss', 'タオサレハセン', { pitch: 92, bits: 4, growl: 0.7 });
 // 作った波形は名前ごとにキャッシュされる(2 回目からは作り直さない)。
 
 // ---- 入力 ----
-msx.input.isDown('ArrowLeft');       // KeyboardEvent.code で指定
-msx.input.wasPressed('Space');       // このフレームで押されたか
+mmsxx.input.isDown('ArrowLeft');       // KeyboardEvent.code で指定
+mmsxx.input.wasPressed('Space');       // このフレームで押されたか
 
 // ---- メインループ ----
-msx.run((m) => { /* 60fps で呼ばれる */ });
-msx.stop();
-msx.step(n);                         // デバッグ用に n フレーム手動で進める
+mmsxx.run((m) => { /* 60fps で呼ばれる */ });
+mmsxx.stop();
+mmsxx.step(n);                         // デバッグ用に n フレーム手動で進める
 ```
 
 ## 反転と回転
@@ -251,7 +251,7 @@ MSX BASIC の PLAY 文風です。
 `@5` ノコギリ波、`@6` サイン波、`@7` ノイズです(旧記法の `@n` もノイズ)。
 
 ```js
-msx.audio.defineBGM('main', [
+mmsxx.audio.defineBGM('main', [
   't150 q7 v12 l8 @1 @e1 @s3 o5 [cdefgab>c]2',   // メロディ (25%パルス+エコー)
   't150 q8 v12 l8 @4 @e0 o2 [c>c<c>c<c>c<c>c]2', // ベース (三角波)
   '@7 @e2 t150 l8 [v12o2c v6o6c v10o4c v6o6c]4', // ドラム (ノイズ)
@@ -292,7 +292,7 @@ msx.audio.defineBGM('main', [
 ## 制限・メモ
 
 - 音はブラウザの制約により、最初のキー入力以降に有効化されます
-- `window.msx` にエンジンが公開されています(デバッグ用)。
-  `msx.stop()` のあと `msx.step(n)` で手動フレーム送りができます
+- `window.mmsxx` にエンジンが公開されています(デバッグ用)。
+  `mmsxx.stop()` のあと `mmsxx.step(n)` で手動フレーム送りができます
 - ブラウザのタブが非表示のあいだは `requestAnimationFrame` が止まるため、
   自動テストで進めたいときは `stop()` + `step(n)` を使ってください

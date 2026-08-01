@@ -3,13 +3,13 @@
 //
 //   import { SoundTest } from './engine/util/soundtest.js';
 //
-//   const page = new SoundTest(msx, {
+//   const page = new SoundTest(mmsxx, {
 //     layer: 4,
 //     columns: [
-//       { title: 'BGM', items: bgmNames, play: (n) => msx.audio.playBGM(n, true, true) },
-//       { title: 'SE',  items: seNames,  play: (n) => msx.audio.playSE(n, 9) },
+//       { title: 'BGM', items: bgmNames, play: (n) => mmsxx.audio.playBGM(n, true, true) },
+//       { title: 'SE',  items: seNames,  play: (n) => mmsxx.audio.playSE(n, 9) },
 //     ],
-//     stop: () => { msx.audio.stopBGM(); msx.audio.stopSE(); },
+//     stop: () => { mmsxx.audio.stopBGM(); mmsxx.audio.stopSE(); },
 //     onExit: () => enterTitle(),
 //   });
 //   page.open();
@@ -22,7 +22,7 @@ const ARROW_R = String.fromCharCode(0x1b);
 
 export class SoundTest {
   /**
-   * @param {object} msx MMSXXEngine
+   * @param {object} mmsxx MMSXXEngine
    * @param {{
    *   columns: Array<{
    *     title: string,
@@ -47,8 +47,8 @@ export class SoundTest {
    *   onExit?: () => void,
    * }} opts
    */
-  constructor(msx, opts) {
-    this.msx = msx;
+  constructor(mmsxx, opts) {
+    this.mmsxx = mmsxx;
     this.columns = opts.columns || [];
     this.layerIndex = opts.layer ?? 0;
     this.rows = opts.rows ?? 8;
@@ -84,7 +84,7 @@ export class SoundTest {
   }
 
   draw() {
-    const layer = this.msx.layer(this.layerIndex);
+    const layer = this.mmsxx.layer(this.layerIndex);
     layer.clear();
     layer.print(centerX(this.header), this.titleY, this.header, 15);
     const width = Math.floor(SCREEN_W / Math.max(1, this.columns.length));
@@ -113,14 +113,14 @@ export class SoundTest {
     const text = this.note() || '';
     if (!force && text === this._lastNote) return;
     this._lastNote = text;
-    const layer = this.msx.layer(this.layerIndex);
+    const layer = this.mmsxx.layer(this.layerIndex);
     layer.fill(0, 0, this.noteY, SCREEN_W, 8);
     if (text) layer.print(centerX(text), this.noteY, text, 11);
   }
 
   /** 毎フレーム呼ぶ。閉じたら true */
   update() {
-    const input = this.msx.input;
+    const input = this.mmsxx.input;
     for (const k of this.exitKeys) {
       if (input.wasPressed(k)) {
         if (this.stop) this.stop();

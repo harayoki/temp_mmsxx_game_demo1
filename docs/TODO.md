@@ -105,8 +105,8 @@ BIG MOAI の流れ、16t のおもり、未実装さんの命ごいは実装済�
 - `devicePixelRatio` を見て、canvas の実ピクセルと CSS サイズを分けて扱う
 
 ```js
-msx.setScale(2);          // 整数倍
-msx.setScale('fit');      // 画面に合わせて伸ばす
+mmsxx.setScale(2);          // 整数倍
+mmsxx.setScale('fit');      // 画面に合わせて伸ばす
 ```
 
 ## J-2. バーチャルパッド(タッチ操作)
@@ -127,7 +127,7 @@ msx.setScale('fit');      // 画面に合わせて伸ばす
 - キーボードと併用できること(PC では自動的に隠す)
 
 ```js
-msx.input.enableVirtualPad({
+mmsxx.input.enableVirtualPad({
   buttons: [
     { id: 'KeyZ', label: 'A' },
     { id: 'Space', label: 'B' },

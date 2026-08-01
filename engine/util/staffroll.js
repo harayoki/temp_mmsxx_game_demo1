@@ -3,7 +3,7 @@
 //
 //   import { StaffRoll } from './engine/util/staffroll.js';
 //
-//   const roll = new StaffRoll(msx, {
+//   const roll = new StaffRoll(mmsxx, {
 //     layer: 4,
 //     lines: ['STAFF', '', 'DIRECTOR', 'HARAYOKI'],
 //     headings: new Set(['STAFF', 'DIRECTOR']),
@@ -18,7 +18,7 @@ const centerX = (text) => (SCREEN_W - text.length * 8) >> 1;
 
 export class StaffRoll {
   /**
-   * @param {object} msx MMSXXEngine
+   * @param {object} mmsxx MMSXXEngine
    * @param {{
    *   lines: string[],          流す行(空文字は 1 行ぶんの空き)
    *   layer?: number,           描くレイヤー(既定 0)
@@ -34,8 +34,8 @@ export class StaffRoll {
    *   onEnd?: () => void,       流し終わったら呼ばれる
    * }} opts
    */
-  constructor(msx, opts) {
-    this.msx = msx;
+  constructor(mmsxx, opts) {
+    this.mmsxx = mmsxx;
     this.lines = opts.lines || [];
     this.layerIndex = opts.layer ?? 0;
     this.headings = opts.headings || new Set();
@@ -97,16 +97,16 @@ export class StaffRoll {
   start() {
     this.scroll = 0;
     this.done = false;
-    this.msx.layer(this.layerIndex).clear();
+    this.mmsxx.layer(this.layerIndex).clear();
   }
 
   update() {
     if (this.done) return true;
     for (const k of this.skipKeys) {
-      if (this.msx.input.wasPressed(k)) return this._finish();
+      if (this.mmsxx.input.wasPressed(k)) return this._finish();
     }
     this.scroll += this.speed;
-    const layer = this.msx.layer(this.layerIndex);
+    const layer = this.mmsxx.layer(this.layerIndex);
     layer.clear();
     const off = this._layout();
     this.lines.forEach((line, i) => {
@@ -122,7 +122,7 @@ export class StaffRoll {
 
   _finish() {
     this.done = true;
-    this.msx.layer(this.layerIndex).clear();
+    this.mmsxx.layer(this.layerIndex).clear();
     if (this.onEnd) this.onEnd();
     return true;
   }

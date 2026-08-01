@@ -16,7 +16,7 @@ import { Ranking, byScore, byTime } from './engine/util/ranking.js';
 
 どれも同じ形で使います。
 
-1. `new Xxx(msx, opts)` で作る
+1. `new Xxx(mmsxx, opts)` で作る
 2. `start()` / `open()` で始める
 3. **毎フレーム `update()` を呼ぶ**。終わったら `true` を返す
 4. 終わりは `onEnd` / `onExit` のコールバックで受ける
@@ -55,9 +55,9 @@ import { Ranking, byScore, byTime } from './engine/util/ranking.js';
 | `hold` | この場面を見せるフレーム数（既定 240 = 4 秒） |
 | `text` | 下に出す文章（文字列の配列） |
 | `textColor` | 文字色（既定 15） |
-| `draw(msx, artLayer)` | 絵を描く。レイヤーは暗転のあいだに消えている |
+| `draw(mmsxx, artLayer)` | 絵を描く。レイヤーは暗転のあいだに消えている |
 | `sprites()` | 出したいスプライトの配列。場面が終わると自動で隠す |
-| `onEnter(msx)` | 曲を変えるなど |
+| `onEnter(mmsxx)` | 曲を変えるなど |
 
 - `length` … 全体で何フレームになるか（尺の確認用）
 - `skip()` … 文章がまだ出そろっていなければ全部出す、済んでいれば次の場面へ（**2 回押しで送る**）
@@ -75,7 +75,7 @@ import { Ranking, byScore, byTime } from './engine/util/ranking.js';
 文章がまだ出ている途中は出ません（読んでいる最中に急かさないため）。
 
 ```js
-const ending = new StoryScenes(msx, {
+const ending = new StoryScenes(mmsxx, {
   artLayer: 3, textLayer: 4, textY: 152,
   scenes: [
     { hold: 240, text: ['THE KING FLED INTO', 'A BLUE RIFT IN SPACE.'],
@@ -130,9 +130,9 @@ ending.start();
 | キー | 意味 |
 |---|---|
 | `title` | 見出し（`- TITLE -` の形で出る） |
-| `draw(msx, artLayer, hudLayer)` | 中身を描く |
-| `update(msx)` | 毎フレームの動き（明滅・色変わりなど） |
-| `leave(msx)` | そのページを離れるときの後始末（スプライトを消すなど） |
+| `draw(mmsxx, artLayer, hudLayer)` | 中身を描く |
+| `update(mmsxx)` | 毎フレームの動き（明滅・色変わりなど） |
+| `leave(mmsxx)` | そのページを離れるときの後始末（スプライトを消すなど） |
 
 - `open(index)` / `turn(n)` / `update()`
 - 操作は **↑↓（←→も可）でページ送り**

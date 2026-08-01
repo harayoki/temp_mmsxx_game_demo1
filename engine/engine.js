@@ -81,11 +81,11 @@ class LayerHandle {
 /**
  * MSX1 風仮想マシンのゲームエンジン本体。
  *
- * const msx = new MMSXXEngine(canvas, { scale: 3 });
- * msx.backdrop = 4;
- * msx.layer(0).draw(0, 0, rgbaImage);
- * const ship = msx.sprite(rgbaImage);
- * msx.run((m) => { ship.x++; });
+ * const mmsxx = new MMSXXEngine(canvas, { scale: 3 });
+ * mmsxx.backdrop = 4;
+ * mmsxx.layer(0).draw(0, 0, rgbaImage);
+ * const ship = mmsxx.sprite(rgbaImage);
+ * mmsxx.run((m) => { ship.x++; });
  */
 export class MMSXXEngine {
   /**
@@ -229,7 +229,7 @@ export class MMSXXEngine {
 
   /**
    * メインループを開始する。update は 60fps 固定で呼ばれる。
-   * @param {(msx: MMSXXEngine) => void} update
+   * @param {(mmsxx: MMSXXEngine) => void} update
    */
   run(update) {
     this._running = true;

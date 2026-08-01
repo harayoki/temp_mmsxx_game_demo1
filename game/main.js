@@ -18,16 +18,16 @@ import { GAME_DATA } from './gamedata.js';
 
 // 裏画面は 256x1024 (横は画面ぴったり、縦に長くとってスクロールさせる)。
 // レイヤーは 5 枚: 遠い星 / 中間の星 / 近い星 / 大きな背景オブジェクト(とボス) / HUD
-const msx = new MMSXXEngine(document.getElementById('screen'), {
+const mmsxx = new MMSXXEngine(document.getElementById('screen'), {
   scale: 3, virtualWidth: 256, virtualHeight: 1024,
   layers: [{}, {}, {}, {}, {}, {}],
   maxNoise: 2,   // 爆発が重なるとノイズを取り合って消えるので 2 本にする
 });
-window.msx = msx; // デバッグ用
+window.mmsxx = mmsxx; // デバッグ用(コンソールから触れるように)
 // 画面のまわりに 4 ドットのボーダーを持たせる。
 // ここには何も描かれず、背景色で塗られる(実機の描画領域の外の遊び)。
 // 被弾したときは、この余白のぶんだけ画面全体をずらして揺らす
-msx.setBorder(4);
+mmsxx.setBorder(4);
 
 // ---- アセット読み込み(RGBA -> MSX変換はエンジンが自動で行う) ----
 // スプライトは MSX1 実機風に色数を落とす:
@@ -74,7 +74,7 @@ const IMG = {};
 for (const [name, im] of Object.entries(GAME_DATA.images)) {
   const raw = MMSXXEngine.imageFromBase64(im.b64, im.width, im.height);
   const colors = SPRITE_COLORS[name];
-  IMG[name] = msx.convert(raw, colors ? { colors } : undefined);
+  IMG[name] = mmsxx.convert(raw, colors ? { colors } : undefined);
 }
 
 /** 変換済み画像の色を全部差し替えたコピーを作る(単色スプライトの色違い用) */
@@ -120,32 +120,32 @@ for (let i = 0; IMG['kingLineL' + i]; i++) KING_LINES_LONG.push(IMG['kingLineL' 
 const KING_RIFT_OPEN = [];
 for (let i = 0; IMG['kingRiftOpen' + i]; i++) KING_RIFT_OPEN.push(IMG['kingRiftOpen' + i]);
 KING_RIFT_OPEN.push(IMG.kingRift0);
-for (const [name, mml] of Object.entries(GAME_DATA.bgm)) msx.audio.defineBGM(name, mml);
+for (const [name, mml] of Object.entries(GAME_DATA.bgm)) mmsxx.audio.defineBGM(name, mml);
 // スタッフロールだけは音声ファイル(mp3)を使う。
 // MML と同じように playBGM('staff') で鳴らせる
-msx.audio.defineBGM('staff', { url: './assets/staff.mp3', gain: 0.5 });
-msx.audio.defineBGM('finalbattle', { url: './assets/final_battle.mp3', gain: 0.6 });
-for (const [name, mml] of Object.entries(GAME_DATA.se)) msx.audio.defineSE(name, mml);
+mmsxx.audio.defineBGM('staff', { url: './assets/staff.mp3', gain: 0.5 });
+mmsxx.audio.defineBGM('finalbattle', { url: './assets/final_battle.mp3', gain: 0.6 });
+for (const [name, mml] of Object.entries(GAME_DATA.se)) mmsxx.audio.defineSE(name, mml);
 // しゃべる言葉(TALK)。録音は持たず、鳴らすときにフォルマント合成で作る
 for (const [name, t] of Object.entries(GAME_DATA.talk || {})) {
-  msx.audio.defineTalk(name, t.text, t.opts);
+  mmsxx.audio.defineTalk(name, t.text, t.opts);
 }
 
 const STAGE = GAME_DATA.stage;
 
 // ---- 背景: 4レイヤー構成 ----
 // layer0: 遠景の星 / layer1: 近景の星 / layer2: 大きな背景オブジェクト(とボス) / layer3: HUD
-msx.backdrop = 1; // 黒
-const far = msx.layer(0);   // 遠い星(暗い青灰)
-const mid = msx.layer(1);   // 中間の星(水色)
-const near = msx.layer(2);  // 近い星(白)
-const neb = msx.layer(3);   // 大きな背景オブジェクト / ボス
+mmsxx.backdrop = 1; // 黒
+const far = mmsxx.layer(0);   // 遠い星(暗い青灰)
+const mid = mmsxx.layer(1);   // 中間の星(水色)
+const near = mmsxx.layer(2);  // 近い星(白)
+const neb = mmsxx.layer(3);   // 大きな背景オブジェクト / ボス
 // ボスが画面の端から出ていくとき、反対側に絵が出てこないようにする
 neb.setRepeat(false, true);
-const hud = msx.layer(4);
+const hud = mmsxx.layer(4);
 // 当たり判定の可視化(HITAREA コマンド)だけに使うレイヤー。いちばん手前
-const dbg = msx.layer(5);
-const VW = msx.virtualWidth, VH = msx.virtualHeight;
+const dbg = mmsxx.layer(5);
+const VW = mmsxx.virtualWidth, VH = mmsxx.virtualHeight;
 // MSX1 実機風: 背景の縦スクロールは 8 ドット単位(レイヤーごとに速度が違う多重スクロール)
 far.snap = 8;
 mid.snap = 8;
@@ -451,12 +451,12 @@ let respawnDelay = 0;  // ミス後、復帰するまでの待ちフレーム
 let stateTimer = 0;
 let clearTimer = 0;
 
-const player = msx.sprite(IMG.player);
+const player = mmsxx.sprite(IMG.player);
 player.priority = 10;
 player.visible = false;
 // 自機の補助表示。推進炎とバリアは 1 枚のスプライト枠を交互に使って見せる
 // (実機のスプライト数を節約する見せ方)。
-const aux = msx.sprite(IMG.flameSmall);
+const aux = mmsxx.sprite(IMG.flameSmall);
 aux.priority = 11;
 aux.visible = false;
 
@@ -516,27 +516,27 @@ function maxAsteroids() {
   return Math.min(3, 1 + Math.floor((stageNo - 1) / 2));
 }
 function spawnAsteroid() {
-  const sp = msx.bgSprite(IMG.asteroid);
+  const sp = mmsxx.bgSprite(IMG.asteroid);
   sp.priority = BGP_FRONT;
   sp.x = 16 + Math.floor(Math.random() * (SCREEN_W - 80));
   sp.y = -AST_SIZE;
   // 白いハイライトはスプライト 1 枚。3 フレームに 1 回だけ出して
   // 「スプライトを減らしている」ちらつきを見せる
-  const hi = msx.sprite(IMG.asteroidHi);
+  const hi = mmsxx.sprite(IMG.asteroidHi);
   hi.priority = 6;
   hi.blink = 3;
   asteroids.push({ sp, hi, age: 0, flash: 0, flashColor: 0, hp: AST_HP });
 }
 /** 小惑星に弾が当たった: 鈍い「ごわっ!」を鳴らして白/黄で強く光らせる */
 function pingAsteroid(a) {
-  msx.audio.playSE('thud');
+  mmsxx.audio.playSE('thud');
   a.flashColor ^= 1;   // 当たるたびに白と黄を入れ替える
   a.flash = 8;
 }
 function clearAsteroids() {
   for (const a of asteroids) {
-    msx.removeBgSprite(a.sp);
-    if (a.hi) msx.removeSprite(a.hi);
+    mmsxx.removeBgSprite(a.sp);
+    if (a.hi) mmsxx.removeSprite(a.hi);
   }
   asteroids = [];
 }
@@ -563,8 +563,8 @@ function updateAsteroids() {
     if (a.sp.y > SCREEN_H + AST_SIZE) {
       // 壊せずに流れていった小惑星は、どれだけ削れていたかを記録しておく
       stats.log('asteroidGone', { damage: AST_HP - a.hp, stage: stageNo });
-      msx.removeBgSprite(a.sp);
-      if (a.hi) msx.removeSprite(a.hi);
+      mmsxx.removeBgSprite(a.sp);
+      if (a.hi) mmsxx.removeSprite(a.hi);
       asteroids.splice(asteroids.indexOf(a), 1);
     }
   }
@@ -588,7 +588,7 @@ let eyeToldDouble = false;      // 「同時に壊せ」を出したか(1 プレ
 let eyeKillFrame = -999;        // 片方を倒したフレーム
 
 function spawnEyeballs() {
-  msx.audio.playSE('eyeAppear', SE_JINGLE);   // 登場の合図(いちばん強く鳴らす)
+  mmsxx.audio.playSE('eyeAppear', SE_JINGLE);   // 登場の合図(いちばん強く鳴らす)
   // 初回だけ、狙いどころを教える(1 プレイに 1 回)
   if (!eyeToldDouble) {
     eyeToldDouble = true;
@@ -600,14 +600,14 @@ function spawnEyeballs() {
   // 左右は画面の中央。2 体そろって出る
   const cx = (SCREEN_W - EYE_GAP - EYE_SIZE) / 2;
   for (let i = 0; i < 2; i++) {
-    const sp = msx.bgSprite(IMG.eyeball);
+    const sp = mmsxx.bgSprite(IMG.eyeball);
     sp.priority = BGP_FRONT;
     sp.x = cx + i * EYE_GAP;
     sp.y = fromBelow ? SCREEN_H + EYE_SIZE : -EYE_SIZE;
-    const pupil = msx.sprite(IMG.eyeIris0);
+    const pupil = mmsxx.sprite(IMG.eyeIris0);
     pupil.priority = 10;
     // 血管は赤の単色スプライト。瞳と交互に出して重ね枚数を抑える
-    const vein = msx.sprite(IMG.eyeVein);
+    const vein = mmsxx.sprite(IMG.eyeVein);
     vein.priority = 10;
     // 瞳と血管はエンジンの「何フレームに 1 回出すか」で交互に表示する
     pupil.blink = 2; pupil.blinkPhase = 0;
@@ -622,9 +622,9 @@ function spawnEyeballs() {
 }
 
 function removeEyeball(e) {
-  msx.removeBgSprite(e.sp);
-  msx.removeSprite(e.pupil);
-  msx.removeSprite(e.vein);
+  mmsxx.removeBgSprite(e.sp);
+  mmsxx.removeSprite(e.pupil);
+  mmsxx.removeSprite(e.vein);
   eyeballs.splice(eyeballs.indexOf(e), 1);
 }
 
@@ -635,7 +635,7 @@ function clearEyeballs() {
 
 function killEyeball(e) {
   spawnBoom(e.sp.x + 8, e.sp.y + 8);
-  msx.audio.playSE('boom', SE_HIT);
+  mmsxx.audio.playSE('boom', SE_HIT);
   score += 3000;
   spawnPopup(e.sp.x, e.sp.y, 3000);
   removeEyeball(e);
@@ -699,7 +699,7 @@ let shootStars = [];
 let shootTimer = 240;
 
 function spawnShootStar() {
-  const sp = msx.bgSprite(IMG.shootStar0);
+  const sp = mmsxx.bgSprite(IMG.shootStar0);
   sp.frames = [IMG.shootStar0, IMG.shootStar1, IMG.shootStar2, IMG.shootStar3];
   sp.frameRate = 4;
   // 大きな背景オブジェクト(木星など)より奥。BG スプライトとレイヤーは
@@ -711,7 +711,7 @@ function spawnShootStar() {
 }
 
 function clearShootStars() {
-  for (const s of shootStars) msx.removeBgSprite(s.sp);
+  for (const s of shootStars) mmsxx.removeBgSprite(s.sp);
   shootStars = [];
 }
 
@@ -725,7 +725,7 @@ function updateShootStars() {
   for (const s of [...shootStars]) {
     s.sp.x += s.vx; s.sp.y += s.vy;
     if (s.sp.x < -40 || s.sp.y > SCREEN_H + 40) {
-      msx.removeBgSprite(s.sp);
+      mmsxx.removeBgSprite(s.sp);
       shootStars.splice(shootStars.indexOf(s), 1);
     }
   }
@@ -789,7 +789,7 @@ function spawnMoai() {
   bombAllEnemies();
   const cx = (SCREEN_W - MOAI_W) / 2;
   const mk = (img, x, y, quad) => {
-    const sp = msx.bgSprite(img);
+    const sp = mmsxx.bgSprite(img);
     sp.x = x; sp.y = y; sp.priority = BGP_FRONT + 1;
     return { sp, hp: MOAI_PART_HP, quad, flash: 0 };
   };
@@ -810,14 +810,14 @@ function spawnMoai() {
   moai.rage = 0;
   moai.angry = false;
   moai.angryTimer = 0;   // 怒ってからの時間(壊せないので、しばらくしたら帰る)
-  msx.audio.playSE('eyeAppear', SE_JINGLE);
+  mmsxx.audio.playSE('eyeAppear', SE_JINGLE);
   showNotice('MOAI APPROACHING!');
 }
 
 function clearMoai() {
   if (!moai) return;
-  for (const p of moai.parts) msx.removeBgSprite(p.sp);
-  if (moai.tint) msx.removeBgSprite(moai.tint);
+  for (const p of moai.parts) mmsxx.removeBgSprite(p.sp);
+  if (moai.tint) mmsxx.removeBgSprite(moai.tint);
   moai = null;
 }
 
@@ -831,7 +831,7 @@ function angerMoai(m) {
   if (++m.rage < MOAI_RAGE_HITS) return;
   m.angry = true;
   m.angryTimer = MOAI_ANGRY_LEAVE;
-  msx.audio.playSE('nobreak', SE_HIT);
+  mmsxx.audio.playSE('nobreak', SE_HIT);
   showNotice('IT IS ANGRY NOW!');
   flashTimer = 2;
 }
@@ -897,9 +897,9 @@ function mergeMoaiParts() {
     // 左右をくっつけて、上半分・下半分の 2 つにする(継ぎ目なしの 1 枚絵)
     const top = m.parts.find(p => p.quad === 0) || m.parts.find(p => p.quad === 1);
     const bot = m.parts.find(p => p.quad === 2) || m.parts.find(p => p.quad === 3);
-    for (const p of m.parts) msx.removeBgSprite(p.sp);
+    for (const p of m.parts) mmsxx.removeBgSprite(p.sp);
     const mk = (img, quad) => {
-      const sp = msx.bgSprite(img);
+      const sp = mmsxx.bgSprite(img);
       sp.x = m.x; sp.y = quad === 0 ? MOAI_TOP_Y : MOAI_BOT_Y;
       sp.priority = BGP_FRONT + 1;
       return { sp, hp: MOAI_PART_HP * 2, quad, flash: 0 };
@@ -925,8 +925,8 @@ function mergeMoaiParts() {
     // 「内側から撃て」は、**狙えるようになってから**出す(下の待ちが明けたところ)
   } else {
     // 上下をくっつけて 1 体になる
-    for (const p of m.parts) msx.removeBgSprite(p.sp);
-    const sp = msx.bgSprite(IMG.moaiFront);
+    for (const p of m.parts) mmsxx.removeBgSprite(p.sp);
+    const sp = mmsxx.bgSprite(IMG.moaiFront);
     sp.x = m.x; sp.y = m.y; sp.priority = BGP_FRONT + 1;
     m.parts = [{ sp, hp: 0, quad: 0, flash: 0 }];
     // 色の変化は 8 ブロック同時。各ブロックが上から 2 行ずつ塗り替わる。
@@ -939,8 +939,8 @@ function mergeMoaiParts() {
     m.hp = m.max;
     m.fire = 60;
   }
-  msx.audio.playSE('thud', SE_HIT);
-  msx.audio.playSE('bigboom', SE_HIT);   // 合体の重い音
+  mmsxx.audio.playSE('thud', SE_HIT);
+  mmsxx.audio.playSE('bigboom', SE_HIT);   // 合体の重い音
   flashTimer = 2;
 }
 
@@ -980,7 +980,7 @@ function killMoaiInside() {
       spawnBoom(p.sp.x + Math.random() * MOAI_W, p.sp.y + Math.random() * MOAI_QH);
     }
   }
-  msx.audio.playSE('bossboom', SE_HIT);
+  mmsxx.audio.playSE('bossboom', SE_HIT);
   flashTimer = 3;
   const gain = inside ? EYE_BONUS : 20000;
   score += gain;
@@ -998,10 +998,10 @@ function killMoaiInside() {
 function killMoaiPart(p) {
   spawnBoom(p.sp.x + 8, p.sp.y + 8);
   spawnBoom(p.sp.x + 16, p.sp.y + 24);
-  msx.audio.playSE('bigboom', SE_HIT);
+  mmsxx.audio.playSE('bigboom', SE_HIT);
   score += 4000;
   spawnPopup(p.sp.x, p.sp.y, 4000);
-  msx.removeBgSprite(p.sp);
+  mmsxx.removeBgSprite(p.sp);
   moai.parts.splice(moai.parts.indexOf(p), 1);
   moai.lost++;
   bigKills++;
@@ -1057,14 +1057,14 @@ function updateMoai() {
         const a = base + i * 0.42;
         fireEnemyBullet(cx, cy, Math.cos(a) * spd, Math.sin(a) * spd, true);
       }
-      msx.audio.playSE('shot', SE_HIT);
+      mmsxx.audio.playSE('shot', SE_HIT);
     }
     // 時間切れ。**まず赤くなってから**、あきらめて上へ帰っていく。
     // 赤くなるのは「もう壊せない」の合図なので、逃げる前にも見せる
     if (--m.stay <= 0) {
       if (!m.angry) {
         m.angry = true;
-        msx.audio.playSE('nobreak', SE_HIT);
+        mmsxx.audio.playSE('nobreak', SE_HIT);
         showNotice('IT IS LEAVING!');
       }
       m.y += 2;   // 下へ流れ去る
@@ -1078,7 +1078,7 @@ function updateMoai() {
     m.wait--;
     if (m.wait === MOAI_WAIT_FLASH) {
       for (const p of m.parts) p.flash = MOAI_WAIT_FLASH;
-      msx.audio.playSE('clink', SE_HIT);
+      mmsxx.audio.playSE('clink', SE_HIT);
     }
     // 待ちが明けた = 色が付いて、内側を狙えるようになった合図。
     // ここで初めて狙いどころを教える(1 回だけ)
@@ -1095,7 +1095,7 @@ function updateMoai() {
   }
   if (m.state === 'one' && m.parts[0]) {
     // 全体を 1 コマおきに消して、ホログラムのようにちらつかせる
-    const holo = (msx.frame & 1) === 0;
+    const holo = (mmsxx.frame & 1) === 0;
     const p0 = m.parts[0];
     p0.sp.visible = holo && !(p0.flash > 0 && (p0.flash & 1));
     // 緑 -> (4 段階) -> 青 -> (4 段階) -> 緑 の 10 コマでくり返す
@@ -1112,7 +1112,7 @@ function updateMoai() {
   }
   // 合体前も、青への色変わりと 1 コマおきの明滅はする。
   // (1 枚絵に重ねる細かい縞は合体後だけ。ここは絵ごと差し替える)
-  const holoNow = (msx.frame & 1) === 0;
+  const holoNow = (mmsxx.frame & 1) === 0;
   for (const p of m.parts) {
     const [tx, ty] = moaiPartTarget(m, p);
     const rate = m.state === 'q4' ? 0.3 : 0.12;
@@ -1157,7 +1157,7 @@ const MAX_ROCKETS = 3;
 
 function spawnRocket() {
   if (rockets.length >= MAX_ROCKETS) return;   // 同時に 3 本まで
-  const sp = msx.bgSprite(IMG.rocket);
+  const sp = mmsxx.bgSprite(IMG.rocket);
   sp.priority = BGP_FRONT;
   // 当たり判定のある BG は、背景と見間違えないよう毎コマ色を入れ替える
   sp.frames = [IMG.rocket, IMG.rocketAlt];
@@ -1166,11 +1166,11 @@ function spawnRocket() {
     snap8(player.x - 4 + (Math.random() - 0.5) * 64)));
   sp.y = -ROCKET_H;
   // 弾頭の光(単色スプライト 1 枚)。3 コマに 1 回だけ表示してちらつかせる
-  const hi = msx.sprite(IMG.rocketHi);
+  const hi = mmsxx.sprite(IMG.rocketHi);
   hi.priority = 12;
   hi.blink = 3;
   // 尾を引く炎。長さの違う 3 コマと透明の 1 コマを回して揺らめかせる
-  const flame = msx.sprite(IMG.rocketFlame1);
+  const flame = mmsxx.sprite(IMG.rocketFlame1);
   flame.priority = 6;
   flame.frames = [IMG.rocketFlame1, IMG.rocketFlame2, IMG.rocketFlame3, IMG.rocketFlame0];
   flame.frameRate = 3;
@@ -1180,9 +1180,9 @@ function spawnRocket() {
 
 function clearRockets() {
   for (const r of rockets) {
-    msx.removeBgSprite(r.sp);
-    if (r.hi) msx.removeSprite(r.hi);
-    if (r.flame) msx.removeSprite(r.flame);
+    mmsxx.removeBgSprite(r.sp);
+    if (r.hi) mmsxx.removeSprite(r.hi);
+    if (r.flame) mmsxx.removeSprite(r.flame);
   }
   rockets = [];
 }
@@ -1211,9 +1211,9 @@ function updateRockets() {
       r.flame.visible = true;
     }
     if (r.sp.y > SCREEN_H + 8) {
-      msx.removeBgSprite(r.sp);
-      if (r.hi) msx.removeSprite(r.hi);
-      if (r.flame) msx.removeSprite(r.flame);
+      mmsxx.removeBgSprite(r.sp);
+      if (r.hi) mmsxx.removeSprite(r.hi);
+      if (r.flame) mmsxx.removeSprite(r.flame);
       rockets.splice(rockets.indexOf(r), 1);
     }
   }
@@ -1223,14 +1223,14 @@ function breakRocket(r) {
   for (let i = 0; i < 6; i++) {
     spawnBoom(r.sp.x + Math.random() * ROCKET_W, r.sp.y + Math.random() * ROCKET_H);
   }
-  msx.audio.playSE('bigboom', SE_HIT);
+  mmsxx.audio.playSE('bigboom', SE_HIT);
   bigKills++;
   score += 8000;
   spawnPopup(r.sp.x, r.sp.y + 32, 8000);
-  msx.removeBgSprite(r.sp);
-  if (r.hi) msx.removeSprite(r.hi);
+  mmsxx.removeBgSprite(r.sp);
+  if (r.hi) mmsxx.removeSprite(r.hi);
   // 炎を消し忘れて、ジェット噴射だけが画面に残っていた
-  if (r.flame) msx.removeSprite(r.flame);
+  if (r.flame) mmsxx.removeSprite(r.flame);
   rockets.splice(rockets.indexOf(r), 1);
   drawHUD();
 }
@@ -1254,42 +1254,42 @@ function clearBubble() {
 
 function clearEntities() {
   clearBubble();
-  for (const b of bullets) msx.removeSprite(b.sp);
-  for (const e of enemies) msx.removeSprite(e.sp);
-  for (const b of enemyBullets) msx.removeSprite(b.sp);
-  for (const b of booms) msx.removeSprite(b.sp);
-  for (const it of items) msx.removeSprite(it.sp);
+  for (const b of bullets) mmsxx.removeSprite(b.sp);
+  for (const e of enemies) mmsxx.removeSprite(e.sp);
+  for (const b of enemyBullets) mmsxx.removeSprite(b.sp);
+  for (const b of booms) mmsxx.removeSprite(b.sp);
+  for (const it of items) mmsxx.removeSprite(it.sp);
   clearClawMissiles();
   clearEyeballs();
   clearMoai();
   clearShootStars();
   clearWeakSparks();
   if (boss) {
-    if (boss.eyeL) msx.removeSprite(boss.eyeL);
-    if (boss.eyeR) msx.removeSprite(boss.eyeR);
-    if (boss.eyeL2) msx.removeSprite(boss.eyeL2);
-    if (boss.eyeR2) msx.removeSprite(boss.eyeR2);
-      if (boss.mouth) msx.removeSprite(boss.mouth);
-    for (const g of boss.guards || []) msx.removeSprite(g.sp);
-  for (const g of boss.guards || []) msx.removeSprite(g.sp);
-  if (boss.mouth) msx.removeSprite(boss.mouth);
-  for (const g of boss.guards || []) msx.removeSprite(g.sp);
-    if (boss.charge) msx.removeSprite(boss.charge);
-    if (boss.chargeRing) msx.removeSprite(boss.chargeRing);
-    if (boss.arms) msx.removeSprite(boss.arms);
-    if (boss.brow) msx.removeSprite(boss.brow);
-    if (boss.crown) msx.removeSprite(boss.crown);
-  for (const t of boss.tears || []) msx.removeSprite(t.sp);
-  for (const sp of boss.blush || []) msx.removeSprite(sp);
-  if (boss.glint) msx.removeSprite(boss.glint);
-    for (const t of boss.tears || []) msx.removeSprite(t.sp);
-  for (const sp of boss.blush || []) msx.removeSprite(sp);
-  if (boss.glint) msx.removeSprite(boss.glint);
-    for (const sp of boss.blush || []) msx.removeSprite(sp);
-  if (boss.glint) msx.removeSprite(boss.glint);
-    if (boss.glint) msx.removeSprite(boss.glint);
-    for (const sp of boss.clawSps || []) msx.removeSprite(sp);
-    for (const sp of boss.pods || []) msx.removeSprite(sp);
+    if (boss.eyeL) mmsxx.removeSprite(boss.eyeL);
+    if (boss.eyeR) mmsxx.removeSprite(boss.eyeR);
+    if (boss.eyeL2) mmsxx.removeSprite(boss.eyeL2);
+    if (boss.eyeR2) mmsxx.removeSprite(boss.eyeR2);
+      if (boss.mouth) mmsxx.removeSprite(boss.mouth);
+    for (const g of boss.guards || []) mmsxx.removeSprite(g.sp);
+  for (const g of boss.guards || []) mmsxx.removeSprite(g.sp);
+  if (boss.mouth) mmsxx.removeSprite(boss.mouth);
+  for (const g of boss.guards || []) mmsxx.removeSprite(g.sp);
+    if (boss.charge) mmsxx.removeSprite(boss.charge);
+    if (boss.chargeRing) mmsxx.removeSprite(boss.chargeRing);
+    if (boss.arms) mmsxx.removeSprite(boss.arms);
+    if (boss.brow) mmsxx.removeSprite(boss.brow);
+    if (boss.crown) mmsxx.removeSprite(boss.crown);
+  for (const t of boss.tears || []) mmsxx.removeSprite(t.sp);
+  for (const sp of boss.blush || []) mmsxx.removeSprite(sp);
+  if (boss.glint) mmsxx.removeSprite(boss.glint);
+    for (const t of boss.tears || []) mmsxx.removeSprite(t.sp);
+  for (const sp of boss.blush || []) mmsxx.removeSprite(sp);
+  if (boss.glint) mmsxx.removeSprite(boss.glint);
+    for (const sp of boss.blush || []) mmsxx.removeSprite(sp);
+  if (boss.glint) mmsxx.removeSprite(boss.glint);
+    if (boss.glint) mmsxx.removeSprite(boss.glint);
+    for (const sp of boss.clawSps || []) mmsxx.removeSprite(sp);
+    for (const sp of boss.pods || []) mmsxx.removeSprite(sp);
     clearNautilus(boss);
     clearDragonSegs(boss);
     clearKing(boss);
@@ -1316,7 +1316,7 @@ function bulletHits(b) {
 
 /** 自弾を 1 発ぶん取り除き、その volley の残弾数を減らす */
 function removeBullet(b) {
-  msx.removeSprite(b.sp);
+  mmsxx.removeSprite(b.sp);
   bullets.splice(bullets.indexOf(b), 1);
   const n = volleys.get(b.volley);
   if (n <= 1) volleys.delete(b.volley);
@@ -1356,7 +1356,7 @@ function fireShot() {
   let phase = 0;
   for (const d of dirs) {
     // すべて 16x16 スプライトなので、中心を合わせれば自機の中心から出る
-    const sp = msx.sprite(IMG.bulletP);
+    const sp = mmsxx.sprite(IMG.bulletP);
     sp.x = player.x + (d.dx || 0);
     sp.y = player.y;
     sp.priority = 5;
@@ -1365,7 +1365,7 @@ function fireShot() {
   }
   volleys.set(id, dirs.length);
   lastShotFrame = playFrame;
-  msx.audio.playSE('shot', SE_HIT);
+  mmsxx.audio.playSE('shot', SE_HIT);
 }
 
 /** 5way でアイテムを取ったときのボム: 画面上の敵と敵弾を全滅させる(アイテムは出ない) */
@@ -1381,7 +1381,7 @@ let coinChainBest = 0;    // その面で伸ばした $ の最高額
 /** 敵を倒す(得点・アイテム・爆発をまとめて処理する) */
 function killEnemy(e) {
   spawnBoom(e.sp.x, e.sp.y);
-  msx.audio.playSE('boom', SE_HIT);
+  mmsxx.audio.playSE('boom', SE_HIT);
   // キューブは取りこぼさず壊し続けると得点が倍々に上がる
   const gain = ENEMY_SCORE[e.type];
   score += gain;
@@ -1402,7 +1402,7 @@ function killEnemy(e) {
   }
   if (e.type === 'D' || ENEMY_SCORE[e.type] >= 800) spawnPopup(e.sp.x, e.sp.y, gain);
   drawHUD();
-  msx.removeSprite(e.sp);
+  mmsxx.removeSprite(e.sp);
   const i = enemies.indexOf(e);
   if (i >= 0) enemies.splice(i, 1);
 }
@@ -1413,7 +1413,7 @@ function hitEnemy(e, dmg, knockback) {
   if (e.hp <= 0) { killEnemy(e); return; }
   // 耐久力のある敵(キューブ・硬いUFO)は弾かれたようなキンキン音
   const tough = e.type === 'D' || e.type === 'C';
-  msx.audio.playSE(tough ? 'clink' : 'hit');
+  mmsxx.audio.playSE(tough ? 'clink' : 'hit');
   if (knockback && e.type === 'D') e.sp.y -= 8;   // のけぞりは控えめに
 }
 
@@ -1422,7 +1422,7 @@ const FLAME_OFFSET = 17; // 機体からの距離
 // ドラゴンのアイテムを取ったか。緑の大きな炎になり、当たり判定も広がる。
 // **やられても消えない**(スピードの段階とは別のもの)
 let dragonFlame = false;
-// 推進炎のコマ送り用の時計。msx.frame と違い、画面を止めているあいだは進まない
+// 推進炎のコマ送り用の時計。mmsxx.frame と違い、画面を止めているあいだは進まない
 let flameFrame = 0;
 // ドラゴンの炎は七色に光る。色ちがいの絵を先に作っておいて差し替えるだけにする
 // (スプライトは 1 色なので、色を変えるには絵を作り直すしかない)
@@ -1488,20 +1488,20 @@ function burnBossBehind(fx, fy, r, dmg) {   // dmg は中で半分にするこ�
     if (boss.preBurn) return;
     boss.preBurn = Math.max(1, Math.round(dmg * BOSS_FLAME_MUL));
     boss.flash = 4;
-    msx.audio.playSE('weak');
+    mmsxx.audio.playSE('weak');
     spawnWeakSpark(fx - 8, fy - 8);
     return;
   }
   boss.hp -= Math.max(1, Math.round(dmg * BOSS_FLAME_MUL));
   boss.flash = 4;
-  msx.audio.playSE('weak');
+  mmsxx.audio.playSE('weak');
   spawnWeakSpark(fx - 8, fy - 8);
   if (boss.hp <= 0) {
     if (boss.kind === 'king') killKingWithRoar();
     else {
       boss.dying = 90;
-      msx.audio.stopBGM();
-      msx.audio.playSE('bossboom', SE_HIT);
+      mmsxx.audio.stopBGM();
+      mmsxx.audio.playSE('bossboom', SE_HIT);
     }
   }
 }
@@ -1517,8 +1517,8 @@ function playBGM(name, loop = true, restart = false) {
   currentBGM = name;
   // ジングル(ループしない曲 = ファンファーレなど)はいちばん強い。
   // 鳴っている SE は止めて、ジングルだけを聞かせる
-  if (!loop) msx.audio.stopSE();
-  msx.audio.playBGM(name, loop, restart);
+  if (!loop) mmsxx.audio.stopSE();
+  mmsxx.audio.playBGM(name, loop, restart);
 }
 
 /** 局面に合った BGM に切り替える(最大パワー時は専用曲。ボス戦は除く) */
@@ -1552,13 +1552,13 @@ function bombAllEnemies() {
   for (const e of [...enemies]) {
     spawnBoom(e.sp.x, e.sp.y);
     score += ENEMY_SCORE[e.type];
-    msx.removeSprite(e.sp);
+    mmsxx.removeSprite(e.sp);
     enemies.splice(enemies.indexOf(e), 1);
   }
-  for (const b of enemyBullets) msx.removeSprite(b.sp);
+  for (const b of enemyBullets) mmsxx.removeSprite(b.sp);
   enemyBullets = [];
   flashTimer = 4; // 軽く画面をフラッシュさせる
-  msx.audio.playSE('bossboom', SE_HIT);
+  mmsxx.audio.playSE('bossboom', SE_HIT);
   drawHUD();
 }
 
@@ -1570,10 +1570,10 @@ function startShake(n) { shakeTimer = Math.max(shakeTimer, n); }
 function updateShake() {
   if (shakeTimer <= 0) return;
   shakeTimer--;
-  if (shakeTimer <= 0) { msx.setAdjust(0, 0); return; }
+  if (shakeTimer <= 0) { mmsxx.setAdjust(0, 0); return; }
   // だんだん小さくなる。1 コマごとに向きを変えて「ぶるっ」とさせる
   const a = Math.ceil(shakeTimer / 5);
-  msx.setAdjust((msx.frame & 1) ? a : -a, ((msx.frame & 2) ? a : -a) >> 1);
+  mmsxx.setAdjust((mmsxx.frame & 1) ? a : -a, ((mmsxx.frame & 2) ? a : -a) >> 1);
 }
 
 // ボム発動時の画面フラッシュ(背景を一瞬白く飛ばす)
@@ -1587,7 +1587,7 @@ let flashSaved = null;
  */
 function cancelFlash() {
   if (flashSaved) {
-    msx.backdrop = flashSaved.backdrop;
+    mmsxx.backdrop = flashSaved.backdrop;
     far.visible = mid.visible = near.visible = flashSaved.stars;
     flashSaved = null;
   }
@@ -1596,12 +1596,12 @@ function cancelFlash() {
 
 function updateFlash() {
   if (flashTimer <= 0) return;
-  if (!flashSaved) flashSaved = { backdrop: msx.backdrop, stars: far.visible };
+  if (!flashSaved) flashSaved = { backdrop: mmsxx.backdrop, stars: far.visible };
   flashTimer--;
-  msx.backdrop = 15;
+  mmsxx.backdrop = 15;
   far.visible = mid.visible = near.visible = false;
   if (flashTimer === 0) {
-    msx.backdrop = flashSaved.backdrop;
+    mmsxx.backdrop = flashSaved.backdrop;
     far.visible = mid.visible = near.visible = flashSaved.stars;
     flashSaved = null;
   }
@@ -1651,7 +1651,7 @@ function enemyAllowed(type) {
 
 function spawnEnemy(type, x, phase) {
   if (!enemyAllowed(type)) return null;
-  const sp = msx.sprite(IMG_BY_TYPE[type]);
+  const sp = mmsxx.sprite(IMG_BY_TYPE[type]);
   // 下から上がってくる敵は、左右の端からだけ来る(真下から急に出てこない)
   if (type === 'F') x = (x < SCREEN_W / 2) ? 8 + (x % 24) : SCREEN_W - 40 + (x % 24);
   sp.x = x; sp.y = SPAWN_Y[type]; sp.priority = 8;
@@ -1722,7 +1722,7 @@ function spawnCubes() {
   const order = [...Array(n).keys()].sort(() => Math.random() - 0.5);
   for (let i = 0; i < n; i++) {
     const isStar = i === withStar, isItem = i === withItem, isAuto = i === withAuto;
-    const sp = msx.sprite(isAuto ? IMG.cubeAuto
+    const sp = mmsxx.sprite(isAuto ? IMG.cubeAuto
       : isStar ? IMG.cubeStar : isItem ? IMG.cubeItem : IMG.cube);
     sp.x = Math.round(order[i] * slot + Math.random() * (slot - 16));
     sp.y = -18 - i * 7;                              // ほぼ横一列で来るよう縦のずれは小さく
@@ -1740,7 +1740,7 @@ const BOUNCER_INTERVAL = 420;
 const BOUNCER_LEAST = 3, BOUNCER_LEAST_HARD = 8;
 let bouncerTimer = 0;
 function spawnBouncer() {
-  const sp = msx.sprite(IMG.bouncer);
+  const sp = mmsxx.sprite(IMG.bouncer);
   sp.x = Math.random() < 0.5 ? 8 : SCREEN_W - 24;
   // まとめて出すと同じ動きで固まってしまうので、
   // 出る高さと速さを 1 匹ずつばらけさせる(跳ね返る位相がずれる)
@@ -1763,7 +1763,7 @@ let warperTimer = WARP_INTERVAL;
 function spawnWarper() {
   const n = 1 + Math.floor(Math.random() * 2);
   for (let i = 0; i < n; i++) {
-    const sp = msx.sprite(IMG.warper);
+    const sp = mmsxx.sprite(IMG.warper);
     sp.x = 24 + Math.floor(Math.random() * (SCREEN_W - 64));
     sp.y = -20 - i * 28;
     sp.priority = 8;
@@ -1778,7 +1778,7 @@ let dasherTimer = DASHER_INTERVAL;
 function spawnDasher() {
   const n = 1 + Math.floor(Math.random() * 3);
   for (let i = 0; i < n; i++) {
-    const sp = msx.sprite(IMG.enemyA);
+    const sp = mmsxx.sprite(IMG.enemyA);
     sp.x = Math.max(0, Math.min(SCREEN_W - 16, player.x + (Math.random() - 0.5) * 80));
     sp.y = -20 - i * 22;
     sp.priority = 8;
@@ -1798,7 +1798,7 @@ function spawnRammerPair() {
   // (enemyAllowed を通らない経路なので、ここで止める必要がある)
   if (isNormal()) return;
   for (const dir of [1, -1]) {
-    const sp = msx.sprite(IMG.rammer);
+    const sp = mmsxx.sprite(IMG.rammer);
     sp.flipX = dir < 0;   // 1 枚の絵を左右反転して両向きに使う
     sp.x = dir > 0 ? -20 : SCREEN_W + 4;
     // 画面の端に張り付いていても当たらないよう、少し上下にずらして出す
@@ -1877,7 +1877,7 @@ const GLOWER_LIFE = 600;       // 一定時間浮いたら去っていく
 const GLOWER_COINS = 6;        // ばらまく $ の数
 let glowerTimer = GLOWER_INTERVAL;
 function spawnGlower() {
-  const sp = msx.sprite(IMG.glower0);
+  const sp = mmsxx.sprite(IMG.glower0);
   sp.x = 32 + Math.floor(Math.random() * (SCREEN_W - 80));
   sp.y = -20;
   sp.priority = 9;
@@ -1899,15 +1899,15 @@ const WEIGHT_INTERVAL = 1100;
 let weightTimer = WEIGHT_INTERVAL;
 let weights = [];
 function spawnWeight() {
-  const sp = msx.sprite(IMG.weight16t);
+  const sp = mmsxx.sprite(IMG.weight16t);
   sp.x = 16 + Math.floor(Math.random() * (SCREEN_W - 64));
   sp.y = -WEIGHT_H;
   sp.priority = 11;   // 敵より手前。自機の弾は素通りする
   weights.push({ sp, vy: 1.6 });   // 一気に落ちてくる(よけるより逃げる)
-  msx.audio.playSE('weight', SE_JINGLE);   // 即死なので、何より先に鳴らす
+  mmsxx.audio.playSE('weight', SE_JINGLE);   // 即死なので、何より先に鳴らす
 }
 function clearWeights() {
-  for (const w of weights) msx.removeSprite(w.sp);
+  for (const w of weights) mmsxx.removeSprite(w.sp);
   weights = [];
 }
 function updateWeights() {
@@ -1915,7 +1915,7 @@ function updateWeights() {
     w.sp.y += w.vy;
     // 触れたら即死。青とピンクを **2 コマずつ**入れ替えて危険を知らせる
     // (1 コマ交代だと混ざってピンク 1 色に見えてしまう)
-    w.sp.colorMap = (msx.frame & 2) ? { 4: 9 } : null;
+    w.sp.colorMap = (mmsxx.frame & 2) ? { 4: 9 } : null;
     // 通り道にいる敵と敵弾は、まとめて潰していく
     const x0 = w.sp.x, x1 = w.sp.x + WEIGHT_W;
     const y0 = w.sp.y, y1 = w.sp.y + WEIGHT_H;
@@ -1927,11 +1927,11 @@ function updateWeights() {
     for (const b of [...enemyBullets]) {
       if (b.sp.x + 8 < x0 || b.sp.x + 8 > x1) continue;
       if (b.sp.y + 8 < y0 || b.sp.y + 8 > y1) continue;
-      msx.removeSprite(b.sp);
+      mmsxx.removeSprite(b.sp);
       enemyBullets.splice(enemyBullets.indexOf(b), 1);
     }
     if (w.sp.y > SCREEN_H + 8) {
-      msx.removeSprite(w.sp);
+      mmsxx.removeSprite(w.sp);
       weights.splice(weights.indexOf(w), 1);
     }
   }
@@ -1974,12 +1974,12 @@ function updateBooms() {
     b.age++;
     if (b.age === 5) b.sp.image = IMG.boom1;
     else if (b.age === 10) b.sp.image = IMG.boom2;
-    else if (b.age >= 15) { msx.removeSprite(b.sp); booms.splice(booms.indexOf(b), 1); }
+    else if (b.age >= 15) { mmsxx.removeSprite(b.sp); booms.splice(booms.indexOf(b), 1); }
   }
 }
 
 function spawnBoom(x, y) {
-  const sp = msx.sprite(IMG.boom0);
+  const sp = mmsxx.sprite(IMG.boom0);
   sp.x = x; sp.y = y; sp.priority = 20;
   booms.push({ sp, age: 0 });
 }
@@ -2087,13 +2087,13 @@ const LAST_WARN_DELAY = 180;   // 音の 1 秒あとから文字を出す
 let lastWarnTimer = 0;
 function startLastShipWarning() {
   lastWarnTimer = 240;
-  msx.audio.playSE('warning');
+  mmsxx.audio.playSE('warning');
 }
 function updateLastShipWarning() {
   if (lastWarnTimer <= 0) return;
   lastWarnTimer--;
   // 1 秒ごとに鳴らし直す(音は復帰と同時)
-  if (lastWarnTimer % 60 === 0 && lastWarnTimer > 0) msx.audio.playSE('warning');
+  if (lastWarnTimer % 60 === 0 && lastWarnTimer > 0) mmsxx.audio.playSE('warning');
   // 文字は 1 秒おくれて出しはじめる
   if (lastWarnTimer > LAST_WARN_DELAY) return;
   if (lastWarnTimer % 20 === 0) {
@@ -2183,7 +2183,7 @@ let titleSparks = [];
 function ensureTitleSparks() {
   if (titleSparks.length) return;
   for (let i = 0; i < SPARK_COUNT; i++) {
-    const sp = msx.sprite(IMG.spark0);
+    const sp = mmsxx.sprite(IMG.spark0);
     sp.priority = 30;
     sp.frames = [IMG.spark0, IMG.spark1, IMG.spark2, IMG.spark1];
     sp.frameRate = 5;
@@ -2251,7 +2251,7 @@ function updateTitleSparks() {
     const box = logoBoxes[i % logoBoxes.length];
     const w = box.x1 - box.x0, h = box.y1 - box.y0;
     const peri = (w + h) * 2;
-    let d = (msx.frame * 1.3) % peri;
+    let d = (mmsxx.frame * 1.3) % peri;
     let x, y;
     if (d < w) { x = box.x0 + d; y = box.y0; }
     else if ((d -= w) < h) { x = box.x1; y = box.y0 + d; }
@@ -2277,7 +2277,7 @@ function enterTitle(page = 0, focusRank = -1, fromOver = false) {
   titleScene = true;      // タイトルは決まった背景にする
   clearEntities();
   player.visible = false;
-  msx.audio.stopBGM();
+  mmsxx.audio.stopBGM();
   currentBGM = null;
   hud.clear();
   popups = [];
@@ -2327,7 +2327,7 @@ function helpIconSprites() {
     // 絵をずらしたコピーではなく元の絵を使う(ずらすと上端が欠けるため)。
     // 位置を 4 ドット上げて文字と高さをそろえる。
     helpIcons = ITEM_HELP.map(([kind]) => {
-      const sp = msx.sprite(ITEM_IMG[kind]);
+      const sp = mmsxx.sprite(ITEM_IMG[kind]);
       sp.priority = 20;
       sp.visible = false;
       return sp;
@@ -2393,13 +2393,13 @@ let hiManual = false;   // 上下キーを触ったかどうか(いまは表示�
  */
 function updateHiScoreList() {
   const maxTop = Math.max(0, listTable().entries.length - HISCORE_ROWS);
-  if (msx.input.isDown('ArrowUp') && msx.frame % 4 === 0) {
+  if (mmsxx.input.isDown('ArrowUp') && mmsxx.frame % 4 === 0) {
     hiManual = true;
     hiTop = Math.max(0, hiTop - 1);
     drawHiScoreList();
     return;
   }
-  if (msx.input.isDown('ArrowDown') && msx.frame % 4 === 0) {
+  if (mmsxx.input.isDown('ArrowDown') && mmsxx.frame % 4 === 0) {
     hiManual = true;
     hiTop = Math.min(maxTop, hiTop + 1);
     drawHiScoreList();
@@ -2421,7 +2421,7 @@ function drawTitlePage() {
     const help = String.fromCharCode(0x18, 0x19, 0x1a, 0x1b) + ':MOVE  SP:SHOT  ESC:PAUSE';
     hud.print(centerX(help), 158, help, 10);
     // 手元で開いているときだけ、隅に小さく印を出す(公開版には出ない)
-    if (msx.isLocal) hud.print(VW - 32, 184, 'DEV', 6);
+    if (mmsxx.isLocal) hud.print(VW - 32, 184, 'DEV', 6);
   } else if (titlePage === 1) {
     hud.print(centerX('- ITEMS -'), 8, '- ITEMS -', 15);
     const icons = helpIconSprites();
@@ -2464,7 +2464,7 @@ function drawModeLine() {
   const name = MODES[modeIndex].name;
   hud.print(centerX(name), y + 8, name, 14);
   // 下キーを押しているあいだは「続きから」に変わる(遊んだ面がある場合だけ)
-  if (continueStageNow() > 1 && msx.input.isDown('ArrowDown')) {
+  if (continueStageNow() > 1 && mmsxx.input.isDown('ArrowDown')) {
     const c = 'CONTINUE  STAGE ' + continueStageNow();
     hud.fill(0, 0, y, VW, 8);
     hud.print(centerX(c), y, c, 11);
@@ -2475,24 +2475,24 @@ function updateModeLine() {
   const y = pushKeyY();
   const x = modeLineX();
   // 下キーを押しているあいだは「続きから」の案内に切り替える
-  const cont = continueStageNow() > 1 && msx.input.isDown('ArrowDown');
+  const cont = continueStageNow() > 1 && mmsxx.input.isDown('ArrowDown');
   if (cont !== modeLineCont) {
     modeLineCont = cont;
     drawModeLine();
     return;
   }
   if (cont) return;   // 案内を出しているあいだは点滅させない
-  if (msx.frame % 32 === 0) hud.print(x + 16, y, PUSH_KEY, 15);
-  else if (msx.frame % 32 === 16) hud.fill(0, x + 16, y, PUSH_KEY.length * 8, 8);
-  if (msx.frame % 12 === 0) {
-    const on = (msx.frame / 12) % 2 === 0;
+  if (mmsxx.frame % 32 === 0) hud.print(x + 16, y, PUSH_KEY, 15);
+  else if (mmsxx.frame % 32 === 16) hud.fill(0, x + 16, y, PUSH_KEY.length * 8, 8);
+  if (mmsxx.frame % 12 === 0) {
+    const on = (mmsxx.frame / 12) % 2 === 0;
     hud.print(x, y, on ? ARROW_L : ' ', 11);
     hud.print(x + (MODE_LINE.length - 1) * 8, y, on ? ARROW_R : ' ', 11);
   }
 }
 
 function startStage() {
-  if (currentBGM === 'elise') { msx.audio.stopBGM(); currentBGM = null; }
+  if (currentBGM === 'elise') { mmsxx.audio.stopBGM(); currentBGM = null; }
   // ここまでタイトル用の背景だったので、面の背景に切り替える。
   // (以前はボスが出るまで解除されず、1 面がずっとタイトルの背景のままだった)
   titleScene = false;
@@ -2692,16 +2692,16 @@ function willRankIn(v) {
 
 /** いまの画面を開発サーバへ送って capture/ に残す */
 function captureShare(name) {
-  if (!msx.isLocal) return;
+  if (!mmsxx.isLocal) return;
   try {
-    const image = msx.capture();   // 原寸(いちばん安い)
+    const image = mmsxx.capture();   // 原寸(いちばん安い)
     fetch('/__capture', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ image, name }),
     }).catch(() => {});   // 保存に失敗してもゲームは続ける
   } catch (e) {
-    msx.errors.log('capture 失敗: ' + e);
+    mmsxx.errors.log('capture 失敗: ' + e);
   }
 }
 
@@ -2713,9 +2713,9 @@ function captureShare(name) {
 function captureClipboard() {
   // 知らせの文字は出さない(撮った絵に写ってしまうため)。
   // 代わりにシャッター音を、いちばん強い優先度で鳴らす
-  msx.audio.playSE('shutter', SE_JINGLE);
+  mmsxx.audio.playSE('shutter', SE_JINGLE);
   try {
-    const canvas = msx.capture({ type: 'canvas' });
+    const canvas = mmsxx.capture({ type: 'canvas' });
     // 原寸だと小さいので、3 倍のドットのまま大きくして貼りやすくする
     const out = document.createElement('canvas');
     out.width = canvas.width * 3; out.height = canvas.height * 3;
@@ -2724,14 +2724,14 @@ function captureClipboard() {
     cx.drawImage(canvas, 0, 0, out.width, out.height);
     out.toBlob((blob) => {
       if (!blob || !navigator.clipboard || !window.ClipboardItem) {
-        msx.errors.log('clipboard が使えない環境です');
+        mmsxx.errors.log('clipboard が使えない環境です');
         return;
       }
       navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
-        .catch((e) => msx.errors.log('clipboard 書き込み失敗: ' + e));
+        .catch((e) => mmsxx.errors.log('clipboard 書き込み失敗: ' + e));
     }, 'image/png');
   } catch (e) {
-    msx.errors.log('clipboard 失敗: ' + e);
+    mmsxx.errors.log('clipboard 失敗: ' + e);
   }
 }
 
@@ -2743,9 +2743,9 @@ function enterGameOver() {
   // ラスボスに負けたときは、画面を止めて高笑いを聞かせる。
   // (倒したときの名乗りと対になる演出)
   if (boss && boss.kind === 'king' && boss.dying <= 0 && !bossPractice) {
-    msx.audio.stopBGM();
+    mmsxx.audio.stopBGM();
     currentBGM = null;
-    msx.audio.stopSE();
+    mmsxx.audio.stopSE();
     talkName = 'kingLaugh';
     talkBlast = false;
     talkHold = 60 + TALK_HOLD_FRAMES;   // 1 秒おいてから笑い出す
@@ -2758,7 +2758,7 @@ function enterGameOver() {
   }
   statsStageEnd();
   // 開発中だけ: ランクインしていたら、GAME OVER の文字が出る前の画面を残す
-  if (msx.isLocal && gameMode() !== 'bossrush' && willRankIn(score)) {
+  if (mmsxx.isLocal && gameMode() !== 'bossrush' && willRankIn(score)) {
     captureShare('rankin' + score);
   }
   statsFinish();
@@ -2812,7 +2812,7 @@ function enterNameEntry(target = 'score') {
   player.visible = false;
   aux.visible = false;
   // ゲームオーバー曲を止めてから、名前入力の「エリーゼのために」を流す
-  msx.audio.stopBGM();
+  mmsxx.audio.stopBGM();
   playBGM('elise', true);
   hud.clear();
   popups = [];
@@ -2865,7 +2865,7 @@ function drawNameRow() {
   hud.fill(0, 0, 100, VW, 16);
   hud.print(x, 100, shown, 7);
   // 選んでいる桁だけ、下に▲を点滅させる(上下キーで変えられる目印)
-  if ((msx.frame >> 4) & 1) return;
+  if ((mmsxx.frame >> 4) & 1) return;
   hud.print(x + entryPos * 8, 108, String.fromCharCode(0x18), 11);
 }
 
@@ -2873,7 +2873,7 @@ function drawNameRow() {
 function updateNameEntry() {
   let changed = false;
   // 下じるしの点滅ぶんだけは毎フレーム描き直す
-  if (msx.frame % 16 === 0) drawNameRow();
+  if (mmsxx.frame % 16 === 0) drawNameRow();
   /** 打ち込みで 1 文字入れる。いま選んでいる桁に置いて、次の桁へ進む */
   const typeChar = (ch) => {
     setNameChar(entryPos, ch);
@@ -2881,15 +2881,15 @@ function updateNameEntry() {
     changed = true;
   };
   // カーソルキー: 左右で桁を選び、上下でその桁の文字を送る
-  if (msx.input.wasPressed('ArrowLeft')) { entryPos = (entryPos + NAME_MAX - 1) % NAME_MAX; changed = true; }
-  if (msx.input.wasPressed('ArrowRight')) { entryPos = (entryPos + 1) % NAME_MAX; changed = true; }
-  if (msx.input.wasPressed('ArrowUp')) { cycleNameChar(1); changed = true; }
-  if (msx.input.wasPressed('ArrowDown')) { cycleNameChar(-1); changed = true; }
+  if (mmsxx.input.wasPressed('ArrowLeft')) { entryPos = (entryPos + NAME_MAX - 1) % NAME_MAX; changed = true; }
+  if (mmsxx.input.wasPressed('ArrowRight')) { entryPos = (entryPos + 1) % NAME_MAX; changed = true; }
+  if (mmsxx.input.wasPressed('ArrowUp')) { cycleNameChar(1); changed = true; }
+  if (mmsxx.input.wasPressed('ArrowDown')) { cycleNameChar(-1); changed = true; }
   for (let i = 0; i < 26; i++) {
-    if (msx.input.wasPressed('Key' + String.fromCharCode(65 + i))) typeChar(String.fromCharCode(65 + i));
+    if (mmsxx.input.wasPressed('Key' + String.fromCharCode(65 + i))) typeChar(String.fromCharCode(65 + i));
   }
   for (let i = 0; i < 10; i++) {
-    if (msx.input.wasPressed('Digit' + i)) typeChar(String(i));
+    if (mmsxx.input.wasPressed('Digit' + i)) typeChar(String(i));
   }
   // 記号も入れられる(スペースは名前の一部。決定には使わない)
   const SYMBOLS = [
@@ -2899,11 +2899,11 @@ function updateNameEntry() {
   for (const [code, ch] of SYMBOLS) {
     // '!' と '?' は Shift 付きなので、記号キー単体でも入るようにしてある
     if (code === 'Digit1' || code === 'Slash') continue;
-    if (msx.input.wasPressed(code)) typeChar(ch);
+    if (mmsxx.input.wasPressed(code)) typeChar(ch);
   }
-  if (msx.input.wasPressed('Slash')) typeChar('?');
-  if (msx.input.wasPressed('Backslash') || msx.input.wasPressed('Equal')) typeChar('!');
-  if (msx.input.wasPressed('Backspace')) {
+  if (mmsxx.input.wasPressed('Slash')) typeChar('?');
+  if (mmsxx.input.wasPressed('Backslash') || mmsxx.input.wasPressed('Equal')) typeChar('!');
+  if (mmsxx.input.wasPressed('Backspace')) {
     // いまの桁に文字が入っていればそこを消す。空ならひとつ前へ戻って消す。
     // (打ち終わりはカーソルが最後の桁に乗ったままなので、
     //  いきなり前へ戻すと最後の 1 文字が消せなかった)
@@ -2913,19 +2913,19 @@ function updateNameEntry() {
     changed = true;
   }
   // 抜けるのは ESC だけ(スペースは名前に入れる文字なので使わない)
-  if (msx.input.wasPressed('Escape')) {
-    msx.audio.stopBGM(); currentBGM = null;
+  if (mmsxx.input.wasPressed('Escape')) {
+    mmsxx.audio.stopBGM(); currentBGM = null;
     enterTitle(0, -1, true);   // ここもゲームオーバー明けなので CONTINUE を選ぶ
     return;
   }
-  if (msx.input.wasPressed('Enter')) {
+  if (mmsxx.input.wasPressed('Enter')) {
     // エンジンのハイスコア表に登録する(自分の記録として覚えられる)
     const name = entryName.replace(/\s+$/, '') || 'NONAME';
     const rush = entryTarget === 'rush';
     const rank = rush
       ? rushTable.add({ name, frames: rushFrames })
       : scoreTable().add({ name, score });
-    msx.audio.stopBGM();
+    mmsxx.audio.stopBGM();
     currentBGM = null;
     // 登録したらそのランキングの一覧へ。自分の順位が上下の真ん中に来る
     // (ボスラッシュはタイムの表、それ以外は NORMAL / HARD それぞれの表)
@@ -2934,7 +2934,7 @@ function updateNameEntry() {
     enterTitle(page, rank, true);
     return;
   }
-  if (changed) { msx.audio.playSE('item'); drawNameEntry(); }
+  if (changed) { mmsxx.audio.playSE('item'); drawNameEntry(); }
 }
 
 /** 被弾: バリアが最優先で身代わり、次にパワーダウン、1way なら爆発して 1 機失う */
@@ -2943,7 +2943,7 @@ function damagePlayer(cause = 'unknown') {
   if (barrierHP > 0) {
     barrierHP--;
     invincible = 110;
-    msx.audio.playSE('powerdown');
+    mmsxx.audio.playSE('powerdown');
     showNotice('BARRIER LOST');
     drawHUD();
     return;
@@ -2952,7 +2952,7 @@ function damagePlayer(cause = 'unknown') {
   if (!isNormal() && shotLevel > 1) {
     shotLevel--;
     invincible = 100;
-    msx.audio.playSE('powerdown');
+    mmsxx.audio.playSE('powerdown');
     drawHUD();
     return;
   }
@@ -2970,7 +2970,7 @@ function damagePlayer(cause = 'unknown') {
  */
 function criticalLook() {
   startShake(18);
-  msx.audio.playSE('bigboom', SE_HIT);
+  mmsxx.audio.playSE('bigboom', SE_HIT);
   for (let i = 0; i < 6; i++) {
     spawnBoom(player.x - 12 + Math.random() * 32, player.y - 12 + Math.random() * 32);
   }
@@ -2987,7 +2987,7 @@ function criticalHit(cause) {
     if (barrierHP <= 0) { destroyPlayer(cause); return; }
     barrierHP = 0;
     invincible = 120;
-    msx.audio.playSE('powerdown');
+    mmsxx.audio.playSE('powerdown');
     showNotice('BARRIER LOST');
     drawHUD();
     return;
@@ -2997,7 +2997,7 @@ function criticalHit(cause) {
   barrierHP = 0;
   invincible = 120;
   // 大事な音なので優先度を上げ、細かい爆発を自機のまわりに散らす
-  msx.audio.playSE('bigboom', SE_HIT);
+  mmsxx.audio.playSE('bigboom', SE_HIT);
   for (let i = 0; i < 6; i++) {
     spawnBoom(player.x - 12 + Math.random() * 32, player.y - 12 + Math.random() * 32);
   }
@@ -3028,7 +3028,7 @@ function destroyPlayer(cause = 'unknown') {
   // やられた瞬間に残っていた弾は消す(復活演出中に当たり続けないように)
   for (const b of [...bullets]) removeBullet(b);
   // 自機がやられた音は何よりも聞こえてほしいので優先度を上げる
-  msx.audio.playSE('bigboom', SE_HIT);
+  mmsxx.audio.playSE('bigboom', SE_HIT);
   statsDeath(cause);
   // やられたら「はじまりの装備」に戻す。
   // HARD は丸腰へ、NORMAL とボスラッシュはそのモードの初期装備へ戻る
@@ -3056,7 +3056,7 @@ function respawnPlayer() {
   player.visible = true;
   entering = true;
   invincible = 160;
-  msx.audio.playSE('appear');
+  mmsxx.audio.playSE('appear');
 }
 
 const ITEM_IMG = {
@@ -3151,7 +3151,7 @@ function randomItemKind() {
  * (置くだけだと、下へ流れてすぐ画面から消えてしまうため)
  */
 function dropItem(x, y, kind = 'power', toss) {
-  const sp = msx.sprite(ITEM_IMG[kind]);
+  const sp = mmsxx.sprite(ITEM_IMG[kind]);
   sp.x = x; sp.y = y; sp.priority = 7;
   items.push({
     sp, age: 0, kind,
@@ -3237,7 +3237,7 @@ function startBossIntro() {
   // BGM はその間ずっとフェードアウトしていく。
   // currentBGM は鳴らしたままにしておく(null にすると updateBGM が
   // 「曲が変わった」と見なして鳴らし直してしまうため)
-  msx.audio.fadeOutBGM(INTRO_QUIET_LEN / 60);
+  mmsxx.audio.fadeOutBGM(INTRO_QUIET_LEN / 60);
 }
 
 function updateBossIntro() {
@@ -3248,7 +3248,7 @@ function updateBossIntro() {
     // (ボスラッシュは曲を止めない)。
     // 背景オブジェクトはここまでのスクロールで画面外へ流れているので、
     // このタイミングで裏画面を消して星だけにする
-    if (gameMode() !== 'bossrush') { msx.audio.stopBGM(); currentBGM = null; }
+    if (gameMode() !== 'bossrush') { mmsxx.audio.stopBGM(); currentBGM = null; }
     neb.clear();
     const name = bossName();
     hud.print(centerX('WARNING!!'), 72, 'WARNING!!', 8);
@@ -3323,8 +3323,8 @@ let clawMissiles = [];
 function spawnCrabBoss() {
   const hp = 40 + stageNo * 16;
   // 目はタコと同じ水色 1 色。自機のいる方へ少し寄る
-  const eyeL = msx.sprite(IMG.bossEye2);
-  const eyeR = msx.sprite(IMG.bossEye2);
+  const eyeL = mmsxx.sprite(IMG.bossEye2);
+  const eyeR = mmsxx.sprite(IMG.bossEye2);
   eyeL.priority = eyeR.priority = 13;
   boss = {
     kind: 'crab',
@@ -3351,12 +3351,12 @@ function spawnCrabBoss() {
   }));
   boss.partClaws = [bossPart(IMG.crabClawBig), bossPart(IMG.crabClawBig)];
   // 王冠(タコと同じもの)。甲羅のてっぺんに斜めにかぶせる
-  boss.crown = msx.sprite(IMG.octoCrown);
+  boss.crown = mmsxx.sprite(IMG.octoCrown);
   boss.crown.priority = 12;
   boss.crown.flipX = true;    // カニは反転してかぶる
   // 装甲に取り付いている装置。スプライトなので 8 ドットに縛られず置ける
   boss.pods = CRAB_POD_POS.map((_, i) => {
-    const sp = msx.sprite(IMG.crabPod);
+    const sp = mmsxx.sprite(IMG.crabPod);
     sp.priority = 9;
     sp.flipX = (i === 1);   // 真ん中のパネルだけ向きを変える
     return sp;
@@ -3373,16 +3373,16 @@ function spawnCrabBoss() {
  *  壊せるが、壊すと弾が散る。反対の壁へ跳ぶとハサミは生え変わる */
 function fireClawMissile(x, y, flipX = false, from = -1) {
   // 本体に付いていたのと同じ絵を、多色のまま飛ばす(BG スプライト)
-  const sp = msx.bgSprite(IMG.crabClawBig);
+  const sp = mmsxx.bgSprite(IMG.crabClawBig);
   sp.x = x; sp.y = y; sp.priority = BGP_FRONT + 4; sp.flipX = flipX;
   // 壁と反対側へ、まっすぐ横に飛んでいく
   const out = flipX ? -1 : 1;
   // お尻(飛んでいく向きと反対側)に噴射をつける
-  const jet = msx.sprite(IMG.flameBig);
+  const jet = mmsxx.sprite(IMG.flameBig);
   jet.priority = 8;
   jet.rotate = out > 0 ? 90 : 270;   // 下向きの炎を横向きにする
   clawMissiles.push({ sp, vx: out * 2.4, vy: 0, hp: CRAB_CLAW_HP, jet, out, from });
-  msx.audio.playSE('shot', SE_HIT);
+  mmsxx.audio.playSE('shot', SE_HIT);
 }
 
 /** ハサミを 1 本もぐ。位置(i)で覚え、本数はそこから数え直す */
@@ -3400,8 +3400,8 @@ function killCrabClaw(b, i) {
 }
 
 function removeClawMissile(m, scatter) {
-  msx.removeBgSprite(m.sp);
-  if (m.jet) msx.removeSprite(m.jet);
+  mmsxx.removeBgSprite(m.sp);
+  if (m.jet) mmsxx.removeSprite(m.jet);
   clawMissiles.splice(clawMissiles.indexOf(m), 1);
   if (!scatter) return;
   // 壊すと大爆発。破片(弾)が飛び散るので、壊したあとも油断できない
@@ -3414,13 +3414,13 @@ function removeClawMissile(m, scatter) {
     spawnBoom(m.sp.x + Math.random() * CRAB_CLAW_W, m.sp.y + Math.random() * CRAB_CLAW_H);
   }
   flashTimer = 3;
-  msx.audio.playSE('bigboom', SE_HIT);
+  mmsxx.audio.playSE('bigboom', SE_HIT);
 }
 
 function clearClawMissiles() {
   for (const m of clawMissiles) {
-    msx.removeBgSprite(m.sp);
-    if (m.jet) msx.removeSprite(m.jet);
+    mmsxx.removeBgSprite(m.sp);
+    if (m.jet) mmsxx.removeSprite(m.jet);
   }
   clawMissiles = [];
 }
@@ -3430,7 +3430,7 @@ function updateClawMissiles() {
     m.sp.x += m.vx; m.sp.y += m.vy;
     if (m.jet) {
       // 噴射はハサミのお尻。1 コマおきに大きさを変えてゆらめかせる
-      m.jet.image = (msx.frame & 3) < 2 ? IMG.flameBig : IMG.flameSmall;
+      m.jet.image = (mmsxx.frame & 3) < 2 ? IMG.flameBig : IMG.flameSmall;
       m.jet.x = m.out > 0 ? m.sp.x - 12 : m.sp.x + CRAB_CLAW_W - 4;
       m.jet.y = m.sp.y + CRAB_CLAW_H / 2 - 8;
     }
@@ -3637,7 +3637,7 @@ function spawnNautilusBoss() {
   const blocks = [];
   const weakAt = Math.floor(Math.random() * NAUT_BLOCKS);
   for (let i = 0; i < NAUT_BLOCKS; i++) {
-    const sp = msx.bgSprite(i === weakAt ? IMG.gearWeak0 : IMG.gearBlock);
+    const sp = mmsxx.bgSprite(i === weakAt ? IMG.gearWeak0 : IMG.gearBlock);
     sp.priority = BGP_FRONT + 2;
     // 壊れない装甲はスプライトを使わず BG だけでしのぐ
     blocks.push({
@@ -3650,7 +3650,7 @@ function spawnNautilusBoss() {
   // 数は装甲の半分、速さは 3 倍。
   const orbs = [];
   for (let i = 0; i < NAUT_BLOCKS / 2; i++) {
-    const sp = msx.sprite(IMG.gearGem);
+    const sp = mmsxx.sprite(IMG.gearGem);
     sp.priority = 14;
     // 2 コマで形が変わる稲妻。1 つおきに位相をずらす
     sp.frames = [IMG.gearGem, IMG.gearSpark1];
@@ -3661,13 +3661,13 @@ function spawnNautilusBoss() {
     sp.blinkPhase = i & 1;
     orbs.push({ sp, angle: (Math.PI * 2 * i) / (NAUT_BLOCKS / 2) });
   }
-  const core = msx.bgSprite(IMG.nautilus);
+  const core = mmsxx.bgSprite(IMG.nautilus);
   core.priority = BGP_FRONT + 1;
   // ほかのボスと同じ水色の目を、殻に開けた穴へ重ねる
-  const eyeL = msx.sprite(IMG.bossEye2);
+  const eyeL = mmsxx.sprite(IMG.bossEye2);
   eyeL.priority = 13;
   // 王冠(ほかのボスと同じもの)。渦巻きのてっぺんに斜めにかぶせる
-  const crown = msx.sprite(IMG.octoCrown);
+  const crown = mmsxx.sprite(IMG.octoCrown);
   crown.priority = 15;
   boss = {
     kind: 'nautilus',
@@ -3685,9 +3685,9 @@ function spawnNautilusBoss() {
 
 function clearNautilus(b) {
   if (!b || b.kind !== 'nautilus') return;
-  for (const g of b.blocks || []) msx.removeBgSprite(g.sp);
-  for (const o of b.orbs || []) msx.removeSprite(o.sp);
-  if (b.core) msx.removeBgSprite(b.core);
+  for (const g of b.blocks || []) mmsxx.removeBgSprite(g.sp);
+  for (const o of b.orbs || []) mmsxx.removeSprite(o.sp);
+  if (b.core) mmsxx.removeBgSprite(b.core);
   b.blocks = [];
   b.core = null;
 }
@@ -3741,7 +3741,7 @@ function updateNautilusBoss(b) {
         const a = Math.atan2(gy - cy, gx - cx);   // 輪の外へ向かって撃つ
         fireEnemyBullet(gx - 8, gy - 8, Math.cos(a) * 1.2, Math.sin(a) * 1.2, false);
       }
-      msx.audio.playSE('shot', SE_HIT);
+      mmsxx.audio.playSE('shot', SE_HIT);
     }
   }
 }
@@ -3767,14 +3767,14 @@ const DRAGON_CALM = 120;
 function spawnDragonBoss() {
   const hp = 40 + stageNo * 16;
   // 眼窩の奥にタコと同じ水色の目を入れる
-  const eyeL = msx.sprite(IMG.bossEye2);
-  const eyeR = msx.sprite(IMG.bossEye2);
+  const eyeL = mmsxx.sprite(IMG.bossEye2);
+  const eyeR = mmsxx.sprite(IMG.bossEye2);
   eyeL.priority = eyeR.priority = 13;
   // 胴体の節は BG スプライトで、頭が通った跡をなぞらせる
   const segs = [];
   for (let i = 0; i < DRAGON_SEGS; i++) {
     // 最後の 1 節だけ、しっぽの形にする
-    const sp = msx.bgSprite(i === DRAGON_SEGS - 1 ? IMG.dragonTail : IMG.dragonBody);
+    const sp = mmsxx.bgSprite(i === DRAGON_SEGS - 1 ? IMG.dragonTail : IMG.dragonBody);
     sp.priority = BGP_FRONT;
     sp.x = -99; sp.y = -99;
     segs.push(sp);
@@ -3792,14 +3792,14 @@ function spawnDragonBoss() {
   // 頭は胴体の節より手前に置く(顔が埋もれないように)
   boss.partHead = bossPart(IMG.dragonHead, 1);
   // 王冠(タコ・カニと同じもの)。頭蓋のてっぺんにかぶせる
-  boss.crown = msx.sprite(IMG.octoCrown);
+  boss.crown = mmsxx.sprite(IMG.octoCrown);
   boss.crown.priority = 12;
   drawBossBody();
   playBGM('boss', true);
 }
 
 function clearDragonSegs(b) {
-  for (const sp of (b && b.segs) || []) msx.removeBgSprite(sp);
+  for (const sp of (b && b.segs) || []) mmsxx.removeBgSprite(sp);
   if (b) b.segs = [];
 }
 
@@ -3822,7 +3822,7 @@ function updateDragonBoss(b) {
       b.mode = 'leave';
       // 近いほうの上下へ、しっぽまで見えなくなるまで泳いで出る
       b.leaveDir = (b.y + DRAGON_H / 2 < SCREEN_H / 2) ? -1 : 1;
-      msx.audio.playSE('warning');
+      mmsxx.audio.playSE('warning');
     }
   } else if (b.mode === 'leave') {
     // 画面の外へ泳いで抜ける(胴体が全部出きるまで待つ)
@@ -3858,19 +3858,19 @@ function updateDragonBoss(b) {
     } else if (b.telegraph > 0) {
       b.telegraph--;
       // 構えているあいだ、溜めの音を鳴らし続ける(短いかたまりのくり返し)
-      if (b.telegraph % SE_CHUNK === 0) msx.audio.playSE('charging', SE_EVENT + 1);
+      if (b.telegraph % SE_CHUNK === 0) mmsxx.audio.playSE('charging', SE_EVENT + 1);
       // そこへ「3・2・1」の声を重ねて、飛んでくる瞬間を数えさせる
       // 1 回 0.8 秒(48 コマ)なので、50 コマ間隔で置く。
       // 最後の「1」が鳴り終わってから突っ込む
-      if (b.telegraph === 150) msx.audio.playSE('count3', SE_EVENT + 2);
-      if (b.telegraph === 100) msx.audio.playSE('count2', SE_EVENT + 2);
-      if (b.telegraph === 50) msx.audio.playSE('count1', SE_EVENT + 2);
+      if (b.telegraph === 150) mmsxx.audio.playSE('count3', SE_EVENT + 2);
+      if (b.telegraph === 100) mmsxx.audio.playSE('count2', SE_EVENT + 2);
+      if (b.telegraph === 50) mmsxx.audio.playSE('count1', SE_EVENT + 2);
       if (b.telegraph === 0) {
         const a = Math.atan2(player.y + 8 - (b.y + DRAGON_H / 2),
                              player.x + 8 - (b.x + DRAGON_W / 2));
         b.rvx = Math.cos(a) * RAGE_SPEED;
         b.rvy = Math.sin(a) * RAGE_SPEED;
-        msx.audio.playSE('dragonRoar', SE_EVENT);   // 「ゴギャ――――」と叫んで飛ぶ
+        mmsxx.audio.playSE('dragonRoar', SE_EVENT);   // 「ゴギャ――――」と叫んで飛ぶ
       }
     } else {
       b.x += b.rvx;
@@ -3961,7 +3961,7 @@ function updateDragonBoss(b) {
         fb.sp.frameRate = 3;
         fb.sp.framePhase = enemyBullets.length;
       }
-      msx.audio.playSE('shot', SE_HIT);
+      mmsxx.audio.playSE('shot', SE_HIT);
     }
   }
   // 小惑星にぶつかると大ダメージ(うまく誘導すると一気に削れる)
@@ -3971,7 +3971,7 @@ function updateDragonBoss(b) {
       b.hp -= 12;
       b.flash = 8;
       spawnBoom(b.sx + 16, b.sy + 16);
-      msx.audio.playSE('bigboom', SE_HIT);
+      mmsxx.audio.playSE('bigboom', SE_HIT);
       b.mode = 'spiral';
       b.rageTimer = 300;
       break;
@@ -3992,8 +3992,8 @@ function spawnTodoBoss() {
   // 面数で決めると 103 面あつかいのときだけ極端に硬くなり、
   // コンティニューのときは紙のように弱くなってしまっていた
   const hp = TODO_HP;
-  const eyeL = msx.sprite(IMG.bossEye);
-  const eyeR = msx.sprite(IMG.bossEye);
+  const eyeL = mmsxx.sprite(IMG.bossEye);
+  const eyeR = mmsxx.sprite(IMG.bossEye);
   eyeL.visible = eyeR.visible = false;
   boss = {
     kind: 'todo',
@@ -4001,11 +4001,11 @@ function spawnTodoBoss() {
     eyeL, eyeR, charge: null, phase2: false,
   };
   boss.partFace = bossPart(IMG.todoFace);
-  boss.crown = msx.sprite(IMG.crownCyan);   // 顔と色がかぶるので水色
+  boss.crown = mmsxx.sprite(IMG.crownCyan);   // 顔と色がかぶるので水色
   boss.crown.priority = 15;
   // 撃たれると泣く。涙は左右 1 粒ずつ
   boss.tears = [0, 1].map(() => {
-    const sp = msx.sprite(IMG.tearDrop);
+    const sp = mmsxx.sprite(IMG.tearDrop);
     sp.priority = 16;
     sp.visible = false;
     return { sp, age: -1, x: 0, y: 0, vx: 0, vy: 0 };
@@ -4013,11 +4013,11 @@ function spawnTodoBoss() {
   boss.cry = 0;
   // ほおの赤み(赤 + 黒の斜線)と、目の中の反射
   boss.blush = [0, 1].map(() => {
-    const sp = msx.sprite(IMG.todoBlush);
+    const sp = mmsxx.sprite(IMG.todoBlush);
     sp.priority = 14;
     return sp;
   });
-  boss.glint = msx.sprite(IMG.todoGlint);
+  boss.glint = mmsxx.sprite(IMG.todoGlint);
   boss.glint.priority = 17;
   drawBossBody();
   playBGM('todo', true);   // 仮ボス専用の、力が抜ける曲
@@ -4121,7 +4121,7 @@ function updateTodoBeg(b) {
     const until = (next ? next.at : BEG_END + 60) - b.begT;
     const text = line.secret ? BEG_SECRETS[b.begSecret || 0] : line.en;
     showNotice(text, Math.max(90, until), BEG_TEXT_Y);
-    msx.audio.playSE('clink', SE_HIT);
+    mmsxx.audio.playSE('clink', SE_HIT);
   }
   // **ふきだしは話しているあいだ出しっぱなし**。
   // 消えるのは、話し終えて帰るときと、撃たれてやめたときだけ
@@ -4151,7 +4151,7 @@ function updateTodoBeg(b) {
         { vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, drift: 240 });
     }
     showNotice('IT RAN AWAY');
-    msx.audio.playSE('appear', SE_EVENT);
+    mmsxx.audio.playSE('appear', SE_EVENT);
   }
   if (b.begGone) {
     clearBubble();
@@ -4169,12 +4169,12 @@ function clearTodoGuest() {
   endBossMode();
   clearBossParts();
   if (boss) {
-    if (boss.crown) msx.removeSprite(boss.crown);
-    for (const t of boss.tears || []) msx.removeSprite(t.sp);
-    for (const sp of boss.blush || []) msx.removeSprite(sp);
-    if (boss.glint) msx.removeSprite(boss.glint);
-    if (boss.eyeL) msx.removeSprite(boss.eyeL);
-    if (boss.eyeR) msx.removeSprite(boss.eyeR);
+    if (boss.crown) mmsxx.removeSprite(boss.crown);
+    for (const t of boss.tears || []) mmsxx.removeSprite(t.sp);
+    for (const sp of boss.blush || []) mmsxx.removeSprite(sp);
+    if (boss.glint) mmsxx.removeSprite(boss.glint);
+    if (boss.eyeL) mmsxx.removeSprite(boss.eyeL);
+    if (boss.eyeR) mmsxx.removeSprite(boss.eyeR);
   }
   boss = null;
   drawBossBar();
@@ -4189,12 +4189,12 @@ function escapeTodoBoss() {
   endBossMode();
   clearBossParts();
   if (boss) {
-    if (boss.crown) msx.removeSprite(boss.crown);
-    for (const t of boss.tears || []) msx.removeSprite(t.sp);
-    for (const sp of boss.blush || []) msx.removeSprite(sp);
-    if (boss.glint) msx.removeSprite(boss.glint);
-    if (boss.eyeL) msx.removeSprite(boss.eyeL);
-    if (boss.eyeR) msx.removeSprite(boss.eyeR);
+    if (boss.crown) mmsxx.removeSprite(boss.crown);
+    for (const t of boss.tears || []) mmsxx.removeSprite(t.sp);
+    for (const sp of boss.blush || []) mmsxx.removeSprite(sp);
+    if (boss.glint) mmsxx.removeSprite(boss.glint);
+    if (boss.eyeL) mmsxx.removeSprite(boss.eyeL);
+    if (boss.eyeR) mmsxx.removeSprite(boss.eyeR);
   }
   boss = null;
   clearTimer = 240;
@@ -4224,9 +4224,9 @@ function todoGiveUp(b) {
   b.tearBurst = 120;
   b.hp = 0;             // ここで自分から終わる
   b.dying = 90;
-  msx.audio.stopBGM();
+  mmsxx.audio.stopBGM();
   currentBGM = null;
-  msx.audio.playSE('bossboom', SE_HIT);
+  mmsxx.audio.playSE('bossboom', SE_HIT);
 }
 
 function updateTodoBoss(b) {
@@ -4338,7 +4338,7 @@ function fireKingBeam(angle) {
   const n = KING_LINES.length;
   const step = Math.PI / n;
   const i = ((Math.round(angle / step) % n) + n) % n;
-  const sp = msx.sprite(KING_LINES[i]);
+  const sp = mmsxx.sprite(KING_LINES[i]);
   sp.priority = 6;
   sp.blink = 2;   // 1 コマおきの明滅(実機のスプライトらしいちらつき)
   kingBeams.push({ a: angle, r: KING_BEAM_R0, sp });
@@ -4359,7 +4359,7 @@ function fireFarBeam() {
   const n = KING_LINES_LONG.length;
   const step = Math.PI / n;
   const i = ((Math.round(a / step) % n) + n) % n;
-  const sp = msx.sprite(KING_LINES_LONG[i]);
+  const sp = mmsxx.sprite(KING_LINES_LONG[i]);
   sp.priority = 6;
   sp.blink = 2;   // 裂け目のレーザーと同じちらつき
   // 画面の上の外から、横位置はばらばらに
@@ -4367,10 +4367,10 @@ function fireFarBeam() {
   farBeams.push({ a, x, y: -48, sp });
   // ここではショット(SE_HIT)より強くして、必ず鳴らす。
   // 撃ちながらでも「前から来ている」ことを音で分からせたい
-  msx.audio.playSE('laser', SE_HIT + 1);
+  mmsxx.audio.playSE('laser', SE_HIT + 1);
 }
 function clearFarBeams() {
-  for (const b of farBeams) msx.removeSprite(b.sp);
+  for (const b of farBeams) mmsxx.removeSprite(b.sp);
   farBeams = [];
   farBeamTimer = 0;
 }
@@ -4380,14 +4380,14 @@ function updateFarBeams() {
     b.y += Math.sin(b.a) * FAR_BEAM_SPEED;
     b.sp.x = Math.round(b.x) - 24; b.sp.y = Math.round(b.y) - 24;
     if (b.y > SCREEN_H + 48 || b.x < -64 || b.x > SCREEN_W + 64) {
-      msx.removeSprite(b.sp);
+      mmsxx.removeSprite(b.sp);
       farBeams.splice(farBeams.indexOf(b), 1);
     }
   }
 }
 
 function clearKingBeams() {
-  for (const b of kingBeams) msx.removeSprite(b.sp);
+  for (const b of kingBeams) mmsxx.removeSprite(b.sp);
   kingBeams = [];
 }
 
@@ -4398,7 +4398,7 @@ function updateKingBeams() {
     const y = RIFT_CY + Math.sin(b.a) * b.r - 8;
     b.sp.x = Math.round(x); b.sp.y = Math.round(y);
     if (x < -16 || x > SCREEN_W || y < -16 || y > SCREEN_H) {
-      msx.removeSprite(b.sp);
+      mmsxx.removeSprite(b.sp);
       kingBeams.splice(kingBeams.indexOf(b), 1);
     }
   }
@@ -4420,7 +4420,7 @@ let redCells = null;
 
 function enterRedSpace() {
   redSpace = true;
-  msx.backdrop = RED_SHADES[0];
+  mmsxx.backdrop = RED_SHADES[0];
   far.visible = mid.visible = near.visible = false;
   // 赤いマスは neb(大きな背景オブジェクトのレイヤー)に描く。
   // 裂け目もシルエットもこれより手前なので、背景として敷ける。
@@ -4482,7 +4482,7 @@ function updateRedSpace() {
   if (!redSpace) return;
   if (redBlend < 1) redBlend = Math.min(1, redBlend + RED_BLEND_STEP);
   if (redFade > 0) redFade = Math.min(1.2, redFade + 0.006);   // 星空へゆっくり戻していく
-  const f = msx.frame;
+  const f = mmsxx.frame;
   // 長い周期(20〜60 秒)でゆっくり動くパラメータ
   const slow = (period, a, b) => a + (b - a) * (0.5 + 0.5 * Math.sin(f * period));
   const spdR = slow(0.0031, 0.06, 0.34);     // 迫ってくる速さ
@@ -4528,7 +4528,7 @@ function updateRedSpace() {
  */
 function beginRestoreSpace() {
   if (!redSpace || redFade > 0) return;
-  msx.backdrop = 1;
+  mmsxx.backdrop = 1;
   far.visible = mid.visible = near.visible = true;
   redFade = 0.001;
 }
@@ -4541,7 +4541,7 @@ function restoreSpace() {
   redFade = 0;
   redCells = null;
   RED_ORDER = null;
-  msx.backdrop = 1;
+  mmsxx.backdrop = 1;
   far.visible = mid.visible = near.visible = true;
 }
 
@@ -4578,7 +4578,7 @@ function spawnKingBoss() {
  */
 function makeKingMan(b) {
   if (!b || b.man) return b && b.man;
-  b.man = msx.sprite(IMG.kingMan01);
+  b.man = mmsxx.sprite(IMG.kingMan01);
   b.man.frames = [IMG.kingMan01, IMG.kingMan01b];
   b.man.frameRate = 30;
   b.man.priority = 10;
@@ -4591,7 +4591,7 @@ function makeKingMan(b) {
 /** ラスボスのスプライトを片づける(裂け目は bossParts なので別途消える) */
 function clearKing(b) {
   if (!b || b.kind !== 'king') return;
-  if (b.man) { msx.removeSprite(b.man); b.man = null; }
+  if (b.man) { mmsxx.removeSprite(b.man); b.man = null; }
   clearKingBeams();
   clearFarBeams();
   clearKingEscape();
@@ -4602,7 +4602,7 @@ function updateKingBoss(b) {
   if (b.stage === 'open') {
     // まだ攻撃してこない。ひびが縦に伸びて、じわじわ口を開けていくのを見せる。
     // 広がるたびに「バキョ」と鳴らす
-    if (b.timer % 36 === 0) msx.audio.playSE('rifttear', SE_EVENT + 1);
+    if (b.timer % 36 === 0) mmsxx.audio.playSE('rifttear', SE_EVENT + 1);
     if (--b.timer <= 0) b.stage = 'rift';
     return;
   }
@@ -4625,11 +4625,11 @@ function updateKingBoss(b) {
         }
       }
       // 音は鳴らしっぱなしにせず、間引いて「連射している感じ」だけ出す
-      if (b.age % 30 === 0) msx.audio.playSE('shot', SE_EVENT);
+      if (b.age % 30 === 0) mmsxx.audio.playSE('shot', SE_EVENT);
     }
     // 休みの終わりぎわに、次が来ることを音で知らせる
     if (b.resting && cycle === KING_BURST + KING_REST - 30) {
-      msx.audio.playSE('charging', SE_EVENT);
+      mmsxx.audio.playSE('charging', SE_EVENT);
     }
     return;
   }
@@ -4637,10 +4637,10 @@ function updateKingBoss(b) {
     // 中から無理やり押し広げられて、まわりにひびが走り、やがて砕ける
     b.timer--;
     if (b.rift) b.rift.image = IMG.kingRift2;
-    if (b.timer % 30 === 0) msx.audio.playSE('rifttear', SE_EVENT + 1);
+    if (b.timer % 30 === 0) mmsxx.audio.playSE('rifttear', SE_EVENT + 1);
     if (b.timer % 5 === 0) {
       spawnBoom(Math.random() * (SCREEN_W - 16), Math.random() * (SCREEN_H - 16));
-      msx.audio.playSE('boom', SE_HIT);
+      mmsxx.audio.playSE('boom', SE_HIT);
     }
     // 途中で宇宙が暗い赤に染まる(ここから星は出てこない)。
     // このとき、もう 2:2 のちらつきで姿が見えはじめている
@@ -4653,7 +4653,7 @@ function updateKingBoss(b) {
       b.stage = 'pose';
       b.timer = KING_POSE_LEN;
       // ばーんと出てくる。ちらつきは 2:2 -> 1:1 -> 無し と落としていく
-      msx.audio.playSE('bossboom', SE_HIT);
+      mmsxx.audio.playSE('bossboom', SE_HIT);
     }
     return;
   }
@@ -4765,14 +4765,14 @@ function fireKingWave(b) {
   // 先頭がいちばん大きく、後ろへ行くほど小さい = 押し寄せてくるように見える
   const set = [[IMG.kingWaveL, 0], [IMG.kingWaveM, 10], [IMG.kingWaveS, 18]];
   for (const [img, back] of set) {
-    const sp = msx.sprite(img);
+    const sp = mmsxx.sprite(img);
     sp.priority = 7;
     sp.rotate = rot;
     sp.x = cx - 12 - ux * back;
     sp.y = cy - 12 - uy * back;
     enemyBullets.push({ sp, vx: ux * KING_BALL_SPEED, vy: uy * KING_BALL_SPEED });
   }
-  msx.audio.playSE('nobreak', SE_EVENT);
+  mmsxx.audio.playSE('nobreak', SE_EVENT);
 }
 
 /**
@@ -4799,7 +4799,7 @@ function startKingMeditate(b) {
   b.act = 'idle';
   b.actTimer = KING_ACT_GAP;
   showNotice('IT IS MEDITATING!');
-  msx.audio.playSE('heal', SE_EVENT + 2);
+  mmsxx.audio.playSE('heal', SE_EVENT + 2);
 }
 
 function updateKingFight(b) {
@@ -4839,13 +4839,13 @@ function updateKingFight(b) {
       // 自機が上にいるならサマーソルト(下から上へ)、
       // それ以外は起き上がりざまのキック
       if (player.y + 8 < b.y + KING_MAN_H / 2) {
-        msx.audio.playTalk('kiaiC', SE_EVENT);
+        mmsxx.audio.playTalk('kiaiC', SE_EVENT);
         b.act = 'moon';
         b.actTimer = 150;
         b.x = ppx; b.y = SCREEN_H + 8;
         b.moonT = 0;
       } else {
-        msx.audio.playTalk('kiaiA', SE_EVENT);
+        mmsxx.audio.playTalk('kiaiA', SE_EVENT);
         b.act = 'kickWind';
         b.actTimer = KING_KICK_WIND;
         b.orbA = Math.atan2(b.y - ppy, b.x - ppx);
@@ -4872,7 +4872,7 @@ function updateKingFight(b) {
     b.y += ((RIFT_CY - KING_MAN_H / 2 + Math.sin(b.age * 0.021) * 24) - b.y) * 0.06;
     if (--b.actTimer <= 0) {
       const r = Math.random();
-      const kiai = (n) => msx.audio.playTalk(n, SE_EVENT);
+      const kiai = (n) => mmsxx.audio.playTalk(n, SE_EVENT);
       if (lowHp && r < 0.28) {
         // ムーンサルトだけは下から
         kiai('kiaiC');
@@ -5079,7 +5079,7 @@ function playerOnRift() {
 function hitKingRift(b, x, y) {
   b.hp -= RIFT_DAMAGE * (playerOnRift() ? 2 : 1);
   b.flash = 4;
-  msx.audio.playSE('weak');
+  mmsxx.audio.playSE('weak');
   // 光を毎回出すと画面が埋まるので、4 発に 1 回だけ
   if (++b.hits % 4 === 0) spawnWeakSpark(x, y);
   if (b.hp > 0) return;
@@ -5092,9 +5092,9 @@ function hitKingRift(b, x, y) {
   clearKingBeams();
   clearFarBeams();
   clearKingEscape();
-  msx.audio.stopBGM();
+  mmsxx.audio.stopBGM();
   currentBGM = null;
-  msx.audio.playSE('bossboom', SE_HIT);
+  mmsxx.audio.playSE('bossboom', SE_HIT);
   drawBossBar();
 }
 
@@ -5142,33 +5142,33 @@ function spawnBoss() {
   if (kind === 'king') { spawnKingBoss(); return; }
   const hp = 40 + stageNo * 16;
   // 目は水色 1 色。点滅させず、自機のいる方へ少しだけ寄る
-  const eyeL = msx.sprite(IMG.bossEye2);
-  const eyeR = msx.sprite(IMG.bossEye2);
+  const eyeL = mmsxx.sprite(IMG.bossEye2);
+  const eyeR = mmsxx.sprite(IMG.bossEye2);
   eyeL.priority = eyeR.priority = 9;
   const eyeL2 = null, eyeR2 = null;
   const mouth = null;   // 口のスプライトは使わない
   // UFO のまわりを回るガード。全部壊すと壺が割れてタコだけになる
   const guards = [];
   for (let i = 0; i < GUARD_COUNT; i++) {
-    const sp = msx.sprite(IMG.ufoGuard);
+    const sp = mmsxx.sprite(IMG.ufoGuard);
     sp.priority = 8;
     // 手のひらは高速で明滅させる(実機のスプライト多重表示らしく)
     sp.blink = 2;
     sp.blinkPhase = i & 1;
     guards.push({ sp, hp: GUARD_HP, flash: 0, angle: (Math.PI * 2 * i) / GUARD_COUNT });
   }
-  const charge = msx.sprite(IMG.chargeOrb0);
+  const charge = mmsxx.sprite(IMG.chargeOrb0);
   charge.priority = 12;
   charge.visible = false;
   // 外側の輪。溜めが進むほど小さい輪に替えて、光が集まってくるように見せる
-  const chargeRing = msx.sprite(IMG.chargeRing0);
+  const chargeRing = mmsxx.sprite(IMG.chargeRing0);
   chargeRing.priority = 11;
   chargeRing.visible = false;
   // 「UFO に乗ったタコ」だと分かるよう、足と頭のふくらみを単色スプライトで重ねる。
   // 2 コマに 1 回だけ表示して、実機のスプライト多重表示のちらつきを出す
-  const arms = msx.sprite(IMG.octoArms);
+  const arms = mmsxx.sprite(IMG.octoArms);
   arms.priority = 7; arms.blink = 2; arms.blinkPhase = 0;
-  const brow = msx.sprite(IMG.octoCrown);
+  const brow = mmsxx.sprite(IMG.octoCrown);
   brow.priority = 12;   // 王冠は点滅させない(色が違うので重ねても見分けが付く)
   boss = {
     kind: 'octopus',    // これが無いと「壺に乗っている間は無敵」の判定が働かない
@@ -5192,7 +5192,7 @@ let bossParts = [];
 let bossVisible = true;   // 被弾フラッシュ用。パーツとスプライトをまとめて点滅させる
 
 function bossPart(image, priority = 1) {
-  const sp = msx.bgSprite(image);
+  const sp = mmsxx.bgSprite(image);
   // ボスのパーツは背景オブジェクトより手前。priority は部品どうしの前後関係
   sp.priority = BGP_FRONT + priority;
   bossParts.push(sp);
@@ -5200,7 +5200,7 @@ function bossPart(image, priority = 1) {
 }
 
 function clearBossParts() {
-  for (const sp of bossParts) msx.removeBgSprite(sp);
+  for (const sp of bossParts) mmsxx.removeBgSprite(sp);
   bossParts = [];
 }
 
@@ -5258,7 +5258,7 @@ function drawBossBody() {
       // 1 コマおきに色を入れ替えて脈打たせる。
       // 連射を休んでいるあいだは強く光らせて、次が来ることを知らせる
       const beat = b.resting ? 2 : 4;
-      b.rift.colorMap = (msx.frame & beat) ? { 6: 8, 8: 9, 9: 15 } : null;
+      b.rift.colorMap = (mmsxx.frame & beat) ? { 6: 8, 8: 9, 9: 15 } : null;
     }
     // 壊れるときは、4 ドットのマスが割れ目の形から外へ ぞわぞわ 広がる
     if (b.stage === 'break') updateCrackSpread(1 - b.timer / KING_BREAK_LEN);
@@ -5278,7 +5278,7 @@ function drawBossBody() {
       g.sp.x = cx + Math.cos(a) * b.ringR - 8;
       g.sp.y = cy + Math.sin(a) * b.ringR - 8;
       // 弱点の装甲は火花を散らして、ここだけ作りが違うと分かるようにする
-      if (g.weak) g.sp.image = (msx.frame & 2) ? IMG.gearWeak1 : IMG.gearWeak0;
+      if (g.weak) g.sp.image = (mmsxx.frame & 2) ? IMG.gearWeak1 : IMG.gearWeak0;
     }
     // 輪の内側を走る電撃。装甲の半分の半径を、3 倍の速さでなめらかに回る。
     // 弱点の装甲が壊れたら電撃は消える(輪が開いたことが分かるように)
@@ -5350,7 +5350,7 @@ function drawBossBody() {
     b.legs.forEach((lg, i) => {
       lg.sp.visible = vis && !b.phase2 && lg.hp > 0;
       lg.sp.image = jumping ? IMG.crabLegExt
-        : LEG_ANIM[(Math.floor(msx.frame / 6) + i) & 3];
+        : LEG_ANIM[(Math.floor(mmsxx.frame / 6) + i) & 3];
       lg.sp.flipX = flip; lg.sp.flipY = lg.flipY;
       // 付け根が甲羅の中に入るまで、しっかりめり込ませる。
       // 脚は BG スプライトなので 8 ドット単位に丸められる。
@@ -5426,7 +5426,7 @@ function breakShip() {
   if (boss.kind === 'dragon') {
     // ドラゴンは装甲がはがれると全身が弱点になり、怒りの突進が増える
     boss.rageTimer = Math.min(boss.rageTimer, 90);
-    msx.audio.playSE('bossboom', SE_HIT);
+    mmsxx.audio.playSE('bossboom', SE_HIT);
     flashTimer = 3;
     return;
   }
@@ -5446,7 +5446,7 @@ function breakShip() {
   for (let i = 0; i < 5; i++) {
     spawnBoom(boss.sx + 8 + Math.random() * 44, boss.sy + HEAD_H + Math.random() * 16);
   }
-  msx.audio.playSE('bossboom', SE_HIT);
+  mmsxx.audio.playSE('bossboom', SE_HIT);
   flashTimer = 3;
   drawBossBody();
 }
@@ -5454,7 +5454,7 @@ function breakShip() {
 // 弱点に当たったときの光。単色スプライトを 2 コマに 1 回出す
 let weakSparks = [];
 function spawnWeakSpark(x, y) {
-  const sp = msx.sprite(IMG.boom0);
+  const sp = mmsxx.sprite(IMG.boom0);
   sp.x = x; sp.y = y; sp.priority = 21;
   sp.blink = 2;
   weakSparks.push({ sp, age: 0 });
@@ -5464,13 +5464,13 @@ function updateWeakSparks() {
     w.age++;
     if (w.age === 3) w.sp.image = IMG.boom1;
     else if (w.age >= 6) {
-      msx.removeSprite(w.sp);
+      mmsxx.removeSprite(w.sp);
       weakSparks.splice(weakSparks.indexOf(w), 1);
     }
   }
 }
 function clearWeakSparks() {
-  for (const w of weakSparks) msx.removeSprite(w.sp);
+  for (const w of weakSparks) mmsxx.removeSprite(w.sp);
   weakSparks = [];
 }
 
@@ -5515,7 +5515,7 @@ function bossDefeated() {
     }
     score += 5000;
     spawnPopup(boss.x, boss.y + 24, 5000);
-    msx.audio.playSE('bossboom', SE_HIT);
+    mmsxx.audio.playSE('bossboom', SE_HIT);
     clearTodoGuest();
     return;
   }
@@ -5526,22 +5526,22 @@ function bossDefeated() {
   for (let i = 0; i < 6; i++) {
     spawnBoom(boss.x + Math.random() * 40, boss.y + Math.random() * 24);
   }
-  if (boss.eyeL) msx.removeSprite(boss.eyeL);
-  if (boss.eyeR) msx.removeSprite(boss.eyeR);
-  if (boss.eyeL2) msx.removeSprite(boss.eyeL2);
-  if (boss.eyeR2) msx.removeSprite(boss.eyeR2);
-  if (boss.mouth) msx.removeSprite(boss.mouth);
-  for (const g of boss.guards || []) msx.removeSprite(g.sp);
-  if (boss.charge) msx.removeSprite(boss.charge);
-  if (boss.chargeRing) msx.removeSprite(boss.chargeRing);
-  if (boss.arms) msx.removeSprite(boss.arms);
-  if (boss.brow) msx.removeSprite(boss.brow);
-  if (boss.crown) msx.removeSprite(boss.crown);
-  for (const t of boss.tears || []) msx.removeSprite(t.sp);
-  for (const sp of boss.blush || []) msx.removeSprite(sp);
-  if (boss.glint) msx.removeSprite(boss.glint);
-  for (const sp of boss.clawSps || []) msx.removeSprite(sp);
-  for (const sp of boss.pods || []) msx.removeSprite(sp);
+  if (boss.eyeL) mmsxx.removeSprite(boss.eyeL);
+  if (boss.eyeR) mmsxx.removeSprite(boss.eyeR);
+  if (boss.eyeL2) mmsxx.removeSprite(boss.eyeL2);
+  if (boss.eyeR2) mmsxx.removeSprite(boss.eyeR2);
+  if (boss.mouth) mmsxx.removeSprite(boss.mouth);
+  for (const g of boss.guards || []) mmsxx.removeSprite(g.sp);
+  if (boss.charge) mmsxx.removeSprite(boss.charge);
+  if (boss.chargeRing) mmsxx.removeSprite(boss.chargeRing);
+  if (boss.arms) mmsxx.removeSprite(boss.arms);
+  if (boss.brow) mmsxx.removeSprite(boss.brow);
+  if (boss.crown) mmsxx.removeSprite(boss.crown);
+  for (const t of boss.tears || []) mmsxx.removeSprite(t.sp);
+  for (const sp of boss.blush || []) mmsxx.removeSprite(sp);
+  if (boss.glint) mmsxx.removeSprite(boss.glint);
+  for (const sp of boss.clawSps || []) mmsxx.removeSprite(sp);
+  for (const sp of boss.pods || []) mmsxx.removeSprite(sp);
   clearNautilus(boss);
   clearDragonSegs(boss);
   clearKing(boss);
@@ -5560,7 +5560,7 @@ function bossDefeated() {
   statsBoss(frames);
   drawHUD();
   drawBossBar();
-  msx.audio.playSE('bossboom', SE_HIT);
+  mmsxx.audio.playSE('bossboom', SE_HIT);
   if (gameMode() === 'bossrush') {
     // ボスラッシュは得点を数えないので、評価は出さずに次のボスへ
     clearTimer = 120;
@@ -5600,20 +5600,20 @@ function startKingEscape(cx, cy) {
   // 評価の文字(レイヤー 4)より奥に出す。BG スプライトはレイヤーと同じ
   // 優先度の並びに入るので、priority 4 = 「レイヤー 4 の手前」ではなく
   // 「レイヤー 4 を描く直前」= 文字の下になる
-  const rift = msx.bgSprite(IMG.kingRiftBlueThin);
+  const rift = mmsxx.bgSprite(IMG.kingRiftBlueThin);
   rift.priority = 4;
   rift.x = x; rift.y = Math.round(y) - 24;
   // 本人は**ふつうのスプライト**。BG スプライトだと 8 ドット刻みで
   // カクカク昇ってしまうので、1 ドット単位で滑らかに動かす
-  const man = msx.sprite(IMG.kingMan01);
+  const man = mmsxx.sprite(IMG.kingMan01);
   man.priority = 8;
   man.x = Math.round(cx - KING_MAN_W / 2); man.y = Math.round(y) + 40;
   kingEscape = { t: 0, rift, man, x: cx - KING_MAN_W / 2, y };
 }
 function clearKingEscape() {
   if (!kingEscape) return;
-  msx.removeBgSprite(kingEscape.rift);
-  msx.removeSprite(kingEscape.man);
+  mmsxx.removeBgSprite(kingEscape.rift);
+  mmsxx.removeSprite(kingEscape.man);
   kingEscape = null;
 }
 function updateKingEscape() {
@@ -5642,7 +5642,7 @@ const KING_ROAR_WAIT = 120;
 function fireEnemyBullet(x, y, vx, vy, breakable = false, image = null) {
   // ボスの弾(撃ち落とせる)は 16x16 のリング、通常の敵弾は小さな丸。
   // image を渡すと、その絵の弾になる(ドラゴンの炎など)
-  const sp = msx.sprite(image || (breakable ? IMG.bulletRing : IMG.bulletE));
+  const sp = mmsxx.sprite(image || (breakable ? IMG.bulletRing : IMG.bulletE));
   sp.x = x; sp.y = y; sp.priority = 6;
   // リング弾は消えるのではなく、ピンクと薄い赤を 1 コマずつ入れ替えて見せる
   if (breakable && !image) sp.__ringPhase = enemyBullets.length & 1;
@@ -5659,7 +5659,7 @@ function updateLaser(b) {
     // 太いビームが出ている頭で 1 度だけ鳴らす
     if (laserPhase(b) === 'full') {
       // レーザーは見せ場なので、ほかの SE より優先して鳴らす
-      if (!b.laserSE) { b.laserSE = true; msx.audio.playSE('laser', SE_HIT + 2); }
+      if (!b.laserSE) { b.laserSE = true; mmsxx.audio.playSE('laser', SE_HIT + 2); }
     } else {
       b.laserSE = false;
     }
@@ -5671,11 +5671,11 @@ function updateLaser(b) {
     let w = LASER_DRAW_W;
     // 効いている帯は白と水色、消えかけは黄と白を 2 コマごとに入れ替えて
     // はっきり明滅させる
-    let color = (msx.frame & 2) ? 15 : 7;
+    let color = (mmsxx.frame & 2) ? 15 : 7;
     if (phase === 'fade') {
       // 残り時間を 1 ドットぶんずつに割って、確実に 1 ドットずつ細くする
       w = Math.max(1, Math.ceil(b.firing / LASER_FADE_STEP));
-      color = (msx.frame & 2) ? 11 : 15;   // 黄と白。ここは当たらない
+      color = (mmsxx.frame & 2) ? 11 : 15;   // 黄と白。ここは当たらない
     }
     b.laserLen = grown;
     drawLaser(grown, w, color);
@@ -5690,13 +5690,13 @@ function updateLaser(b) {
   if (b.charging > 0) {
     b.charging--;
     // 溜めの音も 0.4 秒のかたまりをくり返す
-    if (b.charging % SE_CHUNK === 0) msx.audio.playSE('charging', SE_EVENT + 1);
+    if (b.charging % SE_CHUNK === 0) mmsxx.audio.playSE('charging', SE_EVENT + 1);
     // 砲口の前で光の玉がふくらみ、外の輪が縮んでいく
     const t = 1 - b.charging / CHARGE;
     // 白 -> 黄 -> 水色 を 2 コマごとに回して、はっきり分かる明滅にする。
     // 玉と輪は位相をずらして、ぶつかり合うように光らせる
-    const c = Math.floor(msx.frame / 2) % 3;
-    const cr = (Math.floor(msx.frame / 2) + 2) % 3;
+    const c = Math.floor(mmsxx.frame / 2) % 3;
+    const cr = (Math.floor(mmsxx.frame / 2) + 2) % 3;
     const orb = t < 0.4 ? IMG['chargeOrb0' + c]
       : t < 0.75 ? IMG['chargeOrb1' + c] : IMG['chargeOrb2' + c];
     const ring = t < 0.4 ? IMG['chargeRing0' + cr]
@@ -5773,7 +5773,7 @@ function updateBoss() {
       }
       if (b.dying % 9 === 0) {
         spawnBoom(b.x + Math.random() * KING_MAN_W, b.y + Math.random() * KING_MAN_H);
-        msx.audio.playSE('boom', SE_HIT);
+        mmsxx.audio.playSE('boom', SE_HIT);
       }
       b.sx = b.x; b.sy = b.y;
       drawBossBody();
@@ -5784,7 +5784,7 @@ function updateBoss() {
     bossVisible = (b.dying >> 2) % 2 === 0;
     if (b.dying % 7 === 0) {
       spawnBoom(b.x + Math.random() * 40, b.y + Math.random() * 24);
-      msx.audio.playSE('boom', SE_HIT);
+      mmsxx.audio.playSE('boom', SE_HIT);
     }
     if (b.eyeL) b.eyeL.visible = false;
     if (b.eyeR) b.eyeR.visible = false;
@@ -5949,10 +5949,10 @@ function updatePlay() {
     if (invincible > 0) invincible--;
   } else if (state === 'play') {
     const spd = SPEED_TABLE[speedLevel - 1];
-    if (msx.input.isDown('ArrowLeft')) player.x -= spd;
-    if (msx.input.isDown('ArrowRight')) player.x += spd;
-    if (msx.input.isDown('ArrowUp')) player.y -= spd;
-    if (msx.input.isDown('ArrowDown')) player.y += spd;
+    if (mmsxx.input.isDown('ArrowLeft')) player.x -= spd;
+    if (mmsxx.input.isDown('ArrowRight')) player.x += spd;
+    if (mmsxx.input.isDown('ArrowUp')) player.y -= spd;
+    if (mmsxx.input.isDown('ArrowDown')) player.y += spd;
     player.x = Math.max(0, Math.min(SCREEN_W - 16, player.x));
     player.y = Math.max(20, Math.min(SCREEN_H - 18, player.y));
     if (invincible > 0) {
@@ -5962,9 +5962,9 @@ function updatePlay() {
       player.visible = true;
     }
     // ショット: 連打すれば即座に(上限まで)撃てる。押しっぱなしはゆっくりした自動連射。
-    if (msx.input.wasPressed('Space') || msx.input.wasPressed('KeyZ')) {
+    if (mmsxx.input.wasPressed('Space') || mmsxx.input.wasPressed('KeyZ')) {
       fireShot();
-    } else if (msx.input.isDown('Space') || msx.input.isDown('KeyZ')) {
+    } else if (mmsxx.input.isDown('Space') || mmsxx.input.isDown('KeyZ')) {
       // 押しっぱなしの自動連射。? アイテム / MEIJIN 中は間隔がぐっと短くなる
       const gap = autoFire > 0 ? 6 : AUTO_FIRE_INTERVAL;
       if (playFrame - lastShotFrame >= gap) fireShot();
@@ -6151,8 +6151,8 @@ function updatePlay() {
   // --- ステージクリア進行 ---
   if (clearTimer > 0) {
     // 何かキーを押したら評価表示を飛ばせる
-    if (clearTimer < 900 && (msx.input.wasPressed('Space') || msx.input.wasPressed('KeyZ') ||
-        msx.input.wasPressed('Enter') || msx.input.wasPressed('Escape'))) {
+    if (clearTimer < 900 && (mmsxx.input.wasPressed('Space') || mmsxx.input.wasPressed('KeyZ') ||
+        mmsxx.input.wasPressed('Enter') || mmsxx.input.wasPressed('Escape'))) {
       clearTimer = 1;
     }
     clearTimer--;
@@ -6213,7 +6213,7 @@ function updatePlay() {
         if (tx < 0) { tx = 0; e.dir = 1; }
         if (tx > SCREEN_W - 16) { tx = SCREEN_W - 16; e.dir = -1; }
         e.tx = tx; e.ty = sp.y + WARP_DY;
-        msx.audio.playSE('hit', SE_HIT);
+        mmsxx.audio.playSE('hit', SE_HIT);
       }
     } else if (e.type === 'I') {
       // 高速でほぼ直進してくる敵。撃ってこないぶん速い
@@ -6325,7 +6325,7 @@ function updatePlay() {
     // 画面外の判定は緩めにする(隊列は画面の外に積まれた状態から入ってくるため)
     const gone = sp.y > SCREEN_H + 20 || sp.y < -90 || sp.x < -200 || sp.x > SCREEN_W + 200;
     if (e.type !== 'E' && (gone || (e.type === 'G' && e.age > 1200))) {
-      msx.removeSprite(sp);
+      mmsxx.removeSprite(sp);
       enemies.splice(enemies.indexOf(e), 1);
     }
   }
@@ -6334,7 +6334,7 @@ function updatePlay() {
   for (const b of [...bullets]) {
     b.sp.x += b.vx; b.sp.y += b.vy;
     // 2 コマに 1 回だけ表示する(位相を弾ごとにずらしてバラつかせる)
-    b.sp.visible = ((msx.frame + b.phase) & 1) === 0;
+    b.sp.visible = ((mmsxx.frame + b.phase) & 1) === 0;
     if (b.sp.y < -12 || b.sp.y > SCREEN_H + 12 || b.sp.x < -8 || b.sp.x > SCREEN_W + 8) {
       removeBullet(b);
     }
@@ -6342,7 +6342,7 @@ function updatePlay() {
   for (const b of [...enemyBullets]) {
     // リング弾は 3 コマごとに色を入れ替える(ピンク <-> 水色)
     if (b.breakable) {
-      b.sp.image = ((Math.floor(msx.frame / 3) + (b.sp.__ringPhase || 0)) & 1)
+      b.sp.image = ((Math.floor(mmsxx.frame / 3) + (b.sp.__ringPhase || 0)) & 1)
         ? IMG.bulletRingCyan : IMG.bulletRing;
     }
     // リング弾(撃ち落とせる弾)は、ゆっくり自機の方へ向きを変える
@@ -6364,8 +6364,8 @@ function updatePlay() {
     const blocked = !off && enemies.some(e =>
       e.type === 'D' && Math.abs(b.sp.x - e.sp.x) < 10 && Math.abs(b.sp.y - e.sp.y) < 10);
     if (off || blocked) {
-      if (blocked) msx.audio.playSE('clink');
-      msx.removeSprite(b.sp); enemyBullets.splice(enemyBullets.indexOf(b), 1);
+      if (blocked) mmsxx.audio.playSE('clink');
+      mmsxx.removeSprite(b.sp); enemyBullets.splice(enemyBullets.indexOf(b), 1);
     }
   }
 
@@ -6398,15 +6398,15 @@ function updatePlay() {
       // 飴だけは白との点滅ではなく、**2 色を 2 コマずつ入れ替える**。
       // ピンクと水色が交互に入れ替わって、包み紙がきらきらして見える
       it.sp.image = ITEM_IMG[look];
-      it.sp.colorMap = (msx.frame & 2) ? CANDY_SWAP : null;
+      it.sp.colorMap = (mmsxx.frame & 2) ? CANDY_SWAP : null;
     } else {
-      it.sp.image = (msx.frame & 1) ? ITEM_IMG[look] : ITEM_IMG_W[look];
+      it.sp.image = (mmsxx.frame & 1) ? ITEM_IMG[look] : ITEM_IMG_W[look];
     }
     const take = state === 'play' &&
       Math.abs(it.sp.x - player.x) < 12 &&
       Math.abs(it.sp.y - player.y) < 12;
     if (take) {
-      msx.audio.playSE('item');
+      mmsxx.audio.playSE('item');
       statsItem(it.kind);
       blinkGear(it.kind); // 対応する HUD の項目をしばらく点滅させる
       // $ の連鎖は「$ を取りそこねる」かミスするまで続く
@@ -6432,7 +6432,7 @@ function updatePlay() {
           autoFire = AUTO_FIRE_TIME;
           showNotice('AUTO FIRE');
           // 「?」から出る特別なアイテムなので、専用の短い音を鳴らす
-          msx.audio.playSE('autofire', SE_JINGLE);
+          mmsxx.audio.playSE('autofire', SE_JINGLE);
           break;
         case 'candy': {
           // 見逃したお礼の飴。**取るたびに倍々**(100 -> 200 -> 400 …)。
@@ -6443,7 +6443,7 @@ function updatePlay() {
           score += gain;
           spawnPopup(it.sp.x, it.sp.y, gain);
           if (--candyLeft > 0) {
-            msx.audio.playSE('item');
+            mmsxx.audio.playSE('item');
           } else {
             // 最後の 1 つ。ファンファーレと、画面の真ん中に知らせを出して締める
             showNotice('ALL CANDIES!  THANK YOU!', 180, BEG_TEXT_Y);
@@ -6506,7 +6506,7 @@ function updatePlay() {
       coinValue = COIN_BASE;   // 表示は出さない
     }
     if (take || it.sp.y > SCREEN_H + 12) {
-      msx.removeSprite(it.sp);
+      mmsxx.removeSprite(it.sp);
       items.splice(items.indexOf(it), 1);
     }
   }
@@ -6535,12 +6535,12 @@ function updatePlay() {
           for (let i = 0; i < 4; i++) {
             spawnBoom(a.sp.x + Math.random() * AST_SIZE, a.sp.y + Math.random() * AST_SIZE);
           }
-          msx.audio.playSE('bigboom', SE_HIT);
+          mmsxx.audio.playSE('bigboom', SE_HIT);
           bigKills++;
           score += 5000;
           spawnPopup(a.sp.x, a.sp.y, 5000);
-          msx.removeBgSprite(a.sp);
-          if (a.hi) msx.removeSprite(a.hi);
+          mmsxx.removeBgSprite(a.sp);
+          if (a.hi) mmsxx.removeSprite(a.hi);
           asteroids.splice(asteroids.indexOf(a), 1);
         } else {
           pingAsteroid(a);
@@ -6556,7 +6556,7 @@ function updatePlay() {
       if (!eb.breakable) continue;
       if (Math.abs(b.sp.x - eb.sp.x) < 7 && Math.abs(b.sp.y - eb.sp.y) < 7) {
         bulletHits(b);
-        msx.removeSprite(eb.sp);
+        mmsxx.removeSprite(eb.sp);
         enemyBullets.splice(enemyBullets.indexOf(eb), 1);
         score += 300; // タコの弾は高得点
         drawHUD();
@@ -6573,7 +6573,7 @@ function updatePlay() {
         bulletHits(b);
         r.hp -= DAMAGE_TABLE[damageLevel - 1];
         if (r.hp <= 0) breakRocket(r);
-        else { r.flash = 4; msx.audio.playSE('thud'); }
+        else { r.flash = 4; mmsxx.audio.playSE('thud'); }
         break;
       }
     }
@@ -6587,7 +6587,7 @@ function updatePlay() {
         bulletHits(b);
         e.hp -= 1;   // 攻撃力によらず 1 発 1 ダメージ
         if (e.hp <= 0) killEyeball(e);
-        else msx.audio.playSE('hit', SE_HIT);
+        else mmsxx.audio.playSE('hit', SE_HIT);
         break;
       }
     }
@@ -6607,7 +6607,7 @@ function updatePlay() {
           if (boss && boss.kind === 'crab') killCrabClaw(boss, m.from);
           removeClawMissile(m, true);  // 壊すと弾が散る
         }
-        else msx.audio.playSE('clink');
+        else mmsxx.audio.playSE('clink');
         break;
       }
     }
@@ -6638,21 +6638,21 @@ function updatePlay() {
           // 切り口を撃ってしまったときは、**専用の調子はずれな音**で知らせる。
           // 「いま撃つと怒らせる」ことを音で気づかせたい
           if (inner && moai.state === 'q2') {
-            msx.audio.playSE('scold', SE_HIT);
+            mmsxx.audio.playSE('scold', SE_HIT);
             angerMoai(moai);
           } else {
-            msx.audio.playSE('armor');
+            mmsxx.audio.playSE('armor');
           }
           break;
         }
         // 色が付いてからは、外側はただ弾かれるだけ(もう怒らない)
         if (!inner) {
-          msx.audio.playSE('armor');
+          mmsxx.audio.playSE('armor');
           break;
         }
         // 怒らせてしまったら、内側からも壊せない
         if (moai.angry) {
-          msx.audio.playSE('nobreak');
+          mmsxx.audio.playSE('nobreak');
           p.flash = 4;
           break;
         }
@@ -6660,19 +6660,19 @@ function updatePlay() {
         if (moai.state === 'one') {
           // 怒らせてしまったら、合体後も壊せない(帰っていくのを見送るしかない)
           if (moai.angry) {
-            msx.audio.playSE('nobreak');
+            mmsxx.audio.playSE('nobreak');
             p.flash = 4;
             break;
           }
           moai.hp -= dmg;
           p.flash = 4;
-          msx.audio.playSE('weak');
+          mmsxx.audio.playSE('weak');
           spawnWeakSpark(b.sp.x, b.sp.y);
           if (moai.hp <= 0) {
             for (let i = 0; i < 8; i++) {
               spawnBoom(moai.x + Math.random() * MOAI_W, moai.y + Math.random() * MOAI_H);
             }
-            msx.audio.playSE('bossboom', SE_HIT);
+            mmsxx.audio.playSE('bossboom', SE_HIT);
             flashTimer = 3;
             score += 20000;
             spawnPopup(moai.x, moai.y + 24, 20000);
@@ -6683,7 +6683,7 @@ function updatePlay() {
           // 上下 2 つのときは、どちらを撃っても同じ体力を削る(一心同体)
           moai.insideHp -= dmg;
           p.flash = 4;
-          msx.audio.playSE('guardhit', SE_HIT);
+          mmsxx.audio.playSE('guardhit', SE_HIT);
           spawnWeakSpark(b.sp.x, b.sp.y);
           if (moai.insideHp <= 0) { killMoaiInside(); break; }
         }
@@ -6707,12 +6707,12 @@ function updatePlay() {
         if (Math.abs(bx - (g.sp.x + 8)) > r || Math.abs(by - (g.sp.y + 8)) > r) continue;
         bulletHits(b);
         done = true;
-        if (!g.weak || boss.phase2) { msx.audio.playSE('armor'); break; }
+        if (!g.weak || boss.phase2) { mmsxx.audio.playSE('armor'); break; }
         // 弱点の装甲だけがへこむ。攻撃力によらず 1 発 1 ダメージ。
         // 本体の体力(ゲージ)は減らない
         boss.weakHp -= 1;
         // ほかの当たり音と区別できるよう、パネル用の音にする
-        msx.audio.playSE('panel', SE_HIT);
+        mmsxx.audio.playSE('panel', SE_HIT);
         spawnWeakSpark(b.sp.x, b.sp.y);
         spawnBoom(b.sp.x - 4, b.sp.y - 4);   // 当たるたびに小さく爆ぜる
         // 最初に当てたときだけ、狙いどころを教える
@@ -6727,7 +6727,7 @@ function updatePlay() {
           boss.phase2 = true;
           boss.ringTarget = NAUT_R_WIDE;   // 輪が広がって入りやすくなる
           for (let i = 0; i < 5; i++) spawnBoom(g.sp.x, g.sp.y);
-          msx.audio.playSE('bossboom', SE_HIT);
+          mmsxx.audio.playSE('bossboom', SE_HIT);
           flashTimer = 3;
         }
         break;
@@ -6747,16 +6747,16 @@ function updatePlay() {
         boss.gapHits = (boss.gapHits || 0) + 1;
         if (boss.gapHits % 2 === 0) boss.hp -= 1;
         boss.flash = 4;
-        msx.audio.playSE('weak');
+        mmsxx.audio.playSE('weak');
         // 本体に当てると装甲の削りは 0 に戻る(音だけで知らせる)
         if (boss.weakHp < NAUT_WEAK_HITS) {
           boss.weakHp = NAUT_WEAK_HITS;
-          msx.audio.playSE('powerdown');
+          mmsxx.audio.playSE('powerdown');
         }
         if (boss.hp <= 0) {
           boss.dying = 90;
-          msx.audio.stopBGM();
-          msx.audio.playSE('bossboom', SE_HIT);
+          mmsxx.audio.stopBGM();
+          mmsxx.audio.playSE('bossboom', SE_HIT);
         }
         continue;
       }
@@ -6765,12 +6765,12 @@ function updatePlay() {
       boss.hp -= inside ? 2 : 1;
 
       boss.flash = 6;
-      msx.audio.playSE('weak');
+      mmsxx.audio.playSE('weak');
       spawnWeakSpark(b.sp.x, b.sp.y);
       if (boss.hp <= 0) {
         boss.dying = 90;
-        msx.audio.stopBGM();
-        msx.audio.playSE('bossboom', SE_HIT);
+        mmsxx.audio.stopBGM();
+        mmsxx.audio.playSE('bossboom', SE_HIT);
       }
     }
   }
@@ -6795,7 +6795,7 @@ function updatePlay() {
         if (by < sp.y + 8 || by > sp.y + CRAB_CLAW_H - 8) continue;
         bulletHits(b);
         boss.clawHp[i] -= BOSS_DMG;
-        msx.audio.playSE('guardhit', 1);
+        mmsxx.audio.playSE('guardhit', 1);
         spawnWeakSpark(b.sp.x, b.sp.y);
         if (boss.clawHp[i] <= 0) {
           // ハサミが根元からもげる。二度と生えてこない
@@ -6804,7 +6804,7 @@ function updatePlay() {
           for (let k = 0; k < 6; k++) {
             spawnBoom(sp.x + Math.random() * CRAB_CLAW_W, sp.y + Math.random() * CRAB_CLAW_H);
           }
-          msx.audio.playSE('bigboom', SE_HIT);
+          mmsxx.audio.playSE('bigboom', SE_HIT);
           flashTimer = 3;
           score += 3000;
           spawnPopup(sp.x, sp.y, 3000);
@@ -6829,7 +6829,7 @@ function updatePlay() {
           lg.hp -= BOSS_DMG;
           // 脚に当たったことがはっきり分かる光と音
           spawnWeakSpark(lg.sp.x, lg.sp.y);
-          msx.audio.playSE(lg.hp <= 0 ? 'bigboom' : 'guardhit', 1);
+          mmsxx.audio.playSE(lg.hp <= 0 ? 'bigboom' : 'guardhit', 1);
           if (lg.hp <= 0) {
             lg.sp.visible = false;
             spawnBoom(lg.sp.x, lg.sp.y);
@@ -6853,7 +6853,7 @@ function updatePlay() {
         if (Math.abs((b.sp.x + 8) - (g.sp.x + 8)) < 10 &&
             Math.abs((b.sp.y + 8) - (g.sp.y + 8)) < 10) {
           bulletHits(b);
-          msx.audio.playSE('clink');
+          mmsxx.audio.playSE('clink');
           break;
         }
       }
@@ -6870,14 +6870,14 @@ function updatePlay() {
           if (g.hp <= 0) {
             g.sp.visible = false;
             spawnBoom(g.sp.x, g.sp.y);
-            msx.audio.playSE('boom', SE_HIT);
+            mmsxx.audio.playSE('boom', SE_HIT);
             score += 500;
             // 全部のガードが無くなったら壺が割れる
             if (boss.guards.every(x => x.hp <= 0)) breakShip();
           } else {
             // 当たったことが分かるように点滅させる(文字は出さず音で伝える)
             g.flash = 8;
-            msx.audio.playSE('guardhit');
+            mmsxx.audio.playSE('guardhit');
           }
           break;
         }
@@ -6900,12 +6900,12 @@ function updatePlay() {
         bulletHits(b);
         sp.hits++;
         spawnWeakSpark(b.sp.x, b.sp.y);
-        msx.audio.playSE('clink');
+        mmsxx.audio.playSE('clink');
         if (sp.hits >= SECRET_NEED) {
           sp.done = true;
           spawnBoom(sp.x + 2, sp.y + 2);
           if (autoFire <= 0) dropItem(sp.x + 2, sp.y + 4, 'auto');
-          msx.audio.playSE('appear', SE_EVENT);
+          mmsxx.audio.playSE('appear', SE_EVENT);
         }
         break;
       }
@@ -6925,12 +6925,12 @@ function updatePlay() {
         dragonSpot.hits++;
         // 手応えが分かるように、当たった場所で光らせて音を出す
         spawnWeakSpark(b.sp.x, b.sp.y);
-        msx.audio.playSE('clink');
+        mmsxx.audio.playSE('clink');
         if (dragonSpot.hits >= DRAGON_FACE.need) {
           dragonSpot.done = true;
           spawnBoom(sx, sy);
           dropItem(sx + 4, sy + 8, 'dragon');
-          msx.audio.playSE('appear', SE_EVENT);
+          mmsxx.audio.playSE('appear', SE_EVENT);
         }
         break;
       }
@@ -6955,7 +6955,7 @@ function updatePlay() {
         if (rift) { hitKingRift(boss, b.sp.x, b.sp.y); continue; }
         // 瞑想中は無敵。弾ははじかれるだけで、点滅もさせない
         // (七色に光っているので、点滅すると何が起きているか分からなくなる)
-        if (boss.meditate > 0) { msx.audio.playSE('armor'); continue; }
+        if (boss.meditate > 0) { mmsxx.audio.playSE('armor'); continue; }
         // 頭に当たると 2 倍。上から攻めるのが効く相手にする
         const head = (b.sp.y + 8) < boss.y + KING_MAN_H * 0.38;
         // 頭は 2 倍。さらに近いほど効く(上からの倍率は頭の判定と重なるので入れない)
@@ -6963,7 +6963,7 @@ function updatePlay() {
         boss.flash = 6;
         // のけぞるポーズと「うっ」。声は連発しないよう、少し間を置く
         if (boss.hurtPose <= 0 && (boss.hurtVoice || 0) <= 0) {
-          msx.audio.playTalk('kiaiB', SE_HIT);   // 撃たれたときの声
+          mmsxx.audio.playTalk('kiaiB', SE_HIT);   // 撃たれたときの声
           boss.hurtVoice = 40;
         }
         if (head) {
@@ -6995,7 +6995,7 @@ function updatePlay() {
           boss.act = 'idle';
           boss.actTimer = KING_ACT_GAP;
         }
-        msx.audio.playSE('weak');
+        mmsxx.audio.playSE('weak');
         if (boss.hp <= 0) killKingWithRoar();
       }
     }
@@ -7035,13 +7035,13 @@ function updatePlay() {
         if (boss.kind === 'octopus' && !boss.phase2 && weak) {
           boss.muzzleHp -= 1;
           boss.flash = 6;
-          msx.audio.playSE('weak');
+          mmsxx.audio.playSE('weak');
           spawnWeakSpark(b.sp.x, b.sp.y);
           if (boss.muzzleHp <= 0) {
             boss.hp = 0;
             boss.dying = 90;
-            msx.audio.stopBGM();
-            msx.audio.playSE('bossboom', SE_HIT);
+            mmsxx.audio.stopBGM();
+            mmsxx.audio.playSE('bossboom', SE_HIT);
           }
           continue;
         }
@@ -7061,7 +7061,7 @@ function updatePlay() {
         if (dmg > 0 && !armored) boss.flash = 6;
         // カニは 4 発に 1 ダメージなので、通ったときだけ白く光らせて知らせる
         if (dmg > 0 && boss.kind === 'crab') boss.hurt = 10;
-        if (bracing) msx.audio.playSE('armor');   // ためている最中は硬い
+        if (bracing) mmsxx.audio.playSE('armor');   // ためている最中は硬い
         if (boss.kind === 'todo') {
           boss.cry = 60;   // 未実装君は泣く
           // 話しているあいだに撃ち込まれた数を数える。
@@ -7071,13 +7071,13 @@ function updatePlay() {
             if (boss.begHits >= BEG_GIVEUP_HITS) todoGiveUp(boss);
           }
         }
-        msx.audio.playSE(weak ? 'weak' : 'armor');
+        mmsxx.audio.playSE(weak ? 'weak' : 'armor');
         // 弱点に当たったことが目で分かるよう、その場に光を出す
         if (weak) spawnWeakSpark(b.sp.x, b.sp.y);
         if (boss.hp <= 0) {
           boss.dying = 90;
-          msx.audio.stopBGM();
-          msx.audio.playSE('bossboom', SE_HIT);
+          mmsxx.audio.stopBGM();
+          mmsxx.audio.playSE('bossboom', SE_HIT);
         }
       }
     }
@@ -7310,7 +7310,7 @@ function updatePlay() {
   const wantBarrier = alive && barrierHP > 0;
   let flameShown = false;
   if (wantFlame && wantBarrier) {
-    const showBarrier = (msx.frame & 2) === 0; // 2 コマごとに交互
+    const showBarrier = (mmsxx.frame & 2) === 0; // 2 コマごとに交互
     aux.visible = true;
     if (showBarrier) {
       aux.image = IMG.barrier; aux.x = player.x; aux.y = player.y;
@@ -7323,7 +7323,7 @@ function updatePlay() {
   } else if (wantFlame) {
     // ドラゴンの炎は明滅させず、出しっぱなしで色だけ変える。
     // ふつうの炎は実機らしく 4 コマに 1 回だけ出す
-    aux.visible = dragonFlame || (msx.frame & 3) === 0;
+    aux.visible = dragonFlame || (mmsxx.frame & 3) === 0;
     aux.image = flameImg; aux.x = player.x; aux.y = player.y + FLAME_OFFSET;
     flameShown = aux.visible;
   } else {
@@ -7514,7 +7514,7 @@ function grantFullPower(label) {
   // 裏技のときは画面の真ん中に大きく出す。
   // アイテムで取ったときは label を渡さず、ほかのアイテムと同じ下の行に出す
   if (label) cheatNotice(label);
-  msx.audio.playSE('item');
+  mmsxx.audio.playSE('item');
 }
 
 // ---- プレイ統計 ----
@@ -7596,9 +7596,9 @@ function killKingWithRoar() {
     boss.man.image = IMG.kingMan05;
   }
   drawBossBody();
-  msx.audio.stopBGM();
+  mmsxx.audio.stopBGM();
   currentBGM = null;
-  msx.audio.stopSE();
+  mmsxx.audio.stopSE();
   // 止まってから 2 秒おいて、それから名乗る(間を作る)
   talkName = 'kozorite';
   talkBlast = true;
@@ -7872,10 +7872,10 @@ function drawRushArrows() {
 }
 function updateRushList() {
   const maxTop = Math.max(0, rushTable.entries.length - HISCORE_ROWS);
-  if (msx.input.isDown('ArrowUp') && msx.frame % 4 === 0) {
+  if (mmsxx.input.isDown('ArrowUp') && mmsxx.frame % 4 === 0) {
     hiManual = true; rushTop = Math.max(0, rushTop - 1); drawRushList(); return;
   }
-  if (msx.input.isDown('ArrowDown') && msx.frame % 4 === 0) {
+  if (mmsxx.input.isDown('ArrowDown') && mmsxx.frame % 4 === 0) {
     hiManual = true; rushTop = Math.min(maxTop, rushTop + 1); drawRushList(); return;
   }
 }
@@ -7896,7 +7896,7 @@ function warpToStage(n, boss) {
 function checkCheatCode() {
   // ↑↑↓↓←→←→BA
   for (const code of new Set(KONAMI_CODE)) {
-    if (!msx.input.wasPressed(code)) continue;
+    if (!mmsxx.input.wasPressed(code)) continue;
     if (ARROW_GLYPH[code]) pushTypedShow(ARROW_GLYPH[code]);
     if (code === KONAMI_CODE[konamiPos]) {
       konamiPos++;
@@ -7913,20 +7913,20 @@ function checkCheatCode() {
   // 英字を打ち込むタイプのコマンド。打ち終わったら RETURN で確定する
   for (let i = 0; i < 26; i++) {
     const key = 'Key' + String.fromCharCode(65 + i);
-    if (msx.input.wasPressed(key)) {
+    if (mmsxx.input.wasPressed(key)) {
       const ch = String.fromCharCode(65 + i);
       typed = (typed + ch).slice(-12);
       pushTypedShow(ch);
       return;
     }
   }
-  if (msx.input.wasPressed('Backspace') && typedShow) {
+  if (mmsxx.input.wasPressed('Backspace') && typedShow) {
     typed = typed.slice(0, -1);
     typedShow = typedShow.slice(0, -1);
     drawCheatInput();
     return;
   }
-  if (msx.input.wasPressed('Enter')) {
+  if (mmsxx.input.wasPressed('Enter')) {
     const word = typed;
     typed = '';
     typedShow = '';
@@ -7963,26 +7963,26 @@ function runCheatWord(word) {
       maxVolleys = MAX_VOLLEY_LIMIT;   // ラピッドも最大にする
       drawHUD();
       cheatNotice('AUTO FIRE!');
-      msx.audio.playSE('item');
+      mmsxx.audio.playSE('item');
     }
     return;
   }
   // ORB: 宝珠を満タンにして、すぐボスへ行けるようにする(手元の開発中だけ)
   if (word.endsWith('ORB')) {
-    if (!msx.isLocal) return;
+    if (!mmsxx.isLocal) return;
     stars = starsNeeded();
     drawHUD();
     cheatNotice('ORBS FULL');
-    msx.audio.playSE('item');
+    mmsxx.audio.playSE('item');
     return;
   }
   // 当たり判定の表示を切り替える(手元の開発中だけ)
   if (word.endsWith('HITAREA')) {
-    if (!msx.isLocal) return;
+    if (!mmsxx.isLocal) return;
     showHitArea = !showHitArea;
     if (!showHitArea) dbg.clear();
     cheatNotice('HIT AREA ' + (showHitArea ? 'ON' : 'OFF'));
-    msx.audio.playSE('item');
+    mmsxx.audio.playSE('item');
     return;
   }
   // DRAGONFIRE: 七色の推進炎を手に入れる(開発用)。
@@ -7992,7 +7992,7 @@ function runCheatWord(word) {
     if (stageNo >= LAST_STAGE) {
       dragonFlame = true;
       showNotice('DRAGON FLAME!');
-      msx.audio.playSE('item');
+      mmsxx.audio.playSE('item');
     }
     return;
   }
@@ -8102,7 +8102,7 @@ function enterListMenu(title, items) {
   clearEntities();
   for (const sp of helpIconSprites()) sp.visible = false;
   player.visible = false;
-  msx.audio.stopBGM();
+  mmsxx.audio.stopBGM();
   currentBGM = null;
   neb.clear();
   sceneTitle = title;
@@ -8181,16 +8181,16 @@ function drawSceneSelect() {
 }
 
 function updateSceneSelect() {
-  if (msx.input.wasPressed('Escape')) { enterTitle(); return; }
+  if (mmsxx.input.wasPressed('Escape')) { enterTitle(); return; }
   const n = scenes.length;
   let moved = false;
-  if (msx.input.wasPressed('ArrowUp')) { sceneSel = (sceneSel + n - 1) % n; moved = true; }
-  if (msx.input.wasPressed('ArrowDown')) { sceneSel = (sceneSel + 1) % n; moved = true; }
-  if (moved) { msx.audio.playSE('item'); drawSceneSelect(); }
-  if (msx.input.wasPressed('Space') || msx.input.wasPressed('KeyZ')) {
+  if (mmsxx.input.wasPressed('ArrowUp')) { sceneSel = (sceneSel + n - 1) % n; moved = true; }
+  if (mmsxx.input.wasPressed('ArrowDown')) { sceneSel = (sceneSel + 1) % n; moved = true; }
+  if (moved) { mmsxx.audio.playSE('item'); drawSceneSelect(); }
+  if (mmsxx.input.wasPressed('Space') || mmsxx.input.wasPressed('KeyZ')) {
     // まだ開いていない項目は選べない。断る音だけ鳴らす
     if (scenes[sceneSel].locked || !scenes[sceneSel].run) {
-      msx.audio.playSE('nobreak', SE_HIT);
+      mmsxx.audio.playSE('nobreak', SE_HIT);
       return;
     }
     hud.clear();
@@ -8208,26 +8208,26 @@ let storySprites = null;
 
 function storySpriteSet() {
   if (!storySprites) {
-    const man = msx.sprite(IMG.kingMan00);
+    const man = mmsxx.sprite(IMG.kingMan00);
     man.priority = 20;
-    const ship = msx.sprite(IMG.player);
+    const ship = mmsxx.sprite(IMG.player);
     ship.priority = 20;
-    const jet = msx.sprite(IMG.flameBig);
+    const jet = mmsxx.sprite(IMG.flameBig);
     jet.priority = 19;
     // パイロットの目。絵に描き込むとディザでつぶれるのでスプライトにする。
     // 見開いた目(青い丸)は 1 色スプライトだと「玉」にしか見えず気味が悪いので、
     // **両目とも閉じた線**にする。左右で線の向きを反転させて表情をそろえる
-    const eye = msx.sprite(IMG.pilotWink);
+    const eye = mmsxx.sprite(IMG.pilotWink);
     eye.flipX = true;
-    const wink = msx.sprite(IMG.pilotWink);
-    const smile = msx.sprite(IMG.pilotSmile);   // 笑った口
+    const wink = mmsxx.sprite(IMG.pilotWink);
+    const smile = mmsxx.sprite(IMG.pilotSmile);   // 笑った口
     // ひとみ。絵に描いた 1 ドットの点の上に重ねる 4x4 の黒い丸
-    const pupilL = msx.sprite(IMG.pilotPupil);
-    const pupilR = msx.sprite(IMG.pilotPupil);
+    const pupilL = mmsxx.sprite(IMG.pilotPupil);
+    const pupilR = mmsxx.sprite(IMG.pilotPupil);
     eye.priority = wink.priority = smile.priority = 21;
     pupilL.priority = pupilR.priority = 22;
     // 裂け目の真ん中を補う光。走査線で落ちる明るさをここで足す
-    const glow = msx.sprite(IMG.riftGlow);
+    const glow = mmsxx.sprite(IMG.riftGlow);
     glow.priority = 21;
     storySprites = { man, ship, jet, eye, wink, smile, pupilL, pupilR, glow };
     for (const sp of Object.values(storySprites)) sp.visible = false;
@@ -8237,7 +8237,7 @@ function storySpriteSet() {
 
 /** エンディング。4 秒 x 3 枚 */
 function buildEnding() {
-  return new StoryScenes(msx, {
+  return new StoryScenes(mmsxx, {
     artLayer: 3, textLayer: 4, textY: 160, lineStep: 12,
     // 時間では進まない。読み終えたらスペースで自分で送る
     manual: true,
@@ -8249,7 +8249,7 @@ function buildEnding() {
         // 1. 宇宙に平和が戻った
         hold: 360,
         text: ['PEACE RETURNED', 'TO THE STARS.'],
-        onEnter: () => { msx.backdrop = 1; },
+        onEnter: () => { mmsxx.backdrop = 1; },
         // 192x192。中間色は 1 ライン おきのディザ。
         // duo を持つ場面は、1 コマごとにディザを裏返して描き直す(下の updateStory)
         duo: { image: IMG.earthBig, maps: GAME_DATA.duo.earth, x: 32, y: 0 },
@@ -8268,7 +8268,7 @@ function buildEnding() {
         hold: 360,
         text: ['BACK AMONG FRIENDS AT LAST.', 'MAY SHE NEVER LAUNCH AGAIN.'],
         textColor: 11,
-        onEnter: () => { msx.backdrop = 1; },
+        onEnter: () => { mmsxx.backdrop = 1; },
         duo: { image: IMG.endBase, maps: GAME_DATA.duo.base, x: 16, y: 0 },
         draw: (m, art) => { art.draw(16, 0, IMG.endBase, true,
           { colorMap: GAME_DATA.duo.base[0] }); },
@@ -8279,7 +8279,7 @@ function buildEnding() {
         // パイロットはこの子であり、遊んでいる本人でもある。呼びかけない
         text: ['STAR FABLE, SIGNING OFF.', 'UNTIL THE NEXT FLIGHT.'],
         textColor: 11,
-        onEnter: () => { msx.backdrop = 1; },
+        onEnter: () => { mmsxx.backdrop = 1; },
         // 中間色は 1 ライン おきのディザ。目印の色を実際の色へ置き換えて描く
         duo: { image: IMG.pilot, maps: GAME_DATA.duo.pilot, x: PILOT_X, y: 0 },
         draw: (m, art) => { art.draw(PILOT_X, 0, IMG.pilot, true,
@@ -8316,7 +8316,7 @@ function buildEnding() {
         textWait: 280,
         typing: 0.045,   // 1 文字ずつ、ゆっくり浮かび上がらせる(4 倍おそく)
         // ひびの光を沈ませるため、背景は黒に戻す
-        onEnter: () => { msx.backdrop = 1; },
+        onEnter: () => { mmsxx.backdrop = 1; },
         duo: { image: IMG.endRift, maps: GAME_DATA.duo.rift, x: 16, y: 0 },
         draw: (m, art) => { art.draw(16, 0, IMG.endRift, true,
           { colorMap: GAME_DATA.duo.rift[0] }); },
@@ -8347,7 +8347,7 @@ function finishStory() {
   neb.scanline = null;   // 走査線を止めて元に戻す
   neb.clear();           // 絵を残さない(次の画面の背景に重なる)
   restoreSpace();
-  msx.audio.stopBGM();
+  mmsxx.audio.stopBGM();
   currentBGM = null;
   (storyDone || enterTitle)();
 }
@@ -8385,7 +8385,7 @@ const STORY_FADE_LEN = 150;   // 2.5 秒かけて実体になる
 //   ・走査線(インターレース)はいまは外してある。中間色はディザの
 //     入れ替えだけで出す。戻すときは neb.scanline に 0 を入れる。
 function updateStory() {
-  if (msx.input.wasPressed('Escape')) {
+  if (mmsxx.input.wasPressed('Escape')) {
     story.stop();
     finishStory();
     return;
@@ -8414,7 +8414,7 @@ function updateStory() {
     const t = Math.min(1, (storyFade - delay) / STORY_FADE_LEN);
     // 最後まで 1:1 のちらつきを残す(実体にならず、あやしく光りつづける)
     const period = t > 0.5 ? 2 : t > 0.25 ? 3 : 4;
-    const on = period === 1 || (msx.frame % period) === 0;
+    const on = period === 1 || (mmsxx.frame % period) === 0;
     neb.visible = on;
     for (const sp of [storySprites && storySprites.glow]) {
       if (sp) { sp.visible = true; sp.blink = period; }
@@ -8433,7 +8433,7 @@ function updateStory() {
       const i = Math.min(n - 1, Math.floor(storyFade / (STORY_FADE_LEN / n)));
       img = scene.growFrames[i];
     }
-    neb.draw(duo.x, duo.y, img, true, { colorMap: duo.maps[msx.frame & 1] });
+    neb.draw(duo.x, duo.y, img, true, { colorMap: duo.maps[mmsxx.frame & 1] });
   }
   // 走査線は位相 1 のまま動かさない
   // (見せ方は上の fadeIn / それ以外で決めてある)
@@ -8528,7 +8528,7 @@ const STAFF_HEADINGS = new Set([
 let staffRoll = null;
 
 function enterStaffRoll() {
-  if (currentBGM === 'elise') { msx.audio.stopBGM(); currentBGM = null; }
+  if (currentBGM === 'elise') { mmsxx.audio.stopBGM(); currentBGM = null; }
   state = 'staff';
   paused = false;
   clearEntities();
@@ -8541,7 +8541,7 @@ function enterStaffRoll() {
   neb.scroll(0, 0);
   // 裏画面は 1024 ドットぶんある。縦に散らして置き、端で回り込ませる
   for (const [img, x, y] of STAFF_STARS) neb.draw(x, y, img);
-  staffRoll = new StaffRoll(msx, {
+  staffRoll = new StaffRoll(mmsxx, {
     layer: 4,                  // HUD レイヤーに流す
     lines: STAFF_LINES,
     headings: STAFF_HEADINGS,
@@ -8585,7 +8585,7 @@ function updateStaffRoll() {
   const left = staffRoll.remaining;
   if (!staffFading && left <= STAFF_FADE) {
     staffFading = true;
-    msx.audio.fadeOutBGM(STAFF_FADE / 60);
+    mmsxx.audio.fadeOutBGM(STAFF_FADE / 60);
     currentBGM = null;
   }
   staffRoll.update();
@@ -8615,19 +8615,19 @@ const soundList = (col) => (col === 0 ? SOUND_BGM_LIST : SOUND_SE);
 let soundPage = null;
 
 function enterSoundTest() {
-  if (currentBGM === 'elise') { msx.audio.stopBGM(); currentBGM = null; }
+  if (currentBGM === 'elise') { mmsxx.audio.stopBGM(); currentBGM = null; }
   state = 'sound';
   paused = false;
   clearEntities();
   player.visible = false;
   for (const sp of helpIconSprites()) sp.visible = false;
-  msx.audio.stopBGM();
+  mmsxx.audio.stopBGM();
   currentBGM = null;
   neb.clear();          // 背景の大きな絵は消して読みやすくする
   soundAll = -1;
   soundResume = null;
   soundBack = null;
-  soundPage = new SoundTest(msx, {
+  soundPage = new SoundTest(mmsxx, {
     layer: 4,
     columns: [
       {
@@ -8641,25 +8641,25 @@ function enterSoundTest() {
           if (soundAll >= 0) stopSoundAll();
           soundBack = SOUND_BGM[i - 1];   // ジングルのあとに戻る先
           soundResume = null;
-          msx.audio.playBGM(soundBack, true, true);
+          mmsxx.audio.playBGM(soundBack, true, true);
         },
       },
       {
         title: 'SE/JINGLE', items: SOUND_SE, x: 96,
         play: (name) => {
-          if (!JINGLES.has(name)) { msx.audio.playSE(name); return; }
+          if (!JINGLES.has(name)) { mmsxx.audio.playSE(name); return; }
           // ジングルは BGM の枠で鳴るので、鳴り終わったら元の曲に戻す
           const back = soundAll >= 0 ? SOUND_BGM[soundAll] : soundBack;
-          msx.audio.playBGM(name, false);
+          mmsxx.audio.playBGM(name, false);
           if (back) soundResume = { name: back, timer: JINGLE_BACK_WAIT };
         },
       },
       // しゃべるもの(TALK)。録音ではなく、鳴らすときに合成している。
       // 手元の開発中はいつも出す。公開版はラスボスを倒すまで列ごと出さない
       // (先にセリフを聞かせないため)
-      ...((msx.isLocal || metSet.has('kingdown')) ? [{
+      ...((mmsxx.isLocal || metSet.has('kingdown')) ? [{
         title: 'VOICE', items: SOUND_TALK, x: 176,
-        play: (name) => msx.audio.playTalk(name, 6),
+        play: (name) => mmsxx.audio.playTalk(name, 6),
       }] : []),
     ],
     // 全曲再生のあいだは、いま鳴っている曲名を出す
@@ -8668,8 +8668,8 @@ function enterSoundTest() {
       soundResume = null;
       soundBack = null;
       if (soundAll >= 0) stopSoundAll();
-      msx.audio.stopBGM();
-      msx.audio.stopSE();
+      mmsxx.audio.stopBGM();
+      mmsxx.audio.stopSE();
     },
     onExit: () => enterTitle(),
   });
@@ -8689,24 +8689,24 @@ let soundResume = null;         // { name, timer } 戻す予定
 function startSoundAll() {
   soundAll = 0;
   soundAllTimer = SOUND_ALL_LEN;
-  msx.audio.playBGM(SOUND_BGM[0], true, true);
+  mmsxx.audio.playBGM(SOUND_BGM[0], true, true);
 }
 function stopSoundAll() {
   soundAll = -1;
   soundResume = null;
-  msx.audio.stopBGM();
+  mmsxx.audio.stopBGM();
 }
 
 function updateSoundAll() {
   if (soundAll < 0) return;
   soundAllTimer--;
-  if (soundAllTimer === SOUND_ALL_FADE) msx.audio.fadeOutBGM(SOUND_ALL_FADE / 60);
+  if (soundAllTimer === SOUND_ALL_FADE) mmsxx.audio.fadeOutBGM(SOUND_ALL_FADE / 60);
   if (soundAllTimer > 0) return;
   soundAll++;
   // 最後まで行ったら頭に戻る(全体でループ)
   if (soundAll >= SOUND_BGM.length) soundAll = 0;
   soundAllTimer = SOUND_ALL_LEN;
-  msx.audio.playBGM(SOUND_BGM[soundAll], true, true);
+  mmsxx.audio.playBGM(SOUND_BGM[soundAll], true, true);
 }
 
 function updateSoundTest() {
@@ -8715,7 +8715,7 @@ function updateSoundTest() {
   if (soundResume && --soundResume.timer <= 0) {
     const back = soundResume.name;
     soundResume = null;
-    msx.audio.playBGM(back, true, true);
+    mmsxx.audio.playBGM(back, true, true);
   }
   soundPage.update();
 }
@@ -8941,7 +8941,7 @@ let charRocketAlt = false;
 let charFlashPhase = -1;
 
 function clearCharSprites() {
-  for (const sp of charSprites) msx.removeSprite(sp);
+  for (const sp of charSprites) mmsxx.removeSprite(sp);
   charSprites = [];
 }
 
@@ -8950,15 +8950,15 @@ function clearCharSprites() {
 let charBook = null;
 
 function enterCharList() {
-  if (currentBGM === 'elise') { msx.audio.stopBGM(); currentBGM = null; }
+  if (currentBGM === 'elise') { mmsxx.audio.stopBGM(); currentBGM = null; }
   state = 'chars';
   paused = false;
   clearEntities();
   player.visible = false;
   for (const sp of helpIconSprites()) sp.visible = false;
-  msx.audio.stopBGM();
+  mmsxx.audio.stopBGM();
   currentBGM = null;
-  charBook = new Gallery(msx, {
+  charBook = new Gallery(mmsxx, {
     hudLayer: 4, artLayer: 3,
     pages: CHAR_PAGES.map((page, i) => ({
       title: page.title,
@@ -9026,7 +9026,7 @@ function drawCharList() {
       neb.draw(bx, by, IMG[name], true);
       continue;
     }
-    const sp = msx.sprite(IMG[part.img]);
+    const sp = mmsxx.sprite(IMG[part.img]);
     sp.x = part.x; sp.y = part.y; sp.priority = 20;
     if (part.flipX) sp.flipX = true;
     // 黒 1 色の絵は宇宙の黒に沈むので、色を指定して置き換えられるようにする
@@ -9045,7 +9045,7 @@ function drawCharList() {
   // BG の絵に重ねるスプライト(目玉の瞳と血管)。
   // ゲーム中と同じく、瞳と血管は 1 フレームおきの交互表示にする
   for (const [name, ox, oy] of (page.overlay || [])) {
-    const sp = msx.sprite(IMG[name]);
+    const sp = mmsxx.sprite(IMG[name]);
     sp.x = ox; sp.y = oy; sp.priority = 20;
     // ゲーム中と同じちらつき(瞳と血管を交互に、ハイライトは 3 回に 1 回)
     if (name === 'eyeVein') { sp.blink = 2; sp.blinkPhase = 1; }
@@ -9064,7 +9064,7 @@ function drawCharList() {
   let y = (page.items || []).length >= 6 ? 32 : 40;
   for (const [name, label] of (page.items || [])) {
     const img = IMG[name];
-    const sp = msx.sprite(img);
+    const sp = mmsxx.sprite(img);
     sp.x = 48; sp.y = y - 4; sp.priority = 20;
     charSprites.push(sp);
     hud.print(80, y, label, 11);
@@ -9080,14 +9080,14 @@ function updateCharList() {
 function updateCharAnim() {
   // モアイのページは、ゲーム中と同じ色変わり(緑 <-> 青)と 1 コマおきの明滅を見せる
   if (charMoai) {
-    const holo = (msx.frame & 1) === 0;
-    const blue = Math.floor(msx.frame / 5) % 10;   // 10 コマの色変わり
+    const holo = (mmsxx.frame & 1) === 0;
+    const blue = Math.floor(mmsxx.frame / 5) % 10;   // 10 コマの色変わり
     if (holo !== charMoaiShown || blue !== charMoaiBlue) {
       charMoaiShown = holo; charMoaiBlue = blue;
       // ゲーム中と同じく、緑 -> 青 -> 緑 と「行ごとに」色が変わっていく
       // 10 コマの絵を使う(2 枚の切り替えでは実機の見え方にならない)
       const KEY = { moaiTL: 'TL', moaiTR: 'TR', moaiBL: 'BL', moaiBR: 'BR' };
-      const step = Math.floor(msx.frame / 5) % 10;
+      const step = Math.floor(mmsxx.frame / 5) % 10;
       for (const [name, bx, by] of charMoai) {
         neb.fill(0, bx, by, 32, 40, true);
         if (holo) neb.draw(bx, by, moaiWaveImage(step, KEY[name] || 'TL'));
@@ -9102,7 +9102,7 @@ function updateCharAnim() {
     }
   }
   // 小惑星はゆっくり白く光る(ゲーム中と同じ周期)
-  const phase = (msx.frame % 48) < 6 ? 1 : 0;
+  const phase = (mmsxx.frame % 48) < 6 ? 1 : 0;
   if (phase !== charFlashPhase) {
     charFlashPhase = phase;
     for (const f of charFlash) {
@@ -9116,9 +9116,9 @@ const PAUSE_HINT = 'ESC:RESUME Q:RESET';
 const PAUSE_HINT2 = 'CODE + RETURN';
 function togglePause() {
   paused = !paused;
-  msx.audio.playSE('pause');
+  mmsxx.audio.playSE('pause');
   if (paused) {
-    msx.audio.stopBGM();
+    mmsxx.audio.stopBGM();
     hud.print(centerX(PAUSE_TEXT), 88, PAUSE_TEXT, 15);
     hud.print(centerX(PAUSE_HINT), 104, PAUSE_HINT, 14);
   } else {
@@ -9147,12 +9147,12 @@ let captureArmed = 0;
 
 /** ALT が押されているか(左右どちらでも) */
 function altDown() {
-  return msx.input.isDown('AltLeft') || msx.input.isDown('AltRight');
+  return mmsxx.input.isDown('AltLeft') || mmsxx.input.isDown('AltRight');
 }
 
 // ---- メインループ ----
 enterTitle();
-msx.run(() => {
+mmsxx.run(() => {
   // 名乗りのあいだは、画面も HUD もいっさい動かさない
   if (talkHold > 0) {
     talkHold--;
@@ -9162,13 +9162,13 @@ msx.run(() => {
       if (boss && (talkHold & 3) === 0) {
         spawnBoom(boss.x - 12 + Math.random() * (KING_MAN_W + 24),
           boss.y - 12 + Math.random() * (KING_MAN_H + 24));
-        msx.audio.playSE('boom', SE_HIT);
+        mmsxx.audio.playSE('boom', SE_HIT);
       }
       if ((talkHold % 10) === 0) flashTimer = 2;
       // 揺れは 1 ドット単位。だんだん小さくしていく
       const t = (talkHold - TALK_HOLD_FRAMES) / KING_ROAR_WAIT;
       const amp = Math.round(3 * t);
-      msx.setAdjust(amp ? (Math.random() * 2 - 1) * amp : 0,
+      mmsxx.setAdjust(amp ? (Math.random() * 2 - 1) * amp : 0,
         amp ? (Math.random() * 2 - 1) * amp : 0);
       updateBooms();
       updateFlash();
@@ -9176,19 +9176,19 @@ msx.run(() => {
     }
     // 止まってから 2 秒おいて名乗る
     if (talkHold === TALK_HOLD_FRAMES) {
-      msx.setAdjust(0, 0);
-      msx.audio.playTalk(talkName, 9, { exclusive: true });
+      mmsxx.setAdjust(0, 0);
+      mmsxx.audio.playTalk(talkName, 9, { exclusive: true });
     }
     // 声が終わったところで爆発。ここから倒れる演出が動き出す
     if (talkHold === 0 && boss && boss.deathRoar) {
       boss.deathRoar = false;
-      msx.audio.playSE('bossboom', SE_HIT);
+      mmsxx.audio.playSE('bossboom', SE_HIT);
     }
     return;
   }
   // ALT + S で、どの画面でもその場を**クリップボードへ**コピーする。
   // タイトルでも図鑑でもポーズ中でも効く(DEV でなくても使える)
-  if (altDown() && msx.input.wasPressed('KeyS')) {
+  if (altDown() && mmsxx.input.wasPressed('KeyS')) {
     captureClipboard();
     captureArmed = 60;   // すぐ ESC で抜けたら、文字なしでもう 1 枚
   } else if (captureArmed > 0) captureArmed--;
@@ -9196,12 +9196,12 @@ msx.run(() => {
   if (capturePending > 0 && --capturePending === 0) captureClipboard();
   if (paused) {
     // 解除は ESC だけ。ENTER は裏技コードの確定に使う
-    if (msx.input.wasPressed('Escape')) {
+    if (mmsxx.input.wasPressed('Escape')) {
       togglePause();
       return;
     }
     // ポーズ中に Q でタイトルへ戻す
-    if (msx.input.wasPressed('KeyQ')) {
+    if (mmsxx.input.wasPressed('KeyQ')) {
       paused = false;
       statsFinish();
       // ポーズから抜けて終わった場合は、**コンティニューできない**。
@@ -9213,7 +9213,7 @@ msx.run(() => {
     checkCheatCode();
     return;
   }
-  if (state === 'play' && (msx.input.wasPressed('KeyP') || msx.input.wasPressed('Escape'))) {
+  if (state === 'play' && (mmsxx.input.wasPressed('KeyP') || mmsxx.input.wasPressed('Escape'))) {
     togglePause();
     return;
   }
@@ -9245,19 +9245,19 @@ msx.run(() => {
     if (titlePage === 2 || titlePage === 3) updateHiScoreList();
     else if (titlePage === 4) updateRushList();
     // ESC を押すと次の画面へすぐ切り替わる
-    const skip = msx.input.wasPressed('Escape');
+    const skip = mmsxx.input.wasPressed('Escape');
     if (skip || ++titleTimer > pageLen) {
       titleTimer = 0; titlePage = (titlePage + 1) % 5; drawTitlePage();
     }
     // 左右キーでゲームモードを選ぶ
-    if (msx.input.wasPressed('ArrowLeft') || msx.input.wasPressed('ArrowRight')) {
-      const d = msx.input.wasPressed('ArrowRight') ? 1 : -1;
+    if (mmsxx.input.wasPressed('ArrowLeft') || mmsxx.input.wasPressed('ArrowRight')) {
+      const d = mmsxx.input.wasPressed('ArrowRight') ? 1 : -1;
       modeIndex = (modeIndex + d + MODES.length) % MODES.length;
-      msx.audio.playSE('item');
+      mmsxx.audio.playSE('item');
       drawModeLine();
     }
     updateModeLine();
-    if (msx.input.wasPressed('Space') || msx.input.wasPressed('KeyZ')) {
+    if (mmsxx.input.wasPressed('Space') || mmsxx.input.wasPressed('KeyZ')) {
       if (gameMode() === 'staff') enterStaffRoll();
       else if (gameMode() === 'sound') enterSoundTest();
       else if (gameMode() === 'chars') enterCharList();
@@ -9268,7 +9268,7 @@ msx.run(() => {
       //  始まってしまっていた。下キー押しながらの始めかたも残す)
       else {
         const cont = gameMode() === 'continue'
-          || (msx.input.isDown('ArrowDown') && continueStageNow() > 1);
+          || (mmsxx.input.isDown('ArrowDown') && continueStageNow() > 1);
         enterPlay(cont);
       }
     }
@@ -9283,13 +9283,13 @@ msx.run(() => {
     // 連射したままだと一瞬で飛んでしまうので、2 秒たってから効くようにする
     const skipOK = gameMode() === 'bossrush' || stateTimer > 120;
     if (skipOK &&
-        (msx.input.wasPressed('Space') || msx.input.wasPressed('KeyZ') ||
-         msx.input.wasPressed('Escape'))) {
+        (mmsxx.input.wasPressed('Space') || mmsxx.input.wasPressed('KeyZ') ||
+         mmsxx.input.wasPressed('Escape'))) {
       stateTimer = GAMEOVER_WAIT + 1;
     }
     // 記録を出したときは、少し待てばスペースですぐ名前入力へ飛べる
     if (stateTimer > 90 && scoreCountsForRanking() && isHiScore(score) &&
-        gameMode() !== 'bossrush' && msx.input.wasPressed('Space')) {
+        gameMode() !== 'bossrush' && mmsxx.input.wasPressed('Space')) {
       enterNameEntry('score');
       return;
     }

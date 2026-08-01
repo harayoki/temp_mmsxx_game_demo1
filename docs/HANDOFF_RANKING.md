@@ -76,7 +76,7 @@ powershell -ExecutionPolicy Bypass -File build-deploy.ps1   # deploy/ を作る
 ```
 
 確認は**ブラウザで実際に動かして**行うこと。
-`msxDebug()` / `msxResetHiScores()` / `msx.errors.read()` が使える。
+`msxDebug()` / `msxResetHiScores()` / `mmsxx.errors.read()` が使える。
 タイトル → ハイスコア一覧、ゲームオーバー → 名前入力 → 一覧、の流れが
 **今までどおり**であることを必ず見ること。
 
