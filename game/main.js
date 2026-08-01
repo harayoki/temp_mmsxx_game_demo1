@@ -957,7 +957,9 @@ function mergeMoaiParts() {
     // ここから撃つと怒らせてしまう。まず「待て」と伝える(1 回だけ)
     if (!moaiToldWait) {
       moaiToldWait = true;
-      showNotice('WAIT FOR THE COLOR!');
+      // 色が変わるまでの待ちは 2〜5 秒。**その間ずっと出しておく**
+      // (90 コマだと読む前に消えてしまう)
+      showNotice('DO NOT SHOOT THE MOAI YET!', m.wait + 30);
     }
     // 「内側から撃て」は、**狙えるようになってから**出す(下の待ちが明けたところ)
   } else {
@@ -1596,6 +1598,10 @@ function bombAllEnemies() {
   for (const e of [...enemies]) {
     spawnBoom(e.sp.x, e.sp.y);
     score += ENEMY_SCORE[e.type];
+    // **宝珠(★)だけは落とす**。集めないと先へ進めないものなので、
+    // 巻き込まれて消えると理不尽な待ち時間になる。
+    // ほかのアイテムは出さない(ボムやモアイで稼げてしまうため)
+    if (e.hasStar) dropItem(e.sp.x + 2, e.sp.y, 'star');
     mmsxx.removeSprite(e.sp);
     enemies.splice(enemies.indexOf(e), 1);
   }
@@ -6179,8 +6185,11 @@ function updatePlay() {
       fireFarBeam();
     }
   }
-  // ラスボスの面は宝珠を集めず、木星が流れていくのを見せてから登場の演出へ
+  // ラスボスの面は宝珠を集めず、木星が流れていくのを見せてから登場の演出へ。
+  // **場に居座る相手(モアイ・目玉)がいるあいだは入らない**。
+  // ボスと重なると画面が分からなくなるので、いなくなるまで待つ
   if (state === 'play' && !boss && !bossMode && clearTimer <= 0 && bossIntro === 0 &&
+      !moaiActive() && eyeballs.length === 0 &&
       (stars >= starsNeeded() || (isLastStage() && playFrame >= LAST_STAGE_SHOW))) {
     startBossIntro();
   }
