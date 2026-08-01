@@ -683,8 +683,7 @@ function killEyeball(e) {
     score += EYE_BONUS;
     spawnPopup(SCREEN_W / 2 - 32, 96, EYE_BONUS);
     showNotice('DOUBLE! ' + EYE_BONUS);
-    playBGM('bonus', false, true);
-    jingleTimer = 150;
+    playJingle('bonus');
   }
   eyeKillFrame = playFrame;
   drawHUD();
@@ -1024,10 +1023,7 @@ function killMoaiInside() {
   score += gain;
   spawnPopup(SCREEN_W / 2 - 32, 96, gain);
   showNotice(inside ? ('INSIDE JOB! ' + gain) : ('MOAI DOWN  ' + gain));
-  if (inside) {
-    playBGM('bonus', false, true);
-    jingleTimer = 150;
-  }
+  if (inside) playJingle('bonus');
   bigKills++;
   clearMoai();
   drawHUD();
@@ -1551,6 +1547,16 @@ let jingleTimer = 0;   // 開始ジングルが鳴り終わるまでのフレー
  * BGM を切り替える。同じ曲なら鳴らし直さない(エンジン側の既定の動き)。
  * ジングルなど、毎回頭から鳴らしたいものは restart に true を渡す。
  */
+/**
+ * ジングル(ファンファーレなど)を鳴らす。
+ * **いまの BGM は止めずに、鳴っているあいだだけ黙る**ので、
+ * 鳴り終わると曲の続きが聞こえてくる(イントロから鳴り直さない)。
+ * currentBGM は変えない = 局面の曲はそのまま
+ */
+function playJingle(name) {
+  mmsxx.audio.playJingle(name);
+}
+
 function playBGM(name, loop = true, restart = false) {
   currentBGM = name;
   // ジングル(ループしない曲 = ファンファーレなど)はいちばん強い。
@@ -6460,8 +6466,7 @@ function updatePlay() {
           if (coinValue >= COIN_TOP) {
             // 打ち止めの 102400 点を取ったら 1UP と同じファンファーレ
             showNotice('CHAIN MAX!');
-            playBGM('fanfare', false, true);
-            jingleTimer = 150;
+            playJingle('fanfare');
             coinValue = COIN_BASE;          // 次からまた 100 点
           } else {
             coinValue = Math.min(COIN_TOP, coinValue * 2);
@@ -6487,8 +6492,7 @@ function updatePlay() {
           } else {
             // 最後の 1 つ。ファンファーレと、画面の真ん中に知らせを出して締める
             showNotice('ALL CANDIES!  THANK YOU!', 180, BEG_TEXT_Y);
-            playBGM('fanfare', false, true);
-            jingleTimer = 150;
+            playJingle('fanfare');
           }
           break;
         }
@@ -6500,8 +6504,7 @@ function updatePlay() {
           dragonFlame = true;
           showNotice('DRAGON FLAME!');   // ほかのアイテムと同じ下の行に出す
           // 1UP と同じくらい大きな当たりなので、同じジングルで祝う
-          playBGM('fanfare', false, true);
-          jingleTimer = 150;
+          playJingle('fanfare');
           break;
         case 'star':
           stars++; score += 500;
@@ -6523,8 +6526,7 @@ function updatePlay() {
           ships = Math.min(MAX_SHIPS, ships + 1);
           showNotice('1UP!');
           // BGM をいったん黙らせてファンファーレを鳴らす(終わったら元の曲に戻る)
-          playBGM('fanfare', false, true);
-          jingleTimer = 150;
+          playJingle('fanfare');
           break;
         case 'damage':
           damageLevel = Math.min(DAMAGE_TABLE.length, damageLevel + 1);
@@ -8678,7 +8680,6 @@ function enterSoundTest() {
   currentBGM = null;
   neb.clear();          // 背景の大きな絵は消して読みやすくする
   soundAll = -1;
-  soundResume = null;
   soundBack = null;
   soundPage = new SoundTest(mmsxx, {
     layer: 4,
@@ -8692,8 +8693,7 @@ function enterSoundTest() {
             return;
           }
           if (soundAll >= 0) stopSoundAll();
-          soundBack = SOUND_BGM[i - 1];   // ジングルのあとに戻る先
-          soundResume = null;
+          soundBack = SOUND_BGM[i - 1];
           mmsxx.audio.playBGM(soundBack, true, true);
         },
       },
@@ -8701,10 +8701,9 @@ function enterSoundTest() {
         title: 'SE/JINGLE', items: SOUND_SE, x: 96,
         play: (name) => {
           if (!JINGLES.has(name)) { mmsxx.audio.playSE(name); return; }
-          // ジングルは BGM の枠で鳴るので、鳴り終わったら元の曲に戻す
-          const back = soundAll >= 0 ? SOUND_BGM[soundAll] : soundBack;
-          mmsxx.audio.playBGM(name, false);
-          if (back) soundResume = { name: back, timer: JINGLE_BACK_WAIT };
+          // ジングルは **BGM を止めずに黙らせて**重ねる。
+          // 鳴り終われば曲の続きが聞こえてくるので、戻す仕掛けは要らない
+          mmsxx.audio.playJingle(name);
         },
       },
       // しゃべるもの(TALK)。録音ではなく、鳴らすときに合成している。
@@ -8718,7 +8717,6 @@ function enterSoundTest() {
     // 全曲再生のあいだは、いま鳴っている曲名を出す
     note: () => (soundAll >= 0 ? 'ALL: ' + SOUND_BGM[soundAll].toUpperCase() : ''),
     stop: () => {
-      soundResume = null;
       soundBack = null;
       if (soundAll >= 0) stopSoundAll();
       mmsxx.audio.stopBGM();
@@ -8734,10 +8732,8 @@ const SOUND_ALL_LEN = 1800;   // 1 曲あたりの長さ(30 秒)
 const SOUND_ALL_FADE = 120;   // 消えていく時間(2 秒)
 let soundAll = -1;            // -1 = 全曲再生していない
 let soundAllTimer = 0;
-// ジングルを鳴らしたあと、元の BGM へ戻すための控え
-const JINGLE_BACK_WAIT = 300;   // ジングルが鳴り終わるまでの目安(5 秒)
-let soundBack = null;           // 直前に鳴らしていた BGM
-let soundResume = null;         // { name, timer } 戻す予定
+// 直前に鳴らしていた BGM(ジングルは BGM を黙らせて重ねるので、戻す仕掛けは要らない)
+let soundBack = null;
 
 function startSoundAll() {
   soundAll = 0;
@@ -8746,7 +8742,6 @@ function startSoundAll() {
 }
 function stopSoundAll() {
   soundAll = -1;
-  soundResume = null;
   mmsxx.audio.stopBGM();
 }
 
@@ -8764,12 +8759,6 @@ function updateSoundAll() {
 
 function updateSoundTest() {
   updateSoundAll();
-  // ジングルが鳴り終わったら、元の BGM に戻す
-  if (soundResume && --soundResume.timer <= 0) {
-    const back = soundResume.name;
-    soundResume = null;
-    mmsxx.audio.playBGM(back, true, true);
-  }
   soundPage.update();
 }
 

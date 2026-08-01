@@ -48,6 +48,8 @@ export class PSGPlayer {
     /** しゃべる言葉。録音は持たず、鳴らすときにフォルマント合成で作る */
     this.talkDefs = new Map();
     this.bgmState = null;
+    /** ジングル(BGM を黙らせて重ねる短い曲) */
+    this.jingleState = null;
     /** 鳴っている SE。1 つとは限らない(空きがあれば重ねて鳴る) */
     this.seVoices = [];
     this.noiseBuffer = null;
@@ -214,29 +216,37 @@ export class PSGPlayer {
     const gain = this.ctx.createGain();
     gain.gain.value = 1;
     gain.connect(this.ctx.destination);
-    const state = { gain, timer: 0, nodes: [], name };
+    const state = { gain, timer: 0, nodes: [], name, baseGain: 1 };
     this.bgmState = state;
 
     // 音声ファイル(mp3 など)の場合
     if (!Array.isArray(tracks)) {
       gain.gain.value = tracks.gain ?? 1;
+      state.baseGain = gain.gain.value;
       this.bgmVoices = 1;
       this._playAudioBGM(tracks, loop, state);
       return;
     }
     this.bgmVoices = tracks.length;
+    this._pump(tracks, loop, state, gain, () => this.bgmState === state);
+  }
 
-    // 1 ループぶんをまとめて予約すると、その瞬間に何百個もノードを作ることになり、
-    // 非力な端末ではひとコマぶんの引っかかりになる。
-    // そこで「少し先の分だけ」をこまめに積んでいく(先読みスケジューリング)。
+  /**
+   * MML の音符を「少し先の分だけ」こまめに積んでいく(先読みスケジューリング)。
+   * 1 ループぶんをまとめて予約すると、その瞬間に何百個もノードを作ることになり、
+   * 非力な端末ではひとコマぶんの引っかかりになるため。
+   * BGM とジングルの両方から使う。alive() が false を返したら積むのをやめる。
+   */
+  _pump(tracks, loop, state, gain, alive) {
     const loopLen = Math.max(...tracks.map(t => t.total), 0.01);
     const LOOKAHEAD = 0.5;   // 何秒先まで積んでおくか
     const TICK_MS = 120;     // 積み足す間隔
     state.base = this.ctx.currentTime + 0.05;   // いまのループの開始時刻
     state.cursor = 0;                           // 曲の中のどこまで積んだか
+    state.length = loopLen;                     // 1 ループの長さ(秒)
 
     const pump = () => {
-      if (this.bgmState !== state) return;
+      if (!alive()) return;
       const now = this.ctx.currentTime;
       // 終わったノードを掃除
       state.nodes = state.nodes.filter(n => n.__endTime > now);
@@ -257,6 +267,70 @@ export class PSGPlayer {
       state.timer = setTimeout(pump, TICK_MS);
     };
     pump();
+  }
+
+  /**
+   * ジングル(ファンファーレなど)を鳴らす。
+   * **BGM は止めずに、鳴っているあいだだけ黙らせる**。
+   * 鳴り終わると BGM が続きから聞こえてくるので、
+   * イントロの長い曲でも頭から鳴り直さない。
+   * @param {string} name BGM として登録してある短い曲
+   * @returns {number} 鳴っている長さ(秒)。0 なら鳴らせなかった
+   */
+  playJingle(name) {
+    const tracks = this.bgmDefs.get(name);
+    if (!tracks || !this.ctx) return 0;
+    this.stopJingle();
+    const gain = this.ctx.createGain();
+    gain.gain.value = 1;
+    gain.connect(this.ctx.destination);
+    const state = { gain, timer: 0, nodes: [], name };
+    this.jingleState = state;
+    this._muteBGM(true);
+
+    let sec = 0;
+    if (!Array.isArray(tracks)) {
+      // 音声ファイルのジングル
+      gain.gain.value = tracks.gain ?? 1;
+      this._playAudioBGM(tracks, false, state);
+      sec = tracks.duration || 3;
+    } else {
+      this._pump(tracks, false, state, gain, () => this.jingleState === state);
+      sec = state.length;
+    }
+    // 鳴り終わったら BGM を戻す
+    state.endTimer = setTimeout(() => {
+      if (this.jingleState === state) this.stopJingle();
+    }, sec * 1000 + 120);
+    return sec;
+  }
+
+  /** ジングルを止めて、BGM の音を戻す */
+  stopJingle() {
+    const s = this.jingleState;
+    if (!s) return;
+    this.jingleState = null;
+    clearTimeout(s.timer);
+    clearTimeout(s.endTimer);
+    for (const n of s.nodes) { try { n.stop(0); } catch (e) { /* stopped */ } }
+    try { s.gain.disconnect(); } catch (e) { /* already gone */ }
+    this._muteBGM(false);
+  }
+
+  /** ジングルが鳴っているか */
+  get jingling() { return !!this.jingleState; }
+
+  /** BGM を黙らせる / 戻す(止めないので、曲は裏で進み続ける) */
+  _muteBGM(on) {
+    const s = this.bgmState;
+    if (!s || !this.ctx) return;
+    try {
+      const t = this.ctx.currentTime;
+      s.gain.gain.cancelScheduledValues(t);
+      // ぶつっと切れないよう、ごく短く上げ下げする
+      s.gain.gain.setValueAtTime(s.gain.gain.value, t);
+      s.gain.gain.linearRampToValueAtTime(on ? 0.0001 : (s.baseGain ?? 1), t + 0.05);
+    } catch (e) { /* 環境によっては失敗するので無視 */ }
   }
 
   /**
@@ -281,6 +355,8 @@ export class PSGPlayer {
   stopBGM() {
     const s = this.bgmState;
     if (!s) return;
+    // 黙らせたまま曲を止めると、戻す先が無くなる
+    if (this.jingleState) this.stopJingle();
     this.bgmState = null;
     this.bgmVoices = 0;
     clearTimeout(s.timer);
