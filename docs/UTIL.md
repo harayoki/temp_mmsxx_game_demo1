@@ -10,6 +10,8 @@ import { StaffRoll }   from './engine/util/staffroll.js';
 import { Gallery }     from './engine/util/gallery.js';
 import { SoundTest }   from './engine/util/soundtest.js';
 import { Ranking, byScore, byTime } from './engine/util/ranking.js';
+import { RankingBoard, LocalRankingSource } from './engine/util/ranking-board.js';
+import { RemoteRankingSource } from './engine/util/ranking-remote.js';
 ```
 
 ## 共通の作法
@@ -166,6 +168,10 @@ ending.start();
 得点でもタイムでも使えるランキング表。並び順は比較関数で決めます
 （`byScore` = 高いほど上位 / `byTime` = 短いほど上位）。
 
+> **手元だけで完結する版です。**
+> サーバに載せる見込みがあるなら [6. `RankingBoard`](#6-ranking-boardjs--rankingboard) を使ってください。
+> こちらは「保存先がその場で値を返す」前提なので、非同期の保存先は入りません。
+
 | オプション | 既定 | 意味 |
 |---|---|---|
 | `key` | — | 保存に使うキー |
@@ -201,6 +207,133 @@ ending.start();
 
 ---
 
+## 6. `ranking-board.js` — `RankingBoard`
+
+サーバに載せられるランキング表。`Ranking` との違いは**通信を前提にしている**ことだけで、
+読み出しの使い勝手は変わりません。
+
+`Ranking` をそのまま非同期にすると「毎回 `await` してから描く」ことになり、
+"開いた瞬間に出る" 手ざわりが壊れます。そこで **手元に一覧の写しを持ち、
+読み出しは同期のまま**にしてあります。通信するのは 2 か所だけです。
+
+```js
+// 同期。描画も判定もこれだけ使う（Ranking と同じ書き味）
+board.entries / board.me
+board.top() / board.page(top, rows)
+board.qualifies(entry) / board.rankOf(entry) / board.myIndex()
+
+// 非同期。通信するのはこの 2 つだけ
+await board.refresh()      // 一覧を取り直す。投げっぱなしで呼ぶ
+await board.submit(entry)  // 登録して、サーバが数えた順位を受け取る
+```
+
+| オプション | 既定 | 意味 |
+|---|---|---|
+| `key` | — | この表を指すキー |
+| `max` | 100 | 手元に持つ件数 |
+| `defaults` | [] | 足りないぶんを埋める既定データ |
+| `compare` | byScore | 並び順 |
+| `source` | `LocalRankingSource` | **供給元（差し替えられる）** |
+| `meKey` | key + '-me' | 「自分の記録」を覚えるキー |
+| `meStore` | localStorage | 自分の記録の保存先（供給元がサーバでも必ず手元） |
+| `minIntervalMs` | 30000 | 取り直しの間隔の下限 |
+
+| メソッド | 意味 |
+|---|---|
+| `qualifies(entry)` / `rankOf(entry)` / `myIndex()` | `Ranking` と同じ（**手元の写しでの判定**） |
+| `add(entry, asMine?)` | 手元へ入れて順位を**同期で**返し、裏で登録も投げる |
+| `submit(entry, asMine?)` | 登録して**正しい順位**を受け取る（唯一プレイヤーを待たせる場所） |
+| `refresh({force?})` | 一覧を取り直す。**決して例外を投げない** |
+| `save()` | 手元の一覧を書き戻す（古い記録の手入れなど。サーバ相手では何も起きない） |
+| `reset()` | 既定データに戻す（**手元だけ**。サーバの記録には触らない） |
+| `editable` | 手元の記録を直接いじれるか（サーバ相手なら false） |
+| `busy` / `fetchedAt` / `lastError` | 取得の様子 |
+
+### 割り切っていること
+
+- **順位はだいたい合っていればよい。** 遊んでいる最中の `qualifies()` / `rankOf()` は
+  手元の写しで判定するので、実際とずれることがあります。次に取り直せば直ります
+- **取れなくても遊びは止まらない。** `refresh()` は失敗しても手元の写しを残して `false` を返すだけ
+- **表示中に入れ替わっても描き直さない。** 次にその画面を開いたときに新しくなります
+
+### 供給元（source）の差し替え
+
+```js
+{
+  fetch(key, ctx)          -> Promise<entries[]>        一覧を取る
+  submit(key, entry, ctx)  -> Promise<{rank, entries?}> 記録を送る
+  peek(key)                -> entries[] | null   任意。同期で出せる値があれば
+  replace(key, entries)    -> Promise<void>      任意。一覧を丸ごと差し替える
+  clear(key)               -> Promise<void>      任意。消す
+}
+```
+
+同梱の `LocalRankingSource` は localStorage を読み書きしますが、
+**同期で済むものまで Promise で返します**。サーバ版と呼ばれ方をそろえてあるので、
+切り替えは `source` を渡す 1 行だけです。
+
+`peek()` は「起動した瞬間から並んでいてほしい」ための抜け道。ローカル保存は持っている
+ので今までどおり即座に出ます。サーバは持たないので、既定データから始まって
+`refresh()` のあとで本物に入れ替わります。
+
+`replace()` / `clear()` は手元の記録をいじる操作なのでローカル保存だけが持ちます
+（`editable` がこれを見ています）。サーバ側の削除・無効化は管理者の仕事です。
+
+### 通信の遅さを試す
+
+サーバがまだ無いうちに「取れるまでのあいだ何が見えているか」を確かめられます。
+
+```js
+new LocalRankingSource({ delay: 5 })   // 取得・登録に 5 秒かかることにする
+LocalRankingSource.defaultDelay = 5;   // 既定を 5 秒にする
+```
+
+遅れを入れているあいだは **`peek()` が値を返しません**。サーバには同期で出せる値が
+無いので、そこも同じにしてあります。つまり既定データから始まって取れた時点で
+入れ替わる ―― 本番と同じ道筋を手元でたどれます。
+
+---
+
+## 7. `ranking-remote.js` — `RemoteRankingSource`
+
+`RankingBoard` の供給元をランキングサーバにするもの。
+**`fetch` を含むコードはここだけ**なので、手元だけで遊ぶゲームはこのファイルを
+読み込まずに済みます。
+
+```js
+new RemoteRankingSource({
+  baseUrl: 'https://ranking.example.com',
+  browserId,                       // 値でも関数でもよい
+  playId: () => currentPlayId,     // 送るたびに今の値を聞く
+  timeoutMs: 5000,
+  games: {
+    'mygame-scores': {
+      gameId: 'mygame-normal',     // サーバ側のゲーム
+      rankingKey: 'high-score',    // どの並びを見るか
+      valueKey: 'score',           // 記録が持っている値の名前
+    },
+  },
+});
+```
+
+`RankingBoard` は自分の `key` で問い合わせてくるので、そこから宛先を引きます。
+1 つの供給元を複数の表で使い回せます。
+
+| 口 | API |
+|---|---|
+| `fetch(key)` | `GET /api/v1/rankings/{gameId}/{rankingKey}?limit=100` |
+| `submit(key, entry)` | `POST /api/v1/runs` |
+| `peek` / `replace` / `clear` | 持たない |
+
+- サーバの順位は **1 位から**数えるので、1 引いて 0 起点にして返します
+- `409 PLAY_ALREADY_SUBMITTED` は**失敗にしません**。すでに登録できているので、
+  手元の見込み順位をそのまま使います
+- それ以外の失敗はすべて `RankingRequestError`（`status` と `code` を持つ）にそろえます
+- `timeoutMs` を過ぎたらあきらめます。取れなくても遊びは止まらないので短くて構いません
+- `playId` は 1 プレイに 1 つ。送り直しても同じ ID を使えば二重に載りません
+
+---
+
 ## STAR FABLE での使いどころ
 
 | UTIL | 使っているところ |
@@ -209,10 +342,14 @@ ending.start();
 | `StaffRoll` | スタッフロール |
 | `Gallery` | CHARACTERS(図鑑) |
 | `SoundTest` | SOUND TEST |
-| `Ranking` | ハイスコア・ボスラッシュのタイム |
+| `RankingBoard` | ハイスコア・ボスラッシュのタイム（供給元は localStorage） |
+
+`?delay=5` を付けて開くと、通信の遅さを手元で試せます。
+サーバへ繋ぐ段取りは [RANKING_PLAN.md](RANKING_PLAN.md) にまとめてあります。
 
 ## これから作るもの
 
 - **バーチャルパッド** … 同じ考え方で、見た目と配置を差し替えられる形にする（[TODO.md](TODO.md) J-2）
 - **ランキングの表示** … 一覧の描画も UTIL 側に寄せるか検討中
+- **ランキングサーバへ接続** … `source` を `RemoteRankingSource` に差し替える（[RANKING_PLAN.md](RANKING_PLAN.md)）
 - **スマホのセンサー** … ジャイロ・位置情報（まだやらない）
