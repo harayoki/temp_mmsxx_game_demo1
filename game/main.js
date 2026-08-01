@@ -1666,7 +1666,9 @@ const IMG_BY_TYPE = {
 const SPAWN_Y = { A: -18, B: 16, C: 16, F: SCREEN_H + 18, G: -18,
   K: -18, L: -18, M: -18 };
 // 色違い(シアン)の UFO は硬くて高得点。G は遅い代わりに硬め
-const HP_BY_TYPE = { A: 1, B: 2, C: 6, F: 1, G: 3, K: 4, L: 6, M: 2 };
+// K(壁づたい機)は端に居座って 3WAY を撃ち続けるので、
+// すぐ壊せると脅威にならない。硬くして「無視して避ける」判断も要るようにする
+const HP_BY_TYPE = { A: 1, B: 2, C: 6, F: 1, G: 3, K: 10, L: 6, M: 2 };
 
 /**
  * 画面下から出てくる敵が自機のすぐ足元に湧くと避けようがないので、
@@ -1875,6 +1877,9 @@ function spawnWaller() {
     const e = spawnEnemy('K', side < 0 ? 4 : SCREEN_W - 20, 0);
     if (!e) continue;
     e.side = side;
+    // 絵は下向きに描いてあるので、90 度回して横を向かせる。
+    // 口(とがったほう)が画面の中心 = 自機のいるほうを向くようにする
+    e.sp.rotate = side < 0 ? 270 : 90;
     e.fireTimer = WALLER_FIRE / 2 + Math.floor(Math.random() * 30);
   }
 }
@@ -7183,6 +7188,16 @@ function updatePlay() {
         if (Math.abs((b.sp.x + half) - px) < rad * R &&
             Math.abs((b.sp.y + half) - py) < rad * R) {
           hit = true; hitCause = b.breakable ? 'BOSS SHOT' : 'ENEMY SHOT'; break;
+        }
+      }
+    }
+    if (!hit) {
+      // 16t のおもりに触れたら即死(よけるしかない)
+      for (const w of weights) {
+        if (px > w.sp.x && px < w.sp.x + WEIGHT_W &&
+            py > w.sp.y && py < w.sp.y + WEIGHT_H) {
+          destroyPlayer('16 TONS');
+          return;
         }
       }
     }
