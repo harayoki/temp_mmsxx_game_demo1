@@ -152,6 +152,16 @@ export class RankingBoard {
 
   // ---- ここから下は同期。描画や判定はすべてこちらを使う ----
 
+  /**
+   * 手元の記録を直接いじれるか(= ローカル保存を供給元にしているか)。
+   * 古い記録の手入れのように「保存してあるものを書き換える」用事は、
+   * サーバが相手のときは成り立たない(記録の書き換えは管理者の仕事)。
+   * そういう処理を呼ぶ前にこれで確かめる。
+   */
+  get editable() {
+    return typeof this.source.replace === 'function';
+  }
+
   /** 1 位の記録(無ければ null) */
   top() { return this.entries[0] || null; }
 

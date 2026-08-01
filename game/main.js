@@ -386,6 +386,9 @@ const normalTable = new RankingBoard({
  * 10 点刻みの得点はもう出ないので、昔の端数が残っていると気持ちが悪い
  */
 function roundHiScores(table) {
+  // 保存してあるものを書き換える手入れなので、手元に持っているときだけ意味がある。
+  // 供給元がサーバになったら、記録の書き換えは管理者の仕事になる
+  if (!table.editable) return;
   let changed = false;
   for (const e of table.entries) {
     const v = Math.round(e.score / 100) * 100;
@@ -394,6 +397,16 @@ function roundHiScores(table) {
   if (changed) table.save();
 }
 for (const t of [hardTable, normalTable]) roundHiScores(t);
+
+/**
+ * ランキングを取り直す。**待たせないので投げっぱなしで呼ぶ**。
+ * タイトルへ戻ってきたときに 3 表ぶんまとめて頼み、取れたぶんは
+ * 次にその画面を開いたときから新しくなる。
+ * 表示中の一覧は描き直さない(ちらつかせない)。失敗しても手元の記録が残る。
+ */
+function refreshRankings() {
+  for (const t of [hardTable, normalTable, rushTable]) t.refresh();
+}
 
 /** いま遊んでいるモードのランキング表 */
 const scoreTable = () => (gameMode() === 'hard' ? hardTable : normalTable);
@@ -2261,6 +2274,9 @@ function enterTitle(page = 0, focusRank = -1, fromOver = false) {
   popups = [];
   titlePage = page;
   titleTimer = 0;
+  // タイトルへ戻ってきたので、裏でランキングを取り直しておく。
+  // 待たないので、取得中でもそのままゲームを始められる
+  refreshRankings();
   // 各モードで消した背景を戻す
   neb.clear();
   drawFarObjects();
@@ -2327,6 +2343,9 @@ function hiCenterTop(tbl, rank) {
 
 function drawHiScoreList() {
   const tbl = listTable();
+  // 裏で一覧を取り直していると件数が変わることがある。
+  // 見ている位置がはみ出さないよう、描く前に丸めておく
+  hiTop = Math.max(0, Math.min(hiTop, Math.max(0, tbl.entries.length - HISCORE_ROWS)));
   const title = titlePage === 3 ? '- HISCORE(HARD) -' : '- HISCORE -';
   hud.fill(0, 0, 0, VW, 176);
   hud.print(centerX(title), 8, title, 15);
@@ -7523,7 +7542,11 @@ function statsFinish() {
   if (stats.needsCompact()) stats.compact(STAT_AGGREGATORS);
 }
 
-/** デバッグ用: ハイスコアを既定の 100 件に戻す */
+/**
+ * デバッグ用: ハイスコアを既定の 100 件に戻す。
+ * 戻すのは**この端末に残っているぶんだけ**。
+ * 供給元がサーバになっても、サーバ側の記録には触らない
+ */
 window.msxResetHiScores = () => {
   hardTable.reset();
   normalTable.reset();
@@ -7811,6 +7834,8 @@ const rushTable = new RankingBoard({
 // ボスラッシュのタイム一覧(タイトルの 4 枚目)
 let rushTop = 0;
 function drawRushList() {
+  // 一覧と同じく、裏で件数が変わっていてもはみ出さないように丸める
+  rushTop = Math.max(0, Math.min(rushTop, Math.max(0, rushTable.entries.length - HISCORE_ROWS)));
   hud.fill(0, 0, 0, VW, 176);
   const t = '- BOSS RUSH TIME -';
   hud.print(centerX(t), 8, t, 15);
