@@ -1,5 +1,5 @@
 ﻿import { VDP_PALETTE, convertRGBA, convertRGBAFlat, hashRGBA,
-  setPalette, currentPalette, PALETTE_NAMES } from './palette.js';
+  setPalette, currentPalette, PALETTE_NAMES, PALETTE_LABELS } from './palette.js';
 import { ImageSymbol, SpriteSymbol, BgSymbol } from './symbol.js';
 import { MID_TONES } from './midtone.js';
 import { getGlyph } from './font.js';
@@ -748,6 +748,8 @@ export class VDP {
   get palette() { return currentPalette(); }
   /** 選べる色合いの名前(切り替えの順番) */
   get paletteNames() { return PALETTE_NAMES.slice(); }
+  /** 画面に出すときの名乗り(省略すると、いまの色合いのもの) */
+  paletteLabel(name) { return PALETTE_LABELS[name || currentPalette()] || (name || ''); }
 
   /**
    * 描画領域の大きさを変える(8 ドット単位)。

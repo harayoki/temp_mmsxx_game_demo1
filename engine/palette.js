@@ -55,6 +55,16 @@ export const PALETTES = {
   ],
 };
 
+/**
+ * 画面に出すときの名乗り。**色の表と一緒にエンジン側で持つ**
+ * (増やしたときにゲーム側を直さなくていいように)
+ */
+export const PALETTE_LABELS = {
+  tms9918: 'TMS9918 CLASSIC',
+  tms9918a: 'TMS9918A DATASHEET',
+  v9938: 'V9938 (MSX2)',
+};
+
 /** いま選んでいる色合いの名前 */
 let paletteName = 'tms9918';
 

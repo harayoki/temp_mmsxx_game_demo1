@@ -8188,11 +8188,12 @@ function checkCheatCode() {
     break;
   }
 
-  // 英字を打ち込むタイプのコマンド。打ち終わったら RETURN で確定する
-  for (let i = 0; i < 26; i++) {
-    const key = 'Key' + String.fromCharCode(65 + i);
-    if (mmsxx.input.wasPressed(key)) {
-      const ch = String.fromCharCode(65 + i);
+  // 英字と数字を打ち込むタイプのコマンド。打ち終わったら RETURN で確定する
+  // (VDP の名前のように、数字を含む語もあるため)
+  for (let i = 0; i < 36; i++) {
+    const ch = i < 26 ? String.fromCharCode(65 + i) : String(i - 26);
+    const key = i < 26 ? 'Key' + ch : 'Digit' + ch;
+    if (mmsxx.input.wasPressed(key) || (i >= 26 && mmsxx.input.wasPressed('Numpad' + ch))) {
       typed = (typed + ch).slice(-12);
       pushTypedShow(ch);
       return;
@@ -8230,13 +8231,6 @@ function drawCheatInput() {
   const t = typedShow + '-';
   hud.print(centerX(t), 136, t, 7);
 }
-
-// 色合いの名乗り(打ったときに画面へ出す文字)
-const PALETTE_LABEL = {
-  tms9918: 'TMS9918 CLASSIC',
-  tms9918a: 'TMS9918A DATASHEET',
-  v9938: 'V9938 (MSX2)',
-};
 
 /** 打ち込まれた語を判定して効果を出す */
 function runCheatWord(word) {
@@ -8280,7 +8274,8 @@ function runCheatWord(word) {
       ? 'v9938'
       : names[(names.indexOf(mmsxx.palette) + 1) % names.length];
     mmsxx.setPalette(next);
-    cheatNotice(PALETTE_LABEL[next] || next.toUpperCase());
+    // 名乗りはエンジン側が持っている(色合いを増やしてもここは直さなくていい)
+    cheatNotice(mmsxx.paletteLabel());
     mmsxx.audio.playSE('item');
     return;
   }

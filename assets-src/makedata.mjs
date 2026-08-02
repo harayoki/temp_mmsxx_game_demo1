@@ -3811,6 +3811,10 @@ const BGM_MAIN = [
   // A' のハモリ(歌メロの 3 度下)。A / B / C のあいだは休む
   't150 q7 v9 l8 @{pulse25} @e{soft} @s2 ' + REST_BARS(8) + 'l8 ' + CANON_HARMONY_A2 +
     ' ' + REST_BARS(16),
+  // 歌メロの 1 オクターブ下。同じ音色を重ねて厚みを出す。
+  // 前に出すぎないよう音量は控えめ、エコーも浅くする
+  't150 q7 v7 l8 @{wtLead} @e{soft} @s2 ' + transposeMML(
+    CANON_MELODY + ' ' + CANON_MELODY_A2 + ' ' + BRIDGE_MELODY + ' ' + CODA_MELODY, -12),
 ];
 
 // 最大パワー時の BGM。ここだけカノン進行から離れて、
