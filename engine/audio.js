@@ -179,6 +179,8 @@ export class PSGPlayer {
   playTalk(name, priority = 0, opts = {}) {
     const def = this.talkDefs.get(name);
     if (!def || !this.ctx) return;
+    // セリフは重ねない。前のセリフは止めてから鳴らす(重なると聞き取れない)
+    this.stopTalk();
     const now = this.ctx.currentTime;
     this._cleanupSE(now);
     if (this.seVoices.some(v => v.exclusive && v.priority > priority)) return;
@@ -208,10 +210,26 @@ export class PSGPlayer {
     src.connect(gain);
     const when = now + 0.02;
     src.start(when);
-    this.seVoices.push({
+    const v = {
       gain, nodes: [src], priority, voices: 1, noise: 0,
       endTime: when + def.buffer.duration, exclusive: !!opts.exclusive,
-    });
+      talk: name, id: ++this._seSeq,
+    };
+    this.seVoices.push(v);
+    return v.id;
+  }
+
+  /**
+   * しゃべっているものを止める。
+   * @param {string|number} [what] 名前(`'kozorite'`)か、playTalk が返した番号。
+   *   省略すると**しゃべっているものを全部**止める
+   */
+  stopTalk(what) {
+    for (const v of [...this.seVoices]) {
+      if (!v.talk) continue;
+      if (what !== undefined && v.talk !== what && v.id !== what) continue;
+      this._stopVoice(v);
+    }
   }
 
   /**
@@ -611,6 +629,9 @@ export class PSGPlayer {
    * @param {string} name @param {number[]|Float32Array} samples
    * @param {5|8} [bits=8] 段階の細かさ(5 = PC エンジン風 / 8 = SCC 風)
    */
+  /** 使える音色の名前(`@{名前}` で呼べるもの)。波形メモリも含む */
+  get waveNames() { return WAVEFORMS.map((w) => w.name); }
+
   addWave(name, samples, bits = 8) {
     const id = registerWave(name, samples, bits);
     if (this._waveCache) this._waveCache.delete(name);   // 上書きに備えて捨てる

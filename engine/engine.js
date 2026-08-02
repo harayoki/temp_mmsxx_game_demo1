@@ -254,6 +254,24 @@ export class MMSXXEngine {
   /** レイヤーハンドルを取得 (0 が奥、数字が大きいほど手前) */
   layer(i) { return this._layers[i]; }
 
+  /**
+   * **色合い(パレットの流派)を切り替える**。
+   *
+   * TMS9918A はアンテナ出力だったので「本当の色」が 1 つに決まらず、
+   * 資料や実機の測り方でいくつもの流派がある。
+   * 絵は色番号で持っているので、切り替えても描き直しは要らない。
+   *
+   * - `'tms9918'`  いままでの色(既定。落ち着いた中間色寄り)
+   * - `'tms9918a'` TI の資料から起こした色(明るく、緑が強い)
+   * - `'v9938'`    MSX2 以降が出す MSX1 の色(原色がはっきり)
+   * @param {string} name
+   */
+  setPalette(name) { return this.vdp.setPalette(name); }
+  /** いまの色合いの名前 */
+  get palette() { return this.vdp.palette; }
+  /** 選べる色合いの名前(切り替えの順番) */
+  get paletteNames() { return this.vdp.paletteNames; }
+
   /** 背景色(パレット番号 1..15)。全レイヤー透明の場所に見える色 */
   get backdrop() { return this.vdp.backdrop; }
   set backdrop(c) { this.vdp.backdrop = c; }

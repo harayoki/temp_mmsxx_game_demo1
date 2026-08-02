@@ -1,4 +1,5 @@
-﻿import { VDP_PALETTE, convertRGBA, convertRGBAFlat, hashRGBA } from './palette.js';
+﻿import { VDP_PALETTE, convertRGBA, convertRGBAFlat, hashRGBA,
+  setPalette, currentPalette, PALETTE_NAMES } from './palette.js';
 import { ImageSymbol, SpriteSymbol, BgSymbol } from './symbol.js';
 import { MID_TONES } from './midtone.js';
 import { getGlyph } from './font.js';
@@ -226,10 +227,7 @@ export class VDP {
 
     // パレットを ABGR(リトルエンディアンの RGBA) 32bit 値に前計算
     this.pal32 = new Uint32Array(16);
-    for (let i = 1; i <= 15; i++) {
-      const [r, g, b] = VDP_PALETTE[i];
-      this.pal32[i] = (255 << 24) | (b << 16) | (g << 8) | r;
-    }
+    this._buildPal32();
 
     /** 背景色(パレット番号 1..15)。全レイヤーが透明の場所に見える色 */
     this.backdrop = 1;
@@ -726,6 +724,30 @@ export class VDP {
    * 中身は等倍のままなので、描き直しは要らない
    */
   refitCss() { this._applyCssSize(); }
+
+  /** パレットの 32bit 値を作り直す(色合いを切り替えたとき) */
+  _buildPal32() {
+    for (let i = 1; i <= 15; i++) {
+      const [r, g, b] = VDP_PALETTE[i];
+      this.pal32[i] = (255 << 24) | (b << 16) | (g << 8) | r;
+    }
+  }
+
+  /**
+   * **色合い(パレットの流派)を切り替える**。
+   * 絵は色番号で持っているので、描き直さずに色だけ変わる。
+   * @param {string} name 'tms9918' / 'tms9918a' / 'v9938'
+   */
+  setPalette(name) {
+    if (!setPalette(name)) return false;
+    this._buildPal32();
+    return true;
+  }
+
+  /** いまの色合いの名前 */
+  get palette() { return currentPalette(); }
+  /** 選べる色合いの名前(切り替えの順番) */
+  get paletteNames() { return PALETTE_NAMES.slice(); }
 
   /**
    * 描画領域の大きさを変える(8 ドット単位)。

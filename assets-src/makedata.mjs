@@ -3797,7 +3797,8 @@ const REST_BARS = (n) => 'l1 ' + 'r '.repeat(n);
 // 構成は A - A'(変奏) - B(展開) - C(終結) の 32 小節でループする
 const BGM_MAIN = [
   // 歌メロ(デチューンはかけずに輪郭をはっきりさせる)
-  't150 q7 v12 l8 @{pulse25} @e{soft} @s3 ' + CANON_MELODY + ' ' + CANON_MELODY_A2 + ' ' +
+  // 音色はゲーム側で足した波形メモリ wtLead(main.js の addWave)
+  't150 q7 v12 l8 @{wtLead} @e{soft} @s3 ' + CANON_MELODY + ' ' + CANON_MELODY_A2 + ' ' +
     BRIDGE_MELODY + ' ' + CODA_MELODY,
   // アルペジオ(伴奏)。25% パルスで軽く
   't150 q7 v9 l16 @{pulse25} @e{flat} @s2 [' + CANON_ARP + ']2 ' +
@@ -4389,29 +4390,6 @@ const BGM_TODO = [
 // 開始ジングル(3 小節)。一気に駆け上がってから決めの和音でロングトーン。
 // 本編がイ短調なので、ここも Am -> E7 -> Am でつなぐ。
 // 開始ジングル(3 小節)。歯切れのよい刻み -> 駆け上がり -> 決めのロングトーン。
-// ---- 音色を聞き比べるための曲(サウンドテスト用) ----
-// ドレミファソラシドを、楽器を次々に替えながら鳴らす。
-// 名前を言わずとも、順に聞けばどれがどれか分かるようにしてある。
-/**
- * 音階 1 回ぶん。`w` の音色で、上って下りる。
- * **音の高さの並びはドレミのまま**で、譜割りだけ工夫して曲に聞こえるようにした
- * (上りは付点で跳ね、頂上を伸ばし、下りは走って最後に落ち着く)
- */
-const SCALE_RUN = (w) => `@{${w}} o4 c8. d16 e8 f8 g4 a8 b8 `
-  + `> c4. < b8 a8 g8 f8 e8 d4 c4 r4 `;
-/** 今までの波形(パルス 3 種・三角・ノコギリ・サイン・ノイズ)を順に */
-const BGM_SCALE = [
-  't150 q7 v12 l8 @e{soft} '
-  + ['pulse12', 'pulse25', 'pulse50', 'triangle', 'saw', 'sine', 'noise']
-    .map(SCALE_RUN).join(''),
-];
-/** 波形メモリ(wt〜)を順に。上のと聞き比べる */
-const BGM_SCALE_WT = [
-  't150 q7 v12 l8 @e{soft} '
-  + ['wtBell', 'wtOrgan', 'wtRamp', 'wtVoice', 'wtSquareSoft']
-    .map(SCALE_RUN).join(''),
-];
-
 const BGM_START = [
   // メロディ
   't152 q8 v13 @{pulse25} @e{flat} @d10 @s2' +
@@ -4637,13 +4615,15 @@ const BGM_CLEAR = [
 // 右手の三連符アルペジオ + 左手のオクターブ、という原曲の形をそのまま使う。
 const BGM_GAMEOVER = [
   // 右手: c#m -> c#m -> A -> D/F#(原曲どおりの流れ) の三連アルペジオ
-  't58 q8 v10 @{sine} @e{piano} @s3 l12' +
+  // 波形メモリの鐘の音。減衰させると、こもったチェレスタのように響く
+  't58 q8 v10 @{wtBell} @e{piano} @s3 l12' +
   ' o4 [g+>c+e<]4 [g+>c+e<]4' +
   ' o4 [a>c+e<]4  [a>d f+<]4' +
   ' o4 [g+>c+e<]2 [g+>c+d+<]2 [g+ b>d+<]2 [g+ b>e<]2',
   // 左手: オクターブの低音(右手 8 小節ぶんに合わせる)。
   // 埋もれず出すぎずの音量にし、倍音のある三角波で輪郭だけ出す
-  't58 q8 v11 @{triangle} @e{soft} l1 o2 c+ c+ o1 a o2 d o1 g+ g+',
+  // 低音はオルガンの波形で、下から支える
+  't58 q8 v10 @{wtOrgan} @e{soft} l1 o2 c+ c+ o1 a o2 d o1 g+ g+',
 ];
 
 // SE の音量は「聞こえ方」でそろえてある。
@@ -4736,7 +4716,9 @@ const SE = {
   laser: LASER_SE,
   // 太いビームを撃っているあいだの音。**半音高い版**。
   // 細くなる段階で元の高さへ落ちるので、「弱まった」ことが音でも分かる
-  laserHi: LASER_SE.map((m) => transposeMML(m, 1)),
+  // 半音上げると倍音が増えて、同じ音量でも耳につく。3 段だけ下げてつり合いを取る
+  laserHi: LASER_SE.map((m) => transposeMML(m, 1)
+    .replace(/v(\d+)/g, (_, n) => 'v' + Math.max(1, Number(n) - 3))),
   // ドラゴンの突進。「ゴギャ――――」と叫ぶ
   dragonRoar: ['@{noise} @e{percussive} t120 v15 o2 l32 c c r16 @e{flat} v9 o1 l2 c&c',
                '@{saw} @e{flat} @v7 t120 v15 o3 l32 g > d < b a g f e d @e{flat} l2 o2 c&c',
@@ -6353,8 +6335,6 @@ const out =
       // 1UP と目玉ボーナスは曲を入れ替えてある
       fanfare2: BGM_FANFARE, bonus: BGM_FANFARE, staff: BGM_STAFF,
       elise: BGM_ELISE, fate: BGM_FATE, salut: BGM_SALUT,
-      // 音色の聞き比べ(サウンドテスト用)
-      scale: BGM_SCALE, wtscale: BGM_SCALE_WT,
     },
     se: SE,
     // しゃべる言葉(TALK)。録音は持たず、鳴らすときに合成する。

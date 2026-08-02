@@ -18,7 +18,19 @@
 import { SCREEN_W } from '../video.js';
 
 const centerX = (text) => (SCREEN_W - text.length * 8) >> 1;
-const ARROW_R = String.fromCharCode(0x1b);
+/**
+ * 画面からはみ出した文字を**落として**書く。
+ * レイヤーは画面と同じ幅で左右がつながっているので、
+ * そのまま負の x へ書くと**反対の端に回り込んで**しまう。
+ * 見切れさせたいだけなので、外に出る文字は捨てる
+ */
+function printClip(layer, x, y, text, color) {
+  const from = Math.max(0, Math.ceil(-x / 8));
+  const to = Math.min(text.length, Math.floor((SCREEN_W - x) / 8));
+  if (to <= from) return;
+  layer.print(x + from * 8, y, text.slice(from, to), color);
+}
+const ARROW_L = String.fromCharCode(0x1a), ARROW_R = String.fromCharCode(0x1b);
 
 export class SoundTest {
   /**
@@ -28,13 +40,15 @@ export class SoundTest {
    *     title: string,
    *     items: string[],                 並べる名前
    *     play: (name:string, index:number) => void,
-   *     x?: number,                      左端(既定は列を等分)
+   *     x?: number,                      使わない(左右送りで並べるため)
    *   }>,
    *   layer?: number,       描くレイヤー(既定 0)
    *   rows?: number,        一度に出す行数(既定 8)
    *   titleY?: number,      見出しの y(既定 8)
    *   listY?: number,       一覧の 1 行目の y(既定 48)
    *   lineStep?: number,    行間(既定 16)
+   *   listX?: number,       真ん中の列の左端(既定 88)
+   *   slotStep?: number,    隣の列までの距離(既定 136。画面外へ見切れる)
    *   header?: string,      いちばん上の見出し(既定 '- SOUND TEST -')
    *   help?: string,        下に出す案内
    *   helpY?: number,       その y(既定 180)
@@ -55,6 +69,10 @@ export class SoundTest {
     this.titleY = opts.titleY ?? 8;
     this.listY = opts.listY ?? 48;
     this.lineStep = opts.lineStep ?? 16;
+    // 列は**左右送り**で見せる。いま選んでいる列が真ん中、
+    // 隣の列は両端で見切れる(隣に何があるか気配だけ伝える)
+    this.listX = opts.listX ?? 88;
+    this.slotStep = opts.slotStep ?? 136;
     this.header = opts.header ?? '- SOUND TEST -';
     this.help = opts.help || 'SP:PLAY  Z:STOP  ESC:EXIT';
     this.helpY = opts.helpY ?? 180;
@@ -87,22 +105,30 @@ export class SoundTest {
     const layer = this.mmsxx.layer(this.layerIndex);
     layer.clear();
     layer.print(centerX(this.header), this.titleY, this.header, 15);
-    const width = Math.floor(SCREEN_W / Math.max(1, this.columns.length));
-    this.columns.forEach((c, ci) => {
-      const x = c.x ?? (ci * width + 16);
-      layer.print(x + 8, this.titleY + 20, c.title, this.col === ci ? 11 : 14);
+    const n = this.columns.length;
+    // 真ん中(0)と、その左右(-1 / +1)だけ描く。左右は端で見切れてよい
+    for (const d of (n > 1 ? [-1, 1, 0] : [0])) {
+      const ci = ((this.col + d) % n + n) % n;
+      const c = this.columns[ci];
+      if (!c) continue;
+      const here = d === 0;
+      const x = this.listX + d * this.slotStep;
+      // 見出し。真ん中のものだけ矢印を添えて「左右に動ける」ことを伝える
+      const title = here ? ARROW_L + ' ' + c.title + ' ' + ARROW_R : c.title;
+      if (here) layer.print(centerX(title), this.titleY + 20, title, 11);
+      else printClip(layer, x, this.titleY + 20, title, 4);
       const sel = this.sel[ci];
       // 選んでいる行が真ん中あたりに来るように切り出す
       const top = Math.max(0, Math.min(c.items.length - this.rows, sel - (this.rows >> 1)));
       for (let r = 0; r < this.rows; r++) {
         const i = top + r;
         if (i >= c.items.length) break;
-        const here = i === sel;
-        const mark = (here && this.col === ci) ? ARROW_R : ' ';
-        const color = here ? (this.col === ci ? 11 : 7) : 14;
-        layer.print(x, this.listY + r * this.lineStep, mark + c.items[i].toUpperCase(), color);
+        const on = i === sel;
+        const mark = (on && here) ? ARROW_R : ' ';
+        const color = here ? (on ? 11 : 14) : 4;
+        printClip(layer, x, this.listY + r * this.lineStep, mark + c.items[i].toUpperCase(), color);
       }
-    });
+    }
     if (this.help) layer.print(centerX(this.help), this.helpY, this.help, 10);
     this._drawNote(true);
   }

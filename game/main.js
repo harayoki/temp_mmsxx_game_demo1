@@ -13,6 +13,7 @@ import { StaffRoll } from '../engine/util/staffroll.js';
 import { Gallery } from '../engine/util/gallery.js';
 import { SoundTest } from '../engine/util/soundtest.js';
 import { FpsMeter } from '../engine/util/fps.js';
+import { toneDemo, scaleDemo } from '../engine/util/demotunes.js';
 import { LocalStorageStore } from '../engine/storage.js';
 import { StatsLog } from '../engine/stats.js';
 import { GAME_DATA } from './gamedata.js';
@@ -174,6 +175,17 @@ for (let i = 0; IMG['kingLineL' + i]; i++) KING_LINES_LONG.push(IMG['kingLineL' 
 const KING_RIFT_OPEN = [];
 for (let i = 0; IMG['kingRiftOpen' + i]; i++) KING_RIFT_OPEN.push(IMG['kingRiftOpen' + i]);
 KING_RIFT_OPEN.push(IMG.kingRift0);
+// ゲーム側で足す波形メモリ。**曲を組み立てる前に登録する**
+// (MML はここで名前を番号に直すので、あとから足しても間に合わない)。
+// メインの曲の歌メロに使う。基音のうえに 3 倍・5 倍を強めに乗せた、
+// リードらしい鼻にかかった音。5bit にして実機らしくざらつかせる
+mmsxx.audio.addWave('wtLead', Array.from({ length: 32 }, (_, i) => {
+  const p = i / 32;
+  return 0.75 * Math.sin(2 * Math.PI * p)
+    + 0.45 * Math.sin(2 * Math.PI * 3 * p)
+    + 0.28 * Math.sin(2 * Math.PI * 5 * p)
+    + 0.14 * Math.sin(2 * Math.PI * 7 * p);
+}), 5);
 for (const [name, mml] of Object.entries(GAME_DATA.bgm)) mmsxx.audio.defineBGM(name, mml);
 // スタッフロールだけは音声ファイル(mp3)を使う。
 // MML と同じように playBGM('staff') で鳴らせる
@@ -8219,6 +8231,13 @@ function drawCheatInput() {
   hud.print(centerX(t), 136, t, 7);
 }
 
+// 色合いの名乗り(打ったときに画面へ出す文字)
+const PALETTE_LABEL = {
+  tms9918: 'TMS9918 CLASSIC',
+  tms9918a: 'TMS9918A DATASHEET',
+  v9938: 'V9938 (MSX2)',
+};
+
 /** 打ち込まれた語を判定して効果を出す */
 function runCheatWord(word) {
   // オート連射のコマンド(MEIJIN / TAKAHASHI / TOSHIYUKI。合計 3 回まで)
@@ -8248,6 +8267,20 @@ function runCheatWord(word) {
     showHitArea = !showHitArea;
     if (!showHitArea) dbg.clear();
     cheatNotice('HIT AREA ' + (showHitArea ? 'ON' : 'OFF'));
+    mmsxx.audio.playSE('item');
+    return;
+  }
+  // VDP の名前を打つと、画面の色合いが変わる。
+  //   TMS9918 = MSX1 の色を順ぐりに(いままでの色 -> 資料の色 -> MSX2 の色 -> 戻る)
+  //   V9938   = MSX2 以降が出す MSX1 の色へ一足飛びに
+  // 絵は色番号で持っているので、描き直さずに色だけ入れ替わる
+  if (word.endsWith('TMS9918') || word.endsWith('V9938')) {
+    const names = mmsxx.paletteNames;
+    const next = word.endsWith('V9938')
+      ? 'v9938'
+      : names[(names.indexOf(mmsxx.palette) + 1) % names.length];
+    mmsxx.setPalette(next);
+    cheatNotice(PALETTE_LABEL[next] || next.toUpperCase());
     mmsxx.audio.playSE('item');
     return;
   }
@@ -8868,15 +8901,22 @@ const SOUND_BGM = ['main', 'power', 'boss', 'lastboss', 'moai', 'todo', 'gameove
   'elise', 'fate', 'salut', 'botsu1', 'finalbattle', 'staff',
   // 音色の聞き比べ。scale = 今までの波形 / wtscale = 波形メモリ
   'scale', 'wtscale'];
-const SOUND_SE = ['start', 'unused1', 'fanfare', 'bonus', 'shutter', 'autofire', 'heal', 'scold',
+// ジングルは BGM として登録されているので、鳴らし方が SE と違う。欄も分ける
+const SOUND_JINGLE = ['start', 'unused1', 'fanfare', 'bonus'];
+const SOUND_SE = ['shutter', 'autofire', 'heal', 'scold',
   'shot', 'boom', 'hit', 'item', 'clink', 'thud', 'ricochet', 'eyeAppear',
   'laser', 'charging', 'rifttear', 'bigboom', 'bossboom', 'powerdown', 'appear', 'warning',
   'dragonRoar', 'count3', 'count2', 'count1',
   'weak', 'armor', 'guardhit'];
 // しゃべるもの(TALK)。SE とは鳴らし方が違うので分けておく
 const SOUND_TALK = ['kozorite', 'kingLaugh', 'kiaiA', 'kiaiB', 'kiaiC'];
-// ジングルは BGM として登録されているので、SE 欄でも BGM として鳴らす
-const JINGLES = new Set(['start', 'unused1', 'fanfare', 'bonus']);
+// 音色テスト。**1 つの音色だけ**で同じ小曲を鳴らして聞き比べる。
+// 曲はエンジン側(demotunes.js)にある。音色が増えれば、この欄も自然に増える
+const SOUND_TONE = mmsxx.audio.waveNames;
+for (const w of SOUND_TONE) mmsxx.audio.defineBGM('tone_' + w, toneDemo(w));
+// ドレミを次々に音色を替えて鳴らす曲。今までの波形と、波形メモリ(wt〜)に分ける
+mmsxx.audio.defineBGM('scale', scaleDemo(SOUND_TONE.filter((w) => !w.startsWith('wt'))));
+mmsxx.audio.defineBGM('wtscale', scaleDemo(SOUND_TONE.filter((w) => w.startsWith('wt'))));
 // 左が BGM、右が SE。左右キーで列を移り、上下で曲を選ぶ
 // BGM 側の一覧はいちばん上に [ALL](全曲再生)を足して見せる
 const SOUND_BGM_LIST = ['- ALL -', ...SOUND_BGM];
@@ -8902,7 +8942,7 @@ function enterSoundTest() {
     layer: 4,
     columns: [
       {
-        title: 'BGM', items: SOUND_BGM_LIST, x: 8,
+        title: 'BGM', items: SOUND_BGM_LIST,
         play: (name, i) => {
           if (i === 0) {
             // いちばん上の - ALL - は全曲続けて再生する
@@ -8915,19 +8955,26 @@ function enterSoundTest() {
         },
       },
       {
-        title: 'SE/JINGLE', items: SOUND_SE, x: 96,
-        play: (name) => {
-          if (!JINGLES.has(name)) { mmsxx.audio.playSE(name); return; }
-          // ジングルは **BGM を止めずに黙らせて**重ねる。
-          // 鳴り終われば曲の続きが聞こえてくるので、戻す仕掛けは要らない
-          mmsxx.audio.playJingle(name);
-        },
+        title: 'SE', items: SOUND_SE,
+        play: (name) => mmsxx.audio.playSE(name),
+      },
+      {
+        // ジングルは **BGM を止めずに黙らせて**重ねる。
+        // 鳴り終われば曲の続きが聞こえてくるので、戻す仕掛けは要らない
+        title: 'JINGLE', items: SOUND_JINGLE,
+        play: (name) => mmsxx.audio.playJingle(name),
       },
       // しゃべるもの(TALK)。録音ではなく、鳴らすときに合成している。
       // 手元の開発中はいつも出す。公開版はラスボスを倒すまで列ごと出さない
       // (先にセリフを聞かせないため)
+      {
+        // 音色テスト。波形メモリ(wt〜)もここに並ぶ
+        title: 'TONE', items: SOUND_TONE,
+        play: (name) => { soundBack = 'tone_' + name; mmsxx.audio.playBGM(soundBack, false, true); },
+      },
       ...((DEV || metSet.has('kingdown')) ? [{
-        title: 'VOICE', items: SOUND_TALK, x: 176,
+        title: 'VOICE', items: SOUND_TALK,
+        // 次のセリフを鳴らすと前のセリフは止まる(エンジン側でそうしてある)
         play: (name) => mmsxx.audio.playTalk(name, 6),
       }] : []),
     ],
