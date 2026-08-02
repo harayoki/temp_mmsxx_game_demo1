@@ -4811,9 +4811,11 @@ function makeKingMan(b) {
 const CHICKS = 3;
 const CHICK_RX = 18, CHICK_RY = 6;   // 輪の半径(横長にして奥行きを出す)
 
-/** ひよこを出しっぱなしにしないよう片づける */
+/** ひよこを出しっぱなしにしないよう片づける(鳴き声も止める) */
 function clearChicks(b) {
-  if (!b || !b.chicks) return;
+  if (!b) return;
+  if (b.piyoId) { mmsxx.audio.stopSE(b.piyoId); b.piyoId = 0; }
+  if (!b.chicks) return;
   for (const sp of b.chicks) mmsxx.removeSprite(sp);
   b.chicks = null;
 }
@@ -4835,6 +4837,9 @@ function updateChicks(b) {
       sp.blinkPhase = i & 1;     // 隣どうしで裏返す(全部が同時に消えない)
       b.chicks.push(sp);
     }
+    // 鳴き声は**気絶が解けるまでくり返す**。解けたところで止める
+    // (くり返しの回数は多めに取っておいて、止めるのは clearChicks の役)
+    b.piyoId = mmsxx.audio.playSE('piyo', SE_HIT, { loop: 99, resume: 'continue' });
   }
   const cx = b.x + KING_MAN_W / 2 - 4;
   const cy = b.y - 6;
@@ -4847,9 +4852,6 @@ function updateChicks(b) {
     // 奥を回っているあいだは、本体の後ろへ回す
     sp.priority = Math.sin(a) < 0 ? 9 : 12;
   }
-  // ピヨピヨは鳴らしっぱなしにせず、間を空けて鳴らす。
-  // ほかの音に押し出されないよう、当たり音と同じ強さで鳴らす
-  if ((b.stun % 40) === 0) mmsxx.audio.playSE('piyo', SE_HIT);
 }
 
 /** ラスボスのスプライトを片づける(裂け目は bossParts なので別途消える) */
