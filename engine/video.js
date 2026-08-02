@@ -50,6 +50,14 @@ function nearerColor(c, a, b) {
   return d(pa) <= d(pb) ? a : b;
 }
 
+/**
+ * 派生した絵に、元の名前を引き継ぐ。
+ * 検査で引っかかったときに「どの絵から作ったものか」が分かるようにする
+ */
+function nameOf(img, how) {
+  return img && img.name ? img.name + '(' + how + ')' : undefined;
+}
+
 /** BG の座標は 8 ドット単位に丸める(負の値でも下方向に丸める) */
 const snap8 = v => Math.floor(Math.round(v) / 8) * 8;
 /** 幅・高さは 8 の倍数に切り上げる */
@@ -149,7 +157,7 @@ export function transformImage(img, flipX, flipY, rot) {
       out[dy * ow + dx] = c;
     }
   }
-  return { width: ow, height: oh, pixels: out };
+  return { width: ow, height: oh, pixels: out, name: nameOf(img, '向き替え') };
 }
 
 /**
@@ -319,9 +327,10 @@ export class VDP {
     this._bgChecked.add(img);
     const r = VDP.inspectBgImage(img);
     if (r.runs === 0) return;
-    const msg = `[MMSXX] ${where}: 横8ドットに3色以上が ${r.runs} 本`
+    const msg = `[MMSXX] ${where} "${img.name || '名前なし'}": `
+      + `横8ドットに3色以上が ${r.runs} 本`
       + ` (最大 ${r.worst} 色) ${img.width}x${img.height} 例: ${r.samples.join(' / ')}`;
-    this.bgWarnings.push({ where, ...r, width: img.width, height: img.height });
+    this.bgWarnings.push({ where, name: img.name, ...r, width: img.width, height: img.height });
     if (how === 'throw') throw new Error(msg);
     console.warn(msg);
   }
@@ -349,9 +358,9 @@ export class VDP {
     // (8x8 や 16x8 の小さいスプライトまで縛らない)
     const ok = (d) => d % unit === 0 || (unit === 16 && d <= 16);
     if (ok(img.width) && ok(img.height)) return;
-    const msg = `[MMSXX] ${where}: 大きさは ${unit} の倍数にしてください`
-      + ` (いまは ${img.width}x${img.height})`;
-    this.bgWarnings.push({ where, size: `${img.width}x${img.height}`, runs: 0, worst: 0, samples: [] });
+    const msg = `[MMSXX] ${where} "${img.name || '名前なし'}": `
+      + `大きさは ${unit} の倍数にしてください (いまは ${img.width}x${img.height})`;
+    this.bgWarnings.push({ where, name: img.name, size: `${img.width}x${img.height}`, runs: 0, worst: 0, samples: [] });
     if (how === 'throw') throw new Error(msg);
     console.warn(msg);
   }
@@ -564,6 +573,10 @@ export class VDP {
                    : convertRGBA(data, width, height);
       this.convertCache.set(key, img);
     }
+    // 名前を引き継ぐ。**検査で引っかかったときに、どの絵か分かる**ようにするため。
+    // opts.name が無ければ、元の絵が持っている名前を使う
+    const nm = (opts && opts.name) || src.name;
+    if (nm && !img.name) img.name = nm;
     return img;
   }
 
@@ -821,7 +834,7 @@ export class VDP {
       if (((y + phase) & 1) === 0) continue;
       px.fill(0, y * img.width, (y + 1) * img.width);
     }
-    const out = { width: img.width, height: img.height, pixels: px };
+    const out = { width: img.width, height: img.height, pixels: px, name: nameOf(img, '走査線') };
     byPhase.set(phase, out);
     return out;
   }
@@ -841,7 +854,7 @@ export class VDP {
       const to = map[px[i]];
       if (to !== undefined) px[i] = to;
     }
-    const out = { width: img.width, height: img.height, pixels: px };
+    const out = { width: img.width, height: img.height, pixels: px, name: nameOf(img, '色替え') };
     byKey.set(key, out);
     return out;
   }
@@ -878,7 +891,7 @@ export class VDP {
         }
       }
     }
-    const out = { width: img.width, height: img.height, pixels: px };
+    const out = { width: img.width, height: img.height, pixels: px, name: nameOf(img, 'セル埋め') };
     this._bgFillCache.set(img, out);
     return out;
   }

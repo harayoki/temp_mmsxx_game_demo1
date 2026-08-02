@@ -88,7 +88,10 @@ const SPRITE_COLORS = {
   flameSmall: 1, flameSmallB: 1, flameBig: 1, flameBigA: 1, flameBigB: 1,
   flameDragon: 1, flameDragonA: 1, flameDragonB: 1, barrier: 1,
   enemyA: 1, enemyB: 1, enemyC: 1, enemyF: 1, enemyG: 1, warper: 1,
-  cube: 1, bouncer: 1, asteroid: 2,
+  cube: 1, bouncer: 1,
+  // 小惑星は BG スプライトとして使うので、**スプライトの色数変換にかけない**。
+  // 2 色変換をかけると「絵ぜんぶで 2 色 + 透明」になり、
+  // BG に置いたとき 8 ドットに 3 色出てしまう(透明が黒で埋まるため)
   weight16t: 1,   // 16t のおもりは青 1 色のスプライト(文字は抜き)
   rammer: 1, eyeVein: 1, asteroidHi: 1,
   octoArms: 1, octoCrown: 1, crabBigClaw: 1,
@@ -108,14 +111,16 @@ const IMG = {};
 for (const [name, im] of Object.entries(GAME_DATA.images)) {
   const raw = MMSXXEngine.imageFromBase64(im.b64, im.width, im.height);
   const colors = SPRITE_COLORS[name];
-  IMG[name] = mmsxx.convert(raw, colors ? { colors } : undefined);
+  // 名前を渡しておくと、検査で引っかかったときに**どの絵か**が出る
+  IMG[name] = mmsxx.convert(raw, { name, ...(colors ? { colors } : {}) });
 }
 
 /** 変換済み画像の色を全部差し替えたコピーを作る(単色スプライトの色違い用) */
 function recolor(img, color) {
   const pixels = new Uint8Array(img.pixels.length);
   for (let i = 0; i < pixels.length; i++) pixels[i] = img.pixels[i] === 0 ? 0 : color;
-  return { width: img.width, height: img.height, pixels };
+  const name = img.name ? img.name + '(単色' + color + ')' : undefined;
+  return { width: img.width, height: img.height, pixels, name };
 }
 IMG.itemW = recolor(IMG.item, 15);   // アイテム点滅用(黄と白を1フレーム交互)
 // 色違いで使い回していた敵は、それぞれ専用の絵に差し替えた
