@@ -57,12 +57,21 @@ export class PSGPlayer {
     this.maxNoise = opts.maxNoise ?? 1;
     /** いま BGM が使っている音の数 */
     this.bgmVoices = 0;
+    /** SE の管理番号(playSE が返す。stopSE で狙って止めるのに使う) */
+    this._seSeq = 0;
+    /** 全体のポーズ(ゲームのポーズ用)。個別のポーズとは別に持つ */
+    this._sePausedAll = false;
   }
 
   /** 終わった SE を片づける */
   _cleanupSE(now) {
     this.seVoices = this.seVoices.filter((v) => {
       if (now < v.endTime) return true;
+      // くり返しの途中なら、まだ片づけない
+      if (v.left !== 0 && v.timer) return true;
+      // ポーズ中のものは、解除で鳴り直すので残す
+      if (v.paused || this._sePausedAll) return true;
+      if (v.timer) { clearTimeout(v.timer); v.timer = 0; }
       try { v.gain.disconnect(); } catch (e) { /* already gone */ }
       return false;
     });
@@ -80,6 +89,8 @@ export class PSGPlayer {
 
   /** 1 つの SE を止める */
   _stopVoice(v) {
+    if (v.timer) { clearTimeout(v.timer); v.timer = 0; }
+    v.left = 0;   // くり返しの予約が残っていても、もう積まない
     for (const n of v.nodes) { try { n.stop(0); } catch (e) { /* stopped */ } }
     try { v.gain.disconnect(); } catch (e) { /* already gone */ }
     this.seVoices = this.seVoices.filter(x => x !== v);
@@ -173,7 +184,7 @@ export class PSGPlayer {
         if (v.priority >= priority) continue;
         if (!low || v.priority < low.priority) low = v;
       }
-      if (!low) return;
+      if (!low) return 0;
       this._stopVoice(low);
     }
     if (!def.buffer) {
@@ -371,17 +382,28 @@ export class PSGPlayer {
    * どれも自分より優先度が高ければ、その SE は鳴らさない(高い音を消さない)。
    * @param {string} name
    * @param {number} [priority=0] 大きいほど優先
-   * @param {{exclusive?:boolean}} [opts]
+   * @param {{exclusive?:boolean, loop?:number, resume?:'head'|'continue'}} [opts]
    *   exclusive = ほかの SE を全部止めて独り占めする(ファンファーレなど)。
    *   鳴っているあいだ、優先度の低い SE は鳴らない。
+   *
+   *   loop = くり返す回数(既定 1)。**現実的な回数を入れること**。
+   *   -1 で無限にくり返せるが、**止め忘れると鳴りっぱなしになる**。
+   *   どうしても無限が要るときは、止める場所を先に決めてから使うこと
+   *   (面が変わる・ボスが消える・ポーズに入る、など)。
+   *
+   *   resume = ポーズを解いたときの鳴らしかた。
+   *   'head'(既定) = くり返しの頭から / 'continue' = 止めたところの続きから。
+   *   1 回だけの SE は、どちらにしても鳴り直さない
+   * @returns {number} 管理番号。stopSE(番号) で**これだけ**止められる。
+   *   鳴らせなかったときは 0
    */
   playSE(name, priority = 0, opts = {}) {
     const tracks = this.seDefs.get(name);
-    if (!tracks || !this.ctx) return;
+    if (!tracks || !this.ctx) return 0;
     const now = this.ctx.currentTime;
     this._cleanupSE(now);
     // 独り占めしている SE より低い優先度なら、そもそも鳴らさない
-    if (this.seVoices.some(v => v.exclusive && v.priority > priority)) return;
+    if (this.seVoices.some(v => v.exclusive && v.priority > priority)) return 0;
     if (opts.exclusive) {
       for (const v of [...this.seVoices]) this._stopVoice(v);
     }
@@ -394,7 +416,7 @@ export class PSGPlayer {
         if (v.priority >= priority) continue;
         if (!low || v.priority < low.priority) low = v;
       }
-      if (!low) return;   // 止められるものが無い = 鳴らさない
+      if (!low) return 0;   // 止められるものが無い = 鳴らさない
       this._stopVoice(low);
     }
     // ノイズは本数が決まっているので、あふれるならノイズを使っている SE を止める
@@ -413,17 +435,130 @@ export class PSGPlayer {
     gain.gain.value = 1;
     gain.connect(this.ctx.destination);
     const len = Math.max(...tracks.map(t => t.total), 0);
+    const loop = opts.loop == null ? 1 : (opts.loop | 0);
+    const id = ++this._seSeq;
+    const when = now + 0.02;
     const state = {
-      gain, nodes: [], priority, voices: need, noise: needNoise,
-      endTime: now + len, exclusive: !!opts.exclusive,
+      id, gain, nodes: [], priority, voices: need, noise: needNoise,
+      endTime: when + len, exclusive: !!opts.exclusive,
+      left: loop, timer: 0, nextAt: when + len,
+      paused: false, tracks, len,
+      // ポーズを解いたときの鳴らしかた。'head' = くり返しの頭から / 'continue' = 続きから
+      resume: opts.resume === 'continue' ? 'continue' : 'head',
+      startAt: when,   // いまのくり返しが始まった時刻(続きから鳴らすのに使う)
+      offset: 0,       // 止めたときの、曲の中の位置(秒)
     };
     this.seVoices.push(state);
-    const when = now + 0.02;
     for (const t of tracks) this._scheduleTrack(t, when, gain, state.nodes);
+    if (loop === 1 || len <= 0) return id;
+    // くり返し。1 回ぶんずつ積み足す(先に全部積むと音の数が一気に増えるため)。
+    // **次の開始時刻は前回から数える**(setTimeout の揺れで隙間が空かないように)。
+    // left が 0 になったら終わり。-1 のときは減らないので、止めるまで続く
+    const again = () => {
+      if (this.seVoices.indexOf(state) < 0) return;   // もう止められている
+      if (state.paused || this._sePausedAll) { state.timer = 0; return; }
+      if (state.left > 0) state.left--;
+      if (state.left === 0) return;
+      const t0 = state.nextAt;
+      // 鳴り終わった音は捨ててから積む(node がたまり続けないように)
+      const now2 = this.ctx.currentTime;
+      state.nodes = state.nodes.filter(n => (n.__endTime || 0) > now2);
+      for (const t of tracks) this._scheduleTrack(t, t0, gain, state.nodes);
+      state.nextAt = t0 + len;
+      state.startAt = t0;
+      state.endTime = t0 + len + 0.05;
+      // 次の予約は、鳴り終わる少し前に入れる(積み遅れで切れないように)
+      state.timer = setTimeout(again, Math.max(20, (t0 + len - this.ctx.currentTime) * 1000 - 60));
+    };
+    // ポーズから戻すときにも、同じ手で積み直す
+    state.loopAgain = again;
+    state.timer = setTimeout(again, Math.max(20, len * 1000 - 60));
+    return id;
   }
 
-  /** 鳴っている SE を全部止める */
-  stopSE() {
+  /**
+   * SE を一時停止する。
+   *
+   * **ポーズには 2 段ある**。
+   * - `pauseSE(番号)` = その SE だけ止めておく(個別)
+   * - `pauseSE()` = 鳴っているもの全部を止めておく(全体。ゲームのポーズ用)
+   *
+   * 全体を解除しても、**個別に止めてあるものは鳴り出さない**。
+   * どちらも解けているときだけ鳴る。
+   * @param {number} [id] 省略で全体
+   */
+  pauseSE(id) {
+    if (id) {
+      const v = this.seVoices.find(x => x.id === id);
+      if (v) { v.paused = true; this._silence(v); }
+      return;
+    }
+    this._sePausedAll = true;
+    for (const v of this.seVoices) this._silence(v);
+  }
+
+  /**
+   * SE の一時停止を解く。
+   * くり返しの残りがあるものだけ鳴り直す。
+   * 頭からか続きからかは、playSE の resume で決まる。
+   * **1 回だけの SE は鳴り直さない**(途中から鳴らしても不自然なので)
+   * @param {number} [id] 省略で全体
+   */
+  resumeSE(id) {
+    if (id) {
+      const v = this.seVoices.find(x => x.id === id);
+      if (v) { v.paused = false; this._restart(v); }
+      return;
+    }
+    this._sePausedAll = false;
+    for (const v of [...this.seVoices]) this._restart(v);
+  }
+
+  /** 鳴っている音を黙らせる(予約も止める。残り回数と位置は覚えておく) */
+  _silence(v) {
+    if (v.timer) { clearTimeout(v.timer); v.timer = 0; }
+    // 「続きから」のときのために、くり返しの頭からどこまで進んだかを覚える
+    if (v.resume === 'continue' && v.len > 0) {
+      const off = this.ctx.currentTime - v.startAt;
+      v.offset = Math.max(0, Math.min(v.len - 0.02, off));
+    }
+    for (const n of v.nodes) { try { n.stop(0); } catch (e) { /* stopped */ } }
+    v.nodes = [];
+  }
+
+  /** 止めてあった SE を鳴らし直す(頭から / 続きから は playSE の resume で決まる) */
+  _restart(v) {
+    if (v.paused || this._sePausedAll || v.timer) return;
+    // 残りが無い(1 回だけの SE か、くり返し終わり)なら片づける
+    if (v.left === 1 || v.left === 0 || !v.tracks) { this._stopVoice(v); return; }
+    const now = this.ctx.currentTime + 0.02;
+    if (v.resume === 'continue' && v.offset > 0) {
+      // 止めたところから。残りぶんだけ鳴らして、そのあとはいつもどおりくり返す
+      const rest = v.len - v.offset;
+      for (const t of v.tracks) this._scheduleTrackFrom(t, now, v.gain, v.nodes, v.offset);
+      v.startAt = now - v.offset;
+      v.nextAt = now + rest;
+      v.endTime = now + rest + 0.05;
+      v.offset = 0;
+      v.timer = setTimeout(v.loopAgain, Math.max(20, rest * 1000 - 60));
+      return;
+    }
+    v.nextAt = now;
+    v.loopAgain();
+  }
+
+  /**
+   * SE を止める。
+   * @param {number} [id] playSE() が返した管理番号。**これだけ**止める。
+   *   省略すると鳴っている SE を**全部**止める。
+   *   くり返し中のものも、ここで終わる
+   */
+  stopSE(id) {
+    if (id) {
+      const v = this.seVoices.find(x => x.id === id);
+      if (v) this._stopVoice(v);
+      return;
+    }
     for (const v of [...this.seVoices]) this._stopVoice(v);
     this.seVoices = [];
   }
@@ -516,6 +651,32 @@ export class PSGPlayer {
     src.__endTime = t1 + 0.02;
     src.onended = () => { try { g.disconnect(); } catch (e) { /* gone */ } };
     nodes.push(src);
+  }
+
+  /**
+   * 1チャンネルぶんを、**曲の途中(off 秒)から**鳴らす。
+   * off をまたいでいる音は、残りの長さだけ鳴らす(ポーズからの再開に使う)。
+   * @param {number} off 曲の中の再開位置(秒)
+   */
+  _scheduleTrackFrom(track, when, dest, nodes, off) {
+    for (const ev of track.events) {
+      const end = ev.t + Math.max(0.01, ev.gate);
+      if (end <= off) continue;                 // もう鳴り終わっている音
+      const start = Math.max(ev.t, off);        // またいでいる音は途中から
+      const t0 = when + (start - off);
+      const t1 = when + (end - off);
+      const amp = volGain(ev.vol) * MASTER_VOL;
+      this._playVoice(ev, ev.freq, amp, t0, t1, dest, nodes);
+      if (ev.detune > 0) {
+        const f2 = ev.freq * Math.pow(2, ev.detune / 1200);
+        this._playVoice(ev, f2, amp * 0.6, t0, t1, dest, nodes);
+      }
+      if (ev.echo > 0) {
+        const delay = 0.11 + ev.echo * 0.012;
+        const eAmp = amp * (0.12 + ev.echo * 0.035);
+        this._playVoice(ev, ev.freq, eAmp, t0 + delay, t1 + delay, dest, nodes);
+      }
+    }
   }
 
   /** 1チャンネルぶんのイベントを Web Audio ノードとしてスケジュールする */

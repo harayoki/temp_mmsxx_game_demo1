@@ -1357,6 +1357,9 @@ function clearBubble() {
 }
 
 function clearEntities() {
+  // くり返し再生の SE が残っていると、場面が変わっても鳴り続ける。
+  // 場を片づけるここで必ず止める(止め忘れの最後の受け皿)
+  stopLaserSE();
   clearBubble();
   for (const b of bullets) mmsxx.removeSprite(b.sp);
   for (const e of enemies) mmsxx.removeSprite(e.sp);
@@ -5572,6 +5575,12 @@ function breakShip() {
   boss.firing = 0;
   boss.laserLen = 0;
   drawLaser(0);        // 撃ちかけのレーザーが残らないように消す
+  // 撃っている途中で船が壊れることがある。くり返しの音を残さない
+  if (boss.laserSE || boss.laserFadeSE) {
+    stopLaserSE();
+    boss.laserSE = false;
+    boss.laserFadeSE = false;
+  }
   if (boss.charge) boss.charge.visible = false;
   if (boss.chargeRing) boss.chargeRing.visible = false;
   for (const g of boss.guards || []) g.sp.visible = false;
@@ -5802,6 +5811,16 @@ function fireEnemyBullet(x, y, vx, vy, breakable = false, image = null) {
 }
 
 /** レーザー: 一定間隔で停止 -> 溜め演出 -> 太いビームを撃つ */
+// いま鳴らしているレーザー音の管理番号(0 = 鳴っていない)。
+// くり返し再生は**止め忘れると鳴りっぱなし**になるので、番号を持っておいて
+// 撃ち終わり・船が壊れたとき・ボスが消えるときの 3 か所から必ず止める
+let laserSEId = 0;
+
+/** レーザーの音を止める(ほかの SE は消さない) */
+function stopLaserSE() {
+  if (laserSEId) { mmsxx.audio.stopSE(laserSEId); laserSEId = 0; }
+}
+
 function updateLaser(b) {
   // 溜めも発射もゆっくりにして、避ける余裕を作る
   const CHARGE = 220, FIRE = LASER_FIRE_LEN;   // 溜めは長め
@@ -5812,11 +5831,22 @@ function updateLaser(b) {
     // 「弱まった = いまが弱点」を音でも分かるようにする
     const sePhase = laserPhase(b);
     if (sePhase === 'full') {
-      // レーザーは見せ場なので、ほかの SE より優先して鳴らす
-      if (!b.laserSE) { b.laserSE = true; mmsxx.audio.playSE('laserHi', SE_HIT + 2); }
+      // レーザーは見せ場なので、ほかの SE より優先して鳴らす。
+      // 1 回では撃っている時間に足りないので 3 回くり返す。
+      // **撃ち終わりで必ず止める**(下の else)
+      if (!b.laserSE) {
+        b.laserSE = true;
+        // ポーズから戻したら、止めたところの続きから鳴らす
+        laserSEId = mmsxx.audio.playSE('laserHi', SE_HIT + 2, { loop: 3, resume: 'continue' });
+      }
     } else if (sePhase === 'fade') {
-      if (!b.laserFadeSE) { b.laserFadeSE = true; mmsxx.audio.playSE('laser', SE_HIT + 2); }
-    } else {
+      if (!b.laserFadeSE) {
+        b.laserFadeSE = true;
+        stopLaserSE();   // 太いときの音を切ってから、元の高さへ落とす
+        laserSEId = mmsxx.audio.playSE('laser', SE_HIT + 2, { loop: 3, resume: 'continue' });
+      }
+    } else if (b.laserSE || b.laserFadeSE) {
+      stopLaserSE();
       b.laserSE = false;
       b.laserFadeSE = false;
     }
@@ -9285,6 +9315,9 @@ function togglePause() {
   mmsxx.audio.playSE('pause');
   if (paused) {
     mmsxx.audio.stopBGM();
+    // くり返し中の SE(レーザーなど)も一緒に止める。
+    // 解除すると、止めてあったものだけが鳴り直す
+    mmsxx.audio.pauseSE();
     hud.print(centerX(PAUSE_TEXT), 88, PAUSE_TEXT, 15);
     hud.print(centerX(PAUSE_HINT), 104, PAUSE_HINT, 14);
   } else {
@@ -9296,6 +9329,7 @@ function togglePause() {
     konamiPos = 0;
     typed = '';
     typedShow = '';
+    mmsxx.audio.resumeSE();
     currentBGM = null; // 局面に合った BGM を鳴らし直させる
     // ALT+S を押した直後にポーズを抜けたときは、**もう 1 枚**コピーする。
     // ポーズの文字が写らない絵がほしいときの流れ:
