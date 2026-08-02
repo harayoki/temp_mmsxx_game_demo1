@@ -4831,6 +4831,8 @@ function updateChicks(b) {
       sp.frames = [IMG.chick0, IMG.chick1];
       sp.frameRate = 6;          // 羽ばたき
       sp.priority = 12;          // 本体より手前
+      sp.blink = 2;              // 1:1 の点滅
+      sp.blinkPhase = i & 1;     // 隣どうしで裏返す(全部が同時に消えない)
       b.chicks.push(sp);
     }
   }
@@ -4845,8 +4847,9 @@ function updateChicks(b) {
     // 奥を回っているあいだは、本体の後ろへ回す
     sp.priority = Math.sin(a) < 0 ? 9 : 12;
   }
-  // ピヨピヨは鳴らしっぱなしにせず、間を空けて鳴らす
-  if ((b.stun % 40) === 0) mmsxx.audio.playSE('piyo', SE_EVENT);
+  // ピヨピヨは鳴らしっぱなしにせず、間を空けて鳴らす。
+  // ほかの音に押し出されないよう、当たり音と同じ強さで鳴らす
+  if ((b.stun % 40) === 0) mmsxx.audio.playSE('piyo', SE_HIT);
 }
 
 /** ラスボスのスプライトを片づける(裂け目は bossParts なので別途消える) */
@@ -5032,6 +5035,7 @@ function fireKingWave(b) {
     const sp = mmsxx.sprite(img);
     sp.priority = 7;
     sp.rotate = rot;
+    sp.blink = 2;   // 1:1 の点滅(実機のちらつき)
     // 枠は 16x16 なので、中心を合わせるには半分の 8 を引く
     sp.x = cx - 8 - ux * back;
     sp.y = cy - 8 - uy * back;
