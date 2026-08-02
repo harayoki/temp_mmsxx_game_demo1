@@ -9,5 +9,8 @@
     "serve": "node serve.js",
     "checkbgm": "node assets-src/checkbgm.mjs",
     "preview": "node assets-src/preview.mjs"
+  },
+  "devDependencies": {
+    "terser": "^5.49.0"
   }
 }

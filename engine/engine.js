@@ -89,6 +89,9 @@ class LayerHandle {
  * mmsxx.run((m) => { ship.x++; });
  */
 export class MMSXXEngine {
+  /** エンジンの版(コンソールの名乗りなどに使う) */
+  static get version() { return '1.0'; }
+
   /**
    * @param {HTMLCanvasElement} canvas
    * @param {{scale?:number, virtualWidth?:number, virtualHeight?:number,
@@ -115,6 +118,15 @@ export class MMSXXEngine {
     // 手元の開発中はエラーで止め、公開版は致命的でなければ続ける
     this.errors = new ErrorLog({ local: MMSXXEngine.isLocal }).install();
     this.input = new Input(() => this.audio.unlock());
+    /**
+     * 開発版のビルドか。既定は「手元で開いているか」だが、
+     * opts.dev を渡せばビルドで固定できる(公開版は false)
+     */
+    this._dev = opts.dev ?? MMSXXEngine.isLocal;
+    /** expose() で window に付けた名前 */
+    this._exposed = [];
+    // 公開版では、BG の検査もしない(遊ぶ人には関係がなく、console も汚さない)
+    if (!this._dev) this.vdp.bgCheck = 'off';
     this._layers = this.vdp.layers.map((_, i) => new LayerHandle(this.vdp, i));
     /** 経過フレーム数 (60fps) */
     this.frame = 0;
@@ -173,8 +185,60 @@ export class MMSXXEngine {
   }
 
   /**
+   * 開発版のビルドかどうか。**細かい出し分けはこれを見て決める**。
+   * 既定は「手元で開いているか(isLocal)」だが、
+   * `new MMSXXEngine(canvas, { dev: false })` のように**ビルドで固定できる**。
+   * こうしておくと、本番のビルドを手元のサーバで開いても開発機能は出てこないし、
+   * 開発版をスマホへ持っていっても開発機能が使える。
+   */
+  get dev() { return this._dev; }
+
+  /**
+   * コンソールから触れる関数を登録する。
+   * **開発版のときだけ window に付く**。本番のビルドでは登録しないので、
+   * `mmsxxDebug` などの名前そのものが存在しなくなる。
+   *
+   * 関数を作る手間も惜しいときは、**関数を返す関数**を渡せばよい。
+   * 本番では中身が呼ばれないので、関数そのものが作られない。
+   *
+   * ```js
+   * mmsxx.expose('gameDebug', () => ({ stage, score }));       // そのまま
+   * mmsxx.expose({ gameBoss: (n) => warp(n), gameKill: kill }); // まとめて
+   * mmsxx.expose('gameHeavy', () => () => 重い準備がいる関数);   // 遅らせる
+   * ```
+   * @param {string|Object<string,Function>} name 名前 or 名前と関数の表
+   * @param {Function} [fn] name が文字列のときの中身
+   * @param {{lazy?:boolean}} [opts] lazy:true なら fn() を呼んだ結果を登録する
+   * @returns {boolean} 登録したか(本番では false)
+   */
+  expose(name, fn, opts = {}) {
+    if (!this._dev || typeof window === 'undefined') return false;
+    const put = (k, v) => {
+      window[k] = opts.lazy ? v() : v;
+      this._exposed.push(k);
+    };
+    if (typeof name === 'object') {
+      for (const k of Object.keys(name)) put(k, name[k]);
+    } else {
+      put(name, fn);
+    }
+    return true;
+  }
+
+  /** expose した名前を全部 window から外す(消し忘れの確認用) */
+  unexposeAll() {
+    for (const k of this._exposed) { try { delete window[k]; } catch (e) { window[k] = undefined; } }
+    const n = this._exposed.length;
+    this._exposed = [];
+    return n;
+  }
+
+  /** expose してある名前の一覧 */
+  get exposed() { return [...this._exposed]; }
+
+  /**
    * 手元の開発中かどうか(localhost / file: で開いているか)。
-   * 開発中だけ使えるデバッグ機能の出し分けに使う。
+   * ビルドで決め打ちしたいときは dev を使う。
    */
   get isLocal() { return MMSXXEngine.isLocal; }
   static get isLocal() {

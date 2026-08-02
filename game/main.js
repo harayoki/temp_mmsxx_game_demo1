@@ -15,6 +15,8 @@ import { SoundTest } from '../engine/util/soundtest.js';
 import { LocalStorageStore } from '../engine/storage.js';
 import { StatsLog } from '../engine/stats.js';
 import { GAME_DATA } from './gamedata.js';
+import { BUILD } from './build.js';
+import { installConsoleGuard } from '../engine/util/console-guard.js';
 
 // 裏画面は 256x1024 (横は画面ぴったり、縦に長くとってスクロールさせる)。
 // レイヤーは 5 枚: 遠い星 / 中間の星 / 近い星 / 大きな背景オブジェクト(とボス) / HUD
@@ -22,8 +24,34 @@ const mmsxx = new MMSXXEngine(document.getElementById('screen'), {
   scale: 3, virtualWidth: 256, virtualHeight: 1024,
   layers: [{}, {}, {}, {}, {}, {}],
   maxNoise: 2,   // 爆発が重なるとノイズを取り合って消えるので 2 本にする
+  // 開発版かどうかは**ビルドで決める**(場所では決めない)。
+  // これ 1 つで、シーン選択・コンソール関数・画面の保存・
+  // 開発用の裏技・BG の検査が まとめて出入りする
+  dev: BUILD.dev,
 });
-window.mmsxx = mmsxx; // デバッグ用(コンソールから触れるように)
+/** 開発用の機能を出すか。細かい出し分けはこれを見て決める */
+const DEV = mmsxx.dev;
+// コンソールから触れる入口は、開発版のときだけ付く(公開版では名前ごと無い)
+mmsxx.expose('mmsxx', mmsxx);
+// 公開版では、コンソールを開いた人にだけ見えるロゴとひとことを出す。
+// ゲームの動きには関わらない、おまけの隠し要素。
+// ビルドのときに -NoLogo を付けると出さない
+if (!DEV && BUILD.logo !== false) {
+  installConsoleGuard({
+    art: String.raw`
+   ____ _____ _   ___    ___  ___   ___  __    ___
+  / __//_  _// \ | _ \  | __|/ _ \ | _ )| |   | __|
+  \__ \  | | |   |   /  | _|| |_| || _ \| |__ | _|
+  /___/  |_| |_|_|_|_\  |_|  \___/ |___/|____||___|
+`,
+    title: 'STAR FABLE',
+    lines: [
+      'ここを開いたということは、たぶん作る側の人ですね。',
+      '不具合を見つけたら教えてもらえるとうれしいです。',
+    ],
+    // このあとに、エンジンの名乗り(MMSXX ENGINE)が必ず続く
+  });
+}
 // 画面のまわりに 4 ドットのボーダーを持たせる。
 // ここには何も描かれず、背景色で塗られる(実機の描画領域の外の遊び)。
 // 被弾したときは、この余白のぶんだけ画面全体をずらして揺らす
@@ -177,7 +205,7 @@ const MODES = [
   { id: 'chars', name: 'CHARACTERS' },
 ];
 // 手元の開発中だけ「シーン選択」を足す(公開版では出ない)
-if (MMSXXEngine.isLocal) MODES.push({ id: 'scene', name: 'SCENE SELECT' });
+if (DEV) MODES.push({ id: 'scene', name: 'SCENE SELECT' });
 let modeIndex = 0;
 const gameMode = () => MODES[modeIndex].id;
 /** NORMAL: 敵の手数を減らし、残機を増やし、即死をなくす(HARD はこれが無い) */
@@ -2528,7 +2556,7 @@ function drawTitlePage() {
     const help = String.fromCharCode(0x18, 0x19, 0x1a, 0x1b) + ':MOVE  SP:SHOT  ESC:PAUSE';
     hud.print(centerX(help), 158, help, 10);
     // 手元で開いているときだけ、隅に小さく印を出す(公開版には出ない)
-    if (mmsxx.isLocal) hud.print(VW - 32, 184, 'DEV', 6);
+    if (DEV) hud.print(VW - 32, 184, 'DEV', 6);
   } else if (titlePage === 1) {
     hud.print(centerX('- ITEMS -'), 8, '- ITEMS -', 15);
     const icons = helpIconSprites();
@@ -2801,7 +2829,7 @@ function willRankIn(v) {
 
 /** いまの画面を開発サーバへ送って capture/ に残す */
 function captureShare(name) {
-  if (!mmsxx.isLocal) return;
+  if (!DEV) return;
   try {
     const image = mmsxx.capture();   // 原寸(いちばん安い)
     fetch('/__capture', {
@@ -2867,7 +2895,7 @@ function enterGameOver() {
   }
   statsStageEnd();
   // 開発中だけ: ランクインしていたら、GAME OVER の文字が出る前の画面を残す
-  if (mmsxx.isLocal && gameMode() !== 'bossrush' && willRankIn(score)) {
+  if (DEV && gameMode() !== 'bossrush' && willRankIn(score)) {
     captureShare('rankin' + score);
   }
   statsFinish();
@@ -7673,16 +7701,16 @@ function statsFinish() {
  * 戻すのは**この端末に残っているぶんだけ**。
  * 供給元がサーバになっても、サーバ側の記録には触らない
  */
-window.mmsxxResetHiScores = () => {
+mmsxx.expose('mmsxxResetHiScores', () => {
   hardTable.reset();
   normalTable.reset();
   rushTable.reset();
   return hardTable.entries.length + ' 件に戻しました';
-};
+});
 
 /** デバッグ用: いまの画面状態を見る(自動テストから使う) */
 /** デバッグ用: 好きな面のボスをその場に出す(自機は無敵にする) */
-window.mmsxxBoss = (n) => {
+mmsxx.expose('mmsxxBoss', (n) => {
   stageNo = n;
   clearEntities();
   hud.clear();
@@ -7691,7 +7719,7 @@ window.mmsxxBoss = (n) => {
   invincible = 99999;
   spawnBoss();
   return gameMode() + ' stage' + n;
-};
+});
 
 /**
  * ラスボスを第 2 段階(シルエットマン)へ飛ばす。
@@ -7743,24 +7771,24 @@ function kingToPhase2() {
 }
 
 /** デバッグ用: カニの脚を全部折って第 2 形態(斜めの姿)にする */
-window.mmsxxCrabPhase2 = () => {
+mmsxx.expose('mmsxxCrabPhase2', () => {
   if (!boss || boss.kind !== 'crab') return null;
   for (const lg of boss.legs) lg.hp = 0;
   boss.phase2 = true;
   boss.mode = 'attach';
   return 'phase2';
-};
+});
 
 /** デバッグ用: コンティニュー先の面を決める(タイトルの並びを確かめる用) */
-window.mmsxxContinue = (n) => {
+mmsxx.expose('mmsxxContinue', (n) => {
   continueStages.normal = n || 1;
   refreshModes();
   if (state === 'title') drawModeLine();
   return { ...continueStages, modes: MODES.map(m => m.id) };
-};
+});
 
 /** デバッグ用: 追加した敵をその場に出す('waller' / 'spreader' / 'diver') */
-window.mmsxxEnemy = (kind) => {
+mmsxx.expose('mmsxxEnemy', (kind) => {
   if (kind === 'count') return { 敵: enemies.length, 敵弾: enemyBullets.length,
     種類: enemies.map(e => e.type).join(''), おもり: weights.length };
   if (kind === 'glower') { spawnGlower(); return 'glower'; }
@@ -7770,29 +7798,29 @@ window.mmsxxEnemy = (kind) => {
   else if (kind === 'diver') spawnDiver();
   else return 'waller / spreader / diver';
   return enemies.filter(e => 'KLM'.includes(e.type)).map(e => e.type);
-};
+});
 
 /** デバッグ用: モアイをその場に出す */
 /** デバッグ用: 未実装さんに会った印を消す(コンティニューでまた出るようにする) */
-window.mmsxxForgetTodo = () => {
+mmsxx.expose('mmsxxForgetTodo', () => {
   metSet.delete('todo');
   metSet.delete('down' + RUSH_TODO);
   metStore.save(MET_KEY, [...metSet]);
   return '未実装さんの印を消しました(次のゲームの 2 回目のコンティニューで出ます)';
-};
+});
 
-window.mmsxxMoai = (what) => {
+mmsxx.expose('mmsxxMoai', (what) => {
   // 'angry' を渡すと、その場で怒った状態にする(帰るまでを確かめる用)
   if (what === 'angry' && moai) { moai.rage = MOAI_RAGE_HITS - 1; angerMoai(moai); return moai.angryTimer; }
   clearMoai(); moaiSpawned = true; spawnMoai(); return 'moai';
-};
+});
 
 /**
  * デバッグ用: ラスボスを好きな段階へ飛ばす。
  * 'rift' 裂け目 / 'break' 裂け目が壊れる / 'pose' シルエット登場 /
  * 'man' 第 2 段階 / 'die' 撃破の演出(第 2 段階のときだけ)
  */
-window.mmsxxKing = (stage) => {
+mmsxx.expose('mmsxxKing', (stage) => {
   if (!boss || boss.kind !== 'king') { mmsxxBoss(6); }
   if (stage === 'die' && boss.stage === 'man') {
     killKingWithRoar();
@@ -7805,24 +7833,24 @@ window.mmsxxKing = (stage) => {
     kingToPhase2();
   }
   return boss.stage;
-};
+});
 
 /** デバッグ用: 名前入力の画面をその場で出す(第 2 引数で得点を決められる) */
-window.mmsxxNameEntry = (target = 'score', s) => {
+mmsxx.expose('mmsxxNameEntry', (target = 'score', s) => {
   if (s !== undefined) score = s;
   enterNameEntry(target);
   return state;
-};
+});
 
 /** デバッグ用: いまのボスの体力を書き換える(段階の変わり目をすぐ確かめる) */
-window.mmsxxBossHp = (n) => {
+mmsxx.expose('mmsxxBossHp', (n) => {
   if (!boss) return null;
   boss.hp = n;
   drawBossBar();
   return boss.hp;
-};
+});
 
-window.mmsxxDebug = () => ({
+mmsxx.expose('mmsxxDebug', () => ({
   state, modeIndex, mode: gameMode(), titlePage, charPage, stageNo,
   playFrame, bossIntro, bossMode, stars, need: starsNeeded(), paused,
   gear: { shotLevel, speedLevel, maxVolleys, damageLevel, barrierHP, ships },
@@ -7845,10 +7873,10 @@ window.mmsxxDebug = () => ({
   moai: moai ? { state: moai.state, hp: moai.hp, max: moai.max,
     parts: moai.parts.map(p => p.hp), lost: moai.lost,
     rage: moai.rage, angry: moai.angry } : null,
-});
+}));
 
 /** デバッグ用: 貯めた統計をまとめて見る */
-window.mmsxxStats = () => {
+mmsxx.expose('mmsxxStats', () => {
   const sessions = stats.sessions;
   const avg = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
   return {
@@ -7866,11 +7894,11 @@ window.mmsxxStats = () => {
     totals: stats.totals,
     sessions,
   };
-};
+});
 /** デバッグ用: いま集計して生ログを捨てる */
-window.mmsxxStatsCompact = () => stats.compact(STAT_AGGREGATORS);
+mmsxx.expose('mmsxxStatsCompact', () => stats.compact(STAT_AGGREGATORS));
 /** デバッグ用: 統計を全部消す */
-window.mmsxxStatsReset = () => { stats.reset(); return 'クリアしました'; };
+mmsxx.expose('mmsxxStatsReset', () => { stats.reset(); return 'クリアしました'; });
 
 // ---- ボスラッシュ ----// ---- ボスラッシュ ----
 // 実装済みのボスをランダムな順で 1 巡する。
@@ -8099,7 +8127,7 @@ function runCheatWord(word) {
   }
   // ORB: 宝珠を満タンにして、すぐボスへ行けるようにする(手元の開発中だけ)
   if (word.endsWith('ORB')) {
-    if (!mmsxx.isLocal) return;
+    if (!DEV) return;
     stars = starsNeeded();
     drawHUD();
     cheatNotice('ORBS FULL');
@@ -8108,7 +8136,7 @@ function runCheatWord(word) {
   }
   // 当たり判定の表示を切り替える(手元の開発中だけ)
   if (word.endsWith('HITAREA')) {
-    if (!mmsxx.isLocal) return;
+    if (!DEV) return;
     showHitArea = !showHitArea;
     if (!showHitArea) dbg.clear();
     cheatNotice('HIT AREA ' + (showHitArea ? 'ON' : 'OFF'));
@@ -8176,7 +8204,7 @@ function runCheatWord(word) {
 // ---- シーン選択(手元の開発中だけ) ----
 // もとはタイトルで BOSS RUSH を選んで CTRL を押す裏技だったが、
 // 見たい場面が増えてきたので、独立した画面に移した。
-// 公開版ではモード自体が出てこない(MMSXXEngine.isLocal)。
+// 公開版ではモード自体が出てこない(BUILD.dev)。
 let sceneSel = 0;
 let sceneTop = 0;
 const SCENE_ROWS = 11;   // 一度に出す行数
@@ -8784,7 +8812,7 @@ function enterSoundTest() {
       // しゃべるもの(TALK)。録音ではなく、鳴らすときに合成している。
       // 手元の開発中はいつも出す。公開版はラスボスを倒すまで列ごと出さない
       // (先にセリフを聞かせないため)
-      ...((mmsxx.isLocal || metSet.has('kingdown')) ? [{
+      ...((DEV || metSet.has('kingdown')) ? [{
         title: 'VOICE', items: SOUND_TALK, x: 176,
         play: (name) => mmsxx.audio.playTalk(name, 6),
       }] : []),

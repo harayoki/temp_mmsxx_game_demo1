@@ -7,8 +7,9 @@ yarn-error.log*
 # ---- 生成物 ----
 # アセットの実体。assets-src/makedata.mjs から `npm run data` で作り直せる
 game/gamedata.js
-# 公開用に固めたもの(build-deploy.ps1 が作る)
+# 配布用に固めたもの(build-deploy.ps1 が作る)。web 用と手元用の 2 つ
 deploy/
+deploy-local/
 *.zip
 
 # ---- 開発中の一時ファイル ----
