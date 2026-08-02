@@ -79,6 +79,12 @@ const BGP_SHOOT = 2;   // 流れ星: 近い星の手前、大きな背景オブ�
 const BGP_FRONT = 3;   // 敵・ボスなど: 背景オブジェクトより手前
 
 
+// スプライトに使う絵の一覧と、**その絵が使ってよい色数**。
+// 実機のスプライトは 1 枚 1 色。2 と書いてあるものは「2 枚重ねという体」。
+//
+// **減色はしない**。素材の時点で正しい色数になっている前提で、
+// 違っていたらエンジンが弾く(開発版は例外、公開版は警告)。
+// ここに名前が無い絵は BG(横 8 ドット 2 色)として読む
 const SPRITE_COLORS = {
   player: 2, bossEye: 1, bossEye2: 1, octoMouth: 1, ufoGuard: 1, item: 1, star: 1,
   bomb: 1, speedUp: 1, rapidUp: 1, oneUp: 1,
@@ -86,9 +92,6 @@ const SPRITE_COLORS = {
   flameDragon: 1, flameDragonA: 1, flameDragonB: 1, barrier: 1,
   enemyA: 1, enemyB: 1, enemyC: 1, enemyF: 1, enemyG: 1, warper: 1,
   cube: 1, bouncer: 1,
-  // 小惑星は BG スプライトとして使うので、**スプライトの色数変換にかけない**。
-  // 2 色変換をかけると「絵ぜんぶで 2 色 + 透明」になり、
-  // BG に置いたとき 8 ドットに 3 色出てしまう(透明が黒で埋まるため)
   weight16t: 1,   // 16t のおもりは青 1 色のスプライト(文字は抜き)
   rammer: 1, eyeVein: 1, asteroidHi: 1,
   octoArms: 1, octoCrown: 1, crabBigClaw: 1,
@@ -107,9 +110,9 @@ const SPRITE_COLORS = {
 const IMG = {};
 for (const [name, im] of Object.entries(GAME_DATA.images)) {
   const raw = MMSXXEngine.imageFromBase64(im.b64, im.width, im.height);
-  const colors = SPRITE_COLORS[name];
-  // 名前を渡しておくと、検査で引っかかったときに**どの絵か**が出る
-  IMG[name] = mmsxx.convert(raw, { name, ...(colors ? { colors } : {}) });
+  // 名前を渡しておくと、検査で引っかかったときに**どの絵か**が出る。
+  // spriteColors を渡すと、その色数を**越えていないか調べる**(減らしはしない)
+  IMG[name] = mmsxx.convert(raw, { name, spriteColors: SPRITE_COLORS[name] });
 }
 
 /** 変換済み画像の色を全部差し替えたコピーを作る(単色スプライトの色違い用) */
@@ -2108,12 +2111,17 @@ function clearPopups() {
   popups = [];
 }
 
+// 爆発の色。絵は白 1 色で、コマが進むごとに黄 -> 橙 -> 赤 と替えていく
+const BOOM_MAP1 = { 15: 11 };   // 黄
+const BOOM_MAP2 = { 15: 9 };    // 明るい赤
+
 /** 爆発のコマ送り。ふだんの更新と、名乗り待ちの演出の両方から呼ぶ */
 function updateBooms() {
   for (const b of [...booms]) {
     b.age++;
-    if (b.age === 5) b.sp.image = IMG.boom1;
-    else if (b.age === 10) b.sp.image = IMG.boom2;
+    // 絵は白 1 色なので、**コマごとに色を替えて**熱が冷める様子を出す
+    if (b.age === 5) { b.sp.image = IMG.boom1; b.sp.colorMap = BOOM_MAP1; }
+    else if (b.age === 10) { b.sp.image = IMG.boom2; b.sp.colorMap = BOOM_MAP2; }
     else if (b.age >= 15) { mmsxx.removeSprite(b.sp); booms.splice(booms.indexOf(b), 1); }
   }
 }
@@ -4928,8 +4936,9 @@ function fireKingWave(b) {
     const sp = mmsxx.sprite(img);
     sp.priority = 7;
     sp.rotate = rot;
-    sp.x = cx - 12 - ux * back;
-    sp.y = cy - 12 - uy * back;
+    // 枠は 16x16 なので、中心を合わせるには半分の 8 を引く
+    sp.x = cx - 8 - ux * back;
+    sp.y = cy - 8 - uy * back;
     enemyBullets.push({ sp, vx: ux * KING_BALL_SPEED, vy: uy * KING_BALL_SPEED });
   }
   mmsxx.audio.playSE('nobreak', SE_EVENT);

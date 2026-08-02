@@ -257,28 +257,29 @@ function toB64(img) {
 
 // ---------------------------------------------------------------- ドット絵
 
-const SHIP_COLORS = {
-  W: '#e8f0ff', C: '#39c2ff', B: '#3b6bff', D: '#20308f',
-  O: '#ff8c1a', Y: '#ffe34d',
-};
+// 自機は**2 色**(単色スプライト 2 枚重ねという体)。
+// 白い機体と、影になる青の 2 色だけ。
+// もとは 6 色で描いてエンジンに落とさせていたが、
+// **素材の時点で 2 色**にした(見た目は落としていたころと同じ)
+const SHIP_COLORS = { W: '#ffffff', B: '#5955e0' };
 
 const player = fromAscii([
   '.......WW.......',
   '.......WW.......',
-  '......WCCW......',
-  '......WCCW......',
-  '......WCCW......',
-  '.....WWCCWW.....',
-  '..D..WWWWWW..D..',
-  '..D.BWWWWWWB.D..',
-  '..DBBWWCCWWBBD..',
-  '.DDBBWWCCWWBBDD.',
-  'DDBBBWWWWWWBBBDD',
-  'DBBOBWWWWWWBOBBD',
-  'DBOOWWWDDWWWOOBD',
-  'DDBBWWD..DWWBBDD',
-  '..O.WD....DW.O..',
-  '..Y..........Y..',
+  '......WBBW......',
+  '......WBBW......',
+  '......WBBW......',
+  '.....WWBBWW.....',
+  '..B..WWWWWW..B..',
+  '..B.BWWWWWWB.B..',
+  '..BBBWWBBWWBBB..',
+  '.BBBBWWBBWWBBBB.',
+  'BBBBBWWWWWWBBBBB',
+  'BBBWBWWWWWWBWBBB',
+  'BBWWWWWBBWWWWWBB',
+  'BBBBWWB..BWWBBBB',
+  '..W.WB....BW.W..',
+  '..W..........W..',
 ], SHIP_COLORS);
 
 // 自機の推進炎。スピードアップの段階で大きくなる(段階1では出ない)。
@@ -442,7 +443,7 @@ const enemyA = fromAscii([
   '...G........G...',
   '...GGGGGGGGGG...',
   '..GG.GGGGG.GGG..',
-  '.GGGEEGGGGEEGGG.',
+  '.GGG..GGGG..GGG.',
   '.GGGGGGGGGGGGGG.',
   'GG.GGGGGGGGGG.GG',
   'GG.GGGGGGGGGG.GG',
@@ -454,7 +455,8 @@ const enemyA = fromAscii([
   '.G.....GG.....G.',
   '................',
   '................',
-], { G: '#4fd44f', E: '#e04fd0' });
+  // 単色スプライトなので**緑 1 色**。目は抜き(黒)で表す
+], { G: '#4fd44f' });
 
 const enemyB = fromAscii([
   '................',
@@ -473,7 +475,8 @@ const enemyB = fromAscii([
   '................',
   '................',
   '................',
-], { R: '#f04848', Y: '#ffd84d', W: '#ffffff', M: '#ff5ad0' });
+  // 単色スプライトなので**赤 1 色**。目や口は抜きで表す
+], { R: '#f04848', Y: '#f04848', W: '#f04848', M: '#f04848' });
 
 // 自機の弾。ミサイル型だと斜め撃ちで向きが合わないので、敵弾と同じ大きさのただの丸にする
 const bulletP = fromAscii([
@@ -682,8 +685,13 @@ const glower2 = fromAscii([
  * 大・中・小の 3 枚を少しずらして重ねて撃つと、進む向きが見えてくる。
  * まわりに赤いふちを付けて、赤い空間の中でも形が分かるようにしてある。
  */
+/**
+ * ラスボスの衝撃波(黒 1 色)。
+ * 枠は 16x16(スプライトは 16 の倍数)。中身は半径 x2 の大きさになる
+ * @param {number} r 半径(8 = 16 ドット / 6 = 12 ドット / 4 = 8 ドット)
+ */
 function makeKingWave(r) {
-  const S = 24, img = createImage(S, S);
+  const S = 16, img = createImage(S, S);
   const cx = S / 2, cy = S / 2;
   for (let y = 0; y < S; y++) {
     for (let x = 0; x < S; x++) {
@@ -696,23 +704,10 @@ function makeKingWave(r) {
       setPixel(img, x, y, hex('#000000'));
     }
   }
-  // 「エネルギーが通っている」筋。**進む向きの前半分だけ**に、細く入れる。
-  // 玉ぜんたいに散らすと、後ろもまん中も赤く見えて黒い玉に見えなくなる
-  if (r >= 6) {
-    for (let t = -0.9; t < 0.9; t += 0.04) {
-      const rr = r * 0.55 + Math.sin(t * 4) * 0.9;
-      const px = cx + Math.cos(t) * rr, py = cy + Math.sin(t) * rr;
-      setPixel(img, Math.round(px), Math.round(py), hex('#b95e51'));
-    }
-  }
-  // 進む向きの先だけ、うすく光らせる(どちらへ来ているか分かるように)
-  for (let t = -0.6; t < 0.6; t += 0.04) {
-    const px = cx + Math.cos(t) * (r * 1.18 - 1), py = cy + Math.sin(t) * (r * 1.18 - 1);
-    setPixel(img, Math.round(px), Math.round(py), hex('#db6559'));
-  }
+  // **黒 1 色**。シルエットの王が出す波なので、色を足さない
   return img;
 }
-const kingWaveL = makeKingWave(8.5);
+const kingWaveL = makeKingWave(8);
 const kingWaveM = makeKingWave(6);
 const kingWaveS = makeKingWave(4);
 
@@ -2554,9 +2549,11 @@ function makeBoom(seed, radius, colors) {
   }
   return img;
 }
-const boom0 = makeBoom(11, 4.5, ['#ffffff', '#ffe34d']);
-const boom1 = makeBoom(22, 7.0, ['#ffffff', '#ffe34d', '#ff8c1a']);
-const boom2 = makeBoom(33, 8.0, ['#ff8c1a', '#f04848', '#8f2020']);
+// **どれも白 1 色**で作る。色はゲーム側がコマごとに差し替える
+// (単色スプライトなので、絵を色数ぶん持つ必要がない)
+const boom0 = makeBoom(11, 4.5, ['#ffffff']);
+const boom1 = makeBoom(22, 7.0, ['#ffffff']);
+const boom2 = makeBoom(33, 8.0, ['#ffffff']);
 
 /**
  * 星空タイル(128x128)。遠・中・近の 3 段階を別レイヤーに分けて速度差を付けるため、
@@ -6043,7 +6040,7 @@ const images = {
   gearBlock, gearGem, gearSpark1, gearWeak0, gearWeak1, nautilus, nautilusHurt,
   pilotEye, pilotWink, pilotSmile, pilotPupil, riftGlow,
   spark0, spark1, spark2, guiNext0: guiNext[0], guiNext1: guiNext[1],
-  guiNext2: guiNext[2], guiNext3: guiNext[3], pilot, pilotBig, pilotFront, pilotTurn, pilotTurnBig, whaleStar, birdStar, dragonStar, shipStar,
+  guiNext2: guiNext[2], guiNext3: guiNext[3], pilot, pilotBig, pilotTurnBig, whaleStar, birdStar, dragonStar, shipStar,
   dragonSky: dragonSkySmall, dragonItem: pad16(dragonItem),
   endRift0: endRiftGrow[0], endRift1: endRiftGrow[1], endRift2: endRiftGrow[2],
   shootStar0, shootStar1, shootStar2, shootStar3,
@@ -6078,7 +6075,7 @@ const BG_IMAGES = new Set([
   'logo', 'station', 'moon', 'nebula', 'starsFar', 'starsMid', 'starsNear',
   'jupiter', 'saturn', 'colony', 'earthBig', 'nebulaRed', 'moai', 'moaiFlip', 'earth', 'blackhole', 'milkyway', 'debris',
   'bossHead', 'bossHead2', 'bossShip', 'asteroid',
-  'rocketGlow', 'rocketGlowAlt',
+  'rocketGlow', 'rocketGlowAlt', 'rocketAlt', 'endRift0', 'endRift1', 'endRift2',
   // BG スプライトとして使う絵(レイヤーと同じ決まりで見えるので、ここに入れる)
   'nautilus', 'nautilusHurt', 'gearBlock', 'gearWeak0', 'gearWeak1', 'gearGem',
   'crabClawBig', 'crabClawMid', 'kingRiftBlueThin', 'shootStar0', 'dragonTail',

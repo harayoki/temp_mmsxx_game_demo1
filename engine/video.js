@@ -285,6 +285,8 @@ export class VDP {
     this.bgWarnings = [];
     /** 一度調べた絵(同じ絵を何度も調べない) */
     this._bgChecked = new WeakSet();
+    /** 色数を調べ終えた絵 */
+    this._colorChecked = new WeakSet();
   }
 
   /**
@@ -331,6 +333,29 @@ export class VDP {
       + `横8ドットに3色以上が ${r.runs} 本`
       + ` (最大 ${r.worst} 色) ${img.width}x${img.height} 例: ${r.samples.join(' / ')}`;
     this.bgWarnings.push({ where, name: img.name, ...r, width: img.width, height: img.height });
+    if (how === 'throw') throw new Error(msg);
+    console.warn(msg);
+  }
+
+  /**
+   * スプライトの色数を調べる。**減らさない**。
+   * 実機のスプライトは 1 枚 1 色で、2 色なら「2 枚重ねという体」。
+   * 宣言より多ければ知らせる(直すのは素材側の仕事)
+   * @param {*} img @param {number} want 使ってよい色数
+   */
+  _checkSpriteColors(img, want) {
+    const how = this.bgCheck;
+    if (how === 'off' || this._colorChecked.has(img)) return;
+    this._colorChecked.add(img);
+    const seen = new Set();
+    for (let i = 0; i < img.pixels.length; i++) {
+      const c = img.pixels[i];
+      if (c !== 0) seen.add(c);
+    }
+    if (seen.size <= want) return;
+    const msg = `[MMSXX] スプライト "${img.name || '名前なし'}": `
+      + `色は ${want} 色までです (いまは ${seen.size} 色: ${[...seen].join(',')})`;
+    this.bgWarnings.push({ where: 'スプライト色', name: img.name, colors: seen.size, want });
     if (how === 'throw') throw new Error(msg);
     console.warn(msg);
   }
@@ -566,17 +591,23 @@ export class VDP {
   convert(src, opts) {
     const { data, width, height } = src;
     const colors = opts && opts.colors;
-    const key = hashRGBA(data, width, height) + ':' + (colors || 's2');
+    // スプライトとして読む絵は、**横 8 ドット 2 色の変換にかけない**
+    // (スプライトにその決まりは無い)。色は 15 色へ寄せるだけ
+    const spr = opts && opts.spriteColors;
+    const key = hashRGBA(data, width, height) + ':' + (colors || (spr ? 'spr' : 's2'));
     let img = this.convertCache.get(key);
     if (!img) {
       img = colors ? convertRGBAFlat(data, width, height, colors)
-                   : convertRGBA(data, width, height);
+        : spr ? convertRGBAFlat(data, width, height, 15)
+          : convertRGBA(data, width, height);
       this.convertCache.set(key, img);
     }
     // 名前を引き継ぐ。**検査で引っかかったときに、どの絵か分かる**ようにするため。
     // opts.name が無ければ、元の絵が持っている名前を使う
     const nm = (opts && opts.name) || src.name;
     if (nm && !img.name) img.name = nm;
+    // スプライトの色数を調べる(**減らさない**。多ければ知らせる)
+    if (spr) this._checkSpriteColors(img, spr);
     return img;
   }
 
