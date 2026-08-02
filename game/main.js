@@ -3841,8 +3841,19 @@ function nautilusInside(b) {
 
 function updateNautilusBoss(b) {
   // 登場: ゆっくり降りてきて、画面の上のほうに居座る
-  if (b.y < 40) b.y += 0.6;
-  else if (!b.phase2) b.y = 40 + Math.sin(b.age * 0.015) * 8;
+  // 「y < 40 なら降りてくる」で見ていたころは、下の段(32)へ動いたとたんに
+  // また登場中とみなされて、上下を行ったり来たりしていた。降りきったかは旗で持つ
+  if (!b.arrived) {
+    b.y += 0.6;
+    if (b.y >= 40) { b.y = 40; b.arrived = true; }
+  } else if (!b.phase2) {
+    // BG スプライトは 8 ドット刻みでしか置けないので、なめらかに上下させると
+    // 境目を行き来するたびにガタついて暴れて見える。
+    // **行き先そのものを 8 ドット刻み**にして、1 段ごとに間を置く
+    const HOLD = 100;                                   // 1 段に留まるコマ数
+    const n = Math.floor(b.age / HOLD) % 4;             // 0,1,2,3
+    b.y = 32 + (n === 3 ? 1 : n) * 8;                   // 32 -> 40 -> 48 -> 40
+  }
   // 装甲が外れたあとは、オウムガイは動かない(狙いやすくする)
   if (!b.phase2) b.x = (SCREEN_W - NAUT_CORE) / 2 + Math.sin(b.age * 0.008) * 40;
   // 装甲が外れたら、輪の回転も電撃も止まる
@@ -5797,12 +5808,17 @@ function updateLaser(b) {
   if (b.firing > 0) {
     b.firing--;
     // 発射音は矩形波の和音を 1 回鳴らすだけ(切り分けていない長い SE)。
-    // 太いビームが出ている頭で 1 度だけ鳴らす
-    if (laserPhase(b) === 'full') {
+    // **太いあいだは半音高い音、細くなったら元の高さ**にして、
+    // 「弱まった = いまが弱点」を音でも分かるようにする
+    const sePhase = laserPhase(b);
+    if (sePhase === 'full') {
       // レーザーは見せ場なので、ほかの SE より優先して鳴らす
-      if (!b.laserSE) { b.laserSE = true; mmsxx.audio.playSE('laser', SE_HIT + 2); }
+      if (!b.laserSE) { b.laserSE = true; mmsxx.audio.playSE('laserHi', SE_HIT + 2); }
+    } else if (sePhase === 'fade') {
+      if (!b.laserFadeSE) { b.laserFadeSE = true; mmsxx.audio.playSE('laser', SE_HIT + 2); }
     } else {
       b.laserSE = false;
+      b.laserFadeSE = false;
     }
     b.charge.visible = false;
     if (b.chargeRing) b.chargeRing.visible = false;
@@ -8300,9 +8316,12 @@ function rushMenuList() {
   for (const n of BOSS_RUSH_STAGES) {
     const met = metSet.has('down' + n);
     if (met) known++;
+    // 開発版では、まだ倒していない相手も**選べる**(名前は伏せたまま)。
+    // 作っている最中に、開けるまで戦えないのでは確かめられない
     list.push(met
       ? { label: 'VS ' + BOSS_NAMES[n - 1], run: () => sceneRush(n) }
-      : { label: 'VS ' + maskName(BOSS_NAMES[n - 1]), locked: true });
+      : { label: 'VS ' + maskName(BOSS_NAMES[n - 1]), locked: !DEV,
+        run: DEV ? () => sceneRush(n) : undefined });
   }
   // 4 体そろったごほうび。本編には出てこない相手。
   // そろうまでは「まだ何かある」ことだけを見せる
@@ -8312,7 +8331,8 @@ function rushMenuList() {
   const metTodo = metSet.has('todo');
   list.push(metTodo
     ? { label: 'VS Mr. MIJISSOU', run: () => sceneRush(RUSH_TODO) }
-    : { label: 'VS ' + maskName('Mr. MIJISSOU'), locked: true });
+    : { label: 'VS ' + maskName('Mr. MIJISSOU'), locked: !DEV,
+      run: DEV ? () => sceneRush(RUSH_TODO) : undefined });
   return list;
 }
 
