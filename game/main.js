@@ -9558,7 +9558,7 @@ mmsxx.run(() => {
     // ハイスコア画面は自動スクロールを見せるぶん長めに出す
     // 一覧を手で動かしているあいだは切り替えない
     const isList = titlePage >= 2;
-    const pageLen = isList ? (hiManual ? 1e9 : 1350) : 450;
+    const pageLen = isList ? (hiManual ? 1e9 : 1350) : 720;
     if (titlePage === 2 || titlePage === 3) updateHiScoreList();
     else if (titlePage === 4) updateRushList();
     // ESC を押すと次の画面へすぐ切り替わる
