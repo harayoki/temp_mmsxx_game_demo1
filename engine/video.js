@@ -189,11 +189,26 @@ export class VDP {
     /** 画面全体のずらし(実機の SET ADJUST 相当。-15..+16) */
     this.adjustX = 0;
     this.adjustY = 0;
-    // 実描画は「描画領域そのままの大きさ」のオフスクリーンに行い、拡大転送する
-    this.offscreen = document.createElement('canvas');
-    this.offCtx = this.offscreen.getContext('2d');
+    // canvas そのものを**等倍**で持ち、拡大は CSS(ブラウザ側)にまかせる。
+    // 別のオフスクリーンへ描いてから拡大転送すると、画面ぜんぶを 2 回塗ることになり、
+    // 塗る面積の効くスマホでそこが重くなる。
+    // 取り出し(capture)も等倍のこの canvas から読むので、名前だけ残してある
+    this.offscreen = canvas;
+    this.offCtx = this.ctx;
     this._resize(screen.width ?? SCREEN_W, screen.height ?? SCREEN_H,
       screen.borderX ?? 0, screen.borderY ?? 0);
+    // 窓の大きさや向きが変わったら、整数倍を取り直す。
+    // resize は最終的な大きさになる前にも飛んでくるので、
+    // **次の描き替えまで待ってから**測り直す
+    if (typeof window !== 'undefined') {
+      let waiting = 0;
+      const refit = () => {
+        if (waiting) cancelAnimationFrame(waiting);
+        waiting = requestAnimationFrame(() => { waiting = 0; this.refitCss(); });
+      };
+      window.addEventListener('resize', refit);
+      window.addEventListener('orientationchange', refit);
+    }
 
     // パレットを ABGR(リトルエンディアンの RGBA) 32bit 値に前計算
     this.pal32 = new Uint32Array(16);
@@ -337,12 +352,12 @@ export class VDP {
     this.borderX = checkBorder(borderX, 'screen.borderX');
     this.borderY = checkBorder(borderY, 'screen.borderY');
     const ow = this.outWidth, oh = this.outHeight;
-    this.canvas.width = ow * this.scale;
-    this.canvas.height = oh * this.scale;
+    // 中身は等倍。見た目の大きさは CSS で決める(拡大はブラウザがやる)
+    this.canvas.width = ow;
+    this.canvas.height = oh;
     this.ctx.imageSmoothingEnabled = false;
-    this.offscreen.width = ow;
-    this.offscreen.height = oh;
-    this.imageData = this.offCtx.createImageData(ow, oh);
+    this._applyCssSize();
+    this.imageData = this.ctx.createImageData(ow, oh);
     /** 画面に出るぶん全部(ボーダー込み) */
     this.frame32 = new Uint32Array(this.imageData.data.buffer);
     // 合成は描画領域の大きさで行い、最後にボーダーとずらしを付けて写す。
@@ -350,6 +365,82 @@ export class VDP {
     this._plain = (this.borderX === 0 && this.borderY === 0);
     this.active32 = this._plain ? this.frame32 : new Uint32Array(this.width * this.height);
   }
+
+  /**
+   * 見た目の大きさを CSS で決める。中身(canvas.width)は等倍のまま。
+   *
+   * **倍率は「実際の画素で」整数**にする。
+   * 中途半端な倍率だと、1 ドットが 2 画素だったり 3 画素だったりまだらになり、
+   * 斜めの線がガタつく。画面に収まる いちばん大きな整数倍を選び、
+   * 指定された scale は上限として使う(大きな画面で無闇に拡大しない)。
+   * 余ったところは、まわりの余白になる。
+   */
+  _applyCssSize() {
+    const st = this.canvas.style;
+    const ow = this.outWidth, oh = this.outHeight;
+    let n = this.scale;
+    if (typeof window !== 'undefined') {
+      // ボーダーのぶんは中身の外なので、置ける大きさから引いておく
+      let bw = 0, bh = 0;
+      try {
+        const cs = getComputedStyle(this.canvas);
+        bw = (parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.borderRightWidth) || 0);
+        bh = (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
+      } catch (e) { /* 取れなくても続ける */ }
+      const dpr = window.devicePixelRatio || 1;
+      // 置ける大きさは documentElement から取る。
+      // innerWidth はスクロールバーのぶんを含んでいて、はみ出しの原因になる
+      const el = document.documentElement;
+      const availW = (el && el.clientWidth) || window.innerWidth;
+      const availH = (el && el.clientHeight) || window.innerHeight;
+      // **画面の長いほうへ、ゲームの長いほうを合わせる**。
+      // 向きが食い違っていたら 90 度回して見せる(端末の傾きに関係なく同じ形)。
+      // ただし**指で触る端末のときだけ**。PC で窓を縦長にしただけで
+      // 回ってしまうと、作っている最中に困る
+      let touchLike = false;
+      try {
+        touchLike = window.matchMedia('(pointer: coarse)').matches;
+      } catch (e) { /* 古い環境では回さない */ }
+      const rot = touchLike && (ow >= oh) !== (availW >= availH);
+      // 回すと、置き場所として要る幅と高さが入れ替わる
+      const needW = rot ? oh : ow, needH = rot ? ow : oh;
+      // 実際の画素で何倍まで置けるか
+      const fitX = Math.floor(((availW - bw) * dpr) / needW);
+      const fitY = Math.floor(((availH - bh) * dpr) / needH);
+      n = Math.max(1, Math.min(this.scale * dpr, fitX, fitY));
+      // 実画素で整数倍になる大きさを、CSS の大きさへ戻す
+      st.width = (ow * n / dpr) + 'px';
+      st.height = (oh * n / dpr) + 'px';
+      st.imageRendering = 'pixelated';
+      // 幅いっぱいに引き伸ばされて まだらにならないよう、上限も外す
+      st.maxWidth = 'none';
+      st.maxHeight = 'none';
+      // 回すときは、回した見た目で真ん中に来るように置き直す。
+      // (回転は見た目だけで、置き場所の大きさは変わらないため)
+      if (rot) {
+        st.position = 'fixed';
+        st.left = '50%';
+        st.top = '50%';
+        st.transform = 'translate(-50%, -50%) rotate(90deg)';
+      } else {
+        st.position = '';
+        st.left = '';
+        st.top = '';
+        st.transform = '';
+      }
+      this.rotated = rot;
+      return;
+    }
+    st.width = (ow * n) + 'px';
+    st.height = (oh * n) + 'px';
+    st.imageRendering = 'pixelated';
+  }
+
+  /**
+   * 表示の大きさを取り直す(窓の大きさが変わったとき・向きが変わったとき)。
+   * 中身は等倍のままなので、描き直しは要らない
+   */
+  refitCss() { this._applyCssSize(); }
 
   /**
    * 描画領域の大きさを変える(8 ドット単位)。
@@ -853,9 +944,8 @@ export class VDP {
     // どちらも無いときは active32 と frame32 が同じものなので、写す手間は要らない
     if (!this._plain || this.adjustX || this.adjustY) this._present(back);
 
-    this.offCtx.putImageData(this.imageData, 0, 0);
-    this.ctx.imageSmoothingEnabled = false;
-    this.ctx.drawImage(this.offscreen, 0, 0, this.canvas.width, this.canvas.height);
+    // canvas は等倍なので、そのまま置くだけ。拡大は CSS(ブラウザ)がやる
+    this.ctx.putImageData(this.imageData, 0, 0);
   }
 
   /**
