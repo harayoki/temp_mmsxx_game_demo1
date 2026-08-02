@@ -27,6 +27,8 @@ import { gameStop } from './console-stop.js';
 const mmsxx = new MMSXXEngine(document.getElementById('screen'), {
   scale: 3, virtualWidth: 256, virtualHeight: 1024,
   layers: [{}, {}, {}, {}, {}, {}],
+  // 曲が 6 音使うので、SE のぶんを空けておく(8 のままだと登場音が鳴らない)
+  maxVoices: 12,
   maxNoise: 2,   // 爆発が重なるとノイズを取り合って消えるので 2 本にする
   // 開発版かどうかは**ビルドで決める**(場所では決めない)。
   // これ 1 つで、シーン選択・コンソール関数・画面の保存・
@@ -8602,9 +8604,9 @@ function buildEnding() {
           // 口はさらに 右 2 ドット・下 2 ドット
           s.smile.x = fx - 2; s.smile.y = 64;
           // ひとみ。絵の中の点(x=99 / 114, y=57)にぴったり重ねる。
-          // 4x4 なので、点の 1 ドット左上から置く
-          s.pupilL.x = PILOT_X + 98; s.pupilL.y = 56;
-          s.pupilR.x = PILOT_X + 113; s.pupilR.y = 56;
+          // 5x5 なので、点の 2 ドット左上から置く(中心は動かさない)
+          s.pupilL.x = PILOT_X + 97; s.pupilL.y = 55;
+          s.pupilR.x = PILOT_X + 112; s.pupilR.y = 55;
           // 絵と同じ走査線をスプライトにも掛ける。
           // 画面のどの行が消えるかをそろえたいので、置く y の偶奇を足す
           for (const sp of [s.smile, s.pupilL, s.pupilR]) sp.scanline = (sp.y + 1) & 1;
