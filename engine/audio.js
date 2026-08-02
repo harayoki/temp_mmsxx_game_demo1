@@ -1,9 +1,11 @@
-import { compileMML, WAVEFORMS, ENVELOPES, registerWave } from './mml.js';
+import { compileMML, WAVEFORMS, ENVELOPES, registerWave, registerFM } from './mml.js';
 import { registerDefaultWaves } from './wavetables.js';
+import { registerDefaultFM } from './fmpresets.js';
 import { renderTalk } from './talk.js';
 
-// 最初から使える波形メモリ(wtBell など)を入れておく
+// 最初から使える波形メモリ(wtBell など)と FM 音色(fmPiano など)を入れておく
 registerDefaultWaves();
+registerDefaultFM();
 
 // PSG 風のサウンドドライバ。
 // - 波形は 7 種類 (パルス 3 種 / 三角 / ノコギリ / サイン / ノイズ) +
@@ -598,6 +600,24 @@ export class PSGPlayer {
       osc.frequency.value = freq;
       return osc;
     }
+    if (wf.kind === 'fm') {
+      // 2 オペの FM。**変調側の音でもう片方の音程を揺らす**。
+      // 揺らす量を時間とともに減らすのが FM らしさなので、
+      // 深さの予定は鳴らす側(_playVoice)で書き込む
+      const car = ctx.createOscillator();
+      car.type = 'sine';
+      car.frequency.value = freq;
+      const mod = ctx.createOscillator();
+      const mw = WAVEFORMS.find((w) => w.name === wf.wave);
+      if (mw && mw.kind === 'pulse' && mw.duty !== 0.5) mod.setPeriodicWave(this._pulseWave(mw.duty));
+      else if (mw && mw.kind === 'wave') mod.setPeriodicWave(this._periodicWave(mw));
+      else mod.type = (mw && { triangle: 'triangle', saw: 'sawtooth', pulse50: 'square' }[mw.name]) || 'sine';
+      mod.frequency.value = freq * wf.ratio;
+      const depth = ctx.createGain();
+      mod.connect(depth).connect(car.frequency);
+      car.__fm = { mod, depth, wf, freq };
+      return car;
+    }
     if (wf.kind === 'noise') {
       const src = ctx.createBufferSource();
       src.buffer = this.noiseBuffer;
@@ -632,11 +652,22 @@ export class PSGPlayer {
   /** 使える音色の名前(`@{名前}` で呼べるもの)。波形メモリも含む */
   get waveNames() { return WAVEFORMS.map((w) => w.name); }
 
-  addWave(name, samples, bits = 8) {
-    const id = registerWave(name, samples, bits);
+  addWave(name, samples, bits = 8, opts = {}) {
+    const id = registerWave(name, samples, bits, opts);
     if (this._waveCache) this._waveCache.delete(name);   // 上書きに備えて捨てる
     return id;
   }
+
+  /**
+   * **2 オペの FM 音色を足す**。`@{名前}` で鳴らせるようになる。
+   * 名前は **fm で始める**約束。同じ名前があるとエラー
+   * (差し替えるなら `{ overwrite: true }`)。
+   * @param {string} name
+   * @param {{ratio?:number, depth?:number, attack?:number, decay?:number,
+   *          sustain?:number, wave?:string}} params
+   * @param {{overwrite?:boolean}} [opts]
+   */
+  addFM(name, params, opts = {}) { return registerFM(name, params, opts); }
 
   /** 波形メモリを PeriodicWave に直す(キャッシュ付き) */
   _periodicWave(wf) {
@@ -725,6 +756,21 @@ export class PSGPlayer {
       lfo.start(t0); lfo.stop(t1 + 0.02);
       lfo.__endTime = t1 + 0.02;
       nodes.push(lfo);
+    }
+
+    // FM: 変調の深さを時間で動かす。出だしだけ倍音を増やし、あとは減らす
+    if (src.__fm) {
+      const { mod, depth, wf, freq } = src.__fm;
+      const peak = freq * wf.ratio * wf.depth;
+      const keep = peak * wf.sustain;
+      depth.gain.setValueAtTime(0, t0);
+      depth.gain.linearRampToValueAtTime(peak, t0 + Math.min(wf.attack, (t1 - t0) * 0.5));
+      depth.gain.exponentialRampToValueAtTime(Math.max(1, keep),
+        Math.min(t1, t0 + wf.attack + wf.decay));
+      mod.start(t0);
+      mod.stop(t1 + 0.02);
+      mod.__endTime = t1 + 0.02;
+      nodes.push(mod);
     }
 
     src.connect(g);

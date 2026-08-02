@@ -4364,19 +4364,22 @@ const BGM_MOAI = [
 // テンポも遅く、ベースはとぼけた 3 度跳ね。
 const BGM_TODO = [
   // 主旋律。ところどころ半音ずれていて、伸ばした音が下がっていく
-  't96 q7 v12 l4 @{sine} @e{soft} @d24 @v3 ' +
+  // 音色は FM。とぼけたオルガンにして、デチューンで音痴さを残す
+  't96 q7 v12 l4 @{fmOrgan} @e{soft} @d24 @v3 ' +
   'o4 c8 e8 g4 f+4 e4  o4 d8 f8 a4 g+2 ' +
   'o4 e8 g8 b-4 a4 g4  o4 c2 o3 b4 o4 c4 ' +
   'o4 c8 e8 g4 f+4 e4  o4 d8 f8 a-4 g2 ' +
   'o4 f8 a8 o5 c-4 o4 b-4 a4  o4 c1',
   // ふらふらした対旋律(わざと 3 度でぶつける)
-  't96 q6 v8 l4 @{triangle} @e{soft} @d18 ' +
+  // 対旋律はホルン。丸い音でぶつけると、気が抜けた和音になる
+  't96 q6 v8 l4 @{fmHorn} @e{soft} @d18 ' +
   'o3 e8 g8 b4 a+4 g4  o3 f8 a8 o4 c4 o3 b2 ' +
   'o3 g8 b8 o4 d-4 o3 c+4 b4  o3 e2 d4 e4 ' +
   'o3 e8 g8 b4 a+4 g4  o3 f8 a8 o4 c-4 o3 b2 ' +
   'o3 a8 o4 c8 e-4 d4 c4  o3 e1',
   // とぼけたベース
-  't96 q8 v11 l8 @{saw} @e{flat} ' +
+  // ベースは指ではじいた低音
+  't96 q8 v11 l8 @{fmAcousticBass} @e{flat} ' +
   '[o2 c r e r g r e r]1 [o2 d r f r a r f r]1 ' +
   '[o2 e r g r b- r g r]1 [o2 c r e- r g r e- r]1 ' +
   '[o2 c r e r g r e r]1 [o2 d r f r a- r f r]1 ' +
@@ -5061,14 +5064,14 @@ const kingMan10 = makeSilhouette({
 // 12 気絶。ひざが完全に落ち、頭が肩のあいだへ沈んで、腕は真下へ垂れる。
 // 立っているほかの姿と見分けがつくよう、**背を低く・幅を広く**取る
 const kingMan12 = makeSilhouette({
-  // 頭は肩と同じ高さまで沈める(うなだれて見える)
-  head: [27, 36, 6],
-  shL: [19, 37], shR: [33, 36], hipL: [20, 48], hipR: [30, 48],
-  // 腕は力が抜けて、体の横を真下へ垂れる
-  armL: [[19, 38], [16, 48], [15, 59]], armR: [[33, 37], [36, 47], [37, 58]],
-  // ひざが折れて腰が落ち、足は大きく開いて踏ん張る
-  legL: [[20, 48], [11, 55], [13, 63]], legR: [[29, 48], [38, 55], [36, 63]],
-  hairTilt: 1.5,
+  // **膝をついて崩れた姿**。立ち姿との差は「背の低さ」がいちばん伝わるので、
+  // 頭を腰の高さまで落として絵の上半分を空ける。
+  // 腕は体から離して外へ垂らし、胴と地続きに見えないようにする
+  head: [22, 40, 6],
+  shL: [17, 45], shR: [29, 45], hipL: [20, 54], hipR: [29, 54],
+  armL: [[16, 46], [10, 54], [8, 63]], armR: [[30, 46], [37, 54], [39, 63]],
+  legL: [[20, 54], [13, 62], [20, 64]], legR: [[29, 54], [37, 62], [30, 64]],
+  hairTilt: 1.2,
 });
 
 // 11 座禅。2 度動けなくなったあと、腰を下ろして瞑想する姿。
@@ -5434,9 +5437,9 @@ const PILOT_ART = [
   '............................................................CC........HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHSSSSSSSSmmmmm........................................................YY......................',
   '......................................................................HHHHHHHHHHHHHHHSSHHHHHHSSSSHHHHHHHHSSSSSSSHHHHHHHSSSHHHHHHHHHSSSSSSSSnnnnn............................................................YY..................',
   '......................................................................HHHHHHHHHHHHHHSSSHHHHHHSSSSSHHHHHHSSSSSSSSHHHHHHSSSSHHHHHHHHHSSSSSSSSmmmmm................................................................................',
-  '.....................................................................HHHHHHHHHHHHHHHSSSHHHHHHSSSSSHHHHHHSSSSSSSSHHHHHHSSSSSHHHHHHHHHSSSSSSSSSS..................................................................................',
-  '.....................................................................HHHHHHHHHHHHHHSSSSSHHHHSSSSSSHHHHHHSSSSSSSSHHHHHHmmmmmHHHHHHHHHSSSSSSSSSS..................................................................................',
-  '.....................................................................HHHHHHHHHHHHHHSSSSSSSSSSSSSSSHHHHHHSSSSSSSSHHHHHnnnnnnHHHHHHHHHSSSSSSSSSSS.................................................................................',
+  '.....................................................................HHHHHHHHHHHHHHHSSSHHHHHHSSSSShhhhhhSSSSSSSShhhhhhSSSSSHHHHHHHHHSSSSSSSSSS..................................................................................',
+  '.....................................................................HHHHHHHHHHHHHHSSSSSHHHHSSSSSShhhhhhSSSSSSSShhhhhhmmmmmHHHHHHHHHSSSSSSSSSS..................................................................................',
+  '.....................................................................HHHHHHHHHHHHHHSSSSSSSSSSSSSSShhhhhhSSSSSSSShhhhhnnnnnnHHHHHHHHHSSSSSSSSSSS.................................................................................',
   '.....................................................................HHHHHHHHHHHHHHSSSSSSSSSSvvvvvvvvvHSSSSSSSSSSvvvvvvvvmmHHHHHHHHHSSSSSSSSSSSHH...............................................................................',
   '.....................................................................HHHHHHHHHHHHHHSSSSSSSSSSwwwwwwwwwHSSSSSSSSSSwwwwwwwwnnHHHHHHHHHHHHHHHHHHHHHH........................................................................HHH....',
   '.....................................................................HHHHHHHHHHHHHHSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSmmmmmmHHHHHHHHHHHHHHHHHHHHHH.........................................................................HHH...',

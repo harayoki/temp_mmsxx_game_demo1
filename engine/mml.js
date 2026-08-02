@@ -66,9 +66,12 @@ export const ENVELOPES = [
  * @param {number[]|Float32Array} samples 1 周期ぶん(-1..1)。32 個が実機らしい
  * @param {5|8} [bits=8] 段階の細かさ。5 なら 32 段階(PC エンジン風)、
  *   8 なら 256 段階(SCC 風)。粗いほどジャリッとした音になる
+ * @param {{overwrite?:boolean}} [opts] 同じ名前があるとエラーになる。
+ *   わざと差し替えたいときだけ overwrite: true を渡す
  * @returns {number} 波形の番号(ふだんは名前で呼ぶので使わない)
  */
-export function registerWave(name, samples, bits = 8) {
+export function registerWave(name, samples, bits = 8, opts = {}) {
+  requireFreeName(name, opts.overwrite);
   const levels = (1 << bits) - 1;
   // 段階に丸める。ここで粗くしておくと、実機らしい歪みがそのまま音になる
   const wave = Float32Array.from(samples, (v) => {
@@ -77,6 +80,57 @@ export function registerWave(name, samples, bits = 8) {
   });
   const at = WAVEFORMS.findIndex((w) => w.name.toLowerCase() === name.toLowerCase());
   const entry = { id: at >= 0 ? at : WAVEFORMS.length, name, kind: 'wave', bits, samples: wave };
+  if (at >= 0) WAVEFORMS[at] = entry; else WAVEFORMS.push(entry);
+  return entry.id;
+}
+
+/**
+ * 音色の名前として使える名前(作りつけのもの)。**文字を直に書かずにこれを使う**。
+ * 波形メモリや FM を足すと、その名前も `@{名前}` で呼べるようになる
+ */
+export const WAVE = {
+  PULSE12: 'pulse12', PULSE25: 'pulse25', PULSE50: 'pulse50',
+  TRIANGLE: 'triangle', SAW: 'saw', SINE: 'sine', NOISE: 'noise',
+};
+
+/** 同じ名前がもうあれば止める(わざと差し替えるときだけ通す) */
+function requireFreeName(name, overwrite) {
+  const at = WAVEFORMS.findIndex((w) => w.name.toLowerCase() === String(name).toLowerCase());
+  if (at >= 0 && !overwrite) {
+    throw new Error(`[MMSXX] 音色 "${name}" はもう登録されています`
+      + '(差し替えるなら overwrite: true を渡してください)');
+  }
+  return at;
+}
+
+/**
+ * **2 オペレータの FM 音色を足す**(MSX-MUSIC の YM2413 にあたるもの)。
+ *
+ * 片方の音(変調側)でもう片方の音程を揺らすと、揺らし方しだいで
+ * 金属にも笛にも聞こえる。要るのは 3 つだけ:
+ *   - `ratio` 変調側の周波数比。**整数なら楽器らしい音**、
+ *     半端な数(3.5 など)なら鐘や打楽器になる
+ *   - `depth` 揺らしの深さ。大きいほど倍音が増えて硬くなる
+ *   - `decay` 揺らしの減り方(秒)。**時間とともに倍音が減る**のが FM らしさ
+ *
+ * @param {string} name 名前。**`fm` で始める**
+ * @param {{ratio?:number, depth?:number, attack?:number, decay?:number,
+ *          sustain?:number, wave?:string}} params
+ *   wave = 変調側の波形(WAVE の値。既定は WAVE.SINE)
+ * @param {{overwrite?:boolean}} [opts]
+ * @returns {number} 音色の番号(ふだんは名前で呼ぶので使わない)
+ */
+export function registerFM(name, params = {}, opts = {}) {
+  const at = requireFreeName(name, opts.overwrite);
+  const entry = {
+    id: at >= 0 ? at : WAVEFORMS.length, name, kind: 'fm',
+    ratio: params.ratio ?? 1,
+    depth: params.depth ?? 3,
+    attack: params.attack ?? 0.002,
+    decay: params.decay ?? 0.3,
+    sustain: params.sustain ?? 0.15,
+    wave: params.wave || WAVE.SINE,
+  };
   if (at >= 0) WAVEFORMS[at] = entry; else WAVEFORMS.push(entry);
   return entry.id;
 }
