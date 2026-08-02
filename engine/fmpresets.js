@@ -47,6 +47,15 @@ export const FM_PRESETS = {
   fmAcousticBass: { ratio: 1, depth: 3, attack: 0.004, decay: 0.3, sustain: 0.06 },
   // 15 エレキギター。歪んだ持続音。深さを保ったままにする
   fmElecGuitar: { ratio: 2, depth: 7, attack: 0.002, decay: 0.3, sustain: 0.4 },
+
+  // ---- リズム ----
+  // 実機のリズム音源も、専用の回路ではなく**濁らせた FM を短く切って**作っていた。
+  // 比を整数から外して音程感を消し、深さを大きく、減衰を極端に短くする。
+  // ノイズを使わないので、**SE のノイズ枠を食わない**のも利点
+  fmKick: { ratio: 0.5, depth: 12, attack: 0.001, decay: 0.05, sustain: 0 },
+  fmTom: { ratio: 1.7, depth: 9, attack: 0.001, decay: 0.07, sustain: 0 },
+  fmRim: { ratio: 5.7, depth: 10, attack: 0.001, decay: 0.03, sustain: 0 },
+  fmCymbal: { ratio: 9.3, depth: 14, attack: 0.001, decay: 0.25, sustain: 0.02 },
 };
 
 /** 最初から使える FM 音色を登録する(このファイルを読み込んだ時点で入る) */

@@ -8929,9 +8929,7 @@ function updateStaffRoll() {
 // 曲(ループするもの)は BGM 側、短いジングルは SE 側の先頭にまとめる
 // 未使用曲や場面ごとの曲もここから聴ける
 const SOUND_BGM = ['main', 'power', 'boss', 'lastboss', 'moai', 'todo', 'gameover',
-  'elise', 'fate', 'salut', 'botsu1', 'finalbattle', 'staff',
-  // 音色の聞き比べ。scale = 今までの波形 / wtscale = 波形メモリ
-  'scale', 'wtscale'];
+  'elise', 'fate', 'salut', 'botsu1', 'finalbattle', 'staff'];
 // ジングルは BGM として登録されているので、鳴らし方が SE と違う。欄も分ける
 const SOUND_JINGLE = ['start', 'unused1', 'fanfare', 'bonus'];
 const SOUND_SE = ['shutter', 'autofire', 'heal', 'scold',
@@ -8945,9 +8943,9 @@ const SOUND_TALK = ['kozorite', 'kingLaugh', 'kiaiA', 'kiaiB', 'kiaiC'];
 // 曲はエンジン側(demotunes.js)にある。音色が増えれば、この欄も自然に増える
 const SOUND_TONE = mmsxx.audio.waveNames;
 for (const w of SOUND_TONE) mmsxx.audio.defineBGM('tone_' + w, toneDemo(w));
-// ドレミを次々に音色を替えて鳴らす曲。今までの波形と、波形メモリ(wt〜)に分ける
-mmsxx.audio.defineBGM('scale', scaleDemo(SOUND_TONE.filter((w) => !w.startsWith('wt'))));
-mmsxx.audio.defineBGM('wtscale', scaleDemo(SOUND_TONE.filter((w) => w.startsWith('wt'))));
+// 音色を次々に替えてドレミを鳴らす曲。聞き比べは TONE 欄でやるので、
+// こちらはコンソールから鳴らしたいとき用に置いておくだけ
+mmsxx.audio.defineBGM('scale', scaleDemo(SOUND_TONE));
 // 左が BGM、右が SE。左右キーで列を移り、上下で曲を選ぶ
 // BGM 側の一覧はいちばん上に [ALL](全曲再生)を足して見せる
 const SOUND_BGM_LIST = ['- ALL -', ...SOUND_BGM];
@@ -9301,19 +9299,20 @@ const CHAR_PAGES = [
       ['dragonBody', 71, 158], ['dragonBody', 57, 144], ['dragonBody', 43, 130],
       ['dragonTail', 85, 172],
       ['dragonHead', 11, 84],
-      // ここから先はスプライト(王冠・目・手のひら・装置)
+      // ここから先はスプライト(王冠・目・手のひら・装置)。
+      // **目は BOSS 1〜4 のページと同じ「体の絵からの差」で置く**。
+      // 勝手に足し引きすると、直したはずのずれがまた出る
       { img: 'octoCrown', x: 169, y: 90, sprite: true },
-      { img: 'bossEye2', x: 162, y: 121, sprite: true },
+      { img: 'bossEye2', x: 165, y: 121, sprite: true },
       { img: 'octoCrown', x: 48, y: -4, sprite: true },
-      // カニの目だけは、上へ 1 キャラ(8 ドット)寄せる
-      { img: 'bossEye2', x: 56, y: 30, sprite: true },
-      { img: 'bossEye2', x: 56, y: 46, sprite: true },
+      { img: 'bossEye2', x: 58, y: 36, sprite: true },
+      { img: 'bossEye2', x: 58, y: 52, sprite: true },
       { img: 'crabPod', x: 41, y: 12, sprite: true },
       { img: 'crabPod', x: 41, y: 46, sprite: true, flipX: true },
       { img: 'crabPod', x: 41, y: 78, sprite: true },
       { img: 'octoCrown', x: 196, y: 20, sprite: true },
-      { img: 'bossEye2', x: 176, y: 36, sprite: true },
-      { img: 'bossEye2', x: 192, y: 36, sprite: true },
+      { img: 'bossEye2', x: 182, y: 39, sprite: true },
+      { img: 'bossEye2', x: 198, y: 39, sprite: true },
       { img: 'ufoGuard', x: 186, y: 6, sprite: true },
       { img: 'ufoGuard', x: 226, y: 18, sprite: true },
       { img: 'ufoGuard', x: 246, y: 50, sprite: true },
@@ -9323,8 +9322,8 @@ const CHAR_PAGES = [
       { img: 'ufoGuard', x: 126, y: 50, sprite: true, flipX: true },
       { img: 'ufoGuard', x: 146, y: 18, sprite: true, flipX: true },
       { img: 'octoCrown', x: 15, y: 74, sprite: true, flipX: true },
-      { img: 'bossEye2', x: 17, y: 98, sprite: true },
-      { img: 'bossEye2', x: 33, y: 98, sprite: true },
+      { img: 'bossEye2', x: 19, y: 97, sprite: true },
+      { img: 'bossEye2', x: 35, y: 97, sprite: true },
       // 自機は真ん中の下。4 体に立ち向かう絵にする
       { img: 'player', x: 124, y: 144, sprite: true },
     ],
