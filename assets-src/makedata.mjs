@@ -3855,10 +3855,11 @@ const POWER_BASS = [
 ].join(' ');
 
 const BGM_POWER = [
-  // メロディはデチューンを重ねて厚くする
-  't178 q7 v11 l8 @{pulse25} @e{flat} @s2 @d12 [' + POWER_MELODY + ']2',
-  // 合いの手は三角波で音色を変える
-  't178 q8 v11 l8 @{triangle} @e{soft} @s4 [' + POWER_CALL + ']2',
+  // メロディはこのエンジン独自の FM 音色。デチューンを重ねて厚くする
+  't178 q7 v11 l8 @{fmLead} @e{flat} @s2 @d12 [' + POWER_MELODY + ']2',
+  // 合いの手は鐘のような FM。長く響かせて隙間を埋める
+  't178 q8 v11 l8 @{fmChime} @e{soft} @s4 [' + POWER_CALL + ']2',
+  // ベースは三角波のまま(FM だと重くなりすぎる)
   't178 q8 v12 l8 @{triangle} @e{flat} [' + POWER_BASS + ']2',
   '@{noise} @e{percussive} t178 l16 [v13o2c v5o6c v5o6c v5o6c v11o4c v5o6c v5o6c v5o6c]32',
 ];

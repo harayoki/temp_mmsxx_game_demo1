@@ -48,6 +48,14 @@ export const FM_PRESETS = {
   // 15 エレキギター。歪んだ持続音。深さを保ったままにする
   fmElecGuitar: { ratio: 2, depth: 7, attack: 0.002, decay: 0.3, sustain: 0.4 },
 
+  // ---- このエンジン独自のもの(実機には無い) ----
+  // 硬い金属質のリード。比を半端にして倍音を濁らせ、伸ばすほど澄んでいく
+  fmLead: { ratio: 2.5, depth: 7, attack: 0.004, decay: 0.22, sustain: 0.25 },
+  // 唸る低音。出だしだけ深く歪ませて、あとは芯だけ残す
+  fmGrowl: { ratio: 1.5, depth: 9, attack: 0.002, decay: 0.14, sustain: 0.12 },
+  // 鐘のように響く合いの手。倍音が長く残る
+  fmChime: { ratio: 4.7, depth: 5, attack: 0.002, decay: 0.6, sustain: 0.1 },
+
   // ---- リズム ----
   // 実機のリズム音源も、専用の回路ではなく**濁らせた FM を短く切って**作っていた。
   // 比を整数から外して音程感を消し、深さを大きく、減衰を極端に短くする。

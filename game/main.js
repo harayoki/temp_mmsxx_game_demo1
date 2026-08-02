@@ -2451,6 +2451,7 @@ function enterTitle(page = 0, focusRank = -1, fromOver = false) {
   titleScene = true;      // タイトルは決まった背景にする
   clearEntities();
   player.visible = false;
+  aux.visible = false;   // 炎とバリアも一緒に消す
   mmsxx.audio.stopBGM();
   currentBGM = null;
   hud.clear();
@@ -2705,6 +2706,7 @@ function startStage() {
   player.x = (SCREEN_W - 16) / 2;
   player.y = SCREEN_H + 24;   // ジングル後半で下から入ってくる
   player.visible = false;
+  aux.visible = false;   // 炎とバリアも一緒に消す
   enterDelay = 115;  // ジングルの途中(約 1.9 秒)で自機が入ってくる
   hud.clear();
   popups = [];
@@ -2949,6 +2951,7 @@ function enterGameOver() {
   state = 'over';
   stateTimer = 0;
   player.visible = false;
+  aux.visible = false;   // 炎とバリアも一緒に消す
   playBGM('gameover', false);
   hud.print(centerX('GAME OVER'), 88, 'GAME OVER', 9);
   // ボスラッシュは得点を出していないので、得点まわりの表示はしない
@@ -2994,6 +2997,7 @@ function enterNameEntry(target = 'score') {
   entryPos = 0;
   clearEntities();
   player.visible = false;
+  aux.visible = false;   // 炎とバリアも一緒に消す
   aux.visible = false;
   // ゲームオーバー曲を止めてから、名前入力の「エリーゼのために」を流す
   mmsxx.audio.stopBGM();
@@ -3228,6 +3232,7 @@ function destroyPlayer(cause = 'unknown', noMercy = false) {
   } else {
     // 爆発を見せてから復帰させる
     player.visible = false;
+    aux.visible = false;   // 炎とバリアも一緒に消す
     invincible = 400;
     respawnDelay = 75;
     spawnUfoWave(true); // ミス直後は弾を撃たない UFO の群れが通り過ぎる
@@ -7316,7 +7321,7 @@ function updatePlay() {
         if (dmg > 0 && !armored) boss.flash = 6;
         // カニは 4 発に 1 ダメージなので、通ったときだけ白く光らせて知らせる
         if (dmg > 0 && boss.kind === 'crab') boss.hurt = 10;
-        if (bracing) mmsxx.audio.playSE('armor');   // ためている最中は硬い
+        if (bracing) mmsxx.audio.playSE('armor', SE_HIT);   // ためている最中は硬い
         if (boss.kind === 'todo') {
           boss.cry = 60;   // 未実装君は泣く
           // 話しているあいだに撃ち込まれた数を数える。
@@ -7326,7 +7331,9 @@ function updatePlay() {
             if (boss.begHits >= BEG_GIVEUP_HITS) todoGiveUp(boss);
           }
         }
-        mmsxx.audio.playSE(weak ? 'weak' : 'armor');
+        // ショットの音と同じ強さで鳴らす。
+        // 優先度を付けないと、撃った音に押し出されて聞こえないことがある
+        mmsxx.audio.playSE(weak ? 'weak' : 'armor', SE_HIT);
         // 弱点に当たったことが目で分かるよう、その場に光を出す
         if (weak) spawnWeakSpark(b.sp.x, b.sp.y);
         if (boss.hp <= 0) {
@@ -8427,6 +8434,7 @@ function enterListMenu(title, items) {
   clearEntities();
   for (const sp of helpIconSprites()) sp.visible = false;
   player.visible = false;
+  aux.visible = false;   // 炎とバリアも一緒に消す
   mmsxx.audio.stopBGM();
   currentBGM = null;
   neb.clear();
@@ -8689,6 +8697,7 @@ function enterStory(build, bgm, onDone) {
   clearEntities();
   for (const sp of helpIconSprites()) sp.visible = false;
   player.visible = false;
+  aux.visible = false;   // 炎とバリアも一緒に消す
   hud.clear();
   neb.clear();
   neb.scroll(0, 0);
@@ -8868,6 +8877,7 @@ function enterStaffRoll() {
   clearEntities();
   for (const sp of helpIconSprites()) sp.visible = false;
   player.visible = false;
+  aux.visible = false;   // 炎とバリアも一緒に消す
   hud.clear();
   // 星空はそのまま流しつつ、うしろに星座を 4 つ置いてゆっくり流す。
   // スプライトは使わず、レイヤーへ直接描く(文字より奥に出したいので)
@@ -8961,6 +8971,7 @@ function enterSoundTest() {
   paused = false;
   clearEntities();
   player.visible = false;
+  aux.visible = false;   // 炎とバリアも一緒に消す
   for (const sp of helpIconSprites()) sp.visible = false;
   mmsxx.audio.stopBGM();
   currentBGM = null;
@@ -9269,67 +9280,70 @@ const CHAR_PAGES = [
     ],
   },
   ...buildBgPartPages(),
-  {
-    // いちばん最後は、4 体のボスが一堂に会した絵。
-    // 置き場所は BOSS 1〜4 のページの並びを、それぞれまるごとずらして作った
-    // (タコ +78/-38、カニ -36/-42、ドラゴン -85/+40、貝 +59/+40)
-    title: 'WALLPAPER #1',
-    // 全画面の絵なので、最初は見出しも案内も出さない(キーを押すと出る)
-    bare: true,
-    credit: 'STAR FABLE  © 2026 HARAYOKI',
-    parts: [
-      // いちばん奥に赤い裂け目(ラスボスの空間)を真ん中へ
-      ['kingRift2', 116, 76],
-      // 4 体とも、それぞれ真ん中へ 8/4 ドット寄せてある
-      // (カニ +8/+4、タコ -8/+4、ドラゴン +8/-4、貝 -8/-4)
-      // 貝(いちばん大きいので奥)
-      ['nautilus', 155, 100],
-      ['gearBlock', 171, 52], ['gearBlock', 219, 68], ['gearBlock', 232, 116],
-      ['gearBlock', 219, 164], ['gearBlock', 171, 180], ['gearBlock', 123, 164],
-      ['gearBlock', 99, 116], ['gearWeak1', 123, 68],
-      // カニ(左上)
-      ['crabLegExt', 14, 18], ['crabLegExt', 14, 34],
-      ['crabLegExt', 14, 50], ['crabLegExt', 14, 66],
-      ['crabR', 28, 2],
-      ['crabClawBig', 68, 2], ['crabClawBig', 68, 50],
-      // タコ(右上)
-      ['bossHead', 174, 30],
-      ['bossShip', 166, 54],
-      // ドラゴン(左下・手前)
-      ['dragonBody', 71, 158], ['dragonBody', 57, 144], ['dragonBody', 43, 130],
-      ['dragonTail', 85, 172],
-      ['dragonHead', 11, 84],
-      // ここから先はスプライト(王冠・目・手のひら・装置)。
-      // **目は BOSS 1〜4 のページと同じ「体の絵からの差」で置く**。
-      // 勝手に足し引きすると、直したはずのずれがまた出る
-      { img: 'octoCrown', x: 169, y: 90, sprite: true },
-      { img: 'bossEye2', x: 165, y: 121, sprite: true },
-      { img: 'octoCrown', x: 48, y: -4, sprite: true },
-      { img: 'bossEye2', x: 58, y: 36, sprite: true },
-      { img: 'bossEye2', x: 58, y: 52, sprite: true },
-      { img: 'crabPod', x: 41, y: 12, sprite: true },
-      { img: 'crabPod', x: 41, y: 46, sprite: true, flipX: true },
-      { img: 'crabPod', x: 41, y: 78, sprite: true },
-      { img: 'octoCrown', x: 196, y: 20, sprite: true },
-      // タコの目は、頭の絵に開いた**眼窩の穴の中心**から決めてある
-      // (穴の中心 17/32, 15.5 - レンズの中心 7.5)
-      { img: 'bossEye2', x: 183, y: 38, sprite: true },
-      { img: 'bossEye2', x: 198, y: 38, sprite: true },
-      { img: 'ufoGuard', x: 186, y: 6, sprite: true },
-      { img: 'ufoGuard', x: 226, y: 18, sprite: true },
-      { img: 'ufoGuard', x: 246, y: 50, sprite: true },
-      { img: 'ufoGuard', x: 226, y: 82, sprite: true },
-      { img: 'ufoGuard', x: 186, y: 94, sprite: true },
-      { img: 'ufoGuard', x: 146, y: 82, sprite: true, flipX: true },
-      { img: 'ufoGuard', x: 126, y: 50, sprite: true, flipX: true },
-      { img: 'ufoGuard', x: 146, y: 18, sprite: true, flipX: true },
-      { img: 'octoCrown', x: 15, y: 74, sprite: true, flipX: true },
-      { img: 'bossEye2', x: 19, y: 97, sprite: true },
-      { img: 'bossEye2', x: 35, y: 97, sprite: true },
-      // 自機は真ん中の下。4 体に立ち向かう絵にする
-      { img: 'player', x: 124, y: 144, sprite: true },
-    ],
-  },
+  // ---- 壁紙のページ(いったん止めてある) ----
+  // 目の位置が絵の側の基準と合わないので、直すまで出さない。
+  // 戻すときは、この下の「//」を外すだけでよい
+  // {
+  // // いちばん最後は、4 体のボスが一堂に会した絵。
+  // // 置き場所は BOSS 1〜4 のページの並びを、それぞれまるごとずらして作った
+  // // (タコ +78/-38、カニ -36/-42、ドラゴン -85/+40、貝 +59/+40)
+  // title: 'WALLPAPER #1',
+  // // 全画面の絵なので、最初は見出しも案内も出さない(キーを押すと出る)
+  // bare: true,
+  // credit: 'STAR FABLE  © 2026 HARAYOKI',
+  // parts: [
+  // // いちばん奥に赤い裂け目(ラスボスの空間)を真ん中へ
+  // ['kingRift2', 116, 76],
+  // // 4 体とも、それぞれ真ん中へ 8/4 ドット寄せてある
+  // // (カニ +8/+4、タコ -8/+4、ドラゴン +8/-4、貝 -8/-4)
+  // // 貝(いちばん大きいので奥)
+  // ['nautilus', 155, 100],
+  // ['gearBlock', 171, 52], ['gearBlock', 219, 68], ['gearBlock', 232, 116],
+  // ['gearBlock', 219, 164], ['gearBlock', 171, 180], ['gearBlock', 123, 164],
+  // ['gearBlock', 99, 116], ['gearWeak1', 123, 68],
+  // // カニ(左上)
+  // ['crabLegExt', 14, 18], ['crabLegExt', 14, 34],
+  // ['crabLegExt', 14, 50], ['crabLegExt', 14, 66],
+  // ['crabR', 28, 2],
+  // ['crabClawBig', 68, 2], ['crabClawBig', 68, 50],
+  // // タコ(右上)
+  // ['bossHead', 174, 30],
+  // ['bossShip', 166, 54],
+  // // ドラゴン(左下・手前)
+  // ['dragonBody', 71, 158], ['dragonBody', 57, 144], ['dragonBody', 43, 130],
+  // ['dragonTail', 85, 172],
+  // ['dragonHead', 11, 84],
+  // // ここから先はスプライト(王冠・目・手のひら・装置)。
+  // // **目は BOSS 1〜4 のページと同じ「体の絵からの差」で置く**。
+  // // 勝手に足し引きすると、直したはずのずれがまた出る
+  // { img: 'octoCrown', x: 169, y: 90, sprite: true },
+  // { img: 'bossEye2', x: 165, y: 121, sprite: true },
+  // { img: 'octoCrown', x: 48, y: -4, sprite: true },
+  // { img: 'bossEye2', x: 58, y: 36, sprite: true },
+  // { img: 'bossEye2', x: 58, y: 52, sprite: true },
+  // { img: 'crabPod', x: 41, y: 12, sprite: true },
+  // { img: 'crabPod', x: 41, y: 46, sprite: true, flipX: true },
+  // { img: 'crabPod', x: 41, y: 78, sprite: true },
+  // { img: 'octoCrown', x: 196, y: 20, sprite: true },
+  // // タコの目は、頭の絵に開いた**眼窩の穴の中心**から決めてある
+  // // (穴の中心 17/32, 15.5 - レンズの中心 7.5)
+  // { img: 'bossEye2', x: 183, y: 38, sprite: true },
+  // { img: 'bossEye2', x: 198, y: 38, sprite: true },
+  // { img: 'ufoGuard', x: 186, y: 6, sprite: true },
+  // { img: 'ufoGuard', x: 226, y: 18, sprite: true },
+  // { img: 'ufoGuard', x: 246, y: 50, sprite: true },
+  // { img: 'ufoGuard', x: 226, y: 82, sprite: true },
+  // { img: 'ufoGuard', x: 186, y: 94, sprite: true },
+  // { img: 'ufoGuard', x: 146, y: 82, sprite: true, flipX: true },
+  // { img: 'ufoGuard', x: 126, y: 50, sprite: true, flipX: true },
+  // { img: 'ufoGuard', x: 146, y: 18, sprite: true, flipX: true },
+  // { img: 'octoCrown', x: 15, y: 74, sprite: true, flipX: true },
+  // { img: 'bossEye2', x: 19, y: 97, sprite: true },
+  // { img: 'bossEye2', x: 35, y: 97, sprite: true },
+  // // 自機は真ん中の下。4 体に立ち向かう絵にする
+  // { img: 'player', x: 124, y: 144, sprite: true },
+  // ],
+  // },
 ];
 let charPage = 0;
 let charSprites = [];
@@ -9355,6 +9369,7 @@ function enterCharList() {
   paused = false;
   clearEntities();
   player.visible = false;
+  aux.visible = false;   // 炎とバリアも一緒に消す
   for (const sp of helpIconSprites()) sp.visible = false;
   mmsxx.audio.stopBGM();
   currentBGM = null;
