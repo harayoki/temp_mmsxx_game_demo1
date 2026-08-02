@@ -2341,48 +2341,42 @@ function ensureTitleSparks() {
 }
 // ロゴの「STAR」と「FABLE」それぞれの外接矩形を求めておく。
 // 光はこの矩形を少し小さくした線の上を回る(文字のかたまりに沿って動く)。
+//
+// ロゴは **2 段にずらして重ねてある**ので、左右では切り分けられない。
+// 上下の帯(重なっていないところ)で横幅を測り、縦は段の高さに合わせる。
+// ロゴの斜体の倒しかた(makedata の SLANT と同じ値)。
+// 光の通り道もこのぶんだけ倒して、字の傾きに沿わせる
+const LOGO_SLANT = 0.3;
 let logoBoxes = null;
 function buildLogoBoxes() {
   const img = IMG.logo;
-  const has = [];
-  for (let x = 0; x < img.width; x++) {
-    let any = false;
-    for (let y = 0; y < img.height; y++) {
-      if (img.pixels[y * img.width + x] !== 0) { any = true; break; }
-    }
-    has.push(any);
-  }
-  // 中身のある列のかたまりを拾い、いちばん広いすき間で 2 語に分ける
-  const runs = [];
-  for (let x = 0; x < img.width; x++) {
-    if (!has[x]) continue;
-    if (runs.length && x - runs[runs.length - 1][1] <= 1) runs[runs.length - 1][1] = x;
-    else runs.push([x, x]);
-  }
-  // 「STAR」と「FABLE」の切れ目を探す。字の間にも小さなすき間があるので、
-  // 真ん中あたり(幅の 30%〜70%)にあるいちばん広いすき間だけを見る
-  let gapAt = -1, gap = -1;
-  for (let i = 1; i < runs.length; i++) {
-    const at = runs[i - 1][1];
-    if (at < img.width * 0.3 || at > img.width * 0.7) continue;
-    const g = runs[i][0] - at;
-    if (g > gap) { gap = g; gapAt = i; }
-  }
-  if (gapAt < 0) gapAt = Math.max(1, Math.floor(runs.length / 2));
-  const groups = [runs.slice(0, gapAt), runs.slice(gapAt)];
-  logoBoxes = groups.map((g) => {
-    const x0 = g[0][0], x1 = g[g.length - 1][1];
-    let y0 = img.height, y1 = 0;
-    for (let x = x0; x <= x1; x++) {
-      for (let y = 0; y < img.height; y++) {
+  // 重なっていない帯。上は STAR だけ、下は FABLE だけが写っている
+  const bands = [[0, 26], [40, img.height - 1]];
+  logoBoxes = bands.map(([ya, yb], i) => {
+    let x0 = img.width, x1 = 0, y0 = img.height, y1 = 0;
+    for (let y = ya; y <= yb; y++) {
+      for (let x = 0; x < img.width; x++) {
         if (img.pixels[y * img.width + x] === 0) continue;
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
         if (y < y0) y0 = y;
         if (y > y1) y1 = y;
       }
     }
-    // 文字のかたまりのすぐ外側(2 ドット外)を回らせる
-    const m = -2;
-    return { x0: x0 + m, y0: y0 + m, x1: x1 - m, y1: y1 - m };
+    // 帯の外にも字が続いているので、縦に少し広げる(段の高さぶん)。
+    // そのうえで、光の通り道を字の見た目に合わせて寄せる
+    //   上の段(STAR): 上ふちを 4 ドット下げる
+    //   下の段(FABLE): 上ふちを 6 ドット、下ふちを 4 ドット上げる
+    const dTop = i === 0 ? 4 : -6;
+    const dBottom = i === 0 ? 0 : -4;
+    // 右はしは字の右端に合わせて内側へ詰める(上の段 4 ドット / 下の段 2 ドット)
+    const dRight = i === 0 ? -4 : -2;
+    return {
+      x0: x0 - 2,
+      y0: Math.max(0, y0 - 6) + dTop,
+      x1: x1 + 2 + dRight,
+      y1: Math.min(img.height - 1, y1 + 6) + dBottom,
+    };
   });
 }
 
@@ -2391,7 +2385,7 @@ function updateTitleSparks() {
   // ロゴが出ているページ(0 枚目)だけ光らせる
   const on = (titlePage === 0);
   if (!logoBoxes) buildLogoBoxes();
-  const ox = (SCREEN_W - IMG.logo.width) >> 1, oy = 32;
+  const ox = (SCREEN_W - IMG.logo.width) >> 1, oy = 8;
   titleSparks.forEach((sp, i) => {
     sp.visible = on;
     if (!on) return;
@@ -2405,6 +2399,8 @@ function updateTitleSparks() {
     else if ((d -= w) < h) { x = box.x1; y = box.y0 + d; }
     else if ((d -= h) < w) { x = box.x1 - d; y = box.y1; }
     else { d -= w; x = box.x0; y = box.y1 - d; }
+    // ロゴは斜体なので、通り道も同じだけ倒す(上へ行くほど右へ寄る)
+    x += (box.y1 - y) * LOGO_SLANT;
     sp.x = ox + Math.round(x) - 4; sp.y = oy + Math.round(y) - 4;
   });
 }
@@ -2560,15 +2556,17 @@ function drawTitlePage() {
   for (const sp of helpIconSprites()) sp.visible = false;
   if (titlePage === 0) {
     // ロゴも BG として描く(スプライトで補助しない = 横8ドット2色の制約に従う)
-    const logoX = (SCREEN_W - IMG.logo.width) >> 1, logoY = 32;
+    // ロゴは 2 行ぶん上へ詰める(下に余白を残す)
+    const logoX = (SCREEN_W - IMG.logo.width) >> 1, logoY = 8;
     hud.draw(logoX, logoY, IMG.logo);
     // ゲームの版はロゴの右下に小さく添える(文字は 8 ドット単位に置かれる)
     const gver = BUILD.version;
-    hud.print(logoX + IMG.logo.width - gver.length * 8, logoY + IMG.logo.height,
+    // 右端ぴったりだと詰まって見えるので、1 文字ぶん内側へ寄せる
+    hud.print(logoX + IMG.logo.width - (gver.length + 1) * 8, logoY + IMG.logo.height,
       gver, 14);
-    // エンジンの版はその下に
+    // エンジンの版はその下に(ロゴから 2 行ぶん下)
     const ver = 'MMSXX ENGINE V' + MMSXXEngine.version;
-    hud.print(centerX(ver), 88, ver, 14);
+    hud.print(centerX(ver), logoY + IMG.logo.height + 16, ver, 14);
     const help = String.fromCharCode(0x18, 0x19, 0x1a, 0x1b) + ':MOVE  SP:SHOT  ESC:PAUSE';
     hud.print(centerX(help), 158, help, 10);
     // 手元で開いているときだけ、隅に小さく印を出す(公開版には出ない)

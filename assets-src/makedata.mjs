@@ -3561,16 +3561,18 @@ const LOGO_FONT = {
   E: ['########', '##......', '##......', '######..', '##......', '##......', '########', '........'],
 };
 
-function makeLogo(text) {
-  // 16x16 スプライトのタイルに切り分けて並べるので、幅・高さは 16 の倍数にする
-  const SC = 3, SLANT = 0.28;
-  const GAP = 2;          // 字と字のあいだは常に 2 ドット
-  const SPACE_ADV = 10;   // 単語間
-  const W = 256, H = 32;
-  const img = createImage(W, H);
-  const mask = Array.from({ length: H }, () => new Uint8Array(W));
+/**
+ * タイトルロゴ。**2 段にずらして重ねる**。
+ *   STAR  を左上に、FABLE を右下に置き、影を右下へ 3 ドット付ける。
+ * 1 行に詰めていたころより 1 段大きい字が使えて、斜体の流れも出る。
+ *
+ * 横 8 ドット 2 色は、書き出しのときに BG 素材として自動で均される
+ * (BG_IMAGES に 'logo' が入っている)。ここでは色を自由に置いてよい。
+ */
+const LOGO_W = 256, LOGO_H = 64;
 
-  // 字形の実際の左端・右端(インクのある列)を測る
+/** 字の並びを作って「インクのある座標」の集合を返す */
+function logoLayout(text, { sc, slant, top, cx, gap = 2, spaceAdv = 12 }) {
   const inkL = (g) => {
     for (let c = 0; c < 8; c++) for (let r = 0; r < 8; r++) if (g[r][c] === '#') return c;
     return 0;
@@ -3579,71 +3581,81 @@ function makeLogo(text) {
     for (let c = 7; c >= 0; c--) for (let r = 0; r < 8; r++) if (g[r][c] === '#') return c;
     return 7;
   };
-  // 次の字までの送り = 今の字の右端 -> 次の字の左端が GAP ドットになる距離
+  // 次の字までの送り = 今の字の右端 -> 次の字の左端が gap ドットになる距離
   const advance = (ch, next) => {
     const g = LOGO_FONT[ch];
-    if (!g) return SPACE_ADV;
+    if (!g) return spaceAdv;
     const ng = LOGO_FONT[next];
-    if (!ng) return (inkR(g) + 1) * SC;
-    return (inkR(g) + 1) * SC + GAP - inkL(ng) * SC;
+    if (!ng) return (inkR(g) + 1) * sc;
+    return (inkR(g) + 1) * sc + gap - inkL(ng) * sc;
   };
-
-  // 3 倍に拡大しつつ、上へ行くほど右に倒す(斜体)。
-  // 文字列全体の幅から左右の余白を計算して中央に置く
   const chars = [...text];
   const textW = chars.reduce((w, ch, i) => w + advance(ch, chars[i + 1]), 0);
-  let pen = Math.max(2, Math.round((W - textW - 24 * SLANT) / 2));
+  let pen = Math.round(cx - (textW + 8 * sc * slant) / 2);
+  const pts = new Set();
   for (let i = 0; i < chars.length; i++) {
-    const ch = chars[i];
-    const glyph = LOGO_FONT[ch];
-    if (!glyph) { pen += SPACE_ADV; continue; }
+    const glyph = LOGO_FONT[chars[i]];
+    if (!glyph) { pen += spaceAdv; continue; }
     for (let r = 0; r < 8; r++) {
       for (let c = 0; c < 8; c++) {
         if (glyph[r][c] !== '#') continue;
-        for (let sy = 0; sy < SC; sy++) {
-          const y = 2 + r * SC + sy;
-          const slant = Math.round((H - y) * SLANT);
-          for (let sx = 0; sx < SC; sx++) {
-            const x = pen + c * SC + sx + slant;
-            if (x >= 0 && x < W && y >= 0 && y < H) mask[y][x] = 1;
-          }
+        for (let sy = 0; sy < sc; sy++) {
+          const y = top + r * sc + sy;
+          // 上へ行くほど右へ倒す(斜体)
+          const sl = Math.round((8 * sc - (y - top)) * slant);
+          for (let sx = 0; sx < sc; sx++) pts.add((pen + c * sc + sx + sl) + ',' + y);
         }
       }
     }
-    pen += advance(ch, chars[i + 1]);
+    pen += advance(chars[i], chars[i + 1]);
   }
+  return pts;
+}
 
-  // 縁取り(黒) -> 本体(横じまのグラデーション)の順に置く。
-  // 1 行 = 黒 + 1 色なので横8ドット2色の制約に収まり、行ごとに色を変えられる。
-  // 同じ色を 2 行続けたり 1 行おきに混ぜたりして中間色に見せる。
-  const OUT = hex('#101010');
-  const RAMP = [
-    '#ffffff', '#ffffff', '#ffffff', '#64daee', '#ffffff', '#64daee',
-    '#ffffff', '#64daee', '#64daee', '#64daee', '#7c8cff', '#64daee',
-    '#7c8cff', '#7c8cff', '#7c8cff', '#5955e0', '#7c8cff', '#5955e0',
-    '#5955e0', '#5955e0', '#3f37c9', '#5955e0', '#3f37c9', '#3f37c9',
-  ].map(hex);
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      if (mask[y][x]) continue;
-      let near = false;
-      for (let dy = -1; dy <= 1 && !near; dy++) {
+function makeLogo() {
+  const W = LOGO_W, H = LOGO_H, img = createImage(W, H);
+  const OUT = hex('#101010'), SHADOW = hex('#3f37c9');
+  const put = (x, y, col) => {
+    if (x >= 0 && x < W && y >= 0 && y < H) setPixel(img, x, y, col);
+  };
+  // 影 -> 縁取り -> 本体 の順に置く。あとから置いたものが上に来る
+  const shadow = (pts) => {
+    for (const k of pts) {
+      const [x, y] = k.split(',').map(Number);
+      for (let d = 1; d <= 3; d++) put(x + d, y + d, SHADOW);
+    }
+  };
+  const outline = (pts) => {
+    for (const k of pts) {
+      const [x, y] = k.split(',').map(Number);
+      for (let dy = -1; dy <= 1; dy++) {
         for (let dx = -1; dx <= 1; dx++) {
-          const ny = y + dy, nx = x + dx;
-          if (ny >= 0 && ny < H && nx >= 0 && nx < W && mask[ny][nx]) { near = true; break; }
+          if (!pts.has((x + dx) + ',' + (y + dy))) put(x + dx, y + dy, OUT);
         }
       }
-      if (near) setPixel(img, x, y, OUT);
     }
-  }
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      if (mask[y][x]) setPixel(img, x, y, RAMP[Math.min(RAMP.length - 1, Math.max(0, y - 2))]);
+  };
+  // 本体は横じまのグラデーション。1 行 = 1 色なので制約に収まりやすい
+  const body = (pts, ramp, top, span) => {
+    for (const k of pts) {
+      const [x, y] = k.split(',').map(Number);
+      const i = Math.min(ramp.length - 1, Math.max(0, Math.floor(((y - top) * ramp.length) / span)));
+      put(x, y, hex(ramp[i]));
     }
-  }
+  };
+
+  const SC = 4, SLANT = 0.3;
+  // 影と斜体のぶんだけ中身が右へ寄るので、置き場所を 10 ドット左へ寄せてある
+  const star = logoLayout('STAR', { sc: SC, slant: SLANT, top: 4, cx: 86 });
+  const fable = logoLayout('FABLE', { sc: SC, slant: SLANT, top: 28, cx: 146 });
+  // 下の段(FABLE)を先に置いて、上の段(STAR)を手前に重ねる
+  shadow(fable); outline(fable);
+  body(fable, ['#65dbef', '#8076f1', '#5955e0', '#3f37c9'], 28, 32);
+  shadow(star); outline(star);
+  body(star, ['#ffffff', '#ffffff', '#65dbef', '#8076f1'], 4, 32);
   return img;
 }
-const logo = makeLogo('STAR FABLE');
+const logo = makeLogo();
 
 // ---------------------------------------------------------------- サウンド (MML)
 
