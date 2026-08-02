@@ -1,5 +1,6 @@
 ﻿import { VDP_PALETTE, convertRGBA, convertRGBAFlat, hashRGBA,
-  setPalette, currentPalette, PALETTE_NAMES, PALETTE_LABELS } from './palette.js';
+  setPalette, currentPalette, PALETTE_NAMES, PALETTE_LABELS,
+  PALETTE_FAMILY } from './palette.js';
 import { ImageSymbol, SpriteSymbol, BgSymbol } from './symbol.js';
 import { MID_TONES } from './midtone.js';
 import { getGlyph } from './font.js';
@@ -750,6 +751,8 @@ export class VDP {
   get paletteNames() { return PALETTE_NAMES.slice(); }
   /** 画面に出すときの名乗り(省略すると、いまの色合いのもの) */
   paletteLabel(name) { return PALETTE_LABELS[name || currentPalette()] || (name || ''); }
+  /** どの機械の色か('msx1' / 'msx2')。省略すると、いまの色合いのもの */
+  paletteFamily(name) { return PALETTE_FAMILY[name || currentPalette()] || ''; }
 
   /**
    * 描画領域の大きさを変える(8 ドット単位)。

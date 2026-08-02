@@ -273,6 +273,8 @@ export class MMSXXEngine {
   get paletteNames() { return this.vdp.paletteNames; }
   /** 画面に出すときの名乗り(省略すると、いまの色合いのもの) */
   paletteLabel(name) { return this.vdp.paletteLabel(name); }
+  /** どの機械の色か('msx1' / 'msx2')。省略すると、いまの色合いのもの */
+  paletteFamily(name) { return this.vdp.paletteFamily(name); }
 
   /** 背景色(パレット番号 1..15)。全レイヤー透明の場所に見える色 */
   get backdrop() { return this.vdp.backdrop; }

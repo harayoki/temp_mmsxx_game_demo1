@@ -65,6 +65,16 @@ export const PALETTE_LABELS = {
   v9938: 'V9938 (MSX2)',
 };
 
+/**
+ * どの機械の色か。**同じ仲間のなかだけで送りたい**ときに使う
+ * (MSX1 の流派を見比べているのに、急に MSX2 の色へ飛ばないように)
+ */
+export const PALETTE_FAMILY = {
+  tms9918: 'msx1',
+  tms9918a: 'msx1',
+  v9938: 'msx2',
+};
+
 /** いま選んでいる色合いの名前 */
 let paletteName = 'tms9918';
 

@@ -8265,14 +8265,21 @@ function runCheatWord(word) {
     return;
   }
   // VDP の名前を打つと、画面の色合いが変わる。
-  //   TMS9918 = MSX1 の色を順ぐりに(いままでの色 -> 資料の色 -> MSX2 の色 -> 戻る)
-  //   V9938   = MSX2 以降が出す MSX1 の色へ一足飛びに
+  //   TMS9918 = MSX1 の流派だけを順ぐりに(MSX2 の色へは飛ばない)
+  //   V9938   = MSX2 の色へ。もう MSX2 なら MSX1 へ戻る
   // 絵は色番号で持っているので、描き直さずに色だけ入れ替わる
   if (word.endsWith('TMS9918') || word.endsWith('V9938')) {
     const names = mmsxx.paletteNames;
-    const next = word.endsWith('V9938')
-      ? 'v9938'
-      : names[(names.indexOf(mmsxx.palette) + 1) % names.length];
+    const msx1 = names.filter((n) => mmsxx.paletteFamily(n) === 'msx1');
+    const msx2 = names.filter((n) => mmsxx.paletteFamily(n) === 'msx2');
+    let next;
+    if (word.endsWith('V9938')) {
+      next = mmsxx.paletteFamily() === 'msx2' ? msx1[0] : msx2[0];
+    } else {
+      // MSX2 の色から打たれたときは、MSX1 のいちばん最初へ戻す
+      const at = msx1.indexOf(mmsxx.palette);
+      next = at < 0 ? msx1[0] : msx1[(at + 1) % msx1.length];
+    }
     mmsxx.setPalette(next);
     // 名乗りはエンジン側が持っている(色合いを増やしてもここは直さなくていい)
     cheatNotice(mmsxx.paletteLabel());
