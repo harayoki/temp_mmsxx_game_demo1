@@ -46,13 +46,6 @@ export const PALETTES = {
   ],
   // アンテナ(RF)でつないだテレビの色。にじんで、色が浅く、黒が浮く
   rf: null,   // 下で MMSXX の色から作る
-  // WebMSX が既定で使っている色。実機の見え方に寄せて手で調整されたもの
-  webmsx: [
-    [0, 0, 0], [7, 202, 40], [61, 226, 101], [68, 68, 240], [112, 109, 244],
-    [208, 48, 19], [64, 232, 240], [243, 66, 66], [244, 120, 120],
-    [208, 202, 48], [220, 220, 137], [6, 169, 32], [218, 64, 197],
-    [188, 188, 188], [255, 255, 255],
-  ],
   // MSX2 以降(V9938)が「MSX1 の 15 色」として出す色。
   // デジタル RGB 出力なので値がきれいに揃っていて、原色がはっきり出る
   v9938: [
@@ -77,12 +70,12 @@ function rfDegrade(base) {
   return base.map(([r, g, b]) => {
     // 明るさ(目の感じ方に合わせた重みつき)
     const y = 0.30 * r + 0.59 * g + 0.11 * b;
-    // 1) 鮮やかさを 55% まで落とす
-    const mix = (v) => y + (v - y) * 0.55;
+    // 1) 鮮やかさを 78% まで落とす
+    const mix = (v) => y + (v - y) * 0.78;
     // 2) 黒が浮く(下を持ち上げて、上を少し抑える)
-    const lift = (v) => 18 + v * 0.86;
+    const lift = (v) => 9 + v * 0.94;
     // 3) 暖色に転ぶ(赤を足して青を引く)
-    const warm = [6, 2, -8];
+    const warm = [3, 1, -4];
     return [mix(r), mix(g), mix(b)]
       .map((v, i) => Math.max(0, Math.min(255, Math.round(lift(v) + warm[i]))));
   });
@@ -95,7 +88,6 @@ function rfDegrade(base) {
 export const PALETTE_LABELS = {
   tms9918: 'TMS9918 MMSXX',
   toshiba: 'TMS9918 TOSHIBA',
-  webmsx: 'TMS9918 WEBMSX',
   rf: 'TMS9918 RF ANTENNA',
   v9938: 'V9938 (MSX2)',
 };
@@ -107,7 +99,6 @@ export const PALETTE_LABELS = {
 export const PALETTE_FAMILY = {
   tms9918: 'msx1',
   toshiba: 'msx1',
-  webmsx: 'msx1',
   rf: 'msx1',
   v9938: 'msx2',
 };

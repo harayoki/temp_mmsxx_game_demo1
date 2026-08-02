@@ -8191,8 +8191,11 @@ function checkCheatCode() {
   }
 
   // 英字と数字を打ち込むタイプのコマンド。打ち終わったら RETURN で確定する
-  // (VDP の名前のように、数字を含む語もあるため)
-  for (let i = 0; i < 36; i++) {
+  // (VDP の名前のように、数字を含む語もあるため)。
+  // **Ctrl や ⌘ を押しながらのキーは数えない**(貼り付けの V が入ってしまう)
+  const holdMod = mmsxx.input.isDown('ControlLeft') || mmsxx.input.isDown('ControlRight')
+    || mmsxx.input.isDown('MetaLeft') || mmsxx.input.isDown('MetaRight');
+  for (let i = 0; !holdMod && i < 36; i++) {
     const ch = i < 26 ? String.fromCharCode(65 + i) : String(i - 26);
     const key = i < 26 ? 'Key' + ch : 'Digit' + ch;
     if (mmsxx.input.wasPressed(key) || (i >= 26 && mmsxx.input.wasPressed('Numpad' + ch))) {
@@ -8220,6 +8223,8 @@ function checkCheatCode() {
 // 英数字だけを拾い、あとは打ったときと同じ道を通す
 if (typeof window !== 'undefined') {
   window.addEventListener('paste', (e) => {
+    // 打ち込みを受け付けているとき(ポーズ中)だけ。遊んでいる最中は無視する
+    if (!paused) return;
     const text = (e.clipboardData && e.clipboardData.getData('text')) || '';
     const word = text.toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (!word) return;
@@ -8804,13 +8809,15 @@ const STAFF_LINES = [
   'MIYUKI' + RET,
   'YOHKO' + RET,
   '',
+  // 画面の色を作った VDP たち。打ち込むと色合いが変わる裏技でもある
+  'ART SUPPORT',
+  'TMS9918' + RET,
+  'V9938' + RET,
+  '',
   'SPECIAL THANKS',
   'HYPER' + RET,
   'MEIJIN' + RET,
   String.fromCharCode(0x18, 0x18, 0x19, 0x19, 0x1a, 0x1b, 0x1a, 0x1b) + 'BA',
-  // 打ち込むと画面の色合いが変わる。名前そのものが謝辞でもある
-  'TMS9918' + RET,
-  'V9938' + RET,
   '',
   '',
   'ABOUT MMSXX ENGINE',
@@ -8846,7 +8853,7 @@ const STAFF_LINES = [
 // 役職の見出し(色を変えて出す)
 const STAFF_HEADINGS = new Set([
   'STAR FABLE STAFF', 'DIRECTOR', 'PROGRAM', 'DESIGN', 'MUSIC', 'DEBUG STAFF',
-  'SPECIAL THANKS', 'ABOUT MMSXX ENGINE',
+  'ART SUPPORT', 'SPECIAL THANKS', 'ABOUT MMSXX ENGINE',
   'THANK YOU FOR PLAYING!',
 ]);
 // 流すところはエンジンの任意部品 StaffRoll にまかせる(docs/UTIL.md 参照)
