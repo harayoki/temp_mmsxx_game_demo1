@@ -1,8 +1,13 @@
-import { compileMML, WAVEFORMS, ENVELOPES } from './mml.js';
+import { compileMML, WAVEFORMS, ENVELOPES, registerWave } from './mml.js';
+import { registerDefaultWaves } from './wavetables.js';
 import { renderTalk } from './talk.js';
 
+// 最初から使える波形メモリ(wtBell など)を入れておく
+registerDefaultWaves();
+
 // PSG 風のサウンドドライバ。
-// - 波形は 8 種類 (ファミコン風パルス 4 種 / 三角 / ノコギリ / サイン / ノイズ)
+// - 波形は 7 種類 (パルス 3 種 / 三角 / ノコギリ / サイン / ノイズ) +
+//   波形メモリ(wt〜)。波形メモリはゲームから addWave() で足せる
 // - 音色ごとにエンベロープ 6 種、デチューン・ビブラート・エコーを指定できる
 // - BGM: 複数チャンネルの MML 配列。ループ再生可能
 // - SE : 単発再生。新しい SE を鳴らすと前の SE は止まる(実機ゲーム風)
@@ -567,6 +572,14 @@ export class PSGPlayer {
   _makeOscillator(ev, freq) {
     const ctx = this.ctx;
     const wf = WAVEFORMS[ev.wave] || WAVEFORMS[2];
+    if (wf.kind === 'wave') {
+      // 波形メモリ。数字の並びから倍音を割り出して鳴らす
+      // (そのままつなぐより、こちらのほうが高い音でも歪まない)
+      const osc = ctx.createOscillator();
+      osc.setPeriodicWave(this._periodicWave(wf));
+      osc.frequency.value = freq;
+      return osc;
+    }
     if (wf.kind === 'noise') {
       const src = ctx.createBufferSource();
       src.buffer = this.noiseBuffer;
@@ -590,6 +603,42 @@ export class PSGPlayer {
     }
     osc.frequency.value = freq;
     return osc;
+  }
+
+  /**
+   * **波形メモリを足す**。1 周期ぶんの数字の並び(-1..1)を渡すと、
+   * `@{名前}` で鳴らせるようになる。名前は **wt で始める**約束。
+   * @param {string} name @param {number[]|Float32Array} samples
+   * @param {5|8} [bits=8] 段階の細かさ(5 = PC エンジン風 / 8 = SCC 風)
+   */
+  addWave(name, samples, bits = 8) {
+    const id = registerWave(name, samples, bits);
+    if (this._waveCache) this._waveCache.delete(name);   // 上書きに備えて捨てる
+    return id;
+  }
+
+  /** 波形メモリを PeriodicWave に直す(キャッシュ付き) */
+  _periodicWave(wf) {
+    if (!this._waveCache) this._waveCache = new Map();
+    const hit = this._waveCache.get(wf.name);
+    if (hit) return hit;
+    const s = wf.samples, N = s.length;
+    const half = N >> 1;
+    const real = new Float32Array(half), imag = new Float32Array(half);
+    // 離散フーリエ変換。倍音の大きさを出して PeriodicWave に渡す
+    for (let k = 1; k < half; k++) {
+      let re = 0, im = 0;
+      for (let n = 0; n < N; n++) {
+        const a = 2 * Math.PI * k * n / N;
+        re += s[n] * Math.cos(a);
+        im += s[n] * Math.sin(a);
+      }
+      real[k] = re * 2 / N;
+      imag[k] = im * 2 / N;
+    }
+    const pw = this.ctx.createPeriodicWave(real, imag);
+    this._waveCache.set(wf.name, pw);
+    return pw;
   }
 
   /** デューティ比 duty のパルス波を PeriodicWave として作る(キャッシュ付き) */

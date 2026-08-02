@@ -4389,6 +4389,29 @@ const BGM_TODO = [
 // 開始ジングル(3 小節)。一気に駆け上がってから決めの和音でロングトーン。
 // 本編がイ短調なので、ここも Am -> E7 -> Am でつなぐ。
 // 開始ジングル(3 小節)。歯切れのよい刻み -> 駆け上がり -> 決めのロングトーン。
+// ---- 音色を聞き比べるための曲(サウンドテスト用) ----
+// ドレミファソラシドを、楽器を次々に替えながら鳴らす。
+// 名前を言わずとも、順に聞けばどれがどれか分かるようにしてある。
+/**
+ * 音階 1 回ぶん。`w` の音色で、上って下りる。
+ * **音の高さの並びはドレミのまま**で、譜割りだけ工夫して曲に聞こえるようにした
+ * (上りは付点で跳ね、頂上を伸ばし、下りは走って最後に落ち着く)
+ */
+const SCALE_RUN = (w) => `@{${w}} o4 c8. d16 e8 f8 g4 a8 b8 `
+  + `> c4. < b8 a8 g8 f8 e8 d4 c4 r4 `;
+/** 今までの波形(パルス 3 種・三角・ノコギリ・サイン・ノイズ)を順に */
+const BGM_SCALE = [
+  't150 q7 v12 l8 @e{soft} '
+  + ['pulse12', 'pulse25', 'pulse50', 'triangle', 'saw', 'sine', 'noise']
+    .map(SCALE_RUN).join(''),
+];
+/** 波形メモリ(wt〜)を順に。上のと聞き比べる */
+const BGM_SCALE_WT = [
+  't150 q7 v12 l8 @e{soft} '
+  + ['wtBell', 'wtOrgan', 'wtRamp', 'wtVoice', 'wtSquareSoft']
+    .map(SCALE_RUN).join(''),
+];
+
 const BGM_START = [
   // メロディ
   't152 q8 v13 @{pulse25} @e{flat} @d10 @s2' +
@@ -6330,6 +6353,8 @@ const out =
       // 1UP と目玉ボーナスは曲を入れ替えてある
       fanfare2: BGM_FANFARE, bonus: BGM_FANFARE, staff: BGM_STAFF,
       elise: BGM_ELISE, fate: BGM_FATE, salut: BGM_SALUT,
+      // 音色の聞き比べ(サウンドテスト用)
+      scale: BGM_SCALE, wtscale: BGM_SCALE_WT,
     },
     se: SE,
     // しゃべる言葉(TALK)。録音は持たず、鳴らすときに合成する。

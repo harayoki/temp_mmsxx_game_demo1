@@ -54,6 +54,31 @@ export const ENVELOPES = [
   { id: 5, name: 'pluck',   a: 0.002, d: 0.12, s: 0.15, r: 0.08 },
 ];
 
+/**
+ * **波形メモリを足す**(実機の SCC / PC エンジンにあたるもの)。
+ *
+ * 1 周期ぶんの数字の並びを渡すと、その形の音が鳴るようになる。
+ * `@{名前}` で呼べる。同じ名前で呼び直せば上書きする。
+ *
+ * @param {string} name 名前。**`wt` で始める**(波形メモリだと分かるように)
+ * @param {number[]|Float32Array} samples 1 周期ぶん(-1..1)。32 個が実機らしい
+ * @param {5|8} [bits=8] 段階の細かさ。5 なら 32 段階(PC エンジン風)、
+ *   8 なら 256 段階(SCC 風)。粗いほどジャリッとした音になる
+ * @returns {number} 波形の番号(ふだんは名前で呼ぶので使わない)
+ */
+export function registerWave(name, samples, bits = 8) {
+  const levels = (1 << bits) - 1;
+  // 段階に丸める。ここで粗くしておくと、実機らしい歪みがそのまま音になる
+  const wave = Float32Array.from(samples, (v) => {
+    const q = Math.round((Math.max(-1, Math.min(1, v)) + 1) / 2 * levels);
+    return q / levels * 2 - 1;
+  });
+  const at = WAVEFORMS.findIndex((w) => w.name.toLowerCase() === name.toLowerCase());
+  const entry = { id: at >= 0 ? at : WAVEFORMS.length, name, kind: 'wave', bits, samples: wave };
+  if (at >= 0) WAVEFORMS[at] = entry; else WAVEFORMS.push(entry);
+  return entry.id;
+}
+
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 /** [ ... ]n ループをテキスト展開する(ネスト対応) */

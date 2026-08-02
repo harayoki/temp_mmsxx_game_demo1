@@ -12,6 +12,7 @@ import { StoryScenes } from '../engine/util/story.js';
 import { StaffRoll } from '../engine/util/staffroll.js';
 import { Gallery } from '../engine/util/gallery.js';
 import { SoundTest } from '../engine/util/soundtest.js';
+import { FpsMeter } from '../engine/util/fps.js';
 import { LocalStorageStore } from '../engine/storage.js';
 import { StatsLog } from '../engine/stats.js';
 import { GAME_DATA } from './gamedata.js';
@@ -8864,7 +8865,9 @@ function updateStaffRoll() {
 // 曲(ループするもの)は BGM 側、短いジングルは SE 側の先頭にまとめる
 // 未使用曲や場面ごとの曲もここから聴ける
 const SOUND_BGM = ['main', 'power', 'boss', 'lastboss', 'moai', 'todo', 'gameover',
-  'elise', 'fate', 'salut', 'botsu1', 'finalbattle', 'staff'];
+  'elise', 'fate', 'salut', 'botsu1', 'finalbattle', 'staff',
+  // 音色の聞き比べ。scale = 今までの波形 / wtscale = 波形メモリ
+  'scale', 'wtscale'];
 const SOUND_SE = ['start', 'unused1', 'fanfare', 'bonus', 'shutter', 'autofire', 'heal', 'scold',
   'shot', 'boom', 'hit', 'item', 'clink', 'thud', 'ricochet', 'eyeAppear',
   'laser', 'charging', 'rifttear', 'bigboom', 'bossboom', 'powerdown', 'appear', 'warning',
@@ -9480,8 +9483,11 @@ function altDown() {
 }
 
 // ---- メインループ ----
+// コマ数の表示は**開発版だけ**。DOM に出すので画面写真には写らない
+const fpsMeter = DEV ? new FpsMeter() : null;
 enterTitle();
 mmsxx.run(() => {
+  if (fpsMeter) fpsMeter.tick();
   // 名乗りのあいだは、画面も HUD もいっさい動かさない
   if (talkHold > 0) {
     talkHold--;
