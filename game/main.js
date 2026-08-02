@@ -2569,8 +2569,8 @@ function drawTitlePage() {
     hud.print(centerX(ver), logoY + IMG.logo.height + 16, ver, 14);
     const help = String.fromCharCode(0x18, 0x19, 0x1a, 0x1b) + ':MOVE  SP:SHOT  ESC:PAUSE';
     hud.print(centerX(help), 158, help, 10);
-    // 著作権表示はいちばん下に(© は 8 ドットフォントにないので (C) と書く)
-    const copy = '(C) 2026 HARAYOKI';
+    // 著作権表示はいちばん下に
+    const copy = '© 2026 HARAYOKI';
     hud.print(centerX(copy), 176, copy, 6);
     // 手元で開いているときだけ、隅に小さく印を出す(公開版には出ない)
     if (DEV) hud.print(VW - 32, 184, 'DEV', 6);
@@ -5408,6 +5408,9 @@ function lookEye(sp, cx, cy, lens = true) {
   sp.image = IMG[(lens ? 'bossEye2_' : 'bossEye') + key] || mid;
   sp.flipX = dx < 0;
   sp.flipY = dy < 0;
+  // レンズは 8 ドット、眼窩(BG 側)は 11 ドットで中心が半端になる。
+  // そのままだと**どのボスでも右下に 1 ドットずれて**見えるので、ここでそろえる
+  sp.x -= 1; sp.y -= 1;
 }
 
 /** ボスのパーツを今の状態に合わせて置き直す(毎フレーム呼ぶ) */
@@ -9045,8 +9048,8 @@ const CHAR_PAGES = [
       ['bossHead', 104, 64],
       ['bossShip', 96, 88],
       { img: 'octoCrown', x: 126, y: 54, sprite: true },
-      { img: 'bossEye2', x: 114, y: 73, sprite: true },
-      { img: 'bossEye2', x: 130, y: 73, sprite: true },
+      { img: 'bossEye2', x: 112, y: 73, sprite: true },
+      { img: 'bossEye2', x: 128, y: 73, sprite: true },
       // 手のひらはゲーム中と同じ 8 つ。楕円の軌道に並べる
       { img: 'ufoGuard', x: 116, y: 40, sprite: true },
       { img: 'ufoGuard', x: 156, y: 52, sprite: true },
@@ -9074,8 +9077,8 @@ const CHAR_PAGES = [
       ['crabClawBig', 96, 40],
       ['crabClawBig', 96, 88],
       { img: 'octoCrown', x: 76, y: 34, sprite: true },
-      { img: 'bossEye2', x: 88, y: 76, sprite: true },
-      { img: 'bossEye2', x: 88, y: 92, sprite: true },
+      { img: 'bossEye2', x: 86, y: 74, sprite: true },
+      { img: 'bossEye2', x: 86, y: 90, sprite: true },
       { img: 'crabPod', x: 69, y: 50, sprite: true },
       { img: 'crabPod', x: 69, y: 84, sprite: true, flipX: true },
       { img: 'crabPod', x: 69, y: 116, sprite: true },
@@ -9091,8 +9094,8 @@ const CHAR_PAGES = [
       ['dragonTail', 162, 136],
       ['dragonHead', 88, 48],
       { img: 'octoCrown', x: 92, y: 38, sprite: true, flipX: true },
-      { img: 'bossEye2', x: 98, y: 63, sprite: true },
-      { img: 'bossEye2', x: 114, y: 63, sprite: true },
+      { img: 'bossEye2', x: 96, y: 61, sprite: true },
+      { img: 'bossEye2', x: 112, y: 61, sprite: true },
     ],
   },
   {
@@ -9101,7 +9104,7 @@ const CHAR_PAGES = [
     parts: [
       ['nautilus', 104, 64],
       { img: 'octoCrown', x: 118, y: 54, sprite: true },
-      { img: 'bossEye2', x: 116, y: 87, sprite: true },
+      { img: 'bossEye2', x: 114, y: 85, sprite: true },
       ['gearBlock', 120, 16], ['gearBlock', 168, 32], ['gearBlock', 192, 80],
       ['gearBlock', 168, 128], ['gearBlock', 120, 144], ['gearBlock', 72, 128],
       ['gearBlock', 48, 80], ['gearWeak1', 72, 32],
@@ -9172,6 +9175,64 @@ const CHAR_PAGES = [
     ],
   },
   ...buildBgPartPages(),
+  {
+    // いちばん最後は、4 体のボスが一堂に会した絵。
+    // 置き場所は BOSS 1〜4 のページの並びを、それぞれまるごとずらして作った
+    // (タコ +78/-38、カニ -36/-42、ドラゴン -85/+40、貝 +59/+40)
+    title: 'WALLPAPER #1',
+    // 全画面の絵なので、最初は見出しも案内も出さない(キーを押すと出る)
+    bare: true,
+    credit: 'STAR FABLE  © 2026 HARAYOKI',
+    parts: [
+      // いちばん奥に赤い裂け目(ラスボスの空間)を真ん中へ
+      ['kingRift2', 116, 76],
+      // 4 体とも、それぞれ真ん中へ 8/4 ドット寄せてある
+      // (カニ +8/+4、タコ -8/+4、ドラゴン +8/-4、貝 -8/-4)
+      // 貝(いちばん大きいので奥)
+      ['nautilus', 155, 100],
+      ['gearBlock', 171, 52], ['gearBlock', 219, 68], ['gearBlock', 232, 116],
+      ['gearBlock', 219, 164], ['gearBlock', 171, 180], ['gearBlock', 123, 164],
+      ['gearBlock', 99, 116], ['gearWeak1', 123, 68],
+      // カニ(左上)
+      ['crabLegExt', 14, 18], ['crabLegExt', 14, 34],
+      ['crabLegExt', 14, 50], ['crabLegExt', 14, 66],
+      ['crabR', 28, 2],
+      ['crabClawBig', 68, 2], ['crabClawBig', 68, 50],
+      // タコ(右上)
+      ['bossHead', 174, 30],
+      ['bossShip', 166, 54],
+      // ドラゴン(左下・手前)
+      ['dragonBody', 71, 158], ['dragonBody', 57, 144], ['dragonBody', 43, 130],
+      ['dragonTail', 85, 172],
+      ['dragonHead', 11, 84],
+      // ここから先はスプライト(王冠・目・手のひら・装置)
+      { img: 'octoCrown', x: 169, y: 90, sprite: true },
+      { img: 'bossEye2', x: 162, y: 121, sprite: true },
+      { img: 'octoCrown', x: 48, y: -4, sprite: true },
+      // カニの目だけは、上へ 1 キャラ(8 ドット)寄せる
+      { img: 'bossEye2', x: 56, y: 30, sprite: true },
+      { img: 'bossEye2', x: 56, y: 46, sprite: true },
+      { img: 'crabPod', x: 41, y: 12, sprite: true },
+      { img: 'crabPod', x: 41, y: 46, sprite: true, flipX: true },
+      { img: 'crabPod', x: 41, y: 78, sprite: true },
+      { img: 'octoCrown', x: 196, y: 20, sprite: true },
+      { img: 'bossEye2', x: 176, y: 36, sprite: true },
+      { img: 'bossEye2', x: 192, y: 36, sprite: true },
+      { img: 'ufoGuard', x: 186, y: 6, sprite: true },
+      { img: 'ufoGuard', x: 226, y: 18, sprite: true },
+      { img: 'ufoGuard', x: 246, y: 50, sprite: true },
+      { img: 'ufoGuard', x: 226, y: 82, sprite: true },
+      { img: 'ufoGuard', x: 186, y: 94, sprite: true },
+      { img: 'ufoGuard', x: 146, y: 82, sprite: true, flipX: true },
+      { img: 'ufoGuard', x: 126, y: 50, sprite: true, flipX: true },
+      { img: 'ufoGuard', x: 146, y: 18, sprite: true, flipX: true },
+      { img: 'octoCrown', x: 15, y: 74, sprite: true, flipX: true },
+      { img: 'bossEye2', x: 17, y: 98, sprite: true },
+      { img: 'bossEye2', x: 33, y: 98, sprite: true },
+      // 自機は真ん中の下。4 体に立ち向かう絵にする
+      { img: 'player', x: 124, y: 144, sprite: true },
+    ],
+  },
 ];
 let charPage = 0;
 let charSprites = [];
@@ -9204,6 +9265,7 @@ function enterCharList() {
     hudLayer: 4, artLayer: 3,
     pages: CHAR_PAGES.map((page, i) => ({
       title: page.title,
+      bare: page.bare,
       draw: () => { charPage = i; drawCharList(); },
       update: () => updateCharAnim(),
       leave: () => { clearCharSprites(); neb.clear(); },
@@ -9274,6 +9336,12 @@ function drawCharList() {
     // 黒 1 色の絵は宇宙の黒に沈むので、色を指定して置き換えられるようにする
     if (part.color) sp.colorMap = { 1: part.color };
     charSprites.push(sp);
+  }
+  // 壁紙は下に著作権表示を入れる。
+  // 絵がそのまま後ろに来ると読めないので、その行だけ黒で埋めてから置く
+  if (page.credit) {
+    hud.fill(1, 0, 184, SCREEN_W, 16);
+    hud.print(centerX(page.credit), 188, page.credit, 14);
   }
   if (page.name) hud.print(centerX(page.name), 160, page.name, 11);
   charMoai = page.moai ? (page.parts || []).filter(p => Array.isArray(p)) : null;
@@ -9467,9 +9535,12 @@ mmsxx.run(() => {
   // 背景スクロール (視差付き縦スクロール)
   // レイヤーごとの速度差を大きくして遠近感を出す(最背面 : 中景 : 近景 = 1 : 3 : 8)
   // 星は 3 段階で速度差をつける(遠い星ほどゆっくり)
-  far.scrollBy(0, -0.25);
-  mid.scrollBy(0, -0.9);
-  near.scrollBy(0, -2.0);
+  // 壁紙のページだけは、絵として見せたいので星も止める
+  if (!(state === 'chars' && CHAR_PAGES[charPage] && CHAR_PAGES[charPage].bare)) {
+    far.scrollBy(0, -0.25);
+    mid.scrollBy(0, -0.9);
+    near.scrollBy(0, -2.0);
+  }
   // 大きな背景オブジェクトは手前のレイヤーに描いているが、
   // 速度は最背面と同じにして遠くにあるように見せる
   // 図鑑では絵を止めて見せるので、このレイヤーはスクロールさせない

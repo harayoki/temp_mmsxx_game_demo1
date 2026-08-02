@@ -24,6 +24,7 @@ export class Gallery {
    * @param {{
    *   pages: Array<{
    *     title: string,
+   *     bare?: boolean,                    最初は文字を出さず、絵だけ見せる
    *     draw?: (mmsxx:object, artLayer:object, hudLayer:object) => void,
    *     update?: (mmsxx:object) => void,   毎フレームの動き(明滅など)
    *     leave?: (mmsxx:object) => void,    そのページを離れるときの後始末
@@ -53,11 +54,14 @@ export class Gallery {
     this.onExit = opts.onExit || null;
     this.index = 0;
     this._held = 0;
+    // bare のページで、文字をもう出したか
+    this._revealed = false;
   }
 
   open(index = 0) {
     this.index = Math.max(0, Math.min(this.pages.length - 1, index));
     this._held = 0;
+    this._revealed = false;
     this.draw();
   }
 
@@ -69,15 +73,19 @@ export class Gallery {
     const art = this.mmsxx.layer(this.artLayer);
     hud.clear();
     if (art !== hud) art.clear();
-    const t = '- ' + page.title + ' -';
-    hud.print(centerX(t), this.titleY, t, 15);
-    if (this.showCount) {
-      // 何ページ中の何ページ目かを右上に出す(あと何枚あるか分かるように)
-      const pos = (this.index + 1) + '/' + this.pages.length;
-      hud.print(SCREEN_W - pos.length * 8 - 8, this.titleY, pos, 14);
+    // 絵だけのページは、何かキーを押すまで文字を出さない(絵を全画面で見せる)
+    const bare = page.bare && !this._revealed;
+    if (!bare) {
+      const t = '- ' + page.title + ' -';
+      hud.print(centerX(t), this.titleY, t, 15);
+      if (this.showCount) {
+        // 何ページ中の何ページ目かを右上に出す(あと何枚あるか分かるように)
+        const pos = (this.index + 1) + '/' + this.pages.length;
+        hud.print(SCREEN_W - pos.length * 8 - 8, this.titleY, pos, 14);
+      }
     }
     if (page.draw) page.draw(this.mmsxx, art, hud);
-    if (this.help) hud.print(centerX(this.help), this.helpY, this.help, 10);
+    if (!bare && this.help) hud.print(centerX(this.help), this.helpY, this.help, 10);
   }
 
   /** ページを n ぶん送る */
@@ -89,11 +97,20 @@ export class Gallery {
     this.index = this.wrap
       ? (this.index + n + len) % len
       : Math.max(0, Math.min(len - 1, this.index + n));
+    this._revealed = false;
     this.draw();
   }
 
   /** 毎フレーム呼ぶ。閉じたら true */
   update() {
+    // 文字を消しているページは、最初のひと押しで文字を出すだけにする。
+    // そのあとは他のページと同じ操作(めくる・閉じる)に戻る
+    const cur0 = this.pages[this.index];
+    if (cur0 && cur0.bare && !this._revealed) {
+      if (this.mmsxx.input.pressed.size) { this._revealed = true; this.draw(); }
+      if (cur0.update) cur0.update(this.mmsxx);
+      return false;
+    }
     for (const k of this.exitKeys) {
       if (this.mmsxx.input.wasPressed(k)) {
         const cur = this.pages[this.index];
