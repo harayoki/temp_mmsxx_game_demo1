@@ -363,7 +363,12 @@ export class VDP {
     // 合成は描画領域の大きさで行い、最後にボーダーとずらしを付けて写す。
     // ボーダーもずらしも無いときは写す手間すら要らないので、同じものを指す
     this._plain = (this.borderX === 0 && this.borderY === 0);
-    this.active32 = this._plain ? this.frame32 : new Uint32Array(this.width * this.height);
+    // **合成はパレット番号(1 バイト)のまま**行い、色(4 バイト)に直すのは最後の 1 回だけ。
+    // 番号のまま重ねると、書き込む量が 1/4 で済み、
+    // 色の引き当ても「重なった回数ぶん」ではなく「画面のドット数ぶん」で済む
+    this.activeIdx = new Uint8Array(this.width * this.height);
+    // ボーダーやずらしがあるときは、出す面のぶんも番号で持つ
+    this.outIdx = this._plain ? this.activeIdx : new Uint8Array(ow * oh);
   }
 
   /**
@@ -472,7 +477,7 @@ export class VDP {
     // ずらしが入ったら、描画領域とは別のバッファが要る
     if (this._plain && (this.adjustX || this.adjustY)) {
       this._plain = false;
-      this.active32 = new Uint32Array(this.width * this.height);
+      this.outIdx = new Uint8Array(this.outWidth * this.outHeight);
     }
   }
 
@@ -849,7 +854,7 @@ export class VDP {
 
   /** スプライトを 1 枚描く(bg=true なら 8 ドット単位に丸める) */
   _drawSprite(s, bg) {
-    const frame = this.active32;
+    const frame = this.activeIdx;
     const W = this.width, H = this.height;
     {
       if (!s.visible) return;
@@ -885,7 +890,7 @@ export class VDP {
           const x = bx + ix;
           if (x < 0 || x >= W) continue;
           const c = img.pixels[srcBase + ix];
-          if (c !== 0) frame[y * W + x] = this.pal32[c];
+          if (c !== 0) frame[y * W + x] = c;
         }
       }
     }
@@ -894,9 +899,10 @@ export class VDP {
   /** 全レイヤー + 全スプライトを合成して canvas に描画する */
   render() {
     this.frames = (this.frames || 0) + 1;
-    const frame = this.active32;
+    // 合成のあいだは**パレット番号のまま**扱う(色に直すのは最後の 1 回だけ)
+    const frame = this.activeIdx;
     const W = this.width, H = this.height;
-    const back = this.pal32[this.backdrop] || this.pal32[1];
+    const back = this.backdrop || 1;
 
     // 背景色 + レイヤー合成 (layer0 が奥)。
     // BG スプライトはレイヤーと同じ優先度空間を使うので、ここで混ぜて描く。
@@ -930,7 +936,7 @@ export class VDP {
           const vx = x + sx;
           if (!L.repeatX && (vx < 0 || vx >= L.width)) continue;
           const c = px[rowBase | (vx & L.maskX)];
-          if (c !== 0) frame[o] = this.pal32[c];
+          if (c !== 0) frame[o] = c;
         }
       }
     }
@@ -941,8 +947,12 @@ export class VDP {
     this._drawSprites(this.sprites, false);
 
     // ボーダーと画面ずらしを付けて、実際に出す面へ写す。
-    // どちらも無いときは active32 と frame32 が同じものなので、写す手間は要らない
+    // どちらも無いときは activeIdx と outIdx が同じものなので、写す手間は要らない
     if (!this._plain || this.adjustX || this.adjustY) this._present(back);
+
+    // ここで初めて「番号 -> 色」に直す。画面のドット数ぶんだけで済む
+    const out = this.outIdx, dst = this.frame32, pal = this.pal32;
+    for (let i = 0; i < out.length; i++) dst[i] = pal[out[i]];
 
     // canvas は等倍なので、そのまま置くだけ。拡大は CSS(ブラウザ)がやる
     this.ctx.putImageData(this.imageData, 0, 0);
@@ -954,7 +964,7 @@ export class VDP {
    * (反対側から回り込ませない)。
    */
   _present(back) {
-    const out = this.frame32, src = this.active32;
+    const out = this.outIdx, src = this.activeIdx;
     const ow = this.outWidth, oh = this.outHeight;
     const W = this.width, H = this.height;
     out.fill(back);
