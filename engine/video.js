@@ -1,4 +1,5 @@
 ﻿import { VDP_PALETTE, convertRGBA, convertRGBAFlat, hashRGBA } from './palette.js';
+import { ImageSymbol, SpriteSymbol, BgSymbol } from './symbol.js';
 import { MID_TONES } from './midtone.js';
 import { getGlyph } from './font.js';
 
@@ -158,7 +159,11 @@ export function transformImage(img, flipX, flipY, rot) {
       out[dy * ow + dx] = c;
     }
   }
-  return { width: ow, height: oh, pixels: out, name: nameOf(img, '向き替え') };
+  // 90/270 度は縦横が入れ替わるので、型は同じでも大きさが変わる
+  return img.derive
+    ? (swap ? new img.constructor(ow, oh, out, nameOf(img, '向き替え'))
+      : img.derive(out, nameOf(img, '向き替え')))
+    : { width: ow, height: oh, pixels: out, name: nameOf(img, '向き替え') };
 }
 
 /**
@@ -524,6 +529,84 @@ export class VDP {
   }
 
   /**
+   * **スプライトに使う絵を作る**(ここでしか作れない)。
+   *
+   * 15 色へ寄せてから、宣言した色数まで減らす。大きさも調べる。
+   * ここを通った絵は決まりを守っているので、`sprite()` の側では何も調べない。
+   *
+   * @param {{data:Uint8ClampedArray|Uint8Array,width:number,height:number}} src RGBA の絵
+   * @param {{name?:string, colors?:number}} [opts] colors = 使う色数(既定 1)
+   * @returns {SpriteSymbol}
+   */
+  spriteSymbol(src, opts = {}) {
+    const colors = opts.colors || 1;
+    const name = opts.name || src.name || '';
+    // 色番号で組み立てた絵(HUD の部品など)は、そのまま受けて色数だけ調べる。
+    // RGBA なら 15 色へ寄せてから、宣言した色数まで減らす
+    let sym;
+    if (src.pixels instanceof Uint8Array) {
+      sym = new SpriteSymbol(src.width, src.height, src.pixels, name, colors);
+      this._checkSpriteColors(sym, colors);
+    } else {
+      const im = this._cached(src, 'spr' + colors,
+        () => convertRGBAFlat(src.data, src.width, src.height, colors));
+      sym = new SpriteSymbol(im.width, im.height, im.pixels, name, colors);
+    }
+    // 実機のスプライトは 16x16 単位。16 に収まる小さいものはそのままでよい
+    this._checkSize(sym, 'スプライト', this.bgCheck, 16);
+    return sym;
+  }
+
+  /**
+   * **BG に使う絵を作る**(ここでしか作れない)。
+   *
+   * 15 色へ寄せながら、横 8 ドットごとに 2 色へ均す。
+   * ここを通った絵は決まりを守っているので、描く側では何も調べない。
+   * 大きさは自由だが、8 の倍数でないものは BG スプライトにできない。
+   *
+   * @param {{data:Uint8ClampedArray|Uint8Array,width:number,height:number}} src RGBA の絵
+   * @param {{name?:string}} [opts]
+   * @returns {BgSymbol}
+   */
+  bgSymbol(src, opts = {}) {
+    const name = opts.name || src.name || '';
+    // 色番号で組み立てた絵(体力バーの升目など)は、そのまま受けて決まりだけ調べる。
+    // RGBA なら 15 色へ寄せながら、横 8 ドット 2 色へ均す
+    if (src.pixels instanceof Uint8Array) {
+      const sym = new BgSymbol(src.width, src.height, src.pixels, name);
+      this._checkBgImage(sym, 'BG シンボル', opts.bgCheck);
+      return sym;
+    }
+    const im = this._cached(src, 'bg', () => convertRGBA(src.data, src.width, src.height));
+    return new BgSymbol(im.width, im.height, im.pixels, name);
+  }
+
+  /** 同じ RGBA を同じやり方で二度変換しない(結果を覚えておく) */
+  _cached(src, how, make) {
+    const key = hashRGBA(src.data, src.width, src.height) + ':' + how;
+    let im = this.convertCache.get(key);
+    if (!im) { im = make(); this.convertCache.set(key, im); }
+    return im;
+  }
+
+  /**
+   * 渡された絵が求める型かどうか調べる。ちがえば知らせる(公開版では止めない)。
+   * @param {*} sym @param {Function} want SpriteSymbol か BgSymbol
+   * @param {string} where
+   */
+  _needSymbol(sym, want, where) {
+    if (sym instanceof want) return true;
+    const got = sym instanceof ImageSymbol ? sym.constructor.name
+      : (sym && sym.pixels) ? '変換済みの絵(型なし)' : 'RGBA の絵';
+    const msg = `[MMSXX] ${where}: ${want.name} を渡してください `
+      + `(いまは ${got} "${(sym && sym.name) || '名前なし'}")`;
+    this.bgWarnings.push({ where, name: sym && sym.name, runs: 0, worst: 0, samples: [] });
+    if (this.bgCheck === 'throw') throw new Error(msg);
+    console.warn(msg);
+    return false;
+  }
+
+  /**
    * レイヤー 1 枚をまるごと検査する(裏画面 1024x1024 ぶんを見るので重い)。
    * 自動では走らないので、確かめたいときだけ呼ぶ。
    * @param {number} layerIndex
@@ -713,43 +796,6 @@ export class VDP {
   }
 
   /**
-   * RGBA画像を MSX 制約付きインデックス画像へ変換する(結果はキャッシュされる)。
-   * @param {ImageData|{data:Uint8Array|Uint8ClampedArray,width:number,height:number}} src
-   * @param {{colors?:number}} [opts]
-   *   colors を指定すると「画像全体で N 色まで」の変換になる
-   *   (MSX1 の単色スプライト=1, スプライト2枚重ね風=2)。
-   *   省略時は SCREEN2 風「横8ドット2色」変換。
-   * @returns {{width:number,height:number,pixels:Uint8Array}}
-   */
-  convert(src, opts) {
-    const { data, width, height } = src;
-    const colors = opts && opts.colors;
-    // スプライトとして読む絵は、**横 8 ドット 2 色の変換にかけない**
-    // (スプライトにその決まりは無い)。色は 15 色へ寄せるだけ
-    const spr = opts && opts.spriteColors;
-    const key = hashRGBA(data, width, height) + ':' + (colors || (spr ? 'spr' : 's2'));
-    let img = this.convertCache.get(key);
-    if (!img) {
-      img = colors ? convertRGBAFlat(data, width, height, colors)
-        : spr ? convertRGBAFlat(data, width, height, 15)
-          : convertRGBA(data, width, height);
-      this.convertCache.set(key, img);
-    }
-    // 名前を引き継ぐ。**検査で引っかかったときに、どの絵か分かる**ようにするため。
-    // opts.name が無ければ、元の絵が持っている名前を使う
-    const nm = (opts && opts.name) || src.name;
-    if (nm && !img.name) img.name = nm;
-    // スプライトの色数を調べる(**減らさない**。多ければ知らせる)
-    if (spr) this._checkSpriteColors(img, spr);
-    return img;
-  }
-
-  /** すでに変換済みのインデックス画像かどうか */
-  static isConverted(img) {
-    return img && img.pixels instanceof Uint8Array;
-  }
-
-  /**
    * レイヤーの仮想画面 (1024x1024) に画像を書き込む。座標はラップする。
    *
    * **絵の大きさは 8 の倍数でなくてよい**(BG スプライトとちがって縛らない)。
@@ -772,10 +818,10 @@ export class VDP {
    *   こちらも抜いた絵をキャッシュするので、描く手数は変わらない。
    */
   drawToLayer(layerIndex, x, y, src, transparent = true, opts = {}) {
-    let img = VDP.isConverted(src) ? src : this.convert(src);
-    // 色の置き換えや走査線をかける**前の絵**を調べる(同じ絵は 1 度だけ)。
-    // 置き換えは 1 対 1 なので、元が守れていれば後も守れている
-    this._checkBgImage(img, 'BG パーツ', opts.bgCheck);
+    // 絵は bgSymbol() で作ったものだけ。決まりはそこで済んでいる。
+    // 色の置き換え・走査線・反転は 1 対 1 なので、あとも守れている
+    this._needSymbol(src, BgSymbol, 'BG パーツ');
+    let img = src;
     if (opts.colorMap) img = this._recolored(img, opts.colorMap);
     if (opts.scanline != null) img = this._scanlined(img, opts.scanline);
     // BG は左右反転・上下反転・180 度回転だけ使える
@@ -969,14 +1015,9 @@ export class VDP {
    * @param {{colors?:number}} [opts] convert() と同じ。colors:1 で単色スプライト
    */
   createSprite(src, opts) {
-    const sprite = new Sprite(VDP.isConverted(src) ? src : this.convert(src, opts));
-    // 実機のスプライトは 16x16 単位。**16 の倍数にそろえることを勧める**。
-    // 16x16 に収まる小さいものは、そのままでよい
-    const im = sprite.image;
-    if ((im.width > 16 || im.height > 16) && !this._bgChecked.has(im)) {
-      this._bgChecked.add(im);
-      this._checkSize(im, 'スプライト', (opts && opts.bgCheck) || this.bgCheck, 16);
-    }
+    // 絵は spriteSymbol() で作ったものだけ。検査はそこで済んでいる
+    this._needSymbol(src, SpriteSymbol, 'スプライト');
+    const sprite = new Sprite(src);
     sprite._autoPhase = this._blinkSeq = ((this._blinkSeq | 0) + 1) & 0xffff;
     this.sprites.add(sprite);
     return sprite;
@@ -993,12 +1034,16 @@ export class VDP {
    * 「大きな絵を BG のように動かす」用途向けで、枚数・大きさに制限はない。
    */
   createBgSprite(src, opts) {
-    const sprite = new Sprite(VDP.isConverted(src) ? src : this.convert(src, opts));
-    // BG スプライトはレイヤーと同じ決まりで見えるので、定義したここで調べる
-    this._checkBgImage(sprite.image, 'BG スプライト', opts && opts.bgCheck);
-    // 大きさは 8 の倍数でなければならない。
-    // 半端だと端のセルが半分しか黒で埋まらず、そこだけ下の色と混ざる
-    this._checkSize(sprite.image, 'BG スプライト', (opts && opts.bgCheck) || this.bgCheck);
+    // 絵は bgSymbol() で作ったものだけ。横 8 ドット 2 色はそこで済んでいる。
+    // BG スプライトは 8 の倍数でなければならない(半端だと端のセルで下と混ざる)。
+    // これは絵の大きさで決まるので、作ったときに canBgSprite として持っている
+    if (this._needSymbol(src, BgSymbol, 'BG スプライト') && !src.canBgSprite) {
+      const msg = `[MMSXX] BG スプライト "${src.name || '名前なし'}": `
+        + `大きさは 8 の倍数にしてください (いまは ${src.width}x${src.height})`;
+      if (this.bgCheck === 'throw') throw new Error(msg);
+      console.warn(msg);
+    }
+    const sprite = new Sprite(src);
     sprite._autoPhase = this._blinkSeq = ((this._blinkSeq | 0) + 1) & 0xffff;
     this.bgSprites.add(sprite);
     return sprite;
@@ -1027,7 +1072,7 @@ export class VDP {
       if (((y + phase) & 1) === 0) continue;
       px.fill(0, y * img.width, (y + 1) * img.width);
     }
-    const out = { width: img.width, height: img.height, pixels: px, name: nameOf(img, '走査線') };
+    const out = img.derive(px, nameOf(img, '走査線'));
     byPhase.set(phase, out);
     return out;
   }
@@ -1047,7 +1092,7 @@ export class VDP {
       const to = map[px[i]];
       if (to !== undefined) px[i] = to;
     }
-    const out = { width: img.width, height: img.height, pixels: px, name: nameOf(img, '色替え') };
+    const out = img.derive(px, nameOf(img, '色替え'));
     byKey.set(key, out);
     return out;
   }
@@ -1084,7 +1129,7 @@ export class VDP {
         }
       }
     }
-    const out = { width: img.width, height: img.height, pixels: px, name: nameOf(img, 'セル埋め') };
+    const out = img.derive(px, nameOf(img, 'セル埋め'));
     this._bgFillCache.set(img, out);
     return out;
   }

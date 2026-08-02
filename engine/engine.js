@@ -259,11 +259,20 @@ export class MMSXXEngine {
   set backdrop(c) { this.vdp.backdrop = c; }
 
   /**
-   * RGBA画像を MSX 制約付き画像へ明示的に変換(キャッシュ付き)。
-   * opts.colors を指定すると「画像全体で N 色まで」の変換
-   * (単色スプライト=1, スプライト2枚重ね風=2)。省略時は横8ドット2色制約。
+   * **スプライトに使う絵を作る**。RGBA を渡すと、15 色へ寄せてから
+   * 宣言した色数まで減らした `SpriteSymbol` が返る。
+   * 決まりの検査はここだけで走る(`sprite()` の側では調べない)。
+   * @param {*} image RGBA の絵 @param {{name?:string,colors?:number}} [opts]
    */
-  convert(image, opts) { return this.vdp.convert(image, opts); }
+  spriteSymbol(image, opts) { return this.vdp.spriteSymbol(image, opts); }
+
+  /**
+   * **BG に使う絵を作る**。RGBA を渡すと、横 8 ドット 2 色へ均した
+   * `BgSymbol` が返る。レイヤーにも BG スプライトにも使える
+   * (BG スプライトにするなら、大きさが 8 の倍数であること)。
+   * @param {*} image RGBA の絵 @param {{name?:string}} [opts]
+   */
+  bgSymbol(image, opts) { return this.vdp.bgSymbol(image, opts); }
 
   /**
    * スプライトを生成(枚数・横並び制限なし)。opts は convert() と同じ。

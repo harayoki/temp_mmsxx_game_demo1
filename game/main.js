@@ -85,6 +85,8 @@ const BGP_FRONT = 3;   // 敵・ボスなど: 背景オブジェクトより手�
 // **減色はしない**。素材の時点で正しい色数になっている前提で、
 // 違っていたらエンジンが弾く(開発版は例外、公開版は警告)。
 // ここに名前が無い絵は BG(横 8 ドット 2 色)として読む
+// スプライトとして持ちつつ、BG にも置く絵。`名前 + 'BG'` で BG 用の型が作られる
+const BG_TWINS = new Set(['weight16t']);
 const SPRITE_COLORS = {
   player: 2, bossEye: 1, bossEye2: 1, octoMouth: 1, ufoGuard: 1, item: 1, star: 1,
   bomb: 1, speedUp: 1, rapidUp: 1, oneUp: 1,
@@ -106,21 +108,33 @@ const SPRITE_COLORS = {
   kingMan06: 1, kingMan06b: 1, kingMan07: 1, kingMan08: 1, kingMan09: 1, kingMan10: 1,
   kingMan11: 1, kingMan12: 1,
   kingWaveL: 1, kingWaveM: 1, kingWaveS: 1,
+  // 型を分けたときに、宣言もれが見つかったぶん
+  powerUp: 1, eyeIris0: 1, gearGem: 1, glower0: 1, spark0: 1, todoGlint: 1,
+  barrierItem: 1, bulletRing: 1, enemyH: 1, enemyI: 1, enemyJ: 1,
+  fireBall: 1, fireBall1: 1, fireBall2: 1, fireM0: 1, fireM1: 1, fireS0: 1, fireS1: 1,
+  pilotPupil: 1, pilotSmile: 1, pilotWink: 1,
+  todoBlush: 2,   // 赤みと影の 2 色
+  riftGlow: 2,    // 水色と白の 2 色
 };
 const IMG = {};
 for (const [name, im] of Object.entries(GAME_DATA.images)) {
   const raw = MMSXXEngine.imageFromBase64(im.b64, im.width, im.height);
-  // 名前を渡しておくと、検査で引っかかったときに**どの絵か**が出る。
-  // spriteColors を渡すと、その色数を**越えていないか調べる**(減らしはしない)
-  IMG[name] = mmsxx.convert(raw, { name, spriteColors: SPRITE_COLORS[name] });
+  // 絵は**ここで型を決めて作る**。決まりを守っているかの検査もここだけ。
+  // SPRITE_COLORS に載っている名前がスプライト用、それ以外は BG 用。
+  // 名前を渡しておくと、引っかかったときに**どの絵か**が出る
+  IMG[name] = SPRITE_COLORS[name]
+    ? mmsxx.spriteSymbol(raw, { name, colors: SPRITE_COLORS[name] })
+    : mmsxx.bgSymbol(raw, { name });
+  // スプライトの絵を BG にも置きたいときは、BG 用の型も作る(図鑑の大きい絵)
+  if (BG_TWINS.has(name)) IMG[name + 'BG'] = mmsxx.bgSymbol(raw, { name: name + '(BG)' });
 }
 
 /** 変換済み画像の色を全部差し替えたコピーを作る(単色スプライトの色違い用) */
 function recolor(img, color) {
   const pixels = new Uint8Array(img.pixels.length);
   for (let i = 0; i < pixels.length; i++) pixels[i] = img.pixels[i] === 0 ? 0 : color;
-  const name = img.name ? img.name + '(単色' + color + ')' : undefined;
-  return { width: img.width, height: img.height, pixels, name };
+  // 型はそのまま引き継ぐ(色の置き換えは 1 対 1 なので、決まりは保たれる)
+  return img.derive(pixels, img.name ? img.name + '(単色' + color + ')' : img.name);
 }
 IMG.itemW = recolor(IMG.item, 15);   // アイテム点滅用(黄と白を1フレーム交互)
 // 色違いで使い回していた敵は、それぞれ専用の絵に差し替えた
@@ -2272,7 +2286,8 @@ for (let n = 0; n <= 8; n++) {
       pixels[y * 8 + x] = c;
     }
   }
-  BAR_TILES.push({ width: 8, height: 8, pixels });
+  // 色番号で組み立てた絵なので、BG の型にしてから使う(決まりはここで調べる)
+  BAR_TILES.push(mmsxx.bgSymbol({ width: 8, height: 8, pixels }, { name: 'bossBar' + n }));
 }
 
 /** ボスを倒したあとの面の評価。ボーナスをまとめて出す */
@@ -9037,7 +9052,7 @@ const CHAR_PAGES = [
     // 壊せない。当たると一撃なので、姿を覚えてもらう
     title: 'HAZARD',
     // 48x32 に描き直したので、中央に来るよう置き直す
-    big: [['weight16t', 'MONTY', 104, 88]],
+    big: [['weight16tBG', 'MONTY', 104, 88]],
   },
   {
     // ボスはゲーム中と同じように、パーツを組み合わせて見せる

@@ -1299,7 +1299,8 @@ function makeChargeOrb(size, color) {
   return img;
 }
 const chargeOrb0 = makeChargeOrb(16, '#ffe97c');
-const chargeOrb1 = makeChargeOrb(24, '#ffe97c');
+// スプライトは 16 の倍数にそろえる。絵は真ん中に置くので見え方は変わらない
+const chargeOrb1 = padTo(makeChargeOrb(24, '#ffe97c'), 32, 32);
 const chargeOrb2 = makeChargeOrb(32, '#ffffff');
 
 /** 外側の輪。溜めが進むほど小さい輪に差し替えて、集まってくるように見せる */
@@ -1322,7 +1323,7 @@ function makeChargeRing(size, thick, color) {
 }
 const chargeRing0 = makeChargeRing(48, 3, '#65dbef');
 const chargeRing1 = makeChargeRing(32, 3, '#65dbef');
-const chargeRing2 = makeChargeRing(24, 4, '#ffffff');
+const chargeRing2 = padTo(makeChargeRing(24, 4, '#ffffff'), 32, 32);
 
 // ---- ボスに重ねる専用パーツ(単色スプライト。2 コマに 1 回だけ表示する) ----
 

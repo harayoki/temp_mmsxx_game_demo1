@@ -197,7 +197,12 @@ mmsxx.removeBgSprite(big);
 
 // ---- 画像 ----
 // rgbaImage は {data: Uint8Array(RGBA), width, height} か ImageData。
-const img = mmsxx.convert(rgbaImage);              // 明示的に事前変換もできる
+// **絵はここで型を決めて作る**。決まりを守っているかの検査もここだけで走り、
+// できたものは sprite() / draw() にそのまま渡せる(向こう側では調べない)。
+const SHIP = mmsxx.spriteSymbol(rgbaImage, { name: 'SHIP', colors: 2 }); // スプライト用
+const WALL = mmsxx.bgSymbol(rgbaImage, { name: 'WALL' });                // BG 用
+// 色番号で組み立てた絵(HUD の部品など)も、同じ口から型にできる
+const TILE = mmsxx.bgSymbol({ width: 8, height: 8, pixels }, { name: 'TILE' });
 MMSXXEngine.imageFromBase64(b64, w, h);          // gamedata.js の画像を復元
 
 // ---- 走査線と色の置き換え ----
