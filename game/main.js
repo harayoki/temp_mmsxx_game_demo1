@@ -3691,11 +3691,16 @@ function updateCrabBoss(b) {
   }
   // 甲羅に開いた 2 つの穴に、タコと同じ目を入れる
   if (b.eyeL) {
-    const look = eyeLook(b.sx + CRAB_W / 2);
-    const ex = b.side < 0 ? b.sx + 32 : b.sx + CRAB_W - 44;
+    // 絵は左右で反転するので、目の穴の位置も左右対称になる。
+    // 反転したときの位置 = 幅 - もとの位置 - 目の大きさ(16)
+    const right = b.side >= 0;
+    const ex = right ? b.sx + CRAB_W - 46 : b.sx + 30;
+    const ey = b.sy - 2;
     b.eyeL.visible = b.eyeR.visible = bossVisible;
-    b.eyeL.x = ex + look; b.eyeL.y = b.sy + 36;
-    b.eyeR.x = ex + look; b.eyeR.y = b.sy + 52;
+    b.eyeL.x = ex; b.eyeL.y = ey + 36;
+    b.eyeR.x = ex; b.eyeR.y = ey + 52;
+    lookEye(b.eyeL, b.eyeL.x + 8, b.eyeL.y + 8);
+    lookEye(b.eyeR, b.eyeR.x + 8, b.eyeR.y + 8);
   }
   // 装甲に取り付いている装置(3 つ)。スプライトなので 8 ドットに縛られず置ける。
   // パネルとタンクは脚寄り(壁側)、レーダー皿だけ前寄りに置く
@@ -4052,17 +4057,6 @@ function updateDragonBoss(b) {
     }
   }
 
-  if (b.crown) {
-    b.crown.visible = bossVisible;
-    b.crown.x = b.sx + 10; b.crown.y = b.sy - 4;   // 頭蓋のてっぺんに乗せる
-  }
-  // 眼窩の目。自機のいる方へ 2 ドットだけ寄る
-  if (b.eyeL) {
-    const look = eyeLook(b.sx + DRAGON_W / 2);
-    b.eyeL.visible = b.eyeR.visible = bossVisible;
-    b.eyeL.x = b.sx + 10 + look; b.eyeL.y = b.sy + 16;
-    b.eyeR.x = b.sx + 26 + look; b.eyeR.y = b.sy + 16;
-  }
   if (b.mode === 'return') {
     // 間を置いてから、画面の上からゆっくり降りてきて旋回に戻る
     if (b.wait > 0) { b.wait--; }
@@ -4096,6 +4090,22 @@ function updateDragonBoss(b) {
   // BG スプライトは 8 ドット単位に丸められるので、
   // 当たり判定などに使う画面座標もそろえておく
   b.sx = snap8(b.x); b.sy = snap8(b.y);
+
+  // 冠と目は、**位置を出し直したあとに**置く。
+  // 前は動かす前の座標で置いていたので、頭が速く動くと 1 コマぶん遅れて
+  // 目と冠が頭から大きくずれていた
+  if (b.crown) {
+    b.crown.visible = bossVisible;
+    b.crown.x = b.sx + 10; b.crown.y = b.sy - 4;   // 頭蓋のてっぺんに乗せる
+  }
+  // 眼窩の目。置き場所は動かさず、黒目だけが自機のほうへ寄る
+  if (b.eyeL) {
+    b.eyeL.visible = b.eyeR.visible = bossVisible;
+    b.eyeL.x = b.sx + 7; b.eyeL.y = b.sy + 13;
+    b.eyeR.x = b.sx + 23; b.eyeR.y = b.sy + 13;
+    lookEye(b.eyeL, b.eyeL.x + 8, b.eyeL.y + 8);
+    lookEye(b.eyeR, b.eyeR.x + 8, b.eyeR.y + 8);
+  }
   drawBossBody();
 
   if (state !== 'play') return;
@@ -5373,12 +5383,26 @@ function clearBossParts() {
   bossParts = [];
 }
 
-/** 目を自機のいる方へ少しだけ寄せるためのずらし量(-2..2) */
-function eyeLook(centerX) {
-  // 自機のいるほうへ 1 ドットだけ寄せる。
-  // 大きく動かすと目玉が泳いで見えるので、向きが分かる最小限にとどめる
-  const d = player.x - centerX;
-  return d > 8 ? 1 : d < -8 ? -1 : 0;
+/**
+ * 目を自機のほうへ向ける。**目玉そのものは動かさず、黒目だけを 2 ドット寄せる**。
+ *
+ * 目玉ごと動かしていたころは、置き場所が 1 ドット単位でずれて泳いで見えた。
+ * 向きは 16 方向。絵は「右下 4 分の 1」の 5 枚だけ持ち、
+ * 残りは**左右・上下の反転**で作る(だから目の絵は対称に描いてある)。
+ * @param {*} sp 目のスプライト
+ * @param {number} cx @param {number} cy 目の中心(画面座標)
+ * @param {boolean} [lens=true] レンズ(シアン)の絵か。false で枠の絵
+ */
+function lookEye(sp, cx, cy, lens = true) {
+  const a = Math.atan2(player.y + 8 - cy, player.x + 8 - cx);
+  const k = Math.round(a / (Math.PI / 8));          // 16 方向に丸める
+  const dx = Math.round(Math.cos(k * Math.PI / 8) * 2);
+  const dy = Math.round(Math.sin(k * Math.PI / 8) * 2);
+  const key = Math.abs(dx) + '' + Math.abs(dy);     // '20' '21' '11' '12' '02'
+  const mid = lens ? IMG.bossEye2 : IMG.bossEye;
+  sp.image = IMG[(lens ? 'bossEye2_' : 'bossEye') + key] || mid;
+  sp.flipX = dx < 0;
+  sp.flipY = dy < 0;
 }
 
 /** ボスのパーツを今の状態に合わせて置き直す(毎フレーム呼ぶ) */
@@ -5466,14 +5490,12 @@ function drawBossBody() {
     }
     if (b.eyeL) {
       // 殻は BG スプライトなので 8 ドット刻みで動く。
-      // 目もその刻みに吸着させたうえで、自機のいる方へ少しだけ寄せる
+      // 目もその刻みに吸着させる。向きは黒目だけで見せる
       const ex = snap8(b.x), ey = snap8(b.y);
       b.eyeL.visible = vis;
-      const lx = Math.max(-1, Math.min(1, eyeLook(ex + NAUT_CORE / 2)));
-      const ly = Math.max(-1, Math.min(1,
-        Math.round((player.y - (ey + NAUT_CORE / 2)) / 80)));
-      b.eyeL.x = ex + 12 + lx;
-      b.eyeL.y = ey + 23 + ly;
+      b.eyeL.x = ex + 11;
+      b.eyeL.y = ey + 22;
+      lookEye(b.eyeL, b.eyeL.x + 8, b.eyeL.y + 8);
     }
     return;
   }
@@ -6043,10 +6065,11 @@ function updateBoss() {
   drawBossBody();
   b.eyeL.visible = b.eyeR.visible = bossVisible;
   const sink = b.phase2 ? 0 : HEAD_SINK;
-  // 自機のいる方へ 2 ドットぶんだけ寄せて、こちらを見ている感じを出す
-  const look = eyeLook(b.sx + BOSS_W / 2);
-  b.eyeL.x = b.sx + HEAD_DX + 10 + look; b.eyeL.y = b.sy + 9 + sink;
-  b.eyeR.x = b.sx + HEAD_DX + 26 + look; b.eyeR.y = b.sy + 9 + sink;
+  // 置き場所は動かさず、黒目だけを自機のほうへ寄せる
+  b.eyeL.x = b.sx + HEAD_DX + 9; b.eyeL.y = b.sy + 9 + sink;
+  b.eyeR.x = b.sx + HEAD_DX + 25; b.eyeR.y = b.sy + 9 + sink;
+  lookEye(b.eyeL, b.eyeL.x + 8, b.eyeL.y + 8);
+  lookEye(b.eyeR, b.eyeR.x + 8, b.eyeR.y + 8);
   // レンズ側の絵は枠とぴったり重ねる
   if (b.eyeL2) {
     b.eyeL2.visible = b.eyeR2.visible = bossVisible;

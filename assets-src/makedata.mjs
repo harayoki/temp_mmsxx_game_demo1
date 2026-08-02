@@ -2280,25 +2280,57 @@ const bossHead2 = makeBossHead2();
 
 // カメラアイ。実機のスプライトに合わせて単色 2 枚に分け、
 // 1 フレームずつ交互に出して 2 色に見せる。
+// **左右・上下とも対称**にしてある。黒目を寄せた向きちがいを
+// 反転で作るので、対称でないと反転したときに絵がずれて見える
 const EYE_ART = [
   '....KKKK....',
   '..KKKKKKKK..',
-  '.KKKCCCCKK..',
+  '.KKKCCCCKKK.',
   '.KKCCCCCCKK.',
   'KKCCCCCCCCKK',
   'KKCCCKKCCCKK',
   'KKCCCKKCCCKK',
   'KKCCCCCCCCKK',
   '.KKCCCCCCKK.',
-  '.KKKCCCCKK..',
+  '.KKKCCCCKKK.',
   '..KKKKKKKK..',
   '....KKKK....',
 ];
-// 枠(暗い機械色)だけの絵
-const bossEye = fromAscii(EYE_ART.map(r => r.replace(/C/g, '.')), { K: '#5955e0' });
-// レンズ(シアン)だけの絵
-const bossEye2 = fromAscii(EYE_ART.map(r => r.replace(/K/g, '.').replace(/C/g, '#')),
+/**
+ * 黒目(まん中の 2x2)を dx, dy だけずらした目の絵を作る。
+ *
+ * 目玉そのものを動かすと、置き場所が 1 ドット単位でずれて泳いで見える。
+ * **目玉は動かさず、黒目だけを寄せて**「こちらを見ている」を出す。
+ *
+ * 向きは 16 方向いるが、**左右・上下の反転が効く**ので、
+ * 用意するのは「右下 4 分の 1」ぶんの 5 枚 + まん中の 1 枚だけでよい。
+ * @param {number} dx -2..2 @param {number} dy -2..2
+ */
+function eyeArt(dx, dy) {
+  const rows = EYE_ART.map(r => r.split(''));
+  // もとの黒目(5,5)-(6,6)をレンズに戻してから、ずらした先へ置き直す
+  for (let y = 5; y <= 6; y++) for (let x = 5; x <= 6; x++) rows[y][x] = 'C';
+  for (let y = 5; y <= 6; y++) for (let x = 5; x <= 6; x++) rows[y + dy][x + dx] = 'K';
+  return rows.map(r => r.join(''));
+}
+/** 枠(暗い機械色)だけの絵。黒目もこちら側 */
+const eyeFrame = (art) => fromAscii(art.map(r => r.replace(/C/g, '.')), { K: '#5955e0' });
+/** レンズ(シアン)だけの絵。黒目のところは抜ける */
+const eyeLens = (art) => fromAscii(art.map(r => r.replace(/K/g, '.').replace(/C/g, '#')),
   { '#': '#65dbef' });
+
+const bossEye = eyeFrame(EYE_ART);
+const bossEye2 = eyeLens(EYE_ART);
+// 黒目を寄せた版。**右下 4 分の 1 ぶんだけ**持ち、あとは反転で作る。
+// 名前のうしろの 2 桁が、ずらす量 (dx, dy)
+const EYE_LOOKS = [[2, 0], [2, 1], [1, 1], [1, 2], [0, 2]];
+const eyeLookFrames = {};
+const eyeLookLens = {};
+for (const [dx, dy] of EYE_LOOKS) {
+  const art = eyeArt(dx, dy);
+  eyeLookFrames['bossEye' + dx + dy] = eyeFrame(art);
+  eyeLookLens['bossEye2_' + dx + dy] = eyeLens(art);
+}
 
 // チューブ状の口(単色スプライト)。頭の下に重ねて、
 // 筒が前へ突き出しているように見せる
@@ -6036,7 +6068,12 @@ const images = {
   flameSmall, flameSmallB, flameBig, flameBigA, flameBigB,
   flameDragon, flameDragonA, flameDragonB,
   bossHead, bossHead2, bossShip,
-  bossEye: pad16(bossEye), bossEye2: pad16(bossEye2), octoHand: pad16(octoHand), octoMouth: pad16(octoMouth), ufoGuard: pad16(ufoGuard), ufoFist: pad16(ufoFist), todoFace, todoBlush, todoGlint,
+  bossEye: pad16(bossEye), bossEye2: pad16(bossEye2),
+  // 黒目を寄せた目(右下 4 分の 1 ぶん。残りは反転で作る)
+  ...Object.fromEntries(Object.entries(eyeLookFrames).map(([k, v]) => [k, pad16(v)])),
+  ...Object.fromEntries(Object.entries(eyeLookLens).map(([k, v]) => [k, pad16(v)])),
+  octoHand: pad16(octoHand), octoMouth: pad16(octoMouth), ufoGuard: pad16(ufoGuard),
+  ufoFist: pad16(ufoFist), todoFace, todoBlush, todoGlint,
   gearBlock, gearGem, gearSpark1, gearWeak0, gearWeak1, nautilus, nautilusHurt,
   pilotEye, pilotWink, pilotSmile, pilotPupil, riftGlow,
   spark0, spark1, spark2, guiNext0: guiNext[0], guiNext1: guiNext[1],
