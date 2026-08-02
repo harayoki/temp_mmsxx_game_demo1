@@ -2554,8 +2554,6 @@ function drawTitlePage() {
     // エンジンと、見本のゲーム(STAR FABLE)の版
     const ver = 'MMSXX ENGINE DEMO V1.0';
     hud.print(centerX(ver), 80, ver, 14);
-    const hi = 'HI SCORE ' + String(topScore()).padStart(SCORE_DIGITS, '0');
-    hud.print(centerX(hi), 96, hi, 9); // 明るい赤
     const help = String.fromCharCode(0x18, 0x19, 0x1a, 0x1b) + ':MOVE  SP:SHOT  ESC:PAUSE';
     hud.print(centerX(help), 158, help, 10);
     // 手元で開いているときだけ、隅に小さく印を出す(公開版には出ない)
