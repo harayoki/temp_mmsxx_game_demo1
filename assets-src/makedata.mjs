@@ -4738,9 +4738,9 @@ const SE = {
     // ひよこの鳴き声。**三角波ではっきりと**、高い音と低い音を
     // 交互に 3 回で「ぴよぴよぴよ」。
     // 短すぎるとカタカタ鳴るだけになるので、1 音を 8 分音符ぶん伸ばす
-    '@{triangle} @e{pluck} q8 @s3 t150 v15 o6 l8 b g b g b g r4',
+    '@{triangle} @e{pluck} q8 @s3 t220 v15 o6 l8 b g b g b g r4',
     // ハモリ。3 度下を薄く重ねて、鳴き声に厚みを出す
-    '@{triangle} @e{pluck} q8 @d16 t150 v10 o6 l8 g e g e g e r4',
+    '@{triangle} @e{pluck} q8 @d16 t220 v10 o6 l8 g e g e g e r4',
   ],
   // 残り 1 機の警告。ここは埋もれては困るので全体でいちばん大きい
   warning: ['@{pulse12} @e{flat} @s3 t255 v14 o6 l32 e g > c e g > c e g > c4',
