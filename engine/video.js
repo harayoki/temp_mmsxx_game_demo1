@@ -1,4 +1,5 @@
 ﻿import { VDP_PALETTE, convertRGBA, convertRGBAFlat, hashRGBA } from './palette.js';
+import { MID_TONES } from './midtone.js';
 import { getGlyph } from './font.js';
 
 // 表示画面の既定サイズ。実機の SCREEN2 と同じ 256x192。
@@ -335,6 +336,118 @@ export class VDP {
     this.bgWarnings.push({ where, name: img.name, ...r, width: img.width, height: img.height });
     if (how === 'throw') throw new Error(msg);
     console.warn(msg);
+  }
+
+  /**
+   * **絵を減色する(スプライト用)**。
+   *
+   * 15 色のパレットのうち、**使われている数の多い順に指定色数ぶんだけ残し**、
+   * 残らなかった色は RGB でいちばん近い許可色へ寄せる。
+   * 透明はそのまま残るので、穴あきのスプライトが作れる。
+   *
+   * **エンジンからは自動で呼ばない。** 素材の時点で色数をそろえるのが本筋で、
+   * これはやむを得ないときに手で呼ぶためのもの。
+   *
+   * TODO(v2): 外から絵を取り込む口を作るときに、もっと賢い変換にする。
+   *   いまは「多い順に残して近い色へ寄せる」だけなので、面積の小さい
+   *   大事な色(目のハイライトなど)が消えることがある。
+   *
+   * @param {ImageData|{data:Uint8ClampedArray,width:number,height:number}} src
+   * @param {number} [colors=1] 残す色数(1 = 実機の単色スプライト)
+   * @returns {{width:number,height:number,pixels:Uint8Array}}
+   */
+  reduceForSprite(src, colors = 1) {
+    return convertRGBAFlat(src.data, src.width, src.height, colors);
+  }
+
+  /**
+   * **絵を減色する(BG 用)**。実機の SCREEN2 と同じ見え方に落とす。
+   *
+   * 1. **15 色 + 中間色(2 色のディザで作れる色)**の中でいちばん近い色を選ぶ
+   *    (中間色は 2 色の組なので、まずどちらか片方に置く)
+   * 2. **横 8 ドットに 3 色以上**あれば、多い順に 2 色を残して近いほうへ寄せる
+   * 3. **8x8 のセル**を見て、1 ドットでも絵があるセルは、
+   *    残りの透明を背景色(既定は黒)で埋める
+   *
+   * **エンジンからは自動で呼ばない。** 手で呼ぶためのもの。
+   *
+   * TODO(v2): 外から絵を取り込む口を作るときに、ここを作り直す。
+   *   - 中間色を**ディザとして 2 色に振り分ける**(いまは片方に寄せるだけ)
+   *   - **8x1 のグリッドで見るモード**を足す(8x8 のセル塗りをしない。
+   *     行ごとに 2 色だけ守る絵にしたいとき用)
+   *   - 誤差拡散(ディザ)を選べるようにする
+   *
+   * @param {ImageData|{data:Uint8ClampedArray,width:number,height:number}} src
+   * @param {{backdrop?:number, cellFill?:boolean}} [opts]
+   *   backdrop = セルを埋める色(既定 1 = 黒) /
+   *   cellFill = 8x8 セルを埋めるか(既定 true)
+   * @returns {{width:number,height:number,pixels:Uint8Array}}
+   */
+  reduceForBG(src, opts = {}) {
+    const { width: w, height: h, data } = src;
+    const backdrop = opts.backdrop ?? 1;
+    // 1) 15 色 + 中間色でいちばん近いものを選ぶ。
+    //    中間色は 2 色の組なので、ここでは組の片方(明るいほう)へ置く
+    const cand = [];
+    for (let c = 1; c < 16; c++) cand.push({ rgb: VDP_PALETTE[c], to: c });
+    for (const t of MID_TONES) cand.push({ rgb: t.rgb, to: t.a });
+    const pixels = new Uint8Array(w * h);
+    for (let i = 0; i < w * h; i++) {
+      const o = i * 4;
+      if (data[o + 3] < 128) continue;
+      const r = data[o], g = data[o + 1], b = data[o + 2];
+      let best = 1, bestD = Infinity;
+      for (const c of cand) {
+        const d = 3 * (r - c.rgb[0]) ** 2 + 6 * (g - c.rgb[1]) ** 2 + (b - c.rgb[2]) ** 2;
+        if (d < bestD) { bestD = d; best = c.to; }
+      }
+      pixels[i] = best;
+    }
+    // 2) 横 8 ドット 2 色に均す(多い順に 2 色残す)
+    const count = new Uint32Array(16);
+    for (let y = 0; y < h; y++) {
+      for (let bx = 0; bx < w; bx += 8) {
+        count.fill(0);
+        const end = Math.min(bx + 8, w);
+        for (let x = bx; x < end; x++) count[pixels[y * w + x] || backdrop]++;
+        let used = 0;
+        for (let c = 0; c < 16; c++) if (count[c]) used++;
+        if (used <= 2) continue;
+        let c1 = -1, c2 = -1;
+        for (let c = 0; c < 16; c++) {
+          if (!count[c]) continue;
+          if (c1 < 0 || count[c] > count[c1]) { c2 = c1; c1 = c; }
+          else if (c2 < 0 || count[c] > count[c2]) { c2 = c; }
+        }
+        for (let x = bx; x < end; x++) {
+          const i = y * w + x;
+          const c = pixels[i] || backdrop;
+          if (c === c1 || c === c2) continue;
+          pixels[i] = nearerColor(c, c1, c2);
+        }
+      }
+    }
+    // 3) 絵のあるセルは、透明を背景色で埋める
+    if (opts.cellFill !== false) {
+      for (let cy = 0; cy < h; cy += 8) {
+        for (let cx = 0; cx < w; cx += 8) {
+          let has = false;
+          for (let y = cy; y < Math.min(cy + 8, h) && !has; y++) {
+            for (let x = cx; x < Math.min(cx + 8, w); x++) {
+              if (pixels[y * w + x] >= 2) { has = true; break; }
+            }
+          }
+          if (!has) continue;
+          for (let y = cy; y < Math.min(cy + 8, h); y++) {
+            for (let x = cx; x < Math.min(cx + 8, w); x++) {
+              const i = y * w + x;
+              if (pixels[i] === 0) pixels[i] = backdrop;
+            }
+          }
+        }
+      }
+    }
+    return { width: w, height: h, pixels };
   }
 
   /**
