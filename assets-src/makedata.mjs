@@ -3799,7 +3799,9 @@ const BGM_MAIN = [
   // 歌メロ(デチューンはかけずに輪郭をはっきりさせる)
   // 音色はゲーム側で足した波形メモリ wtLead(main.js の addWave)。
   // 1 オクターブ下を重ねて太くし(@o1)、デチューンで少しにじませる(@d12)
-  't150 q7 v12 l8 @{wtLead} @e{soft} @s3 @o1 @d12 ' + CANON_MELODY + ' ' + CANON_MELODY_A2 + ' ' +
+  // 重ね(@o1)とデチューン(@d12)で 1 音が 3 つぶんの厚みになるので、
+  // そのぶん音量を下げてつり合いを取る(v12 -> v10、エコーも浅く)
+  't150 q7 v10 l8 @{wtLead} @e{soft} @s2 @o1 @d12 ' + CANON_MELODY + ' ' + CANON_MELODY_A2 + ' ' +
     BRIDGE_MELODY + ' ' + CODA_MELODY,
   // アルペジオ(伴奏)。25% パルスで軽く
   't150 q7 v9 l16 @{pulse25} @e{flat} @s2 [' + CANON_ARP + ']2 ' +
