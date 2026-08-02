@@ -9311,8 +9311,10 @@ const CHAR_PAGES = [
       { img: 'crabPod', x: 41, y: 46, sprite: true, flipX: true },
       { img: 'crabPod', x: 41, y: 78, sprite: true },
       { img: 'octoCrown', x: 196, y: 20, sprite: true },
-      { img: 'bossEye2', x: 182, y: 39, sprite: true },
-      { img: 'bossEye2', x: 198, y: 39, sprite: true },
+      // タコの目は、頭の絵に開いた**眼窩の穴の中心**から決めてある
+      // (穴の中心 17/32, 15.5 - レンズの中心 7.5)
+      { img: 'bossEye2', x: 183, y: 38, sprite: true },
+      { img: 'bossEye2', x: 198, y: 38, sprite: true },
       { img: 'ufoGuard', x: 186, y: 6, sprite: true },
       { img: 'ufoGuard', x: 226, y: 18, sprite: true },
       { img: 'ufoGuard', x: 246, y: 50, sprite: true },
