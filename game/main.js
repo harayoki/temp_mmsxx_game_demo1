@@ -4543,7 +4543,10 @@ const KING_MEDITATE_HP = 0.25;   // 体力がこれを切ったら瞑想に入�
 // これより下へは降りてこない(画面の上半分にいつづける)
 const KING_MAX_Y = SCREEN_H / 2 - KING_MAN_H / 2;
 // 瞑想中の体の色。黒 1 色の絵を青へ塗り替える(4 = 青)
-const KING_ZEN_MAP = { 1: 4 };
+// 瞑想(座禅)の色。**七色を回して**、力を取り戻していることを見せる。
+// ドラゴンの炎と同じ並び(赤 橙 黄 緑 空 青 紫)
+const KING_ZEN_COLORS = [8, 9, 10, 2, 7, 4, 13];
+const kingZenMap = () => ({ 1: KING_ZEN_COLORS[Math.floor(mmsxx.frame / 6) % KING_ZEN_COLORS.length] });
 const KING_MAN_HP = 480;           // 第 2 段階の体力(弱すぎたので 4 倍にした)
 let kingBeams = [];
 
@@ -4969,7 +4972,8 @@ function updateKingBoss(b) {
       // ふだんの黒いシルエットと見分けられるようにする
       if (b.man.frames) b.man.frames = null;
       b.man.image = IMG.kingMan11;
-      b.man.colorMap = KING_ZEN_MAP;
+      // 6 コマごとに色が変わる(黒いシルエットとはっきり見分けられる)
+      b.man.colorMap = kingZenMap();
     } else if (b.stun > 0) {
       // 気絶。**立ち姿から腕だけを垂らした姿**(頭と足は同じ)。
       // 気絶そのものは頭の上のひよこで見せる
