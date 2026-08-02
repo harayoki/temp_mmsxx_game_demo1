@@ -8192,9 +8192,11 @@ function checkCheatCode() {
 
   // 英字と数字を打ち込むタイプのコマンド。打ち終わったら RETURN で確定する
   // (VDP の名前のように、数字を含む語もあるため)。
-  // **Ctrl や ⌘ を押しながらのキーは数えない**(貼り付けの V が入ってしまう)
+  // **Ctrl / ⌘ / ALT を押しながらのキーは数えない**。
+  // 貼り付け(Ctrl+V)の V や、画面のコピー(ALT+S)の S が入ってしまうため
   const holdMod = mmsxx.input.isDown('ControlLeft') || mmsxx.input.isDown('ControlRight')
-    || mmsxx.input.isDown('MetaLeft') || mmsxx.input.isDown('MetaRight');
+    || mmsxx.input.isDown('MetaLeft') || mmsxx.input.isDown('MetaRight')
+    || altDown();
   for (let i = 0; !holdMod && i < 36; i++) {
     const ch = i < 26 ? String.fromCharCode(65 + i) : String(i - 26);
     const key = i < 26 ? 'Key' + ch : 'Digit' + ch;
