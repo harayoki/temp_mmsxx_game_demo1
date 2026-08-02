@@ -33,6 +33,9 @@ const mmsxx = new MMSXXEngine(document.getElementById('screen'), {
 });
 /** 開発用の機能を出すか。細かい出し分けはこれを見て決める */
 const DEV = mmsxx.dev;
+// 素材の検査は、作っている最中は**例外で止める**(見落とさないように)。
+// 公開版はエンジン側で 'off' になる
+if (DEV) mmsxx.bgCheck = 'throw';
 // コンソールから触れる入口は、開発版のときだけ付く(公開版では名前ごと無い)
 mmsxx.expose('mmsxx', mmsxx);
 // 公開版では、コンソールを開いた人にだけ見えるロゴとひとことを出す。
@@ -1255,6 +1258,9 @@ function updateMoai() {
 // 24x96 の BG スプライト。前からまっすぐ飛んでくるので邪魔になる。
 // とても硬いが 128 発当てれば壊せる。
 const ROCKET_W = 24, ROCKET_H = 96;
+// 見せるコマ。灰と白を毎コマ入れ替えつつ、**4 コマに 1 回だけ黄色**を混ぜて
+// 弾頭が光ったように見せる。重ねるスプライトは使わない
+const ROCKET_FRAMES = () => [IMG.rocket, IMG.rocketAlt, IMG.rocketGlow, IMG.rocketGlowAlt];
 const ROCKET_HP = 128;
 const ROCKET_INTERVAL = 900;
 let rockets = [];
@@ -1267,29 +1273,28 @@ function spawnRocket() {
   const sp = mmsxx.bgSprite(IMG.rocket);
   sp.priority = BGP_FRONT;
   // 当たり判定のある BG は、背景と見間違えないよう毎コマ色を入れ替える
-  sp.frames = [IMG.rocket, IMG.rocketAlt];
   sp.frameRate = 1;
   sp.x = Math.max(0, Math.min(SCREEN_W - ROCKET_W,
     snap8(player.x - 4 + (Math.random() - 0.5) * 64)));
   sp.y = -ROCKET_H;
-  // 弾頭の光(単色スプライト 1 枚)。3 コマに 1 回だけ表示してちらつかせる
-  const hi = mmsxx.sprite(IMG.rocketHi);
-  hi.priority = 12;
-  hi.blink = 3;
-  // 尾を引く炎。長さの違う 3 コマと透明の 1 コマを回して揺らめかせる
-  const flame = mmsxx.sprite(IMG.rocketFlame1);
-  flame.priority = 6;
+  // 弾頭の光は、**BG スプライトのコマ送り**で見せる(重ねるスプライトは使わない)。
+  // 4 コマに 1 回だけ黄色いコマが混ざって、光ったように見える
+  sp.frames = ROCKET_FRAMES();
+  // 尾を引く炎。長さの違う 3 コマと透明の 1 コマを回して揺らめかせる。
+  // こちらも BG スプライト(通常スプライトを 1 体ぶん減らす)。
+  // セルが黒で埋まるが、宇宙は黒なので見た目には出ない
+  const flame = mmsxx.bgSprite(IMG.rocketFlame1);
+  flame.priority = BGP_FRONT - 1;   // ミサイル本体より奥
   flame.frames = [IMG.rocketFlame1, IMG.rocketFlame2, IMG.rocketFlame3, IMG.rocketFlame0];
   flame.frameRate = 3;
   flame.blink = 2;   // 2 コマに 1 回だけ出して、実機のスプライトらしくちらつかせる
-  rockets.push({ sp, hi, flame, hp: ROCKET_HP, flash: 0 });
+  rockets.push({ sp, flame, hp: ROCKET_HP, flash: 0 });
 }
 
 function clearRockets() {
   for (const r of rockets) {
     mmsxx.removeBgSprite(r.sp);
-    if (r.hi) mmsxx.removeSprite(r.hi);
-    if (r.flame) mmsxx.removeSprite(r.flame);
+    if (r.flame) mmsxx.removeBgSprite(r.flame);
   }
   rockets = [];
 }
@@ -1300,16 +1305,10 @@ function updateRockets() {
     if (r.flash > 0) {
       r.flash--;
       // 被弾中だけ白く光らせる(ふだんは frames の色替えにまかせる)
-      r.sp.frames = (r.flash & 1) ? null : null;
+      r.sp.frames = null;
       r.sp.image = (r.flash & 1) ? IMG.rocket : IMG.rocketHit;
     } else if (!r.sp.frames) {
-      r.sp.frames = [IMG.rocket, IMG.rocketAlt];
-    }
-    // 弾頭の光は 3 コマに 1 回だけ出す(スプライト削減のちらつき)
-    if (r.hi) {
-      r.hi.x = snap8(r.sp.x);
-      r.hi.y = snap8(r.sp.y);
-      r.hi.visible = true;
+      r.sp.frames = ROCKET_FRAMES();
     }
     // 炎はミサイルのお尻(上側)に付ける
     if (r.flame) {
@@ -1319,8 +1318,7 @@ function updateRockets() {
     }
     if (r.sp.y > SCREEN_H + 8) {
       mmsxx.removeBgSprite(r.sp);
-      if (r.hi) mmsxx.removeSprite(r.hi);
-      if (r.flame) mmsxx.removeSprite(r.flame);
+      if (r.flame) mmsxx.removeBgSprite(r.flame);
       rockets.splice(rockets.indexOf(r), 1);
     }
   }
@@ -1335,9 +1333,8 @@ function breakRocket(r) {
   score += 8000;
   spawnPopup(r.sp.x, r.sp.y + 32, 8000);
   mmsxx.removeBgSprite(r.sp);
-  if (r.hi) mmsxx.removeSprite(r.hi);
   // 炎を消し忘れて、ジェット噴射だけが画面に残っていた
-  if (r.flame) mmsxx.removeSprite(r.flame);
+  if (r.flame) mmsxx.removeBgSprite(r.flame);
   rockets.splice(rockets.indexOf(r), 1);
   drawHUD();
 }
@@ -7790,16 +7787,17 @@ mmsxx.expose('mmsxxContinue', (n) => {
   return { ...continueStages, modes: MODES.map(m => m.id) };
 });
 
-/** デバッグ用: 追加した敵をその場に出す('waller' / 'spreader' / 'diver') */
+/** デバッグ用: 敵や障害物をその場に出す(引数なしで一覧が返る) */
 mmsxx.expose('mmsxxEnemy', (kind) => {
   if (kind === 'count') return { 敵: enemies.length, 敵弾: enemyBullets.length,
     種類: enemies.map(e => e.type).join(''), おもり: weights.length };
   if (kind === 'glower') { spawnGlower(); return 'glower'; }
   if (kind === 'weight') { startWeightVolley(); return 'weight'; }
+  if (kind === 'rocket') { spawnRocket(); return 'rocket'; }
   if (kind === 'waller') spawnWaller();
   else if (kind === 'spreader') spawnSpreader();
   else if (kind === 'diver') spawnDiver();
-  else return 'waller / spreader / diver';
+  else return 'waller / spreader / diver / weight / rocket / glower';
   return enemies.filter(e => 'KLM'.includes(e.type)).map(e => e.type);
 });
 

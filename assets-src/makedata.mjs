@@ -59,9 +59,30 @@ function fromAscii(rows, colors) {
 }
 
 /**
- * 小さい絵を 16x16 のスプライト枠の中央に収める。
- * (MSX のスプライトは 16x16 が基本単位なので、データもその形にそろえる)
+ * 好きな大きさの枠の真ん中に収める(はみ出したところは切る)。
+ * スプライトの大きさは **16 の倍数**にそろえたいので、その調整に使う
  */
+function padTo(src, w, h, anchor = 'center') {
+  const img = createImage(w, h);
+  // 'topleft' は元の絵の位置をずらさない(置き場所の指定を変えずに枠だけ広げる)
+  const ox = anchor === 'topleft' ? 0 : (w - src.width) >> 1;
+  const oy = anchor === 'topleft' ? 0 : (h - src.height) >> 1;
+  for (let y = 0; y < src.height; y++) {
+    const dy = y + oy;
+    if (dy < 0 || dy >= h) continue;
+    for (let x = 0; x < src.width; x++) {
+      const dx = x + ox;
+      if (dx < 0 || dx >= w) continue;
+      const si = (y * src.width + x) * 4;
+      if (src.data[si + 3] < 128) continue;
+      const di = (dy * w + dx) * 4;
+      img.data[di] = src.data[si]; img.data[di + 1] = src.data[si + 1];
+      img.data[di + 2] = src.data[si + 2]; img.data[di + 3] = 255;
+    }
+  }
+  return img;
+}
+
 function pad16(src) {
   const img = createImage(16, 16);
   const ox = (16 - src.width) >> 1, oy = (16 - src.height) >> 1;
@@ -1185,11 +1206,18 @@ const crabClaw = scaleImage(fromAscii([
 // 画面の上から自機めがけて落ちてくるので、弾頭は下向き。
 // 上から 噴射口 -> 尾翼 -> 円筒の胴 -> 警告帯 -> 弾頭 の順に並ぶ。
 // 行ごとに 1 色だけ使うので、横 8 ドット 2 色の決まりを自然に守れる。
-function makeRocket(alt = false) {
+/**
+ * ミサイル本体(BG スプライト)。
+ * @param {boolean} alt 1 コマおきに灰と白を入れ替えた版
+ * @param {boolean} glow 白いところを黄色にした版(弾頭の光り)。
+ *   胴の縞は**行ごとに 1 色**なので、白を黄に読み替えても色数は増えない
+ */
+function makeRocket(alt = false, glow = false) {
   const W = 24, H = 96, img = createImage(W, H);
   // alt = 1 コマおきに灰と白を入れ替えた版。
   // 背景の岩などと見間違えないよう、当たり判定のある BG は必ずちらつかせる
-  const BODY = hex(alt ? '#ffffff' : '#cccccc'), LIT = hex(alt ? '#cccccc' : '#ffffff');
+  const WHITE = glow ? '#ffe97c' : '#ffffff';
+  const BODY = hex(alt ? WHITE : '#cccccc'), LIT = hex(alt ? '#cccccc' : WHITE);
   const WARN = hex('#b95e51'), NOZZLE = hex('#5955e0');
   const rowColor = (y) => {
     if (y < 10) return NOZZLE;                        // 噴射口
@@ -1229,6 +1257,9 @@ function makeRocket(alt = false) {
 }
 const rocket = makeRocket();
 const rocketAlt = makeRocket(true);
+// 弾頭が光るコマ。スプライトを重ねるかわりに、BG スプライトのコマ送りで見せる
+const rocketGlow = makeRocket(false, true);
+const rocketGlowAlt = makeRocket(true, true);
 
 /** ミサイルの尾を引く炎(単色スプライト)。長さ違いを 3 コマ + 透明 1 コマ */
 function makeRocketFlame(n) {
@@ -1295,7 +1326,7 @@ function makeChargeRing(size, thick, color) {
   return img;
 }
 const chargeRing0 = makeChargeRing(48, 3, '#65dbef');
-const chargeRing1 = makeChargeRing(36, 3, '#65dbef');
+const chargeRing1 = makeChargeRing(32, 3, '#65dbef');
 const chargeRing2 = makeChargeRing(24, 4, '#ffffff');
 
 // ---- ボスに重ねる専用パーツ(単色スプライト。2 コマに 1 回だけ表示する) ----
@@ -1322,7 +1353,10 @@ function makeOctoArms() {
 const octoArms = makeOctoArms();
 
 /** タコの王冠(単色スプライト)。斜めにかぶせるので、まっすぐ描いてから回す */
-const octoCrown = rotateImage(fromAscii([
+// 王冠は 32x16 の枠に収める(スプライトは 16 の倍数)。
+// **左上ぞろえ**で広げるので、かぶせる位置の指定は前のままでよい。
+// 帯を 5 行から 3 行に詰めて、回したあとの高さを 16 に収めてある
+const octoCrown = padTo(rotateImage(fromAscii([
   '..#.......#.......#.',
   '.###.....###.....###',
   '#####...#####...####',
@@ -1330,11 +1364,9 @@ const octoCrown = rotateImage(fromAscii([
   '###.......#.......##',
   '##...............###',
   '####################',
-  '####################',
   '##.####.####.####.##',
   '####################',
-  '####################',
-], { '#': '#ded087' }), 20);
+], { '#': '#ded087' }), 20), 32, 16, 'topleft');
 
 /** カニの大きなハサミ(BG 用・16x28)。本体の前に重ねて描く。
  *  x 48-63 の帯だけを使うので、赤い装甲と色がぶつからない */
@@ -2366,9 +2398,13 @@ const todoBlush = (() => {
   return img;
 })();
 
-/** 目の中の反射(白の単色スプライト)。左右の目ぶんをまとめて 1 枚に */
+/**
+ * 目の中の反射(白の単色スプライト)。左右の目ぶんをまとめて 1 枚に。
+ * 中身は 19 ドット幅(目の間が 14 ドット空いているため)なので 16 には収まらない。
+ * 枠だけ 32 に広げて、スプライトの大きさを 16 の倍数にそろえる
+ */
 const todoGlint = (() => {
-  const W = 20, H = 8, img = createImage(W, H);
+  const W = 32, H = 8, img = createImage(W, H);
   const C = hex('#ffffff');
   // 目 1 つにつき、大きい反射と小さい反射の 2 つ。
   // 小さいほうが点にしか見えなかったので、一回り大きくした
@@ -6008,7 +6044,7 @@ const images = {
   crabR, crabRNo, crabTilt, crabClaw, crabClawBig, crabClawStub, crabClawMid, crabPod, crabLeg, crabLegMid, crabLegExt, fireBall, fireBall1, fireBall2, fireS0, fireS1, fireM0, fireM1,
   dragonHead, dragonHeadOpen, dragonBody, dragonTail, octoArms, octoCrown, crabBigClaw, rocketHi,
   chargeOrb0, chargeOrb1, chargeOrb2, chargeRing0, chargeRing1, chargeRing2, asteroidHi,
-  rocketAlt, rocketFlame0, rocketFlame1, rocketFlame2, rocketFlame3, eyeball, eyeVein, eyeIris0, eyeIris1, eyeIris2, eyeIris3, rocket,
+  rocketAlt, rocketGlow, rocketGlowAlt, rocketFlame0, rocketFlame1, rocketFlame2, rocketFlame3, eyeball, eyeVein, eyeIris0, eyeIris1, eyeIris2, eyeIris3, rocket,
   boom0, boom1, boom2, starsFar, starsMid, starsNear, nebula, nebulaRed, moon,
   milkyway, debris,
   kingRift0, kingRift1, kingRift2, kingRiftBlue, kingRiftBlueThin, endRift, endBase,
@@ -6031,6 +6067,7 @@ const BG_IMAGES = new Set([
   'logo', 'station', 'moon', 'nebula', 'starsFar', 'starsMid', 'starsNear',
   'jupiter', 'saturn', 'colony', 'earthBig', 'nebulaRed', 'moai', 'moaiFlip', 'earth', 'blackhole', 'milkyway', 'debris',
   'bossHead', 'bossHead2', 'bossShip', 'asteroid',
+  'rocketGlow', 'rocketGlowAlt',
   // BG スプライトとして使う絵(レイヤーと同じ決まりで見えるので、ここに入れる)
   'nautilus', 'nautilusHurt', 'gearBlock', 'gearWeak0', 'gearWeak1', 'gearGem',
   'crabClawBig', 'crabClawMid', 'kingRiftBlueThin', 'shootStar0', 'dragonTail',
@@ -6040,7 +6077,7 @@ const BG_IMAGES = new Set([
   ...[1, 2, 3, 4].flatMap(n => ['B', 'G'].flatMap(d =>
     ['', 'TL', 'TR', 'BL', 'BR', 'TOP', 'BOT'].map(k => 'moaiW' + d + n + k))),
   ...[1, 2, 3, 4].flatMap(n => ['moaiWaveB' + n, 'moaiWaveG' + n]),
-  'crabR', 'crabRNo', 'crabTilt', 'eyeball', 'rocket', 'dragonHead', 'dragonBody', 'todoFace', 'pilot', 'pilotBig', 'pilotTurnBig', 'whaleStar', 'birdStar', 'dragonStar', 'shipStar', 'dragonSky',
+  'crabR', 'crabRNo', 'crabTilt', 'eyeball', 'rocket', 'dragonHead', 'dragonHeadOpen', 'dragonBody', 'todoFace', 'pilot', 'pilotBig', 'pilotTurnBig', 'whaleStar', 'birdStar', 'dragonStar', 'shipStar', 'dragonSky',
   'kingRift0', 'kingRift1', 'kingRift2', 'kingRiftBlue', 'kingRiftBlueThin', 'endRift', 'endBase',
   'kingCracks0', 'kingCracks1', 'kingCracks2',
   ...RIFT_OPEN.map((_, i) => 'kingRiftOpen' + i),

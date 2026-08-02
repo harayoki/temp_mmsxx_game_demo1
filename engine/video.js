@@ -327,6 +327,36 @@ export class VDP {
   }
 
   /**
+   * 絵の大きさが 8 の倍数かどうか調べる。
+   *
+   * **BG スプライトは 8 の倍数**。
+   * 「絵のあるセルを黒で埋めて、下を丸ごと上書きする」ことで
+   * 横 8 ドット 2 色を守っているので、半端な大きさだと端のセルだけ
+   * 半分しか埋まらず、そこで下の色と混ざる。
+   *
+   * **通常スプライトは 16 の倍数を推奨**。実機のスプライトが 16x16 単位なので、
+   * そろえておくとレトロゲームらしい見え方になる。
+   * 16x16 に収まる小さいものは、そのままでよい(調べない)。
+   *
+   * レイヤーへ描く BG パーツは縛らない。半端な大きさでも、
+   * はみ出したセルは黒で埋められて規則は保たれる(drawToLayer を見ること)。
+   * @param {*} img @param {string} where @param {'warn'|'throw'|'off'} how
+   * @param {number} [unit] そろえたい刻み(既定 8)
+   */
+  _checkSize(img, where, how, unit = 8) {
+    if (how === 'off') return;
+    // 16 の倍数を見るときは、**16 に収まる辺はそのままでよい**
+    // (8x8 や 16x8 の小さいスプライトまで縛らない)
+    const ok = (d) => d % unit === 0 || (unit === 16 && d <= 16);
+    if (ok(img.width) && ok(img.height)) return;
+    const msg = `[MMSXX] ${where}: 大きさは ${unit} の倍数にしてください`
+      + ` (いまは ${img.width}x${img.height})`;
+    this.bgWarnings.push({ where, size: `${img.width}x${img.height}`, runs: 0, worst: 0, samples: [] });
+    if (how === 'throw') throw new Error(msg);
+    console.warn(msg);
+  }
+
+  /**
    * レイヤー 1 枚をまるごと検査する(裏画面 1024x1024 ぶんを見るので重い)。
    * 自動では走らないので、確かめたいときだけ呼ぶ。
    * @param {number} layerIndex
@@ -544,6 +574,13 @@ export class VDP {
 
   /**
    * レイヤーの仮想画面 (1024x1024) に画像を書き込む。座標はラップする。
+   *
+   * **絵の大きさは 8 の倍数でなくてよい**(BG スプライトとちがって縛らない)。
+   * ただし実機と同じく「絵のあるセルは不透明」になるので、
+   * **半端なぶんは 8 の倍数まで黒で埋まる**。
+   * 20x12 の絵を置けば、右と下が伸びて 24x16 の黒い升目に収まって見える。
+   * 気にしないなら そのままでよい(規則は保たれる)。
+   * ぴったり出したいときだけ、絵を 8 の倍数で作ること。
    * @param {number} layerIndex 0..3
    * @param {number} x
    * @param {number} y
@@ -594,6 +631,9 @@ export class VDP {
    * パターンを含むセルの透明(0)を黒(1)にする。
    * 「キャラパターンのあるセルは不透明」という MSX1 実機 BG の見え方の再現。
    * 指定矩形にかかるセルだけを処理する。
+   *
+   * ここが効くので、**8 の倍数でない絵は右と下が黒で埋まる**。
+   * 1 セルの中身が必ず「絵 + 黒」になるため、横 8 ドット 2 色は保たれる。
    */
   _blackenCells(L, x, y, w, h) {
     const layer = L.pixels;
@@ -724,6 +764,13 @@ export class VDP {
    */
   createSprite(src, opts) {
     const sprite = new Sprite(VDP.isConverted(src) ? src : this.convert(src, opts));
+    // 実機のスプライトは 16x16 単位。**16 の倍数にそろえることを勧める**。
+    // 16x16 に収まる小さいものは、そのままでよい
+    const im = sprite.image;
+    if ((im.width > 16 || im.height > 16) && !this._bgChecked.has(im)) {
+      this._bgChecked.add(im);
+      this._checkSize(im, 'スプライト', (opts && opts.bgCheck) || this.bgCheck, 16);
+    }
     sprite._autoPhase = this._blinkSeq = ((this._blinkSeq | 0) + 1) & 0xffff;
     this.sprites.add(sprite);
     return sprite;
@@ -743,6 +790,9 @@ export class VDP {
     const sprite = new Sprite(VDP.isConverted(src) ? src : this.convert(src, opts));
     // BG スプライトはレイヤーと同じ決まりで見えるので、定義したここで調べる
     this._checkBgImage(sprite.image, 'BG スプライト', opts && opts.bgCheck);
+    // 大きさは 8 の倍数でなければならない。
+    // 半端だと端のセルが半分しか黒で埋まらず、そこだけ下の色と混ざる
+    this._checkSize(sprite.image, 'BG スプライト', (opts && opts.bgCheck) || this.bgCheck);
     sprite._autoPhase = this._blinkSeq = ((this._blinkSeq | 0) + 1) & 0xffff;
     this.bgSprites.add(sprite);
     return sprite;
