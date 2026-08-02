@@ -3123,25 +3123,35 @@ let submitDone = false;      // 返事が返ってきたか
 let submitRank = -1;         // サーバが数えた順位(0 起点 / 載らなければ -1)
 let submitFailed = false;    // 通信に失敗したか(board.lastError を見る)
 let submitPage = 2;          // 進む先の一覧のページ
-let submitWait = 0;          // 失敗を知らせる文字を見せておくコマ数
+let submitLocal = false;     // 「手元だけに残る」を出して、キー待ちのあいだ
+let submitAsk = false;       // 「もう一度送るか」を聞いているあいだ
+let submitBoard = null;      // 送り先の表(送り直すために覚えておく)
+let submitEntry = null;      // 送る記録(同上)
 
 /** ENTER が押されたとき。ここから待ち状態に入る */
 function startSubmit() {
   const name = entryName.replace(/\s+$/, '') || 'NONAME';
   const rush = entryTarget === 'rush';
-  const board = rush ? rushTable : scoreTable();
-  const entry = rush ? { name, frames: rushFrames } : { name, score };
+  submitBoard = rush ? rushTable : scoreTable();
+  submitEntry = rush ? { name, frames: rushFrames } : { name, score };
   // 進む先は、ボスラッシュはタイムの表、それ以外は NORMAL / HARD それぞれの表
   submitPage = rush ? 4 : (gameMode() === 'hard' ? 3 : 2);
-  submitDone = false;
   submitRank = -1;
-  submitFailed = false;
-  submitWait = 0;
+  submitLocal = false;
   state = 'submitting';
+  sendSubmit();
+}
+
+/** 記録を送る(送り直しもここを通る) */
+function sendSubmit() {
+  submitDone = false;
+  submitFailed = false;
+  submitAsk = false;
   drawSubmitting();
   // **投げっぱなしにはしない**。返事が返ったら submitDone を立てて、
   // 進むのは毎フレームの update 側に任せる(状態の持ち方を 1 か所にまとめる)
-  board.submit(entry).then((rank) => {
+  const board = submitBoard;
+  board.submit(submitEntry).then((rank) => {
     submitRank = rank;
     // submit() は例外を投げない。失敗したかどうかは lastError で分かる
     submitFailed = !!board.lastError;
@@ -3163,28 +3173,66 @@ function drawSubmitting() {
   hud.print(centerX(s2), 100, s2, 10);
 }
 
-/** 送っているあいだ。キーは受け付けない */
+/**
+ * 送れなかったときの問いかけ。**失敗するたびに聞く**。
+ * もう一度送るか、あきらめて手元だけに残すかを選ばせる
+ */
+function drawSubmitAsk() {
+  hud.fill(0, 0, 40, VW, 112);
+  const s1 = 'COULD NOT SAVE';
+  hud.print(centerX(s1), 64, s1, 8);
+  const s2 = 'SEND AGAIN?';
+  hud.print(centerX(s2), 84, s2, 15);
+  const s3 = 'ENTER:RETRY   ESC:NO';
+  hud.print(centerX(s3), 104, s3, 10);
+}
+
+/** 送っているあいだ。返事を待つあいだはキーを受け付けない */
 function updateSubmitting() {
+  // 「もう一度送るか」を聞いているあいだ
+  if (submitAsk) {
+    if (mmsxx.input.wasPressed('Enter')) {
+      mmsxx.audio.playSE('item');
+      sendSubmit();          // 送り直す。失敗すればまたここへ戻ってくる
+      return;
+    }
+    if (mmsxx.input.wasPressed('Escape')) {
+      // あきらめる。**手元だけに残る**ことを知らせて、読み終わるまで待つ
+      submitAsk = false;
+      submitLocal = true;
+      hud.fill(0, 0, 40, VW, 112);
+      const s1 = 'LOCAL ONLY';
+      hud.print(centerX(s1), 64, s1, 8);
+      const s2 = 'NOT SAVED ON THE SERVER';
+      hud.print(centerX(s2), 84, s2, 10);
+      mmsxx.audio.playSE('powerdown', SE_EVENT);
+    }
+    return;
+  }
+  // 「手元だけに残る」を読み終わるまで待つ。押されるまで先へ進まない
+  if (submitLocal) {
+    if (!mmsxx.input.wasPressed('Space') && !mmsxx.input.wasPressed('Escape')) return;
+    submitLocal = false;
+    mmsxx.audio.stopBGM();
+    currentBGM = null;
+    // 名前を入れ終わったあとも CONTINUE を選んだ状態で戻す
+    enterTitle(submitPage, submitRank, true);
+    return;
+  }
   if (!submitDone) {
     if (mmsxx.frame % 20 === 0) drawSubmitting();
     return;
   }
-  // 失敗したときだけ、少しのあいだ知らせを出してから進む。
-  // **止めない**。手元の見込み順位が返ってくるので、そのまま一覧へ行く
-  if (submitFailed && submitWait === 0) {
-    submitWait = 90;   // 1.5 秒
-    hud.fill(0, 0, 40, VW, 112);
-    const s1 = 'COULD NOT SAVE';
-    hud.print(centerX(s1), 76, s1, 8);
-    const s2 = 'YOUR RECORD IS LOCAL ONLY';
-    hud.print(centerX(s2), 92, s2, 10);
+  // 失敗したら、そのたびに「もう一度送るか」を聞く。
+  // **止めない**。断られても手元の見込み順位で一覧へ進む
+  if (submitFailed) {
+    submitAsk = true;
+    drawSubmitAsk();
     mmsxx.audio.playSE('powerdown', SE_EVENT);
     return;
   }
-  if (submitWait > 0 && --submitWait > 0) return;
   mmsxx.audio.stopBGM();
   currentBGM = null;
-  // 名前を入れ終わったあとも CONTINUE を選んだ状態で戻す
   enterTitle(submitPage, submitRank, true);
 }
 
