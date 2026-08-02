@@ -8654,7 +8654,9 @@ function buildEnding() {
         typing: 0.045,   // 1 文字ずつ、ゆっくり浮かび上がらせる(4 倍おそく)
         // ひびの光を沈ませるため、背景は黒に戻す。
         // ここで曲も落とす(最後の場面は静かに終わらせる)
-        onEnter: () => { mmsxx.backdrop = 1; mmsxx.audio.fadeOutBGM(3); },
+        // 曲は 10 秒かけてゆっくり落とす(場面は 6 秒なので、
+        // 消えきる前に静かになっていく)
+        onEnter: () => { mmsxx.backdrop = 1; mmsxx.audio.fadeOutBGM(10); },
         duo: { image: IMG.endRift, maps: GAME_DATA.duo.rift, x: 16, y: 0 },
         draw: (m, art) => { art.draw(16, 0, IMG.endRift, true,
           { colorMap: GAME_DATA.duo.rift[0] }); },
