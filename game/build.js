@@ -5,10 +5,19 @@
 // 公開版を手元のサーバで開いても、開発用の機能は出てこない。
 // 逆に、開発版をスマホなどへ持っていっても開発用の機能は使える。
 export const BUILD = {
+  /**
+   * ゲームの版。うしろの数字は**ビルドするたびに 1 つ増える**
+   * (build-deploy.ps1 が build-number.txt を見て書き換える)。
+   * 手元のソースは、まだ配っていないので dev のまま
+   */
+  version: 'v1.00.dev',
   /** 開発用の機能(シーン選択・コンソール関数・画面の保存など)を入れるか */
   dev: true,
-  /** コンソールにロゴを出すか(build-deploy.ps1 -NoLogo で false になる) */
-  logo: true,
+  /**
+   * ロゴを見せるために、コンソールを開いているあいだ ゲームを止めるか。
+   * (build-deploy.ps1 -LogoTrap で true になる)
+   */
+  logoTrap: false,
   /** どのビルドか(画面に出したいときのため) */
   name: 'local',
 };

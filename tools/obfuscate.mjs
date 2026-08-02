@@ -20,6 +20,10 @@ import { minify } from 'terser';
  */
 const SKIP = [
   'engine/util/console-guard.js',
+  // 開発者ツールで止まったときに見えるファイル。
+  // お知らせがそのまま読めないと意味がない
+  'engine/util/console-stop.js',
+  'game/console-stop.js',
 ];
 
 async function* walk(dir) {

@@ -17,6 +17,8 @@ import { StatsLog } from '../engine/stats.js';
 import { GAME_DATA } from './gamedata.js';
 import { BUILD } from './build.js';
 import { installConsoleGuard } from '../engine/util/console-guard.js';
+// 開発者ツールで止まったときに見せる、このゲームのぶんの文章
+import { gameStop } from './console-stop.js';
 
 // 裏画面は 256x1024 (横は画面ぴったり、縦に長くとってスクロールさせる)。
 // レイヤーは 5 枚: 遠い星 / 中間の星 / 近い星 / 大きな背景オブジェクト(とボス) / HUD
@@ -35,21 +37,22 @@ const DEV = mmsxx.dev;
 mmsxx.expose('mmsxx', mmsxx);
 // 公開版では、コンソールを開いた人にだけ見えるロゴとひとことを出す。
 // ゲームの動きには関わらない、おまけの隠し要素。
-// ビルドのときに -NoLogo を付けると出さない
-if (!DEV && BUILD.logo !== false) {
+// -LogoTrap 付きでビルドすると、ロゴを見てもらうために
+// コンソールを開いているあいだ ゲームが止まる
+if (!DEV || BUILD.logoTrap) {
   installConsoleGuard({
-    art: String.raw`
-   ____ _____ _   ___    ___  ___   ___  __    ___
-  / __//_  _// \ | _ \  | __|/ _ \ | _ )| |   | __|
-  \__ \  | | |   |   /  | _|| |_| || _ \| |__ | _|
-  /___/  |_| |_|_|_|_\  |_|  \___/ |___/|____||___|
-`,
-    title: 'STAR FABLE',
+    // art にアスキーアートを渡すと、名乗りの前に出せる(いまは使っていない)
+    title: 'STAR FABLE ' + BUILD.version,
     lines: [
-      'ここを開いたということは、たぶん作る側の人ですね。',
-      '不具合を見つけたら教えてもらえるとうれしいです。',
+      'A demo game built with the MMSXX Engine.',
+      "Packed with homages to 1980s shoot-'em-ups.",
     ],
-    // このあとに、エンジンの名乗り(MMSXX ENGINE)が必ず続く
+    // このあとに、エンジンの名乗り(MMSXX ENGINE)が必ず続く。
+    // trap は「ロゴを見てもらうために止める」おまけ。
+    // ゲームのぶん(game/console-stop.js)が先に止まり、
+    // そのあとエンジンのぶんが止まる。それぞれ 1 回ずつ
+    trap: BUILD.logoTrap === true,
+    stop: gameStop,
   });
 }
 // 画面のまわりに 4 ドットのボーダーを持たせる。
