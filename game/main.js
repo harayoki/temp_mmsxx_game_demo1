@@ -3684,9 +3684,13 @@ function updateCrabBoss(b) {
   drawBossBody();
   if (b.crown) {
     b.crown.visible = bossVisible;
-    // 壁を移ったら王冠も向きを合わせて反転させる
+    // 壁を移ったら王冠も向きを合わせて反転させる。
+    // 王冠の絵は 32 ドット枠の左寄せ(中身は x0..20)。
+    // 反転すると中身が枠の中で 11 ドット右へ動くので、そのぶんを引く。
+    //   左: 中身が甲羅の +18..+38(まん中 28)
+    //   右: その左右反転なので +26..+46。置き場所は 26 - 11 = 15
     b.crown.flipX = b.side > 0;
-    b.crown.x = b.sx + (b.side < 0 ? 18 : 22);
+    b.crown.x = b.sx + (b.side < 0 ? 18 : 15);
     b.crown.y = b.sy - 4;
   }
   // 甲羅に開いた 2 つの穴に、タコと同じ目を入れる
@@ -9057,13 +9061,17 @@ const CHAR_PAGES = [
     title: 'BOSS 2',
     name: 'KING FOSSIL',
     parts: [
+      // 図鑑では、ジャンプ中の伸ばした脚(細いほう)を見せる。
+      // **甲羅より先に描く**(あとから描くと、甲羅にめり込んだ付け根まで見えてしまう)。
+      // 踏ん張ったときと同じく、甲羅の左ふちから 14 ドット出す。
+      // 脚は 4 本(CRAB_LEG_Y と同じ間隔で、甲羅の上端から 16/34/52/70)
+      ['crabLegExt', 42, 56],
+      ['crabLegExt', 42, 72],
+      ['crabLegExt', 42, 88],
+      ['crabLegExt', 42, 104],
       ['crabR', 56, 40],
       ['crabClawBig', 96, 40],
       ['crabClawBig', 96, 88],
-      // 図鑑では、ジャンプ中の伸ばした脚(細いほう)を見せる
-      ['crabLegExt', 52, 56],
-      ['crabLegExt', 52, 80],
-      ['crabLegExt', 52, 104],
       { img: 'octoCrown', x: 76, y: 34, sprite: true },
       { img: 'bossEye2', x: 88, y: 76, sprite: true },
       { img: 'bossEye2', x: 88, y: 92, sprite: true },
