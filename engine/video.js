@@ -249,6 +249,14 @@ export class VDP {
         snap: 0,
         // 何も描かれていないレイヤーは合成をまるごと飛ばす(空の画面ぶんの無駄を省く)
         empty: true,
+        // **8x8 セルごとの「何か描いてあるか」**。合成のときに、
+        // 空のセルは 8 ドットまとめて飛ばす(星空はほとんど空なので効く)。
+        // 描いたら 1、透明で塗りつぶしたら 0 にする
+        cellW: w >> 3,
+        cells: new Uint8Array((w >> 3) * (h >> 3)),
+        // 立っているセルの数。**まばらなときだけ**セル飛ばしを使う
+        // (星空のように全セルが埋まっていると、飛ばす判定のぶんだけ損をする)
+        cellsOn: 0,
         // 走査線。null = 入れない / 0 か 1 = その位相の行を抜く。
         // 毎コマ 0 と 1 を入れ替えると、抜ける行が交互に動く
         scanline: null,
@@ -282,6 +290,18 @@ export class VDP {
      * @type {'warn'|'throw'|'off'}
      */
     this.bgCheck = 'warn';
+    /**
+     * セル飛ばしに切り替える境目。
+     * 「絵の入っているセルが、全体のこの割合より少なければ飛ばす道を通る」。
+     * 0.5 = 半分未満なら飛ばす。0 にすると常に元の道、1 にすると常に飛ばす道。
+     * **どこが得かは絵の入りかたで変わる**ので、あとから変えられるようにしてある
+     */
+    this.sparseRatio = 0.5;
+    /** 合成のようすを一定間隔で console に出す(開発版だけ) */
+    this.profile = false;
+    /** 何コマぶんためてから出すか */
+    this.profileEvery = 600;
+    this._profTimes = [];
     /** 見つかった違反の記録(name と中身)。あとからまとめて見られるように残す */
     this.bgWarnings = [];
     /** 一度調べた絵(同じ絵を何度も調べない) */
@@ -781,6 +801,31 @@ export class VDP {
     L.empty = false;
     this._blackenCells(L, x, y, img.width, img.height);
     this._enforceRuns(L, x, y, img.width, img.height);
+    this._markCells(L, x, y, img.width, img.height, 1);
+  }
+
+  /**
+   * 8x8 セルの「何か描いてあるか」を塗り替える。
+   * 描いたとき(on=1)は、かかったセルを全部立てる。
+   * 透明で消したとき(on=0)は、**まるごと入るセルだけ**倒す
+   * (半端にかかったセルは、ほかの絵が残っているかもしれないので触らない)。
+   */
+  _markCells(L, x, y, w, h, on) {
+    const cw = L.cellW, ch = L.height >> 3;
+    const x0 = on ? Math.floor(x / 8) : Math.ceil(x / 8);
+    const x1 = on ? Math.floor((x + w - 1) / 8) : Math.floor((x + w) / 8) - 1;
+    const y0 = on ? Math.floor(y / 8) : Math.ceil(y / 8);
+    const y1 = on ? Math.floor((y + h - 1) / 8) : Math.floor((y + h) / 8) - 1;
+    for (let cy = y0; cy <= y1; cy++) {
+      const ry = ((cy % ch) + ch) % ch;
+      for (let cx = x0; cx <= x1; cx++) {
+        const rx = ((cx % cw) + cw) % cw;
+        const i = ry * cw + rx;
+        if (L.cells[i] === on) continue;
+        L.cells[i] = on;
+        L.cellsOn += on ? 1 : -1;
+      }
+    }
   }
 
   /**
@@ -865,6 +910,8 @@ export class VDP {
     if (x === 0 && y === 0 && w === L.width && h === L.height) {
       layer.fill(color);
       L.empty = (color === 0);   // 全面を透明で塗ったら空になる
+      L.cells.fill(color === 0 ? 0 : 1);
+      L.cellsOn = color === 0 ? 0 : L.cells.length;
       return;
     }
     if (color !== 0) L.empty = false;
@@ -880,6 +927,7 @@ export class VDP {
         layer[rowBase | ((x + ix) & L.maskX)] = color;
       }
     }
+    this._markCells(L, x, y, w, h, color === 0 ? 0 : 1);
   }
 
   /**
@@ -913,6 +961,7 @@ export class VDP {
     L.empty = false;
     this._blackenCells(L, x, y, text.length * 8, 8);
     this._enforceRuns(L, x, y, text.length * 8, 8);
+    this._markCells(L, x, y, text.length * 8, 8, 1);
   }
 
   /**
@@ -1106,6 +1155,7 @@ export class VDP {
   /** 全レイヤー + 全スプライトを合成して canvas に描画する */
   render() {
     this.frames = (this.frames || 0) + 1;
+    const profAt = this.profile ? performance.now() : 0;
     // 合成のあいだは**パレット番号のまま**扱う(色に直すのは最後の 1 回だけ)
     const frame = this.activeIdx;
     const W = this.width, H = this.height;
@@ -1133,17 +1183,42 @@ export class VDP {
       // 走査線: null 以外なら、その位相の行を飛ばして 1 ライン おきに描く。
       // 位相を毎コマ入れ替えると、抜ける行が交互になる
       const scan = L.scanline;
+      const cells = L.cells, cw = L.cellW;
+      // **まばらなときだけ**セル単位で飛ばす。
+      // 星空のように全部のセルに何か入っていると、飛ばす判定が丸損になる
+      const sparse = L.cellsOn < cells.length * this.sparseRatio;
       for (let y = 0; y < H; y++) {
         if (scan !== null && ((y + scan) & 1)) continue;
         const vy = y + sy;
         if (!L.repeatY && (vy < 0 || vy >= L.height)) continue;
         const rowBase = (vy & L.maskY) << L.shift;
         let o = y * W;
-        for (let x = 0; x < W; x++, o++) {
-          const vx = x + sx;
-          if (!L.repeatX && (vx < 0 || vx >= L.width)) continue;
-          const c = px[rowBase | (vx & L.maskX)];
-          if (c !== 0) frame[o] = c;
+        if (!sparse) {
+          for (let x = 0; x < W; x++, o++) {
+            const vx = x + sx;
+            if (!L.repeatX && (vx < 0 || vx >= L.width)) continue;
+            const c = px[rowBase | (vx & L.maskX)];
+            if (c !== 0) frame[o] = c;
+          }
+          continue;
+        }
+        // このセル行の先頭。**空のセルは 8 ドットまとめて飛ばす**
+        const cellRow = ((vy & L.maskY) >> 3) * cw;
+        for (let x = 0; x < W;) {
+          const vxRaw = x + sx;
+          const vx = vxRaw & L.maskX;
+          // このセルに残っている幅(セルの切れ目でそろえる)
+          const run = Math.min(8 - (vx & 7), W - x);
+          if ((L.repeatX || (vxRaw >= 0 && vxRaw < L.width))
+              && cells[cellRow + (vx >> 3)]) {
+            // セルの中では折り返しが起きないので、添字の丸めが要らない
+            const base = rowBase | vx;
+            for (let i = 0; i < run; i++) {
+              const c = px[base + i];
+              if (c !== 0) frame[o + i] = c;
+            }
+          }
+          x += run; o += run;
         }
       }
     }
@@ -1163,6 +1238,33 @@ export class VDP {
 
     // canvas は等倍なので、そのまま置くだけ。拡大は CSS(ブラウザ)がやる
     this.ctx.putImageData(this.imageData, 0, 0);
+    if (this.profile) this._profile(performance.now() - profAt);
+  }
+
+  /**
+   * 合成にかかった時間をためて、ときどき console に出す(開発版だけ)。
+   * レイヤーごとの「絵の入っているセルの割合」と、
+   * **どちらの道を通ったか**もいっしょに出す(境目を決める材料にする)。
+   */
+  _profile(ms) {
+    const t = this._profTimes;
+    t.push(ms);
+    if (t.length < this.profileEvery) return;
+    t.sort((a, b) => a - b);
+    const mid = t[t.length >> 1];
+    const avg = t.reduce((a, b) => a + b, 0) / t.length;
+    const worst = t[t.length - 1];
+    const rows = this.layers.map((L, i) => {
+      const pct = Math.round((L.cellsOn * 100) / L.cells.length);
+      const how = L.empty ? 'まるごと飛ばす'
+        : (L.cellsOn < L.cells.length * this.sparseRatio ? 'セル飛ばし' : '通常');
+      return `  レイヤー${i}: 埋まり ${pct}% ${how}`;
+    });
+    const nl = String.fromCharCode(10);
+    console.log(`[MMSXX] 合成 ${t.length} コマ: `
+      + `中央値 ${mid.toFixed(3)}ms / 平均 ${avg.toFixed(3)}ms / 最悪 ${worst.toFixed(3)}ms`
+      + ` (境目 ${this.sparseRatio})` + nl + rows.join(nl));
+    this._profTimes = [];
   }
 
   /**

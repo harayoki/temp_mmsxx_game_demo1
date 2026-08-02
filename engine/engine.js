@@ -128,6 +128,8 @@ export class MMSXXEngine {
     // 素材の検査は、**作っている最中は例外で止め**(見落とさないように)、
     // 公開版は**警告だけ**にする(絵が間違っていても、遊ぶ人の前では止めない)
     this.vdp.bgCheck = this._dev ? 'throw' : 'warn';
+    // 開発版では、合成のようすを一定間隔で console に出す(遅いところを見つける材料)
+    this.vdp.profile = this._dev;
     this._layers = this.vdp.layers.map((_, i) => new LayerHandle(this.vdp, i));
     /** 経過フレーム数 (60fps) */
     this.frame = 0;
