@@ -116,6 +116,7 @@ const SPRITE_COLORS = {
   powerUp: 1, eyeIris0: 1, gearGem: 1, glower0: 1, spark0: 1, todoGlint: 1,
   barrierItem: 1, bulletRing: 1, enemyH: 1, enemyI: 1, enemyJ: 1,
   fireBall: 1, fireBall1: 1, fireBall2: 1, fireM0: 1, fireM1: 1, fireS0: 1, fireS1: 1,
+  chick0: 1, chick1: 1,   // 気絶のときに頭を回るひよこ
   pilotPupil: 1, pilotSmile: 1, pilotWink: 1,
   todoBlush: 2,   // 赤みと影の 2 色
   riftGlow: 2,    // 水色と白の 2 色
@@ -4806,10 +4807,53 @@ function makeKingMan(b) {
   return b.man;
 }
 
+// 気絶したときに頭のまわりを回るひよこ。3 羽が同じ輪の上を追いかけ合う
+const CHICKS = 3;
+const CHICK_RX = 18, CHICK_RY = 6;   // 輪の半径(横長にして奥行きを出す)
+
+/** ひよこを出しっぱなしにしないよう片づける */
+function clearChicks(b) {
+  if (!b || !b.chicks) return;
+  for (const sp of b.chicks) mmsxx.removeSprite(sp);
+  b.chicks = null;
+}
+
+/**
+ * 気絶のあいだ、頭の上でひよこを回す。
+ * 姿は立ったままなので、**これが気絶の目印**になる
+ */
+function updateChicks(b) {
+  if (!b || b.stun <= 0) { clearChicks(b); return; }
+  if (!b.chicks) {
+    b.chicks = [];
+    for (let i = 0; i < CHICKS; i++) {
+      const sp = mmsxx.sprite(IMG.chick0);
+      sp.frames = [IMG.chick0, IMG.chick1];
+      sp.frameRate = 6;          // 羽ばたき
+      sp.priority = 12;          // 本体より手前
+      b.chicks.push(sp);
+    }
+  }
+  const cx = b.x + KING_MAN_W / 2 - 4;
+  const cy = b.y - 6;
+  for (let i = 0; i < b.chicks.length; i++) {
+    const a = (mmsxx.frame * 0.06) + (i * Math.PI * 2 / CHICKS);
+    const sp = b.chicks[i];
+    sp.visible = bossVisible;
+    sp.x = cx + Math.cos(a) * CHICK_RX;
+    sp.y = cy + Math.sin(a) * CHICK_RY;
+    // 奥を回っているあいだは、本体の後ろへ回す
+    sp.priority = Math.sin(a) < 0 ? 9 : 12;
+  }
+  // ピヨピヨは鳴らしっぱなしにせず、間を空けて鳴らす
+  if ((b.stun % 40) === 0) mmsxx.audio.playSE('piyo', SE_EVENT);
+}
+
 /** ラスボスのスプライトを片づける(裂け目は bossParts なので別途消える) */
 function clearKing(b) {
   if (!b || b.kind !== 'king') return;
   if (b.man) { mmsxx.removeSprite(b.man); b.man = null; }
+  clearChicks(b);
   clearKingBeams();
   clearFarBeams();
   clearKingEscape();
@@ -4904,6 +4948,7 @@ function updateKingBoss(b) {
   }
   // ---- 第 2 段階。格闘家として構え、3 つの技を使い分ける ----
   updateKingFight(b);
+  updateChicks(b);   // 気絶のあいだだけ、頭の上でひよこが回る
   // 撃たれているあいだは、後ろへのけぞるポーズに切り替える。
   // 当たったことが姿ではっきり分かるようにするため
   if (b.hurtVoice > 0) b.hurtVoice--;
@@ -4921,10 +4966,11 @@ function updateKingBoss(b) {
       b.man.image = IMG.kingMan11;
       b.man.colorMap = KING_ZEN_MAP;
     } else if (b.stun > 0) {
-      // 気絶。ひざが折れて腕が垂れた姿で止まる
+      // 気絶。**姿は立ったまま**にして、頭の上のひよこで気絶を見せる
+      // (姿を崩すと何の形か分からなくなったため)
       if (b.man.frames) b.man.frames = null;
       b.man.colorMap = null;
-      b.man.image = IMG.kingMan12;
+      b.man.image = IMG.kingMan00;
     } else if (b.guard > 0) {
       // 腕で受けている(または息が上がって固まっている)あいだはガードの姿
       if (b.man.frames) b.man.frames = null;
@@ -9617,6 +9663,12 @@ mmsxx.run(() => {
       mmsxx.audio.playSE('bossboom', SE_HIT);
     }
     return;
+  }
+  // ALT + M で音を消す / 戻す。どの画面でも効く。
+  // 曲は止めずに出口を閉じるだけなので、戻せば続きから聞こえる
+  if (altDown() && mmsxx.input.wasPressed('KeyM')) {
+    const off = mmsxx.audio.mute();
+    showNotice(off ? 'SOUND OFF' : 'SOUND ON');
   }
   // ALT + S で、どの画面でもその場を**クリップボードへ**コピーする。
   // タイトルでも図鑑でもポーズ中でも効く(DEV でなくても使える)

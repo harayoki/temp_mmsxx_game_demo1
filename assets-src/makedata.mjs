@@ -1364,6 +1364,29 @@ const octoCrown = padTo(rotateImage(fromAscii([
   '####################',
 ], { '#': '#ded087' }), 20), 32, 16, 'topleft');
 
+// 気絶したときに頭のまわりを回る**ひよこ**(単色スプライト・8x8)。
+// 2 コマで羽ばたかせる。まん丸にして、小さくても鳥だと分かるようにする
+const chick0 = fromAscii([
+  '..####..',
+  '.######.',
+  '####.##.',
+  '#######.',
+  '.######.',
+  '..####..',
+  '..#..#..',
+  '........',
+], { '#': '#ded087' });
+const chick1 = fromAscii([
+  '........',
+  '..####..',
+  '.###.##.',
+  '.######.',
+  '.######.',
+  '..####..',
+  '..#..#..',
+  '........',
+], { '#': '#ded087' });
+
 /** カニの大きなハサミ(BG 用・16x28)。本体の前に重ねて描く。
  *  x 48-63 の帯だけを使うので、赤い装甲と色がぶつからない */
 function makeCrabClawBig(stub = false) {
@@ -4710,6 +4733,9 @@ const SE = {
   eyeAppear: ['@{noise} @e{flat} t220 v15 o2 l16 c e g > c e g > c e g > c4',
               '@{saw} @e{flat} @v4 t220 v13 o2 l16 c e g > c e g > c e g > c4',
               '@{pulse12} @e{flat} @s4 t220 v10 o4 l16 r8 c e g > c e g > c4'],
+  // 気絶しているあいだのピヨピヨ。小鳥が回っている感じの高い 2 音
+  piyo: ['@{pulse12} @e{percussive} t200 v10 o6 l16 e g > c8',
+         '@{pulse25} @e{percussive} @d18 t200 v7 o6 l16 g > c e8'],
   // 残り 1 機の警告。ここは埋もれては困るので全体でいちばん大きい
   warning: ['@{pulse12} @e{flat} @s3 t255 v14 o6 l32 e g > c e g > c e g > c4',
             '@{pulse50} @e{flat} @d16 t255 v11 o5 l32 e g > c e g > c e g > c4'],
@@ -4723,9 +4749,9 @@ const SE = {
   laser: LASER_SE,
   // 太いビームを撃っているあいだの音。**半音高い版**。
   // 細くなる段階で元の高さへ落ちるので、「弱まった」ことが音でも分かる
-  // 半音上げると倍音が増えて、同じ音量でも耳につく。3 段だけ下げてつり合いを取る
+  // 半音上げると倍音が増えて、同じ音量でも耳につく。5 段下げてつり合いを取る
   laserHi: LASER_SE.map((m) => transposeMML(m, 1)
-    .replace(/v(\d+)/g, (_, n) => 'v' + Math.max(1, Number(n) - 3))),
+    .replace(/v(\d+)/g, (_, n) => 'v' + Math.max(1, Number(n) - 5))),
   // ドラゴンの突進。「ゴギャ――――」と叫ぶ
   dragonRoar: ['@{noise} @e{percussive} t120 v15 o2 l32 c c r16 @e{flat} v9 o1 l2 c&c',
                '@{saw} @e{flat} @v7 t120 v15 o3 l32 g > d < b a g f e d @e{flat} l2 o2 c&c',
@@ -6117,6 +6143,7 @@ const images = {
   crabR, crabRNo, crabTilt, crabClaw, crabClawBig, crabClawStub, crabClawMid, crabPod, crabLeg, crabLegMid, crabLegExt, fireBall, fireBall1, fireBall2, fireS0, fireS1, fireM0, fireM1,
   dragonHead, dragonHeadOpen, dragonBody, dragonTail, octoArms, octoCrown, crabBigClaw, rocketHi,
   chargeOrb0, chargeOrb1, chargeOrb2, chargeRing0, chargeRing1, chargeRing2, asteroidHi,
+  chick0, chick1,
   rocketAlt, rocketGlow, rocketGlowAlt, rocketFlame0, rocketFlame1, rocketFlame2, rocketFlame3, eyeball, eyeVein, eyeIris0, eyeIris1, eyeIris2, eyeIris3, rocket,
   boom0, boom1, boom2, starsFar, starsMid, starsNear, nebula, nebulaRed, moon,
   milkyway, debris,

@@ -103,6 +103,42 @@ export class PSGPlayer {
     this.seVoices = this.seVoices.filter(x => x !== v);
   }
 
+  /**
+   * 音の出口。**すべての音はここを通す**ので、
+   * ここ 1 つで全体を消したり戻したりできる
+   */
+  _out() {
+    if (!this.ctx) return null;
+    if (!this._master) {
+      this._master = this.ctx.createGain();
+      this._master.gain.value = this._muted ? 0 : 1;
+      this._master.connect(this.ctx.destination);
+    }
+    return this._master;
+  }
+
+  /**
+   * **音を消す / 戻す**。曲は止めずに出口を閉じるだけなので、
+   * 戻したときは曲の続きがそのまま聞こえてくる。
+   * @param {boolean} [on] 省略すると切り替え
+   * @returns {boolean} いま消えているか
+   */
+  mute(on) {
+    this._muted = (on === undefined) ? !this._muted : !!on;
+    const out = this._out();
+    if (out) {
+      const t = this.ctx.currentTime;
+      out.gain.cancelScheduledValues(t);
+      // ぷつっと切れないよう、ごく短く滑らせる
+      out.gain.setValueAtTime(out.gain.value, t);
+      out.gain.linearRampToValueAtTime(this._muted ? 0 : 1, t + 0.05);
+    }
+    return this._muted;
+  }
+
+  /** いま音を消しているか */
+  get muted() { return !!this._muted; }
+
   /** ユーザー操作を起点に AudioContext を有効化する(エンジンがキー入力時に呼ぶ) */
   unlock() {
     if (!this.ctx) {
@@ -206,7 +242,7 @@ export class PSGPlayer {
     }
     const gain = this.ctx.createGain();
     gain.gain.value = (def.opts.gain ?? 1) * 0.9;
-    gain.connect(this.ctx.destination);
+    gain.connect(this._out());
     const src = this.ctx.createBufferSource();
     src.buffer = def.buffer;
     src.connect(gain);
@@ -251,7 +287,7 @@ export class PSGPlayer {
     this.stopBGM();
     const gain = this.ctx.createGain();
     gain.gain.value = 1;
-    gain.connect(this.ctx.destination);
+    gain.connect(this._out());
     const state = { gain, timer: 0, nodes: [], name, baseGain: 1 };
     this.bgmState = state;
 
@@ -319,7 +355,7 @@ export class PSGPlayer {
     this.stopJingle();
     const gain = this.ctx.createGain();
     gain.gain.value = 1;
-    gain.connect(this.ctx.destination);
+    gain.connect(this._out());
     const state = { gain, timer: 0, nodes: [], name };
     this.jingleState = state;
     this._muteBGM(true);
@@ -458,7 +494,7 @@ export class PSGPlayer {
     }
     const gain = this.ctx.createGain();
     gain.gain.value = 1;
-    gain.connect(this.ctx.destination);
+    gain.connect(this._out());
     const len = Math.max(...tracks.map(t => t.total), 0);
     const loop = opts.loop == null ? 1 : (opts.loop | 0);
     const id = ++this._seSeq;
