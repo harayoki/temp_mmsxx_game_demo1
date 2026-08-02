@@ -2853,7 +2853,7 @@ function enterPlay(fromContinue = false) {
   usedStageWarp = false;
   usedBossWarp = false;
   usedHyper = false;
-  autoFireUses = 0;
+  autoUsed = new Set();
   typed = '';
   konamiPos = 0;
   // このプレイを見分ける ID を作り直す(記録を送るときに使う)
@@ -7983,10 +7983,10 @@ let usedStageWarp = false;
 let usedBossWarp = false;
 let usedHyper = false;
 // オート連射のコマンドは MEIJIN / TAKAHASHI / TOSHIYUKI の 3 つ。
-// どれを使っても合計 3 回まで。
+// **1 つにつき 1 ゲームに 1 回**(3 つ全部使えば 3 回)。
+// 同じ名前を何度打っても 2 回目からは効かない
 const AUTO_CODES = ['MEIJIN', 'TAKAHASHI', 'TOSHIYUKI'];
-const AUTO_USES = 3;
-let autoFireUses = 0;
+let autoUsed = new Set();
 
 /** 全パワーアップ(2 つの隠しコマンド共通の効果) */
 function grantFullPower(label) {
@@ -8477,10 +8477,12 @@ function drawCheatInput() {
 
 /** 打ち込まれた語を判定して効果を出す */
 function runCheatWord(word) {
-  // オート連射のコマンド(MEIJIN / TAKAHASHI / TOSHIYUKI。合計 3 回まで)
-  if (AUTO_CODES.some(c => word.endsWith(c))) {
-    if (autoFireUses < AUTO_USES) {
-      autoFireUses++;
+  // オート連射のコマンド(MEIJIN / TAKAHASHI / TOSHIYUKI)。
+  // **打たれた名前ごとに 1 回だけ**効く
+  const autoCode = AUTO_CODES.find(c => word.endsWith(c));
+  if (autoCode) {
+    if (!autoUsed.has(autoCode)) {
+      autoUsed.add(autoCode);
       autoFire = AUTO_FIRE_TIME;
       maxVolleys = MAX_VOLLEY_LIMIT;   // ラピッドも最大にする
       drawHUD();
@@ -8529,10 +8531,10 @@ function runCheatWord(word) {
     mmsxx.audio.playSE('item');
     return;
   }
-  // DRAGONFIRE: 七色の推進炎を手に入れる(開発用)。
+  // DRAGON: 七色の推進炎を手に入れる(開発用)。
   // ドラゴンの星座が出る 5 面から先でだけ効く。
   // やられても消えないので、1 回打てばそのゲーム中はずっと使える
-  if (word.endsWith('DRAGONFIRE')) {
+  if (word.endsWith('DRAGON')) {
     if (stageNo >= LAST_STAGE) {
       dragonFlame = true;
       showNotice('DRAGON FLAME!');
