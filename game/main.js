@@ -4839,7 +4839,7 @@ function updateChicks(b) {
   const cx = b.x + KING_MAN_W / 2 - 4;
   const cy = b.y - 6;
   for (let i = 0; i < b.chicks.length; i++) {
-    const a = (mmsxx.frame * 0.06) + (i * Math.PI * 2 / CHICKS);
+    const a = (mmsxx.frame * 0.11) + (i * Math.PI * 2 / CHICKS);   // まわる速さ
     const sp = b.chicks[i];
     sp.visible = bossVisible;
     sp.x = cx + Math.cos(a) * CHICK_RX;
@@ -5031,11 +5031,16 @@ function fireKingWave(b) {
   const rot = ((Math.round(deg / 90) * 90) % 360 + 360) % 360;
   // 先頭がいちばん大きく、後ろへ行くほど小さい = 押し寄せてくるように見える
   const set = [[IMG.kingWaveL, 0], [IMG.kingWaveM, 10], [IMG.kingWaveS, 18]];
-  for (const [img, back] of set) {
+  for (const [i, [img, back]] of set.entries()) {
     const sp = mmsxx.sprite(img);
     sp.priority = 7;
     sp.rotate = rot;
-    sp.blink = 2;   // 1:1 の点滅(実機のちらつき)
+    // 3 枚を**順ぐりに 1 枚ずつ**出す(大きいほうから小さいほうへ)。
+    // 同時に見えるのは 1 枚だけなので、実機の多重表示のように尾を引いて見える
+    sp.blink = 3;
+    // 出る順は「フレーム + 位相」が 3 で割り切れたとき。
+    // 大 -> 中 -> 小 の順に出したいので、位相は 0, 2, 1 とたどる
+    sp.blinkPhase = (set.length - i) % set.length;
     // 枠は 16x16 なので、中心を合わせるには半分の 8 を引く
     sp.x = cx - 8 - ux * back;
     sp.y = cy - 8 - uy * back;
@@ -8999,7 +9004,7 @@ const SOUND_SE = ['shutter', 'autofire', 'heal', 'scold',
   'shot', 'boom', 'hit', 'item', 'clink', 'thud', 'ricochet', 'eyeAppear',
   'laser', 'charging', 'rifttear', 'bigboom', 'bossboom', 'powerdown', 'appear', 'warning',
   'dragonRoar', 'count3', 'count2', 'count1',
-  'weak', 'armor', 'guardhit'];
+  'weak', 'armor', 'guardhit', 'piyo'];
 // しゃべるもの(TALK)。SE とは鳴らし方が違うので分けておく
 const SOUND_TALK = ['kozorite', 'kingLaugh', 'kiaiA', 'kiaiB', 'kiaiC'];
 // 音色テスト。**1 つの音色だけ**で同じ小曲を鳴らして聞き比べる。
@@ -9049,7 +9054,9 @@ function enterSoundTest() {
       },
       {
         title: 'SE', items: SOUND_SE,
-        play: (name) => mmsxx.audio.playSE(name),
+        // **前の音を止めてから鳴らす**。長い音(レーザーなど)が残っていると、
+        // 場所が空かずに次の音が捨てられて「だんだん鳴らなくなる」ため
+        play: (name) => { mmsxx.audio.stopSE(); mmsxx.audio.playSE(name, SE_JINGLE); },
       },
       {
         // ジングルは **BGM を止めずに黙らせて**重ねる。
