@@ -4969,11 +4969,11 @@ function updateKingBoss(b) {
       b.man.image = IMG.kingMan11;
       b.man.colorMap = KING_ZEN_MAP;
     } else if (b.stun > 0) {
-      // 気絶。**姿は立ったまま**にして、頭の上のひよこで気絶を見せる
-      // (姿を崩すと何の形か分からなくなったため)
+      // 気絶。**立ち姿から腕だけを垂らした姿**(頭と足は同じ)。
+      // 気絶そのものは頭の上のひよこで見せる
       if (b.man.frames) b.man.frames = null;
       b.man.colorMap = null;
-      b.man.image = IMG.kingMan00;
+      b.man.image = IMG.kingMan12;
     } else if (b.guard > 0) {
       // 腕で受けている(または息が上がって固まっている)あいだはガードの姿
       if (b.man.frames) b.man.frames = null;
