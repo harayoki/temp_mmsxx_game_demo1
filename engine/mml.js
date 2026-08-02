@@ -12,8 +12,13 @@
 //   [ ... ]<n>  繰り返し (n 省略時 2 回, ネスト可)
 //
 // 音色・効果 (チャンネルごとに途中で切り替えられる):
-//   @<n>     波形 0..7  (WAVEFORMS 参照。0=矩形12.5% .. 7=ノイズ)
+//   @<n>     波形 0..6  (WAVEFORMS 参照。0=矩形12.5% .. 6=ノイズ)
+//   @{名前}  波形を名前で指定 (pulse12 / pulse25 / pulse50 /
+//            triangle / saw / sine / noise)。**番号より名前を勧める**。
+//            番号はエンジンの都合で動くことがあるが、名前は動かない
 //   @e<n>    エンベロープ 0..5 (ENVELOPES 参照)
+//   @e{名前} エンベロープを名前で指定 (flat / soft / percussive /
+//            piano / pad / pluck)
 //   @d<n>    デチューン (セント単位。2 音を少しずらして重ねる。0 で無効)
 //   @v<n>    ビブラート 0..9 (0 で無効。数字が大きいほど深い)
 //   @s<n>    エコー(ディレイ) 0..9 (0 で無効。数字が大きいほど強い)
@@ -22,18 +27,18 @@ const SEMI = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 };
 
 /**
  * 波形テーブル。
- * ファミコン(2A03)の矩形波デューティ比 12.5/25/50/75% と、
+ * ファミコン(2A03)の矩形波デューティ比 12.5/25/50% と、
  * MSX(AY-3-8910)の矩形波(50%固定)、三角波、ノコギリ波、サイン波、ノイズ。
  */
 export const WAVEFORMS = [
   { id: 0, name: 'pulse12', kind: 'pulse', duty: 0.125 }, // ファミコン風 12.5%
   { id: 1, name: 'pulse25', kind: 'pulse', duty: 0.25 },  // ファミコン風 25%
   { id: 2, name: 'pulse50', kind: 'pulse', duty: 0.5 },   // ファミコン/MSX 50%
-  { id: 3, name: 'pulse75', kind: 'pulse', duty: 0.75 },  // ファミコン風 75%
-  { id: 4, name: 'triangle', kind: 'triangle' },          // 三角波
-  { id: 5, name: 'saw', kind: 'saw' },                    // ノコギリ波
-  { id: 6, name: 'sine', kind: 'sine' },                  // サイン波
-  { id: 7, name: 'noise', kind: 'noise' },                // ノイズ
+  // 75% は 25% と上下が逆なだけで同じ音に聞こえるので置かない
+  { id: 3, name: 'triangle', kind: 'triangle' },          // 三角波
+  { id: 4, name: 'saw', kind: 'saw' },                    // ノコギリ波
+  { id: 5, name: 'sine', kind: 'sine' },                  // サイン波
+  { id: 6, name: 'noise', kind: 'noise' },                // ノイズ
 ];
 
 /**
@@ -94,6 +99,19 @@ export function compileMML(mml) {
     while (pos < src.length && src[pos] >= '0' && src[pos] <= '9') n += src[pos++];
     return n === '' ? null : parseInt(n, 10);
   };
+  // `{名前}` を読んで、表の中の番号に直す。
+  // 知らない名前は元のままにして知らせる(曲そのものは鳴らしつづける)
+  const readName = (table, what, now) => {
+    let s = '';
+    while (pos < src.length && src[pos] !== '}') s += src[pos++];
+    pos++;   // 閉じ括弧
+    const key = s.trim().toLowerCase();
+    const hit = table.findIndex((e) => e.name.toLowerCase() === key);
+    if (hit >= 0) return hit;
+    console.warn(`[MMSXX] MML: ${what} "${s}" は知らない名前です `
+      + `(使えるのは ${table.map((e) => e.name).join(' / ')})`);
+    return now;
+  };
   const readDuration = () => {
     const len = readNumber() ?? defLen;
     let d = 240 / tempo / len;
@@ -148,11 +166,15 @@ export function compileMML(mml) {
     } else if (ch === '@') {
       // 音色と効果。@e/@d/@v/@s は 2 文字目で種類が決まる
       const kind = peek();
-      if (kind === 'e') { pos++; env = clamp(readNumber() ?? env, 0, ENVELOPES.length - 1); }
+      // 名前で書けるようにする(番号はエンジンの都合で動くので、ゲーム側は名前を使う)
+      //   @{saw} = 波形 / @e{piano} = エンベロープ
+      if (kind === '{') { pos++; wave = readName(WAVEFORMS, '波形', wave); }
+      else if (kind === 'e' && src[pos + 1] === '{') { pos += 2; env = readName(ENVELOPES, 'エンベロープ', env); }
+      else if (kind === 'e') { pos++; env = clamp(readNumber() ?? env, 0, ENVELOPES.length - 1); }
       else if (kind === 'd') { pos++; detune = clamp(readNumber() ?? detune, 0, 100); }
       else if (kind === 'v') { pos++; vibrato = clamp(readNumber() ?? vibrato, 0, 9); }
       else if (kind === 's') { pos++; echo = clamp(readNumber() ?? echo, 0, 9); }
-      else if (kind === 'n') { pos++; wave = 7; } // 旧記法: @n = ノイズ
+      else if (kind === 'n') { pos++; wave = 6; } // 旧記法: @n = ノイズ
       else wave = clamp(readNumber() ?? wave, 0, WAVEFORMS.length - 1);
     }
     // 未知の文字は無視する

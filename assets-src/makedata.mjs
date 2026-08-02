@@ -3797,18 +3797,18 @@ const REST_BARS = (n) => 'l1 ' + 'r '.repeat(n);
 // 構成は A - A'(変奏) - B(展開) - C(終結) の 32 小節でループする
 const BGM_MAIN = [
   // 歌メロ(デチューンはかけずに輪郭をはっきりさせる)
-  't150 q7 v12 l8 @1 @e1 @s3 ' + CANON_MELODY + ' ' + CANON_MELODY_A2 + ' ' +
+  't150 q7 v12 l8 @{pulse25} @e{soft} @s3 ' + CANON_MELODY + ' ' + CANON_MELODY_A2 + ' ' +
     BRIDGE_MELODY + ' ' + CODA_MELODY,
   // アルペジオ(伴奏)。25% パルスで軽く
-  't150 q7 v9 l16 @1 @e0 @s2 [' + CANON_ARP + ']2 ' +
+  't150 q7 v9 l16 @{pulse25} @e{flat} @s2 [' + CANON_ARP + ']2 ' +
     BRIDGE_ARP + ' ' + CODA_ARP,
   // ベースは三角波(ファミコン風)
-  't150 q8 v12 l8 @4 @e0 [' + CANON_BASS + ']2 ' +
+  't150 q8 v12 l8 @{triangle} @e{flat} [' + CANON_BASS + ']2 ' +
     BRIDGE_BASS + ' ' + CODA_BASS,
-  // ドラム(ノイズ)。@e2 = 打楽器エンベロープ
-  '@7 @e2 t150 l8 [v12o2c v6o6c v10o4c v6o6c v12o2c v6o6c v10o4c v6o6c]32',
+  // ドラム(ノイズ)。@e{percussive} = 打楽器エンベロープ
+  '@{noise} @e{percussive} t150 l8 [v12o2c v6o6c v10o4c v6o6c v12o2c v6o6c v10o4c v6o6c]32',
   // A' のハモリ(歌メロの 3 度下)。A / B / C のあいだは休む
-  't150 q7 v9 l8 @1 @e1 @s2 ' + REST_BARS(8) + 'l8 ' + CANON_HARMONY_A2 +
+  't150 q7 v9 l8 @{pulse25} @e{soft} @s2 ' + REST_BARS(8) + 'l8 ' + CANON_HARMONY_A2 +
     ' ' + REST_BARS(16),
 ];
 
@@ -3854,11 +3854,11 @@ const POWER_BASS = [
 
 const BGM_POWER = [
   // メロディはデチューンを重ねて厚くする
-  't178 q7 v11 l8 @1 @e0 @s2 @d12 [' + POWER_MELODY + ']2',
+  't178 q7 v11 l8 @{pulse25} @e{flat} @s2 @d12 [' + POWER_MELODY + ']2',
   // 合いの手は三角波で音色を変える
-  't178 q8 v11 l8 @4 @e1 @s4 [' + POWER_CALL + ']2',
-  't178 q8 v12 l8 @4 @e0 [' + POWER_BASS + ']2',
-  '@7 @e2 t178 l16 [v13o2c v5o6c v5o6c v5o6c v11o4c v5o6c v5o6c v5o6c]32',
+  't178 q8 v11 l8 @{triangle} @e{soft} @s4 [' + POWER_CALL + ']2',
+  't178 q8 v12 l8 @{triangle} @e{flat} [' + POWER_BASS + ']2',
+  '@{noise} @e{percussive} t178 l16 [v13o2c v5o6c v5o6c v5o6c v11o4c v5o6c v5o6c v5o6c]32',
 ];
 
 // ボス BGM。ダライアス風に、休みなく刻む 16 分のベースオスティナートの上へ、
@@ -3883,13 +3883,13 @@ const BOSS_MELODY = [
 
 const BGM_BOSS = [
   // 主旋律: 12.5% パルス + 深いビブラートで不穏に
-  't168 q8 v12 l4 @0 @e1 @v5 @s4 @d12 [' + BOSS_MELODY + ']2',
+  't168 q8 v12 l4 @{pulse12} @e{soft} @v5 @s4 @d12 [' + BOSS_MELODY + ']2',
   // 刻みの裏メロ(3 度上をなぞる)
-  't168 q7 v8 l16 @1 @e0 @s3 [' + BOSS_MELODY + ']2',
+  't168 q7 v8 l16 @{pulse25} @e{flat} @s3 [' + BOSS_MELODY + ']2',
   // 16 分で走り続けるベース
-  't168 q8 v13 l16 @5 @e0 [' + BOSS_BASS + ']2',
+  't168 q8 v13 l16 @{saw} @e{flat} [' + BOSS_BASS + ']2',
   // ドラムも詰めて圧をかける
-  '@7 @e2 t168 l16 [v13o2c v5o6c v9o4c v5o6c v12o2c v5o6c v9o4c v5o6c]32',
+  '@{noise} @e{percussive} t168 l16 [v13o2c v5o6c v9o4c v5o6c v12o2c v5o6c v9o4c v5o6c]32',
 ];
 
 
@@ -3940,13 +3940,13 @@ const LAST_BASS = [
 
 const BGM_LASTBOSS = [
   // 主旋律: 25% パルス。ビブラートとエコーでゆらめかせる
-  't176 q7 v13 l4 @1 @e1 @v4 @s5 [' + LAST_MELODY + ']2',
+  't176 q7 v13 l4 @{pulse25} @e{soft} @v4 @s5 [' + LAST_MELODY + ']2',
   // ハモリ: 三角波で控えめに寄り添う
-  't176 q7 v8 l4 @4 @e1 @s3 [' + LAST_HARMONY + ']2',
+  't176 q7 v8 l4 @{triangle} @e{soft} @s3 [' + LAST_HARMONY + ']2',
   // 半音符で歩くベース
-  't176 q8 v13 l2 @5 @e0 [' + LAST_BASS + ']2',
+  't176 q8 v13 l2 @{saw} @e{flat} [' + LAST_BASS + ']2',
   // ドラムは打点を減らして、間を怖くする
-  '@7 @e2 t176 l4 [v13o2c r v6o5c r]32',
+  '@{noise} @e{percussive} t176 l4 [v13o2c r v6o5c r]32',
 ];
 
 /** 流れ星。尾の伸び方が違う 4 コマ(アニメーション BG スプライト用) */
@@ -4347,13 +4347,13 @@ const DOWN1 = (m) => transposeMML(m, -1);
 
 const BGM_MOAI = [
   // 主旋律
-  't160 q7 v13 l4 @1 @e1 @s3 ' + DOWN1(MOAI_MELODY),
+  't160 q7 v13 l4 @{pulse25} @e{soft} @s3 ' + DOWN1(MOAI_MELODY),
   // 分散和音(裏で回り続ける)
-  't160 q6 v9 l16 @0 @e0 @s2 ' + DOWN1(MOAI_ARPEGGIO),
+  't160 q6 v9 l16 @{pulse12} @e{flat} @s2 ' + DOWN1(MOAI_ARPEGGIO),
   // ベース
-  't160 q8 v13 l4 @5 @e0 ' + DOWN1(MOAI_BASS),
+  't160 q8 v13 l4 @{saw} @e{flat} ' + DOWN1(MOAI_BASS),
   // ドラム
-  '@7 @e2 t160 l8 [v13o2c r v6o5c r]16',
+  '@{noise} @e{percussive} t160 l8 [v13o2c r v6o5c r]16',
 ];
 
 
@@ -4362,25 +4362,25 @@ const BGM_MOAI = [
 // テンポも遅く、ベースはとぼけた 3 度跳ね。
 const BGM_TODO = [
   // 主旋律。ところどころ半音ずれていて、伸ばした音が下がっていく
-  't96 q7 v12 l4 @6 @e1 @d24 @v3 ' +
+  't96 q7 v12 l4 @{sine} @e{soft} @d24 @v3 ' +
   'o4 c8 e8 g4 f+4 e4  o4 d8 f8 a4 g+2 ' +
   'o4 e8 g8 b-4 a4 g4  o4 c2 o3 b4 o4 c4 ' +
   'o4 c8 e8 g4 f+4 e4  o4 d8 f8 a-4 g2 ' +
   'o4 f8 a8 o5 c-4 o4 b-4 a4  o4 c1',
   // ふらふらした対旋律(わざと 3 度でぶつける)
-  't96 q6 v8 l4 @4 @e1 @d18 ' +
+  't96 q6 v8 l4 @{triangle} @e{soft} @d18 ' +
   'o3 e8 g8 b4 a+4 g4  o3 f8 a8 o4 c4 o3 b2 ' +
   'o3 g8 b8 o4 d-4 o3 c+4 b4  o3 e2 d4 e4 ' +
   'o3 e8 g8 b4 a+4 g4  o3 f8 a8 o4 c-4 o3 b2 ' +
   'o3 a8 o4 c8 e-4 d4 c4  o3 e1',
   // とぼけたベース
-  't96 q8 v11 l8 @5 @e0 ' +
+  't96 q8 v11 l8 @{saw} @e{flat} ' +
   '[o2 c r e r g r e r]1 [o2 d r f r a r f r]1 ' +
   '[o2 e r g r b- r g r]1 [o2 c r e- r g r e- r]1 ' +
   '[o2 c r e r g r e r]1 [o2 d r f r a- r f r]1 ' +
   '[o2 f r a r >c< r a r]1 [o2 c r c r c r c r]1',
   // ドラムは間の抜けた 2 拍
-  '@7 @e2 t96 l4 [v10o2c r v5o5c r]8',
+  '@{noise} @e{percussive} t96 l4 [v10o2c r v5o5c r]8',
 ];
 
 
@@ -4391,22 +4391,22 @@ const BGM_TODO = [
 // 開始ジングル(3 小節)。歯切れのよい刻み -> 駆け上がり -> 決めのロングトーン。
 const BGM_START = [
   // メロディ
-  't152 q8 v13 @1 @e0 @d10 @s2' +
+  't152 q8 v13 @{pulse25} @e{flat} @d10 @s2' +
   ' l16 o5 a8 r a >c8< a8  e8 r e g8 e8' +          // 休符を食う刻み
   ' l16 o4 a b >c d e f g a b >c d e f g a b' +     // 一気に駆け上がる
   ' l8 o6 c2 r o5 b o6 c4',                         // 決め
   // ハモリ(3 度下)
-  't152 q8 v9 @2 @e0 @s3' +
+  't152 q8 v9 @{pulse50} @e{flat} @s3' +
   ' l16 o5 e8 r e a8 e8  c8 r c e8 c8' +
   ' l16 o4 f g a b >c d e f g a b >c d e f g' +
   ' l8 o5 a2 r g a4',
   // ベース
-  't152 q8 v12 @4 @e0' +
+  't152 q8 v12 @{triangle} @e{flat}' +
   ' l8 o2 a a >a< a  e e >e< e' +
   ' l8 o2 a a >a< a  e e >e< e' +
   ' l8 o2 a4 r4 o1 a2',
   // ドラム
-  '@7 @e2 t152 l8' +
+  '@{noise} @e{percussive} t152 l8' +
   ' v13o2c v6o6c v11o4c v6o6c v13o2c v6o6c v11o4c v6o6c' +
   ' v13o2c v6o6c v11o4c v6o6c v13o2c v6o6c v11o4c v6o6c' +
   ' v13o2c v6o6c v11o4c v6o6c v14o1c2',
@@ -4415,11 +4415,11 @@ const BGM_START = [
 // 1UP のファンファーレ。BGM をいったん黙らせてこれを鳴らす。
 // 短いが、3 声できっちり終止させて「やった感」を出す。
 const BGM_FANFARE = [
-  't160 q8 v14 @1 @e0 @d8 @s2 l16' +
+  't160 q8 v14 @{pulse25} @e{flat} @d8 @s2 l16' +
   ' o5 c e g >c  e8 >c8<  <b >c d e  g2',
-  't160 q8 v10 @2 @e0 l16' +
+  't160 q8 v10 @{pulse50} @e{flat} l16' +
   ' o4 e g >c e  g8 e8  d e f g  e2',
-  't160 q8 v12 @4 @e0 l8' +
+  't160 q8 v12 @{triangle} @e{flat} l8' +
   ' o2 c c g g  c g  o2 c2',
 ];
 
@@ -4427,11 +4427,11 @@ const BGM_FANFARE = [
 // 高いところで華やかに駆け上がって決める。
 // 最後は V -> I で終止させて落ち着かせる
 const BGM_BONUS = [
-  't168 q8 v14 @1 @e0 @d10 @s3 l16' +
+  't168 q8 v14 @{pulse25} @e{flat} @d10 @s3 l16' +
   ' o5 g >c e g  >c< g e c  o5 g b >d g  >c2<',
-  't168 q8 v11 @2 @e0 @s2 l16' +
+  't168 q8 v11 @{pulse50} @e{flat} @s2 l16' +
   ' o4 e g >c e  g e c <g  o4 e g b >d  g2',
-  't168 q8 v12 @4 @e0 l8' +
+  't168 q8 v12 @{triangle} @e{flat} l8' +
   ' o2 c g >c< g  o2 g g >c2<',
 ];
 
@@ -4451,11 +4451,11 @@ const STAFF_BASS = [
 ].join(' ');
 const BGM_STAFF = [
   // 主旋律だけをゆっくり、やわらかい三角波で
-  't104 q8 v12 l4 @4 @e1 @s5 ' + STAFF_MELODY,
+  't104 q8 v12 l4 @{triangle} @e{soft} @s5 ' + STAFF_MELODY,
   // 支えの低音(かすかに)
-  't104 q8 v7 l4 @6 @e1 ' + STAFF_BASS,
+  't104 q8 v7 l4 @{sine} @e{soft} ' + STAFF_BASS,
   // ドラムはごく小さく、拍の頭だけ
-  '@7 @e2 t104 l4 [v5o2c r v3o4c r]16',
+  '@{noise} @e{percussive} t104 l4 [v5o2c r v3o4c r]16',
 ];
 
 // ---- クラシックのアレンジ ----
@@ -4486,10 +4486,10 @@ const ELISE_MELODY = [
 ].join(' ');
 
 const BGM_ELISE = [
-  't132 q7 v12 l8 @1 @e1 @s3 ' + ELISE_MELODY,
-  't132 q7 v8 l16 @1 @e0 @s2 ' + KONAMI_ARP,
-  't132 q8 v12 l8 @4 @e0 ' + KONAMI_BASS,
-  '@7 @e2 t132 l8 ' + KONAMI_DRUM,
+  't132 q7 v12 l8 @{pulse25} @e{soft} @s3 ' + ELISE_MELODY,
+  't132 q7 v8 l16 @{pulse25} @e{flat} @s2 ' + KONAMI_ARP,
+  't132 q8 v12 l8 @{triangle} @e{flat} ' + KONAMI_BASS,
+  '@{noise} @e{percussive} t132 l8 ' + KONAMI_DRUM,
 ];
 
 // 面クリアの曲: ベートーヴェン「運命」をメジャーに直してコナミ進行へ。
@@ -4515,10 +4515,10 @@ const FATE_MELODY = [
   'o5 c1',                          // C : 決め
 ].join(' ');
 const BGM_FATE = [
-  't144 q7 v12 l8 @1 @e1 @s3 ' + FATE_MELODY,
-  't144 q7 v8 l16 @1 @e0 @s2 ' + FATE_ARP,
-  't144 q8 v12 l8 @4 @e0 ' + FATE_BASS,
-  '@7 @e2 t144 l8 ' + KONAMI_DRUM,
+  't144 q7 v12 l8 @{pulse25} @e{soft} @s3 ' + FATE_MELODY,
+  't144 q7 v8 l16 @{pulse25} @e{flat} @s2 ' + FATE_ARP,
+  't144 q8 v12 l8 @{triangle} @e{flat} ' + FATE_BASS,
+  '@{noise} @e{percussive} t144 l8 ' + KONAMI_DRUM,
 ];
 
 // ショパン「幻想即興曲」嬰ハ短調 Op.66 のアレンジ。
@@ -4580,30 +4580,30 @@ const UP = (m) => transposeMML(m, 2);
 
 const BGM_IMPROMPTU = [
   // 走句が主旋律。いちばん大きく前に出す
-  't168 q6 v15 l16 @1 @e0 @s4 @d8 ' + UP(IMPROMPTU_RUN + ' ' + IMPROMPTU_RUN_B),
+  't168 q6 v15 l16 @{pulse25} @e{flat} @s4 @d8 ' + UP(IMPROMPTU_RUN + ' ' + IMPROMPTU_RUN_B),
   // ハモリ(主旋律の上)。同じ形をはっきり聞こえる音量でなぞる
-  't168 q6 v11 l16 @1 @e0 @s2 ' + UP(IMPROMPTU_HARMONY + ' ' + IMPROMPTU_HARMONY_B),
+  't168 q6 v11 l16 @{pulse25} @e{flat} @s2 ' + UP(IMPROMPTU_HARMONY + ' ' + IMPROMPTU_HARMONY_B),
   // 低音は力強さを保ちつつ、主旋律を邪魔しない音量に
-  't168 q8 v10 l8 @5 @e0 ' + UP(IMPROMPTU_BASS + ' ' + IMPROMPTU_BASS_B),
+  't168 q8 v10 l8 @{saw} @e{flat} ' + UP(IMPROMPTU_BASS + ' ' + IMPROMPTU_BASS_B),
   // ドラムもごく控えめ
-  '@7 @e2 t168 l8 [v7o2c r v4o4c r v7o2c r v4o4c r]16',
+  '@{noise} @e{percussive} t168 l8 [v7o2c r v4o4c r v7o2c r v4o4c r]16',
 ];
 
 // 面クリアのジングル。FANFARE や BONUS にくらべて細かったので、
-// 同じ音色(主旋律 @1 / 対旋律 @2 / 低音 @4)にそろえ、長さも 2 倍に。
+// 同じ音色(主旋律 @{pulse25} / 対旋律 @{pulse50} / 低音 @{triangle})にそろえ、長さも 2 倍に。
 // 付点のリズムと行進する低音でマーチらしく決める
 const BGM_CLEAR = [
-  't132 q8 v14 @1 @e0 @d8 @s2 l8' +
+  't132 q8 v14 @{pulse25} @e{flat} @d8 @s2 l8' +
   ' o5 c. c16 e g  >c< g e c' +
   ' o5 d. d16 f a  >d< a f d' +
   ' o5 e. e16 g >c<  d. d16 b >d<' +
   ' o5 c. e16 g. >c16  e4 >c4<',
-  't132 q8 v10 @2 @e0 l8' +
+  't132 q8 v10 @{pulse50} @e{flat} l8' +
   ' o4 e. e16 g >c  e< g e c' +
   ' o4 f. f16 a >d  f< a f d' +
   ' o4 g. g16 >c e<  b. b16 g b' +
   ' o4 e. g16 >c. e16  g4 >e4<',
-  't132 q8 v12 @4 @e0 l8' +
+  't132 q8 v12 @{triangle} @e{flat} l8' +
   ' o2 c g c g  c g c g' +
   ' o2 d a d a  d a d a' +
   ' o2 e b e b  g >d< g >d<' +
@@ -4614,13 +4614,13 @@ const BGM_CLEAR = [
 // 右手の三連符アルペジオ + 左手のオクターブ、という原曲の形をそのまま使う。
 const BGM_GAMEOVER = [
   // 右手: c#m -> c#m -> A -> D/F#(原曲どおりの流れ) の三連アルペジオ
-  't58 q8 v10 @6 @e3 @s3 l12' +
+  't58 q8 v10 @{sine} @e{piano} @s3 l12' +
   ' o4 [g+>c+e<]4 [g+>c+e<]4' +
   ' o4 [a>c+e<]4  [a>d f+<]4' +
   ' o4 [g+>c+e<]2 [g+>c+d+<]2 [g+ b>d+<]2 [g+ b>e<]2',
   // 左手: オクターブの低音(右手 8 小節ぶんに合わせる)。
   // 埋もれず出すぎずの音量にし、倍音のある三角波で輪郭だけ出す
-  't58 q8 v11 @4 @e1 l1 o2 c+ c+ o1 a o2 d o1 g+ g+',
+  't58 q8 v11 @{triangle} @e{soft} l1 o2 c+ c+ o1 a o2 d o1 g+ g+',
 ];
 
 // SE の音量は「聞こえ方」でそろえてある。
@@ -4638,76 +4638,76 @@ const BGM_GAMEOVER = [
 // 長さは t92 で 1 回 2.6 秒(t150 のころは 1.6 秒)。
 // くり返しの切れ目は完全には消せないので、**1 回を長くして目立たなくする**
 const LASER_SE = [
-  '@0 @e0 q8 t92 v15 o5 l2 c&c',           // よく通る細い矩形波
-  '@0 @e0 @d14 q8 t92 v15 o5 l2 g&g',      // 5 度を重ねて厚く
-  '@2 @e0 q8 t92 v14 o4 l2 c&c',           // 1 オクターブ下で芯を作る
-  '@1 @e0 @v5 q8 t92 v13 o6 l2 c&c',       // さらに上でうねらせる
+  '@{pulse12} @e{flat} q8 t92 v15 o5 l2 c&c',           // よく通る細い矩形波
+  '@{pulse12} @e{flat} @d14 q8 t92 v15 o5 l2 g&g',      // 5 度を重ねて厚く
+  '@{pulse50} @e{flat} q8 t92 v14 o4 l2 c&c',           // 1 オクターブ下で芯を作る
+  '@{pulse25} @e{flat} @v5 q8 t92 v13 o6 l2 c&c',       // さらに上でうねらせる
 ];
 
 const SE = {
   // 常に鳴る音。うるさくならないよう控えめ
   // ショット。常時鳴るが埋もれないよう、2 声を重ねてしっかり聞かせる
-  shot: ['@1 @e2 t255 v14 o7 l64 b g e c < a f',
-         '@0 @e2 @d10 t255 v11 o6 l64 b g e c < a f'],
+  shot: ['@{pulse25} @e{percussive} t255 v14 o7 l64 b g e c < a f',
+         '@{pulse12} @e{percussive} @d10 t255 v11 o6 l64 b g e c < a f'],
   // 命中音。ノイズだけだと弾の音に埋もれるので、高い矩形波を重ねて通るようにする
-  hit: ['@7 @e2 t255 v13 o5 l32 c c',
-        '@0 @e2 t255 v12 o6 l32 g > c4'],
+  hit: ['@{noise} @e{percussive} t255 v13 o5 l32 c c',
+        '@{pulse12} @e{percussive} t255 v12 o6 l32 g > c4'],
   // 爆発。ノイズは体感が大きいので数値は下げる
-  boom: ['@7 @e2 t120 v15 l8 o3c o2c4 o1c2',
-         '@5 @e2 t120 v11 l8 o2 c- o1 c-2'],
-  bossboom: ['@7 @e2 t60 v15 l4 o4c o3c o2c o1c1',
-             '@5 @e2 t60 v12 l2 o2 c- o1 c-1'],
+  boom: ['@{noise} @e{percussive} t120 v15 l8 o3c o2c4 o1c2',
+         '@{saw} @e{percussive} t120 v11 l8 o2 c- o1 c-2'],
+  bossboom: ['@{noise} @e{percussive} t60 v15 l4 o4c o3c o2c o1c1',
+             '@{saw} @e{percussive} t60 v12 l2 o2 c- o1 c-1'],
   // とても硬い物(小惑星・ロケット弾)を壊したときの派手な爆発
   // 長すぎて、鳴っているあいだ他の音が聞こえなかったので短くした。
   // **音が聞こえている長さ**ではなく「声をふさいでいる長さ」が問題なので、
   // テンポを上げて 9.6 秒 -> 2.1 秒にしてある(音の並びはそのまま)
   // おしりの伸ばしを 1 -> 2. にして、鳴り終わりを 0.4 秒ほど早めた
-  bigboom: ['@7 @e2 t150 v15 l4 o5c o4c o3c o2c o1c2.',
-            '@5 @e2 t150 v14 l2 o2 c- o1 c-2.',
-            '@7 @e3 t150 v12 l8 o3 c c c c o2 c2.'],
+  bigboom: ['@{noise} @e{percussive} t150 v15 l4 o5c o4c o3c o2c o1c2.',
+            '@{saw} @e{percussive} t150 v14 l2 o2 c- o1 c-2.',
+            '@{noise} @e{piano} t150 v12 l8 o3 c c c c o2 c2.'],
   // 取得音は矩形波で高く抜ける音にして、ほかの SE より目立たせる
-  item: '@2 @e0 @s3 t255 v14 o6 l32 c e g > c < g > c e g > c4',
-  start: '@2 @e0 t180 v12 o5 l16 ceg>c4',
+  item: '@{pulse50} @e{flat} @s3 t255 v14 o6 l32 c e g > c < g > c e g > c4',
+  start: '@{pulse50} @e{flat} t180 v12 o5 l16 ceg>c4',
   // 壊せる硬い敵に当たったときの鈍い「ごわっ!」(低音なので控えめ)
   panel: [
     // 黄色い装甲を叩いたときの音。高い金属音 + 下がるノイズで「カンッ」
-    '@1 @e3 t210 v15 l32 o7 e c o6 a',
-    '@7 @e2 t210 v12 l32 o6 c o5 g r',
+    '@{pulse25} @e{piano} t210 v15 l32 o7 e c o6 a',
+    '@{noise} @e{percussive} t210 v12 l32 o6 c o5 g r',
   ],
-  clink: ['@7 @e2 t255 v13 o3 l16 c c',
-          '@5 @e2 t255 v11 o2 l16 g g'],
+  clink: ['@{noise} @e{percussive} t255 v13 o3 l16 c c',
+          '@{saw} @e{percussive} t255 v11 o2 l16 g g'],
   // 回るガードに当たったときの音(高く硬い「カツン」)
-  guardhit: ['@0 @e2 t255 v15 o6 l32 g > c4',
-             '@2 @e2 @d10 t255 v12 o5 l32 g > c4',
-             '@7 @e2 t255 v9 o4 l32 c c'],
+  guardhit: ['@{pulse12} @e{percussive} t255 v15 o6 l32 g > c4',
+             '@{pulse50} @e{percussive} @d10 t255 v12 o5 l32 g > c4',
+             '@{noise} @e{percussive} t255 v9 o4 l32 c c'],
   // 壊せない物(小惑星など)に弾かれたときの「キンキン」
   // 16t のおもりが落ちてくる音。低くにぶい「ゴゴ…」から「ドスン」
   // 16t のおもりが落ちてくる合図。矩形波で高いところから
   // 「ひゅーん」と下りてきて、最後に重い着地音を置く
-  weight: ['@1 @e1 t150 v15 o6 l32 c < b a g f e d c < b a g f e d c @e2 v14 o2 c8',
-           '@1 @e1 t150 v12 o5 l32 c < b a g f e d c < b a g f e d c @e2 v12 o2 c8',
-           '@2 @e0 t150 v10 o1 l4 r c'],
-  thud: ['@0 @e2 @s2 t255 v14 o7 l32 e b >e4<',
-         '@2 @e2 @d14 t255 v12 o6 l32 b >e< b4'],
+  weight: ['@{pulse25} @e{soft} t150 v15 o6 l32 c < b a g f e d c < b a g f e d c @e{percussive} v14 o2 c8',
+           '@{pulse25} @e{soft} t150 v12 o5 l32 c < b a g f e d c < b a g f e d c @e{percussive} v12 o2 c8',
+           '@{pulse50} @e{flat} t150 v10 o1 l4 r c'],
+  thud: ['@{pulse12} @e{percussive} @s2 t255 v14 o7 l32 e b >e4<',
+         '@{pulse50} @e{percussive} @d14 t255 v12 o6 l32 b >e< b4'],
   // ボスの弱点に当たったとき(高く抜ける音。手応えを出すので少し大きめ)
-  weak: ['@1 @e2 @s3 t255 v15 o6 l32 c > e g >c4<',
-         '@2 @e2 @d12 t255 v12 o5 l32 g > c e g4'],
+  weak: ['@{pulse25} @e{percussive} @s3 t255 v15 o6 l32 c > e g >c4<',
+         '@{pulse50} @e{percussive} @d12 t255 v12 o5 l32 g > c e g4'],
   // ボスの装甲に弾かれたとき(低く重い音。低音なので数値は下げる)
-  armor: ['@5 @e2 t255 v12 o2 l32 c c c4',
-          '@7 @e2 t255 v9 o4 l32 c c c4'],
+  armor: ['@{saw} @e{percussive} t255 v12 o2 l32 c c c4',
+          '@{noise} @e{percussive} t255 v9 o4 l32 c c c4'],
   // 目玉が現れるときの合図。「どががががが」と、
   // ノイズを鳴らしながら音階が駆け上がっていく
-  eyeAppear: ['@7 @e0 t220 v15 o2 l16 c e g > c e g > c e g > c4',
-              '@5 @e0 @v4 t220 v13 o2 l16 c e g > c e g > c e g > c4',
-              '@0 @e0 @s4 t220 v10 o4 l16 r8 c e g > c e g > c4'],
+  eyeAppear: ['@{noise} @e{flat} t220 v15 o2 l16 c e g > c e g > c e g > c4',
+              '@{saw} @e{flat} @v4 t220 v13 o2 l16 c e g > c e g > c e g > c4',
+              '@{pulse12} @e{flat} @s4 t220 v10 o4 l16 r8 c e g > c e g > c4'],
   // 残り 1 機の警告。ここは埋もれては困るので全体でいちばん大きい
-  warning: ['@0 @e0 @s3 t255 v14 o6 l32 e g > c e g > c e g > c4',
-            '@2 @e0 @d16 t255 v11 o5 l32 e g > c e g > c e g > c4'],
+  warning: ['@{pulse12} @e{flat} @s3 t255 v14 o6 l32 e g > c e g > c e g > c4',
+            '@{pulse50} @e{flat} @d16 t255 v11 o5 l32 e g > c e g > c e g > c4'],
   // レーザーを溜めているときの音(だんだん高くなる唸り)。
   // 長い音は途中で止められず、ポーズしても鳴り続けてしまうので、
   // 0.4 秒ほどの短いかたまりにして、鳴らす側でくり返す形にした
-  charging: ['@6 @e1 @v6 t150 v14 o3 l16 c e g > c',
-             '@0 @e1 @s5 t150 v10 o5 l16 r c e g'],
+  charging: ['@{sine} @e{soft} @v6 t150 v14 o3 l16 c e g > c',
+             '@{pulse12} @e{soft} @s5 t150 v10 o5 l16 r c e g'],
   // ボスのレーザー発射音。低い唸り + 高い放電 + ノイズを重ねる。
   // こちらも短いかたまりにして、撃っているあいだ鳴らし続ける
   laser: LASER_SE,
@@ -4715,60 +4715,60 @@ const SE = {
   // 細くなる段階で元の高さへ落ちるので、「弱まった」ことが音でも分かる
   laserHi: LASER_SE.map((m) => transposeMML(m, 1)),
   // ドラゴンの突進。「ゴギャ――――」と叫ぶ
-  dragonRoar: ['@7 @e2 t120 v15 o2 l32 c c r16 @e0 v9 o1 l2 c&c',
-               '@5 @e0 @v7 t120 v15 o3 l32 g > d < b a g f e d @e0 l2 o2 c&c',
-               '@1 @e0 @d25 @v6 t120 v12 o4 l32 g > d < b a g f e d l2 o3 c&c'],
+  dragonRoar: ['@{noise} @e{percussive} t120 v15 o2 l32 c c r16 @e{flat} v9 o1 l2 c&c',
+               '@{saw} @e{flat} @v7 t120 v15 o3 l32 g > d < b a g f e d @e{flat} l2 o2 c&c',
+               '@{pulse25} @e{flat} @d25 @v6 t120 v12 o4 l32 g > d < b a g f e d l2 o3 c&c'],
   // ドラゴンが狙いを定めているあいだのカウント。声のように聞こえるよう、
   // 少しずらした 2 本のパルス波を 2 音ずつ滑らせる(3 -> 2 -> 1 で音が上がる)
   // 3・2・1 の読み上げ。埋もれて聞こえなかったので、
   // 矩形波のまま**音量を上げ、少し長く**して、オクターブ上を重ねる
   // 3・2・1 の読み上げ。短くて聞き取れなかったので、
-  // **音を伸ばして** はっきり鳴らす(@e0 = 伸ばしっぱなしの音)。
+  // **音を伸ばして** はっきり鳴らす(@e{flat} = 伸ばしっぱなしの音)。
   // 矩形波の 3 声(下・中・上)を重ねて、弾幕の中でも抜けてくるようにする
-  count3: ['@1 @e0 @v5 t150 v15 o5 l4 g l8 f4', '@1 @e0 @d18 t150 v13 o4 l4 g l8 f4',
-           '@1 @e0 t150 v11 o6 l4 g l8 f4'],
-  count2: ['@1 @e0 @v5 t150 v15 o5 l4 b l8 a4', '@1 @e0 @d18 t150 v13 o4 l4 b l8 a4',
-           '@1 @e0 t150 v11 o6 l4 b l8 a4'],
-  count1: ['@1 @e0 @v5 t150 v15 o6 l4 e l8 d4', '@1 @e0 @d18 t150 v13 o5 l4 e l8 d4',
-           '@1 @e0 t150 v12 o7 l4 e l8 d4'],
+  count3: ['@{pulse25} @e{flat} @v5 t150 v15 o5 l4 g l8 f4', '@{pulse25} @e{flat} @d18 t150 v13 o4 l4 g l8 f4',
+           '@{pulse25} @e{flat} t150 v11 o6 l4 g l8 f4'],
+  count2: ['@{pulse25} @e{flat} @v5 t150 v15 o5 l4 b l8 a4', '@{pulse25} @e{flat} @d18 t150 v13 o4 l4 b l8 a4',
+           '@{pulse25} @e{flat} t150 v11 o6 l4 b l8 a4'],
+  count1: ['@{pulse25} @e{flat} @v5 t150 v15 o6 l4 e l8 d4', '@{pulse25} @e{flat} @d18 t150 v13 o5 l4 e l8 d4',
+           '@{pulse25} @e{flat} t150 v12 o7 l4 e l8 d4'],
   // 画面をクリップボードへコピーしたときの「カシャッ」。
   // ミラーが上がる短い音 -> シャッターが閉じる音、の 2 つ重ね。
   // ゲームの音より上に鳴らしたいので、呼ぶ側でいちばん強い優先度を渡す
-  shutter: ['@7 @e2 t255 v15 o4 l32 c r64 c16',
-            '@1 @e2 @s6 t255 v15 o7 l64 c r32 c',
+  shutter: ['@{noise} @e{percussive} t255 v15 o4 l32 c r64 c16',
+            '@{pulse25} @e{percussive} @s6 t255 v15 o7 l64 c r32 c',
             // 低いほうを 1 声足して、音の芯を太くする(小さく聞こえたため)
-            '@5 @e2 t255 v15 o3 l32 c r64 c16'],
+            '@{saw} @e{percussive} t255 v15 o3 l32 c r64 c16'],
   // 「?」からオート連射が出たときの、短い当たりの音。
   // ジングルほど派手にはせず、上へ 3 段だけ跳ねて終わる
   // 「ピロリロリロ」。矩形波で上下に跳ねる細かい音を並べて、
   // ほかの音にまぎれないようにする(? から出る特別なアイテム)
-  autofire: ['@1 @e1 @s4 t240 v15 o5 l32 c g e >c< g >e c g >c2<',
-             '@1 @e1 @d12 t240 v12 o6 l32 c g e >c< g >e c g >c2<',
-             '@0 @e0 t240 v9 o4 l16 c e g >c2<'],
+  autofire: ['@{pulse25} @e{soft} @s4 t240 v15 o5 l32 c g e >c< g >e c g >c2<',
+             '@{pulse25} @e{soft} @d12 t240 v12 o6 l32 c g e >c< g >e c g >c2<',
+             '@{pulse12} @e{flat} t240 v9 o4 l16 c e g >c2<'],
   // 「そこじゃない!」の音。まだ石のうちに切り口を撃つと鳴る。
   // わざと調子はずれ(半音のぶつかり)にして、ほかの音と間違えないようにする
-  scold: ['@1 @e2 @d20 t200 v15 o4 l16 f e- d- c8',
-          '@1 @e2 @d40 t200 v13 o4 l16 e d c- <b8',
-          '@7 @e2 t200 v10 o3 l16 c r c r'],
+  scold: ['@{pulse25} @e{percussive} @d20 t200 v15 o4 l16 f e- d- c8',
+          '@{pulse25} @e{percussive} @d40 t200 v13 o4 l16 e d c- <b8',
+          '@{noise} @e{percussive} t200 v10 o3 l16 c r c r'],
   // 体力が満ちていく音。低いところから上へ、やわらかく駆け上がる。
   // 瞑想(座禅)で回復するときに鳴らす
-  heal: ['@2 @e1 @s3 t190 v13 o4 l16 c e g >c e g >c2<',
-         '@0 @e1 @s2 t190 v10 o5 l16 e g >c e g >c e2<',
-         '@4 @e0 t190 v12 o2 l8 c g >c4<'],
+  heal: ['@{pulse50} @e{soft} @s3 t190 v13 o4 l16 c e g >c e g >c2<',
+         '@{pulse12} @e{soft} @s2 t190 v10 o5 l16 e g >c e g >c e2<',
+         '@{triangle} @e{flat} t190 v12 o2 l8 c g >c4<'],
   // 空間がひび割れて広がる音(バキョ)。ラスボスの裂け目が開くときに使う
-  rifttear: ['@7 @e2 t200 v15 o3 l16 c c32 c32 c8',
-             '@5 @e2 t200 v14 o4 l16 c o3 g32 e32 c8',
-             '@0 @e2 @s5 t200 v11 o6 l16 c o5 g32 e32 c8'],
+  rifttear: ['@{noise} @e{percussive} t200 v15 o3 l16 c c32 c32 c8',
+             '@{saw} @e{percussive} t200 v14 o4 l16 c o3 g32 e32 c8',
+             '@{pulse12} @e{percussive} @s5 t200 v11 o6 l16 c o5 g32 e32 c8'],
   // 小惑星に弾かれたときの「ピキーン」
-  ricochet: ['@0 @e2 @s6 t255 v12 o7 l32 b > e4',
-             '@0 @e2 @d18 t255 v9 o6 l32 b > e4'],
+  ricochet: ['@{pulse12} @e{percussive} @s6 t255 v12 o7 l32 b > e4',
+             '@{pulse12} @e{percussive} @d18 t255 v9 o6 l32 b > e4'],
   // 「これは壊せない」ことを伝える、低くつまった音
-  nobreak: ['@5 @e2 t255 v14 o2 l16 c c32 o1 b32 c8',
-            '@7 @e2 t255 v11 o2 l16 c c32 c32 c8'],
+  nobreak: ['@{saw} @e{percussive} t255 v14 o2 l16 c c32 o1 b32 c8',
+            '@{noise} @e{percussive} t255 v11 o2 l16 c c32 c32 c8'],
   // ポーズの出入り(短い 2 音)
-  pause: '@2 @e0 t255 v12 o5 l16 c > c4',
-  powerdown: '@5 @e2 t255 v12 o6 l16 g e c <g e c',   // 下降音(パワーダウン)
-  appear: '@2 @e1 t255 v11 o3 l32 c e g > c e g > c', // 上昇音(復帰時)
+  pause: '@{pulse50} @e{flat} t255 v12 o5 l16 c > c4',
+  powerdown: '@{saw} @e{percussive} t255 v12 o6 l16 g e c <g e c',   // 下降音(パワーダウン)
+  appear: '@{pulse50} @e{soft} t255 v11 o3 l32 c e g > c e g > c', // 上昇音(復帰時)
 };
 
 
@@ -6047,13 +6047,13 @@ const SALUT_BASS = [
 
 const BGM_SALUT = [
   // 主旋律。ビブラートとエコーで弦のように歌わせる(少し音量を下げてある)
-  "t100 q7 v11 l8 @2 @e1 @v5 @s4 " + SALUT_MELODY,
+  "t100 q7 v11 l8 @{pulse50} @e{soft} @v5 @s4 " + SALUT_MELODY,
   // 低音
-  't100 q6 v11 l8 @5 @e0 ' + SALUT_BASS,
+  't100 q6 v11 l8 @{saw} @e{flat} ' + SALUT_BASS,
   // 和音は 3 本のチャンネルで鳴らす。25% パルスでギターに寄せる
-  't100 q7 v10 l8 @1 @e1 @s2 ' + SALUT_CH_A,
-  't100 q7 v9 l8 @1 @e1 ' + SALUT_CH_B,
-  't100 q7 v9 l8 @1 @e1 ' + SALUT_CH_C,
+  't100 q7 v10 l8 @{pulse25} @e{soft} @s2 ' + SALUT_CH_A,
+  't100 q7 v9 l8 @{pulse25} @e{soft} ' + SALUT_CH_B,
+  't100 q7 v9 l8 @{pulse25} @e{soft} ' + SALUT_CH_C,
 ];
 
 // ---------------------------------------------------------------- 書き出し
