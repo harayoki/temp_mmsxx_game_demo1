@@ -3088,19 +3088,23 @@ function updateNameEntry() {
   for (let i = 0; i < 26; i++) {
     if (mmsxx.input.wasPressed('Key' + String.fromCharCode(65 + i))) typeChar(String.fromCharCode(65 + i));
   }
+  // SHIFT を押しているか。**'!' は SHIFT + 1** で入れられるようにする
+  // (エンジンはキーの位置しか見ないので、記号は自分で組み立てる)
+  const shift = mmsxx.input.isDown('ShiftLeft') || mmsxx.input.isDown('ShiftRight');
   for (let i = 0; i < 10; i++) {
-    if (mmsxx.input.wasPressed('Digit' + i)) typeChar(String(i));
+    if (!mmsxx.input.wasPressed('Digit' + i)) continue;
+    typeChar(shift && i === 1 ? '!' : String(i));
   }
   // 記号も入れられる(スペースは名前の一部。決定には使わない)
   const SYMBOLS = [
     ['Space', ' '], ['Minus', '-'], ['Comma', ','], ['Period', '.'],
-    ['Slash', '?'], ['Digit1', '!'],
   ];
   for (const [code, ch] of SYMBOLS) {
-    // '!' と '?' は Shift 付きなので、記号キー単体でも入るようにしてある
-    if (code === 'Digit1' || code === 'Slash') continue;
     if (mmsxx.input.wasPressed(code)) typeChar(ch);
   }
+  // '?' は SHIFT の有無にかかわらず「/」のキーで入る。
+  // '!' は SHIFT + 1 のほか、キーの並びが違う配列でも困らないよう
+  // 「\」「=」からも入れられるようにしてある
   if (mmsxx.input.wasPressed('Slash')) typeChar('?');
   if (mmsxx.input.wasPressed('Backslash') || mmsxx.input.wasPressed('Equal')) typeChar('!');
   if (mmsxx.input.wasPressed('Backspace')) {
