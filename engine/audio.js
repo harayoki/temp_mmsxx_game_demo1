@@ -695,6 +695,18 @@ export class PSGPlayer {
     gain.gain.linearRampToValueAtTime(0, t1);
   }
 
+  /**
+   * **オクターブ重ね**。同じ音の 1 オクターブ下(と 2 オクターブ下)を
+   * 小さめに重ねて、音を太くする。MML の `@o1` / `@o2`。
+   * 下へ行くほど弱くして、輪郭は上の音のままに保つ
+   */
+  _playOctaves(ev, amp, t0, t1, dest, nodes) {
+    const n = ev.octave2 | 0;
+    if (n <= 0) return;
+    this._playVoice(ev, ev.freq / 2, amp * 0.5, t0, t1, dest, nodes);
+    if (n >= 2) this._playVoice(ev, ev.freq / 4, amp * 0.28, t0, t1, dest, nodes);
+  }
+
   /** 1 音ぶんの音源 + エンベロープを組み立てて鳴らす */
   _playVoice(ev, freq, amp, t0, t1, dest, nodes) {
     const ctx = this.ctx;
@@ -737,6 +749,7 @@ export class PSGPlayer {
       const t1 = when + (end - off);
       const amp = volGain(ev.vol) * MASTER_VOL;
       this._playVoice(ev, ev.freq, amp, t0, t1, dest, nodes);
+      this._playOctaves(ev, amp, t0, t1, dest, nodes);
       if (ev.detune > 0) {
         const f2 = ev.freq * Math.pow(2, ev.detune / 1200);
         this._playVoice(ev, f2, amp * 0.6, t0, t1, dest, nodes);
@@ -759,6 +772,9 @@ export class PSGPlayer {
       const amp = volGain(ev.vol) * MASTER_VOL;
 
       this._playVoice(ev, ev.freq, amp, t0, t1, dest, nodes);
+
+      // オクターブ重ね: 下のオクターブを重ねて厚みを出す
+      this._playOctaves(ev, amp, t0, t1, dest, nodes);
 
       // デチューン: わずかにずらした音を重ねて厚みを出す
       if (ev.detune > 0) {

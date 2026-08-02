@@ -22,6 +22,8 @@
 //   @d<n>    デチューン (セント単位。2 音を少しずらして重ねる。0 で無効)
 //   @v<n>    ビブラート 0..9 (0 で無効。数字が大きいほど深い)
 //   @s<n>    エコー(ディレイ) 0..9 (0 で無効。数字が大きいほど強い)
+//   @o<n>    オクターブ重ね 0..2 (0 で無効)。同じ音の 1 オクターブ下を
+//            重ねて厚くする。2 なら 2 オクターブ下も足す
 
 const SEMI = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 };
 
@@ -108,13 +110,13 @@ export function compileMML(mml) {
   let pos = 0;
   let octave = 4, defLen = 4, tempo = 120, vol = 10, gate = 7;
   // 音色・効果の現在値(音符ごとにイベントへコピーする)
-  let wave = 2, env = 0, detune = 0, vibrato = 0, echo = 0;
+  let wave = 2, env = 0, detune = 0, vibrato = 0, echo = 0, octave2 = 0;
   let time = 0;
   const events = [];
   const pushNote = (dur, freq) => {
     events.push({
       t: time, dur, gate: dur * gate / 8, freq, vol,
-      wave, env, detune, vibrato, echo,
+      wave, env, detune, vibrato, echo, octave2,
     });
   };
 
@@ -199,6 +201,7 @@ export function compileMML(mml) {
       else if (kind === 'd') { pos++; detune = clamp(readNumber() ?? detune, 0, 100); }
       else if (kind === 'v') { pos++; vibrato = clamp(readNumber() ?? vibrato, 0, 9); }
       else if (kind === 's') { pos++; echo = clamp(readNumber() ?? echo, 0, 9); }
+      else if (kind === 'o') { pos++; octave2 = clamp(readNumber() ?? octave2, 0, 2); }
       else if (kind === 'n') { pos++; wave = 6; } // 旧記法: @n = ノイズ
       else wave = clamp(readNumber() ?? wave, 0, WAVEFORMS.length - 1);
     }

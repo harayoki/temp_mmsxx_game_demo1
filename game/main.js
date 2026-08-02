@@ -8216,6 +8216,21 @@ function checkCheatCode() {
   }
 }
 
+// PC からは貼り付け(Ctrl+V)でも入れられる。長い語を何度も打つのが手間なので。
+// 英数字だけを拾い、あとは打ったときと同じ道を通す
+if (typeof window !== 'undefined') {
+  window.addEventListener('paste', (e) => {
+    const text = (e.clipboardData && e.clipboardData.getData('text')) || '';
+    const word = text.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!word) return;
+    e.preventDefault();
+    for (const ch of word.slice(-12)) {
+      typed = (typed + ch).slice(-12);
+      pushTypedShow(ch);
+    }
+  });
+}
+
 // ポーズ中に打ち込んだものを画面に出す(RETURN で確定)。
 // 英字だけでなく、↑↓←→ も記号にして見せる。
 let typedShow = '';

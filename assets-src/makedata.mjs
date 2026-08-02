@@ -3797,8 +3797,9 @@ const REST_BARS = (n) => 'l1 ' + 'r '.repeat(n);
 // 構成は A - A'(変奏) - B(展開) - C(終結) の 32 小節でループする
 const BGM_MAIN = [
   // 歌メロ(デチューンはかけずに輪郭をはっきりさせる)
-  // 音色はゲーム側で足した波形メモリ wtLead(main.js の addWave)
-  't150 q7 v12 l8 @{wtLead} @e{soft} @s3 ' + CANON_MELODY + ' ' + CANON_MELODY_A2 + ' ' +
+  // 音色はゲーム側で足した波形メモリ wtLead(main.js の addWave)。
+  // 1 オクターブ下を重ねて太くし(@o1)、デチューンで少しにじませる(@d12)
+  't150 q7 v12 l8 @{wtLead} @e{soft} @s3 @o1 @d12 ' + CANON_MELODY + ' ' + CANON_MELODY_A2 + ' ' +
     BRIDGE_MELODY + ' ' + CODA_MELODY,
   // アルペジオ(伴奏)。25% パルスで軽く
   't150 q7 v9 l16 @{pulse25} @e{flat} @s2 [' + CANON_ARP + ']2 ' +
@@ -3811,10 +3812,6 @@ const BGM_MAIN = [
   // A' のハモリ(歌メロの 3 度下)。A / B / C のあいだは休む
   't150 q7 v9 l8 @{pulse25} @e{soft} @s2 ' + REST_BARS(8) + 'l8 ' + CANON_HARMONY_A2 +
     ' ' + REST_BARS(16),
-  // 歌メロの 1 オクターブ下。同じ音色を重ねて厚みを出す。
-  // 前に出すぎないよう音量は控えめ、エコーも浅くする
-  't150 q7 v7 l8 @{wtLead} @e{soft} @s2 ' + transposeMML(
-    CANON_MELODY + ' ' + CANON_MELODY_A2 + ' ' + BRIDGE_MELODY + ' ' + CODA_MELODY, -12),
 ];
 
 // 最大パワー時の BGM。ここだけカノン進行から離れて、
@@ -4620,14 +4617,14 @@ const BGM_CLEAR = [
 const BGM_GAMEOVER = [
   // 右手: c#m -> c#m -> A -> D/F#(原曲どおりの流れ) の三連アルペジオ
   // 波形メモリの鐘の音。減衰させると、こもったチェレスタのように響く
-  't58 q8 v10 @{wtBell} @e{piano} @s3 l12' +
+  't58 q8 v10 @{wtBell} @e{piano} @s7 l12' +
   ' o4 [g+>c+e<]4 [g+>c+e<]4' +
   ' o4 [a>c+e<]4  [a>d f+<]4' +
   ' o4 [g+>c+e<]2 [g+>c+d+<]2 [g+ b>d+<]2 [g+ b>e<]2',
   // 左手: オクターブの低音(右手 8 小節ぶんに合わせる)。
   // 埋もれず出すぎずの音量にし、倍音のある三角波で輪郭だけ出す
   // 低音はオルガンの波形で、下から支える
-  't58 q8 v10 @{wtOrgan} @e{soft} l1 o2 c+ c+ o1 a o2 d o1 g+ g+',
+  't58 q8 v10 @{wtOrgan} @e{soft} @s4 l1 o2 c+ c+ o1 a o2 d o1 g+ g+',
 ];
 
 // SE の音量は「聞こえ方」でそろえてある。
