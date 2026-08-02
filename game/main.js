@@ -1647,6 +1647,8 @@ function burnBossBehind(fx, fy, r, dmg) {   // dmg は中で半分にするこ�
     if (boss.kind === 'king') killKingWithRoar();
     else {
       boss.dying = 90;
+      clearChicks(boss);   // 気絶のひよこを残さない
+      if (boss.stun) boss.stun = 0;
       mmsxx.audio.stopBGM();
       mmsxx.audio.playSE('bossboom', SE_HIT);
     }
@@ -4576,6 +4578,7 @@ function todoGiveUp(b) {
   b.tearBurst = 120;
   b.hp = 0;             // ここで自分から終わる
   b.dying = 90;
+  clearChicks(b);   // 気絶のひよこを残さない
   mmsxx.audio.stopBGM();
   currentBGM = null;
   mmsxx.audio.playSE('bossboom', SE_HIT);
@@ -7215,6 +7218,8 @@ function updatePlay() {
         }
         if (boss.hp <= 0) {
           boss.dying = 90;
+          clearChicks(boss);   // 気絶のひよこを残さない
+          if (boss.stun) boss.stun = 0;
           mmsxx.audio.stopBGM();
           mmsxx.audio.playSE('bossboom', SE_HIT);
         }
@@ -7229,6 +7234,8 @@ function updatePlay() {
       spawnWeakSpark(b.sp.x, b.sp.y);
       if (boss.hp <= 0) {
         boss.dying = 90;
+        clearChicks(boss);   // 気絶のひよこを残さない
+        if (boss.stun) boss.stun = 0;
         mmsxx.audio.stopBGM();
         mmsxx.audio.playSE('bossboom', SE_HIT);
       }
@@ -7501,6 +7508,8 @@ function updatePlay() {
           if (boss.muzzleHp <= 0) {
             boss.hp = 0;
             boss.dying = 90;
+            clearChicks(boss);   // 気絶のひよこを残さない
+            if (boss.stun) boss.stun = 0;
             mmsxx.audio.stopBGM();
             mmsxx.audio.playSE('bossboom', SE_HIT);
           }
@@ -7539,6 +7548,8 @@ function updatePlay() {
         if (weak) spawnWeakSpark(b.sp.x, b.sp.y);
         if (boss.hp <= 0) {
           boss.dying = 90;
+          clearChicks(boss);   // 気絶のひよこを残さない
+          if (boss.stun) boss.stun = 0;
           mmsxx.audio.stopBGM();
           mmsxx.audio.playSE('bossboom', SE_HIT);
         }
