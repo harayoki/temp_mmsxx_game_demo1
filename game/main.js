@@ -117,6 +117,9 @@ const SPRITE_COLORS = {
   barrierItem: 1, bulletRing: 1, enemyH: 1, enemyI: 1, enemyJ: 1,
   fireBall: 1, fireBall1: 1, fireBall2: 1, fireM0: 1, fireM1: 1, fireS0: 1, fireS1: 1,
   chick0: 1, chick1: 1,   // 気絶のときに頭を回るひよこ
+  // ラスボスのレーザー線(16 方向)。長い版は 5 面ではるか前方から飛んでくる
+  ...Object.fromEntries(Array.from({ length: 16 }, (_, i) => ['kingLine' + i, 1])),
+  ...Object.fromEntries(Array.from({ length: 16 }, (_, i) => ['kingLineL' + i, 1])),
   pilotPupil: 1, pilotSmile: 1, pilotWink: 1,
   todoBlush: 2,   // 赤みと影の 2 色
   riftGlow: 2,    // 水色と白の 2 色
@@ -2459,6 +2462,9 @@ function enterTitle(page = 0, focusRank = -1, fromOver = false) {
   popups = [];
   titlePage = page;
   titleTimer = 0;
+  // 記録を登録した直後は、自分の順位をゆっくり見てもらいたい。
+  // 数え始めを戻して、そのぶんページが切り替わるのを遅らせる
+  if (focusRank >= 0) titleTimer = -TITLE_RANK_HOLD;
   // タイトルへ戻ってきたので、裏でランキングを取り直しておく。
   // 待たないので、取得中でもそのままゲームを始められる
   refreshRankings();
@@ -2473,6 +2479,8 @@ function enterTitle(page = 0, focusRank = -1, fromOver = false) {
   }
 }
 
+// 登録した直後、そのランキングのページを長く出しておくコマ数(15 秒ぶん)
+const TITLE_RANK_HOLD = 900;
 // タイトル画面は「ロゴ」と「アイテム説明」を交互に見せる
 let titlePage = 0;
 let titleTimer = 0;
@@ -4644,7 +4652,9 @@ const KING_GUARD_LEN = 30;    // 0.5 秒
 // 1 発ごとに落ちる割合。すぐ動けなくなりすぎたので 1.5 倍かかるようにした
 const KING_SLOW_STEP = 0.047;
 const KING_STUN_LEN = 180;    // 3 秒その場で固まる
-// 動けなくなるのは 2 回まで。3 回目からは代わりに座って瞑想する
+// 動けなくなる回数は**たくわえ**で持つ。使い切ると、代わりに座って瞑想する。
+// 瞑想(回復)のたびに 1 つ戻り、たくわえは最大 2 まで。
+// 「回復させるとまたピヨらせられる」という駆け引きになる
 const KING_STUN_MAX = 2;
 // 瞑想(座禅)。無敵になり、最大体力の半分を取り戻す。1 戦で 4 回まで
 const KING_MEDITATE_LEN = 200;
@@ -5182,6 +5192,8 @@ function kickRate(b) {
 function startKingMeditate(b) {
   b.meditate = KING_MEDITATE_LEN;
   b.meditateCount = (b.meditateCount || 0) + 1;
+  // 息を整えるので、ピヨりのたくわえが 1 つ戻る(上限 2)
+  b.stunStock = Math.min(KING_STUN_MAX, (b.stunStock || 0) + 1);
   b.healPer = (b.max * 0.5) / KING_MEDITATE_LEN;
   b.slowMul = 1;
   b.stun = 0;
@@ -5196,7 +5208,8 @@ function updateKingFight(b) {
   if (b.act === undefined) { b.act = 'idle'; b.actTimer = KING_ACT_GAP; }
   if (b.slowMul == null) {
     b.slowMul = 1; b.guard = 0; b.stun = 0;
-    b.stunCount = 0; b.meditate = 0; b.meditateCount = 0;
+    b.stunStock = KING_STUN_MAX;   // ピヨらせられる残り回数
+    b.meditate = 0; b.meditateCount = 0;
   }
   if (b.guard > 0) b.guard--;
   // ---- 瞑想(座禅)。無敵で体力を戻す ----
@@ -7407,12 +7420,13 @@ function updatePlay() {
           if (boss.stun <= 0 && boss.meditate <= 0) {
             boss.slowMul = Math.max(0, (boss.slowMul == null ? 1 : boss.slowMul) - KING_SLOW_STEP);
             if (boss.slowMul <= 0.1) {
-              if ((boss.stunCount || 0) < KING_STUN_MAX) {
-                boss.stunCount = (boss.stunCount || 0) + 1;
+              if ((boss.stunStock || 0) > 0) {
+                boss.stunStock--;
                 boss.stun = KING_STUN_LEN;
                 showNotice('IT IS EXHAUSTED!');
               } else if (boss.hp / boss.max < KING_MEDITATE_HP) {
-                // 3 回目からは、弱っていれば座って立て直してくる。
+                // たくわえを使い切ったら、弱っていれば座って立て直してくる
+                // (そこで 1 つ戻るので、また 1 回ピヨらせられる)。
                 // まだ元気なら息を整えるだけで、動きは元に戻る
                 startKingMeditate(boss);
               } else {
