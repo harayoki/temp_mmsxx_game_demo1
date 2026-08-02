@@ -2569,6 +2569,9 @@ function drawTitlePage() {
     hud.print(centerX(ver), logoY + IMG.logo.height + 16, ver, 14);
     const help = String.fromCharCode(0x18, 0x19, 0x1a, 0x1b) + ':MOVE  SP:SHOT  ESC:PAUSE';
     hud.print(centerX(help), 158, help, 10);
+    // 著作権表示はいちばん下に(© は 8 ドットフォントにないので (C) と書く)
+    const copy = '(C) 2026 HARAYOKI';
+    hud.print(centerX(copy), 176, copy, 6);
     // 手元で開いているときだけ、隅に小さく印を出す(公開版には出ない)
     if (DEV) hud.print(VW - 32, 184, 'DEV', 6);
   } else if (titlePage === 1) {
