@@ -3132,6 +3132,11 @@ let submitRank = -1;         // サーバが数えた順位(0 起点 / 載らな
 let submitFailed = false;    // 通信に失敗したか(board.lastError を見る)
 let submitPage = 2;          // 進む先の一覧のページ
 let submitLocal = false;     // 「手元だけに残る」を出して、キー待ちのあいだ
+// **最低でもこれだけは見せる**。中身が手元の保存だと一瞬で返ってしまい、
+// 「送っています」が見えないまま画面が変わって、何が起きたのか分からない。
+// サーバに繋いだときと同じ手ざわりにするための、わざとの待ち
+const SUBMIT_MIN = 60;       // 1 秒
+let submitMin = 0;           // 残りのコマ数
 let submitAsk = false;       // 「もう一度送るか」を聞いているあいだ
 let submitBoard = null;      // 送り先の表(送り直すために覚えておく)
 let submitEntry = null;      // 送る記録(同上)
@@ -3155,6 +3160,7 @@ function sendSubmit() {
   submitDone = false;
   submitFailed = false;
   submitAsk = false;
+  submitMin = SUBMIT_MIN;
   drawSubmitting();
   // **投げっぱなしにはしない**。返事が返ったら submitDone を立てて、
   // 進むのは毎フレームの update 側に任せる(状態の持ち方を 1 か所にまとめる)
@@ -3227,7 +3233,9 @@ function updateSubmitting() {
     enterTitle(submitPage, submitRank, true);
     return;
   }
-  if (!submitDone) {
+  // 返事が来ていても、最低の時間が過ぎるまでは「送っています」を見せる
+  if (submitMin > 0) submitMin--;
+  if (!submitDone || submitMin > 0) {
     if (mmsxx.frame % 20 === 0) drawSubmitting();
     return;
   }
