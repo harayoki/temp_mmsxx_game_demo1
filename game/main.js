@@ -8789,6 +8789,9 @@ const STAFF_LINES = [
   'HYPER' + RET,
   'MEIJIN' + RET,
   String.fromCharCode(0x18, 0x18, 0x19, 0x19, 0x1a, 0x1b, 0x1a, 0x1b) + 'BA',
+  // 打ち込むと画面の色合いが変わる。名前そのものが謝辞でもある
+  'TMS9918' + RET,
+  'V9938' + RET,
   '',
   '',
   'ABOUT MMSXX ENGINE',
