@@ -2550,10 +2550,15 @@ function drawTitlePage() {
   for (const sp of helpIconSprites()) sp.visible = false;
   if (titlePage === 0) {
     // ロゴも BG として描く(スプライトで補助しない = 横8ドット2色の制約に従う)
-    hud.draw((SCREEN_W - IMG.logo.width) >> 1, 32, IMG.logo);
-    // エンジンと、見本のゲーム(STAR FABLE)の版
-    const ver = 'MMSXX ENGINE DEMO V1.0';
-    hud.print(centerX(ver), 80, ver, 14);
+    const logoX = (SCREEN_W - IMG.logo.width) >> 1, logoY = 32;
+    hud.draw(logoX, logoY, IMG.logo);
+    // ゲームの版はロゴの右下に小さく添える(文字は 8 ドット単位に置かれる)
+    const gver = BUILD.version;
+    hud.print(logoX + IMG.logo.width - gver.length * 8, logoY + IMG.logo.height,
+      gver, 14);
+    // エンジンの版はその下に
+    const ver = 'MMSXX ENGINE V' + MMSXXEngine.version;
+    hud.print(centerX(ver), 88, ver, 14);
     const help = String.fromCharCode(0x18, 0x19, 0x1a, 0x1b) + ':MOVE  SP:SHOT  ESC:PAUSE';
     hud.print(centerX(help), 158, help, 10);
     // 手元で開いているときだけ、隅に小さく印を出す(公開版には出ない)
