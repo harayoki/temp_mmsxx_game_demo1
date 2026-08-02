@@ -2999,7 +2999,6 @@ function enterNameEntry(target = 'score') {
   clearEntities();
   player.visible = false;
   aux.visible = false;   // 炎とバリアも一緒に消す
-  aux.visible = false;
   // ゲームオーバー曲を止めてから、名前入力の「エリーゼのために」を流す
   mmsxx.audio.stopBGM();
   playBGM('elise', true);
@@ -3108,22 +3107,85 @@ function updateNameEntry() {
     return;
   }
   if (mmsxx.input.wasPressed('Enter')) {
-    // エンジンのハイスコア表に登録する(自分の記録として覚えられる)
-    const name = entryName.replace(/\s+$/, '') || 'NONAME';
-    const rush = entryTarget === 'rush';
-    const rank = rush
-      ? rushTable.add({ name, frames: rushFrames })
-      : scoreTable().add({ name, score });
-    mmsxx.audio.stopBGM();
-    currentBGM = null;
-    // 登録したらそのランキングの一覧へ。自分の順位が上下の真ん中に来る
-    // (ボスラッシュはタイムの表、それ以外は NORMAL / HARD それぞれの表)
-    const page = rush ? 4 : (gameMode() === 'hard' ? 3 : 2);
-    // 名前を入れ終わったあとも CONTINUE を選んだ状態で戻す
-    enterTitle(page, rank, true);
+    startSubmit();
     return;
   }
   if (changed) { mmsxx.audio.playSE('item'); drawNameEntry(); }
+}
+
+// ---- 記録の登録(通信するのはここだけ) ----
+// サーバへ載せるようになると、ここで**初めてプレイヤーを待たせる**。
+// 待っているあいだは 'submitting' という別の状態にして、
+//   ・キー入力を止める(ENTER 連打で二重に送らない)
+//   ・「送っています」を出して、止まっていないことを見せる
+// ようにする。**失敗しても必ず一覧へ進む**(遊びを止めない)。
+let submitDone = false;      // 返事が返ってきたか
+let submitRank = -1;         // サーバが数えた順位(0 起点 / 載らなければ -1)
+let submitFailed = false;    // 通信に失敗したか(board.lastError を見る)
+let submitPage = 2;          // 進む先の一覧のページ
+let submitWait = 0;          // 失敗を知らせる文字を見せておくコマ数
+
+/** ENTER が押されたとき。ここから待ち状態に入る */
+function startSubmit() {
+  const name = entryName.replace(/\s+$/, '') || 'NONAME';
+  const rush = entryTarget === 'rush';
+  const board = rush ? rushTable : scoreTable();
+  const entry = rush ? { name, frames: rushFrames } : { name, score };
+  // 進む先は、ボスラッシュはタイムの表、それ以外は NORMAL / HARD それぞれの表
+  submitPage = rush ? 4 : (gameMode() === 'hard' ? 3 : 2);
+  submitDone = false;
+  submitRank = -1;
+  submitFailed = false;
+  submitWait = 0;
+  state = 'submitting';
+  drawSubmitting();
+  // **投げっぱなしにはしない**。返事が返ったら submitDone を立てて、
+  // 進むのは毎フレームの update 側に任せる(状態の持ち方を 1 か所にまとめる)
+  board.submit(entry).then((rank) => {
+    submitRank = rank;
+    // submit() は例外を投げない。失敗したかどうかは lastError で分かる
+    submitFailed = !!board.lastError;
+    submitDone = true;
+  });
+}
+
+/** 「送っています」の画面。点の数だけ毎フレーム変える */
+function drawSubmitting() {
+  // 名前入力の案内(下 2 行)まで消す。押せないキーの説明を残さない
+  hud.fill(0, 0, 40, VW, 112);
+  const s1 = 'SENDING RECORD';
+  hud.print(centerX(s1), 68, s1, 11);
+  // 点が増えていくのを見せて、止まっていないことを伝える
+  const dots = '.'.repeat(1 + (Math.floor(mmsxx.frame / 20) % 3));
+  hud.fill(0, 0, 84, VW, 8);
+  hud.print(centerX('...'), 84, dots, 14);
+  const s2 = 'PLEASE WAIT';
+  hud.print(centerX(s2), 100, s2, 10);
+}
+
+/** 送っているあいだ。キーは受け付けない */
+function updateSubmitting() {
+  if (!submitDone) {
+    if (mmsxx.frame % 20 === 0) drawSubmitting();
+    return;
+  }
+  // 失敗したときだけ、少しのあいだ知らせを出してから進む。
+  // **止めない**。手元の見込み順位が返ってくるので、そのまま一覧へ行く
+  if (submitFailed && submitWait === 0) {
+    submitWait = 90;   // 1.5 秒
+    hud.fill(0, 0, 40, VW, 112);
+    const s1 = 'COULD NOT SAVE';
+    hud.print(centerX(s1), 76, s1, 8);
+    const s2 = 'YOUR RECORD IS LOCAL ONLY';
+    hud.print(centerX(s2), 92, s2, 10);
+    mmsxx.audio.playSE('powerdown', SE_EVENT);
+    return;
+  }
+  if (submitWait > 0 && --submitWait > 0) return;
+  mmsxx.audio.stopBGM();
+  currentBGM = null;
+  // 名前を入れ終わったあとも CONTINUE を選んだ状態で戻す
+  enterTitle(submitPage, submitRank, true);
 }
 
 /** 被弾: バリアが最優先で身代わり、次にパワーダウン、1way なら爆発して 1 機失う */
@@ -9812,6 +9874,8 @@ mmsxx.run(() => {
     }
   } else if (state === 'entry') {
     updateNameEntry();
+  } else if (state === 'submitting') {
+    updateSubmitting();
   } else if (state === 'story') {
     updateStory();
   } else if (state === 'scene') {
