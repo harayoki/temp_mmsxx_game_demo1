@@ -485,9 +485,11 @@ let playId = newUuid();
 //
 // どちらかを付けているあいだは既定データから始まり、取れた時点で入れ替わる。
 // サーバを相手にしたときと同じ道筋になる
+// **開発版のときだけ効く**。公開版では URL に何を付けても無視する
+// (遊ぶ人に、わざと失敗する設定を触らせないため)
 const RANK_QUERY = new URLSearchParams(location.search);
-const RANK_DELAY = Number(RANK_QUERY.get('delay')) || 0;
-const RANK_ERROR = Number(RANK_QUERY.get('error')) || 0;
+const RANK_DELAY = DEV ? (Number(RANK_QUERY.get('delay')) || 0) : 0;
+const RANK_ERROR = DEV ? (Number(RANK_QUERY.get('error')) || 0) : 0;
 const rankSource = new LocalRankingSource({ delay: RANK_DELAY, errorRate: RANK_ERROR });
 
 // ハイスコア表はエンジン側の仕組みを使う(供給元は差し替えられる)
@@ -3131,7 +3133,7 @@ let submitDone = false;      // 返事が返ってきたか
 let submitRank = -1;         // サーバが数えた順位(0 起点 / 載らなければ -1)
 let submitFailed = false;    // 通信に失敗したか(board.lastError を見る)
 let submitPage = 2;          // 進む先の一覧のページ
-let submitLocal = false;     // 「手元だけに残る」を出して、キー待ちのあいだ
+let submitLocal = false;     // 知らせを出して、キーが押されるのを待っているあいだ
 // **最低でもこれだけは見せる**。中身が手元の保存だと一瞬で返ってしまい、
 // 「送っています」が見えないまま画面が変わって、何が起きたのか分からない。
 // サーバに繋いだときと同じ手ざわりにするための、わざとの待ち
@@ -3223,7 +3225,7 @@ function updateSubmitting() {
     }
     return;
   }
-  // 「手元だけに残る」を読み終わるまで待つ。押されるまで先へ進まない
+  // 知らせ(送れた / 手元だけ)を読み終わるまで待つ。押されるまで先へ進まない
   if (submitLocal) {
     if (!mmsxx.input.wasPressed('Space') && !mmsxx.input.wasPressed('Escape')) return;
     submitLocal = false;
@@ -3247,9 +3249,15 @@ function updateSubmitting() {
     mmsxx.audio.playSE('powerdown', SE_EVENT);
     return;
   }
-  mmsxx.audio.stopBGM();
-  currentBGM = null;
-  enterTitle(submitPage, submitRank, true);
+  // 送れたときも知らせを出す。**押されるまで動かない**。
+  // 黙って画面が変わると、送れたのかどうか分からないため
+  submitLocal = true;   // 「押されるまで待つ」の入れもの(失敗時と同じ道を通る)
+  hud.fill(0, 0, 40, VW, 112);
+  const s1 = 'RECORD SAVED';
+  hud.print(centerX(s1), 64, s1, 11);
+  const s2 = submitRank >= 0 ? ordinal(submitRank + 1) + ' PLACE' : 'NOT IN THE TOP';
+  hud.print(centerX(s2), 84, s2, 15);
+  mmsxx.audio.playSE('item', SE_EVENT);
 }
 
 /** 被弾: バリアが最優先で身代わり、次にパワーダウン、1way なら爆発して 1 機失う */
