@@ -4734,8 +4734,15 @@ const SE = {
               '@{saw} @e{flat} @v4 t220 v13 o2 l16 c e g > c e g > c e g > c4',
               '@{pulse12} @e{flat} @s4 t220 v10 o4 l16 r8 c e g > c e g > c4'],
   // 気絶しているあいだのピヨピヨ。小鳥が回っている感じの高い 2 音
-  piyo: ['@{pulse12} @e{percussive} t200 v10 o6 l16 e g > c8',
-         '@{pulse25} @e{percussive} @d18 t200 v7 o6 l16 g > c e8'],
+  piyo: [
+    // 主。**高く跳ね上がる 2 声**。細いパルスはよく通るので鳥の声に向く。
+    // ビブラートで鳴き声のふるえを出し、エコーで遠くまで響かせる
+    '@{pulse12} @e{percussive} @v7 @s5 t210 v14 o7 l32 c e g > c8 < b g8',
+    // ハモリ。半音ぶんずらして重ね、耳につく「ピヨッ」にする
+    '@{pulse25} @e{percussive} @v6 @s4 @d22 t210 v11 o7 l32 e g > c e8 < d < b8',
+    // 下支え。高い音だけだと軽すぎるので、1 オクターブ下を薄く添える
+    '@{pulse50} @e{percussive} t210 v8 o6 l32 c e g > c8 < b g8',
+  ],
   // 残り 1 機の警告。ここは埋もれては困るので全体でいちばん大きい
   warning: ['@{pulse12} @e{flat} @s3 t255 v14 o6 l32 e g > c e g > c e g > c4',
             '@{pulse50} @e{flat} @d16 t255 v11 o5 l32 e g > c e g > c e g > c4'],
