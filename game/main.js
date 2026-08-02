@@ -33,9 +33,6 @@ const mmsxx = new MMSXXEngine(document.getElementById('screen'), {
 });
 /** 開発用の機能を出すか。細かい出し分けはこれを見て決める */
 const DEV = mmsxx.dev;
-// 素材の検査は、作っている最中は**例外で止める**(見落とさないように)。
-// 公開版はエンジン側で 'off' になる
-if (DEV) mmsxx.bgCheck = 'throw';
 // コンソールから触れる入口は、開発版のときだけ付く(公開版では名前ごと無い)
 mmsxx.expose('mmsxx', mmsxx);
 // 公開版では、コンソールを開いた人にだけ見えるロゴとひとことを出す。

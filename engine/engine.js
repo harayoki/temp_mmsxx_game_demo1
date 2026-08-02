@@ -125,8 +125,9 @@ export class MMSXXEngine {
     this._dev = opts.dev ?? MMSXXEngine.isLocal;
     /** expose() で window に付けた名前 */
     this._exposed = [];
-    // 公開版では、BG の検査もしない(遊ぶ人には関係がなく、console も汚さない)
-    if (!this._dev) this.vdp.bgCheck = 'off';
+    // 素材の検査は、**作っている最中は例外で止め**(見落とさないように)、
+    // 公開版は**警告だけ**にする(絵が間違っていても、遊ぶ人の前では止めない)
+    this.vdp.bgCheck = this._dev ? 'throw' : 'warn';
     this._layers = this.vdp.layers.map((_, i) => new LayerHandle(this.vdp, i));
     /** 経過フレーム数 (60fps) */
     this.frame = 0;
@@ -288,8 +289,9 @@ export class MMSXXEngine {
    * BG スプライトを作ったとき・レイヤーへ描く絵を変換したときに、
    * **その絵につき 1 度だけ**走る(毎フレーム描いても手数は増えない)。
    *
-   * - `'warn'` (既定) console に出して、そのまま動かす
-   * - `'throw'` 例外を投げる(作っている最中に取りこぼしたくないとき)
+   * - `'throw'` 例外を投げる(**開発版の既定**。取りこぼさないため)
+   * - `'warn'` console に出して、そのまま動かす(**公開版の既定**。
+   *   絵が間違っていても、遊ぶ人の前では止めない)
    * - `'off'` 調べない
    *
    * 絵 1 枚だけ見逃したいときは、`bgSprite` / `layer.draw` の opts に

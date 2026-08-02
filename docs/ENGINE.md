@@ -68,9 +68,9 @@ BG スプライトを作ったとき・レイヤーへ描く絵を変換した�
 **その絵につき 1 度だけ**検査が走ります。毎フレーム描いても手数は増えません。
 
 ```js
-mmsxx.bgCheck = 'warn';   // 既定: console に出して、そのまま動かす
-mmsxx.bgCheck = 'throw';  // 例外を投げる(作っている最中に取りこぼしたくないとき)
-mmsxx.bgCheck = 'off';    // 調べない(公開版のビルドでは自動でこれになる)
+mmsxx.bgCheck = 'throw';  // 開発版の既定: 例外で止める(取りこぼさない)
+mmsxx.bgCheck = 'warn';   // 公開版の既定: console に出して、そのまま動かす
+mmsxx.bgCheck = 'off';    // 調べない
 
 mmsxx.bgSprite(img, { bgCheck: 'off' });          // この絵だけ見逃す
 layer.draw(x, y, img, true, { bgCheck: 'off' });
@@ -78,6 +78,9 @@ layer.draw(x, y, img, true, { bgCheck: 'off' });
 mmsxx.bgWarnings      // 見つかった違反の記録
 mmsxx.checkLayer(0)   // レイヤー全部(裏画面ぜんぶ)。重いので手で呼ぶときだけ
 ```
+
+引っかかった絵の**名前**がメッセージに出ます(`mmsxx.convert(raw, { name })` で渡した名前。
+色替えや向き替えをした絵は `もとの名前(色替え)` のように出ます)。
 
 **直すのは素材側の仕事**で、エンジンは絵に手を入れません。
 自動で均すのは `assets-src/makedata.mjs` の `BG_IMAGES` に入れた絵だけです。
