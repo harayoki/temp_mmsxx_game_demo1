@@ -6672,7 +6672,7 @@ function clearWeakSparks() {
 const DEATH_GROUP = 4;         // 何コマに 1 回出すか(= 同時に見える数の割り)
 const DEATH_LIFE = 90;         // 散りきるまでのコマ数(1.5 秒)
 const DEATH_SPIN = 0.035;      // 1 コマあたりに輪が回る角度(ゆっくり)
-const DEATH_REACH = 56;        // 外の輪が広がりきる距離
+const DEATH_REACH = 45;        // 外の輪が広がりきる距離
 // 輪の作り。n = 枚数 / far = 広がる距離の割合 / turn = 回る向きと速さ /
 // off = 置きはじめの角度をずらす量(目盛りの何ぶんか)
 const DEATH_RINGS = [
