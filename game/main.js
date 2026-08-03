@@ -37,6 +37,16 @@ const mmsxx = new MMSXXEngine(document.getElementById('screen'), {
 });
 /** 開発用の機能を出すか。細かい出し分けはこれを見て決める */
 const DEV = mmsxx.dev;
+
+// **ゲームの結果に効く乱数は種つき**にする(あとで操作の記録から再現できるように)。
+// 見た目だけのもの(爆発の粒・画面揺れ・背景の賑やかし)は `Math.random()` のまま。
+//
+// 流れは 2 本。**ボスの動き**と、**それ以外**(敵の出現・アイテム・面の作り)。
+// 分けてあるので、ステージのコードを直してもボスの引く数列は変わらない
+// (作っている最中に「ボス戦だけ同じ条件でくり返す」ができる)。
+// 種はゲームを始めるたびに作り直すので、遊ぶぶんには毎回ちがう
+const rnd = () => mmsxx.rng().next();
+const rndBoss = () => mmsxx.rng('boss').next();
 // コンソールから触れる入口は、開発版のときだけ付く(公開版では名前ごと無い)
 mmsxx.expose('mmsxx', mmsxx);
 // 公開版では、コンソールを開いた人にだけ見えるロゴとひとことを出す。
@@ -320,8 +330,8 @@ function makeSecretSpots() {
   secretSpots = [];
   for (let i = 0; i < SECRET_SPOTS; i++) {
     secretSpots.push({
-      x: 16 + Math.floor(Math.random() * (SCREEN_W - 32 - SECRET_SIZE)),
-      y: 24 + Math.floor(Math.random() * (SCREEN_H - 80 - SECRET_SIZE)),
+      x: 16 + Math.floor(rnd() * (SCREEN_W - 32 - SECRET_SIZE)),
+      y: 24 + Math.floor(rnd() * (SCREEN_H - 80 - SECRET_SIZE)),
       hits: 0, done: false,
     });
   }
@@ -662,7 +672,7 @@ function maxAsteroids() {
 function spawnAsteroid() {
   const sp = mmsxx.bgSprite(IMG.asteroid);
   sp.priority = BGP_FRONT;
-  sp.x = 16 + Math.floor(Math.random() * (SCREEN_W - 80));
+  sp.x = 16 + Math.floor(rnd() * (SCREEN_W - 80));
   sp.y = -AST_SIZE;
   // 白いハイライトはスプライト 1 枚。3 フレームに 1 回だけ出して
   // 「スプライトを減らしている」ちらつきを見せる
@@ -740,7 +750,7 @@ function spawnEyeballs() {
   }
   // 上から出てくるか下から出てくるかはランダム
   // (ふつうのステージでは後半になってから下も出るようにする)
-  const fromBelow = (stageNo >= 5 || stageNo === RUSH_EYES) && Math.random() < 0.5;
+  const fromBelow = (stageNo >= 5 || stageNo === RUSH_EYES) && rnd() < 0.5;
   // 左右は画面の中央。2 体そろって出る
   const cx = (SCREEN_W - EYE_GAP - EYE_SIZE) / 2;
   for (let i = 0; i < 2; i++) {
@@ -945,7 +955,7 @@ function spawnMoai() {
     tellIn: 0,         // 「まだ撃つな」を出すまでの残り(0 は出さない)
     // 左右がくっついたあとの待ち時間。**先に決めておく**ことで、
     // 「まだ撃つな」を合体の動きだしから待ち終わりまで出しっぱなしにできる
-    waitLen: MOAI_WAIT_MIN + Math.floor(Math.random() * (MOAI_WAIT_MAX - MOAI_WAIT_MIN + 1)),
+    waitLen: MOAI_WAIT_MIN + Math.floor(rnd() * (MOAI_WAIT_MAX - MOAI_WAIT_MIN + 1)),
     parts: [
       // 上半分は画面の上から、下半分は下から入ってくる
       mk(IMG.moaiTL, cx - 48, -MOAI_QH - 8, 0),
@@ -1338,7 +1348,7 @@ function spawnRocket() {
   // 当たり判定のある BG は、背景と見間違えないよう毎コマ色を入れ替える
   sp.frameRate = 1;
   sp.x = Math.max(0, Math.min(SCREEN_W - ROCKET_W,
-    snap8(player.x - 4 + (Math.random() - 0.5) * 64)));
+    snap8(player.x - 4 + (rnd() - 0.5) * 64)));
   sp.y = -ROCKET_H;
   // 弾頭の光は、**BG スプライトのコマ送り**で見せる(重ねるスプライトは使わない)。
   // 4 コマに 1 回だけ黄色いコマが混ざって、光ったように見える
@@ -1816,7 +1826,7 @@ function avoidPlayerX(x) {
   if (Math.abs(x - player.x) >= SAFE) return x;
   const left = player.x - SAFE, right = player.x + SAFE;
   // 画面内に収まる方へ逃がす
-  if (left >= 0 && (right > SCREEN_W - 16 || Math.random() < 0.5)) return left;
+  if (left >= 0 && (right > SCREEN_W - 16 || rnd() < 0.5)) return left;
   if (right <= SCREEN_W - 16) return right;
   return Math.max(0, Math.min(SCREEN_W - 16, left));
 }
@@ -1877,11 +1887,11 @@ function bossTimeCounts() {
   return true;
 }
 function spawnUfoWave(noFire = false) {
-  const fromLeft = Math.random() < 0.5;
+  const fromLeft = rnd() < 0.5;
   // 水色(アイテム持ち)は必ず 1 機は入れる。多くても 3 機まで。
-  const cyanCount = 1 + Math.floor(Math.random() * 3);
+  const cyanCount = 1 + Math.floor(rnd() * 3);
   const cyanSlots = new Set();
-  while (cyanSlots.size < cyanCount) cyanSlots.add(Math.floor(Math.random() * 5));
+  while (cyanSlots.size < cyanCount) cyanSlots.add(Math.floor(rnd() * 5));
   for (let i = 0; i < 5; i++) {
     const cyan = cyanSlots.has(i);
     const e = spawnEnemy(cyan ? 'C' : 'B',
@@ -1895,24 +1905,24 @@ function spawnUfoWave(noFire = false) {
 // そのうち 1 個だけがパワーアップアイテムを持っている。
 // 出現タイミングは他の敵と周期をずらしてステージデータに持たせてある。
 function spawnCubes() {
-  const n = 5 + Math.floor(Math.random() * 2);       // 5 or 6
+  const n = 5 + Math.floor(rnd() * 2);       // 5 or 6
   // 1 個は P アイテム入り(緑)、もう 1 個は★入り(紫・耐久力 2 倍)
-  const withItem = Math.floor(Math.random() * n);
-  let withStar = Math.floor(Math.random() * n);
+  const withItem = Math.floor(rnd() * n);
+  let withStar = Math.floor(rnd() * n);
   if (withStar === withItem) withStar = (withStar + 1) % n;
   // ごくまれに黄色いキューブが混じる。壊すと ? アイテムが出る
   // NORMAL は ? アイテム入りの黄色いキューブがよく混じる(連射中は出さない)
   const autoRate = isNormal() ? 0.45 : 0.08;
-  const withAuto = (autoFire <= 0 && Math.random() < autoRate)
+  const withAuto = (autoFire <= 0 && rnd() < autoRate)
     ? (withStar + 2) % n : -1;
   // 画面幅をほぼ使い切るように左右へ大きくばらけさせる
   const slot = (SCREEN_W - 16) / n;
-  const order = [...Array(n).keys()].sort(() => Math.random() - 0.5);
+  const order = [...Array(n).keys()].sort(() => rnd() - 0.5);
   for (let i = 0; i < n; i++) {
     const isStar = i === withStar, isItem = i === withItem, isAuto = i === withAuto;
     const sp = mmsxx.sprite(isAuto ? IMG.cubeAuto
       : isStar ? IMG.cubeStar : isItem ? IMG.cubeItem : IMG.cube);
-    sp.x = Math.round(order[i] * slot + Math.random() * (slot - 16));
+    sp.x = Math.round(order[i] * slot + rnd() * (slot - 16));
     sp.y = -18 - i * 7;                              // ほぼ横一列で来るよう縦のずれは小さく
     sp.priority = 8;
     enemies.push({
@@ -1929,14 +1939,14 @@ const BOUNCER_LEAST = 3, BOUNCER_LEAST_HARD = 8;
 let bouncerTimer = 0;
 function spawnBouncer() {
   const sp = mmsxx.sprite(IMG.bouncer);
-  sp.x = Math.random() < 0.5 ? 8 : SCREEN_W - 24;
+  sp.x = rnd() < 0.5 ? 8 : SCREEN_W - 24;
   // まとめて出すと同じ動きで固まってしまうので、
   // 出る高さと速さを 1 匹ずつばらけさせる(跳ね返る位相がずれる)
-  sp.y = 20 + Math.random() * 84;
+  sp.y = 20 + rnd() * 84;
   sp.priority = 8;
   const dir = sp.x < SCREEN_W / 2 ? 1 : -1;
-  const vx = (1.7 + Math.random() * 1.2) * dir;
-  const vy = (1.3 + Math.random() * 1.0) * (Math.random() < 0.5 ? 1 : -1);
+  const vx = (1.7 + rnd() * 1.2) * dir;
+  const vy = (1.3 + rnd() * 1.0) * (rnd() < 0.5 ? 1 : -1);
   enemies.push({ sp, type: 'E', age: 0, hp: 3, vx, vy });
 }
 
@@ -1949,13 +1959,13 @@ const WARP_DX = 32, WARP_DY = 24;   // 桂馬の跳び幅
 const WARP_SPEED = 9;
 let warperTimer = WARP_INTERVAL;
 function spawnWarper() {
-  const n = 1 + Math.floor(Math.random() * 2);
+  const n = 1 + Math.floor(rnd() * 2);
   for (let i = 0; i < n; i++) {
     const sp = mmsxx.sprite(IMG.warper);
-    sp.x = 24 + Math.floor(Math.random() * (SCREEN_W - 64));
+    sp.x = 24 + Math.floor(rnd() * (SCREEN_W - 64));
     sp.y = -20 - i * 28;
     sp.priority = 8;
-    enemies.push({ sp, type: 'J', age: 0, hp: 2, wait: WARP_WAIT, dir: Math.random() < 0.5 ? -1 : 1 });
+    enemies.push({ sp, type: 'J', age: 0, hp: 2, wait: WARP_WAIT, dir: rnd() < 0.5 ? -1 : 1 });
   }
 }
 
@@ -1964,14 +1974,14 @@ function spawnWarper() {
 const DASHER_INTERVAL = 260;
 let dasherTimer = DASHER_INTERVAL;
 function spawnDasher() {
-  const n = 1 + Math.floor(Math.random() * 3);
+  const n = 1 + Math.floor(rnd() * 3);
   for (let i = 0; i < n; i++) {
     const sp = mmsxx.sprite(IMG.enemyA);
-    sp.x = Math.max(0, Math.min(SCREEN_W - 16, player.x + (Math.random() - 0.5) * 80));
+    sp.x = Math.max(0, Math.min(SCREEN_W - 16, player.x + (rnd() - 0.5) * 80));
     sp.y = -20 - i * 22;
     sp.priority = 8;
     // ほんの少しだけ横に流れる
-    enemies.push({ sp, type: 'I', age: 0, hp: 1, vx: (Math.random() - 0.5) * 0.6, vy: 4.2 });
+    enemies.push({ sp, type: 'I', age: 0, hp: 1, vx: (rnd() - 0.5) * 0.6, vy: 4.2 });
   }
 }
 
@@ -1990,7 +2000,7 @@ function spawnRammerPair() {
     sp.flipX = dir < 0;   // 1 枚の絵を左右反転して両向きに使う
     sp.x = dir > 0 ? -20 : SCREEN_W + 4;
     // 画面の端に張り付いていても当たらないよう、少し上下にずらして出す
-    const off = (40 + Math.random() * 30) * (Math.random() < 0.5 ? 1 : -1);
+    const off = (40 + rnd() * 30) * (rnd() < 0.5 ? 1 : -1);
     sp.y = Math.max(16, Math.min(SCREEN_H - 32, player.y + off));
     sp.priority = 8;
     // 通常モードで出す場合にそなえて、速さを落とせるようにしておく
@@ -2007,8 +2017,8 @@ const WALLER_FIRE = 96;
 let wallerTimer = WALLER_INTERVAL;
 function spawnWaller() {
   // 左右どちらか。ときどき両方の端から 1 機ずつ
-  const both = Math.random() < 0.35;
-  const sides = both ? [-1, 1] : [Math.random() < 0.5 ? -1 : 1];
+  const both = rnd() < 0.35;
+  const sides = both ? [-1, 1] : [rnd() < 0.5 ? -1 : 1];
   for (const side of sides) {
     const e = spawnEnemy('K', side < 0 ? 4 : SCREEN_W - 20, 0);
     if (!e) continue;
@@ -2016,7 +2026,7 @@ function spawnWaller() {
     // 絵は下向きに描いてあるので、90 度回して横を向かせる。
     // 口(とがったほう)が画面の中心 = 自機のいるほうを向くようにする
     e.sp.rotate = side < 0 ? 270 : 90;
-    e.fireTimer = WALLER_FIRE / 2 + Math.floor(Math.random() * 30);
+    e.fireTimer = WALLER_FIRE / 2 + Math.floor(rnd() * 30);
   }
 }
 
@@ -2030,7 +2040,7 @@ const SPREADER_GAP = 5;        // 1 発ずつずらす間隔(時間差)
 const SPREADER_ROUNDS = 2;     // 2 周
 let spreaderTimer = SPREADER_INTERVAL;
 function spawnSpreader() {
-  const e = spawnEnemy('L', 40 + Math.floor(Math.random() * (SCREEN_W - 96)), 0);
+  const e = spawnEnemy('L', 40 + Math.floor(rnd() * (SCREEN_W - 96)), 0);
   if (!e) return;
   e.stopY = SCREEN_H / 2 - 8;
   e.wait = SPREADER_WAIT;
@@ -2045,14 +2055,14 @@ const DIVER_INTERVAL = 340;
 const DIVER_FIRE = 30;         // 0.5 秒
 let diverTimer = DIVER_INTERVAL;
 function spawnDiver() {
-  const n = 1 + Math.floor(Math.random() * 2);
+  const n = 1 + Math.floor(rnd() * 2);
   for (let i = 0; i < n; i++) {
-    const fromLeft = Math.random() < 0.5;
+    const fromLeft = rnd() < 0.5;
     const e = spawnEnemy('M', fromLeft ? -16 : SCREEN_W, 0);
     if (!e) continue;
-    e.vx = (fromLeft ? 1 : -1) * (1.5 + Math.random() * 0.5);
+    e.vx = (fromLeft ? 1 : -1) * (1.5 + rnd() * 0.5);
     // 上から下へ入ってきて、だんだん減速し、また上へ戻っていく
-    e.vy = 2.5 + Math.random() * 0.6;
+    e.vy = 2.5 + rnd() * 0.6;
     e.sp.y = -18 - i * 20;
     e.sp.flipX = !fromLeft;
     e.fireTimer = DIVER_FIRE / 2;
@@ -2069,15 +2079,15 @@ const GLOWER_COINS = 6;        // ばらまく $ の数
 let glowerTimer = GLOWER_INTERVAL;
 function spawnGlower() {
   const sp = mmsxx.sprite(IMG.glower0);
-  sp.x = 32 + Math.floor(Math.random() * (SCREEN_W - 80));
+  sp.x = 32 + Math.floor(rnd() * (SCREEN_W - 80));
   sp.y = -20;
   sp.priority = 9;
   // 光っているように、2 コマで明るさを変える
   sp.blink = 0;
   enemies.push({
     sp, type: 'N', age: 0, hp: GLOWER_HP, max: GLOWER_HP,
-    life: GLOWER_LIFE, x0: sp.x, y0: 40 + Math.random() * 60,
-    phase: Math.random() * Math.PI * 2,
+    life: GLOWER_LIFE, x0: sp.x, y0: 40 + rnd() * 60,
+    phase: rnd() * Math.PI * 2,
   });
 }
 
@@ -2093,7 +2103,7 @@ let weightQueue = 0;        // あと何発落とすか(前の 1 発が画面か
 let weights = [];
 function spawnWeight() {
   const sp = mmsxx.sprite(IMG.weight16t);
-  sp.x = 16 + Math.floor(Math.random() * (SCREEN_W - 64));
+  sp.x = 16 + Math.floor(rnd() * (SCREEN_W - 64));
   sp.y = -WEIGHT_H;
   sp.priority = 11;   // 敵より手前。自機の弾は素通りする
   weights.push({ sp, vy: 1.6 });   // 一気に落ちてくる(よけるより逃げる)
@@ -2896,6 +2906,9 @@ function enterPlay(fromContinue = false) {
   konamiPos = 0;
   // このプレイを見分ける ID を作り直す(記録を送るときに使う)
   playId = newUuid();
+  // 乱数の種も作り直す。**記録に残すのはこの数だけ**で、
+  // 流れ('main' と 'boss')の種はここから作られる
+  mmsxx.rng.seed();
   // 始めたときのランキングを覚えておく(ランクインしたか判定する基準)
   rankSnapshot = snapshotRanking();
   stats.startSession({ mode: gameMode() });
@@ -3326,12 +3339,15 @@ let shareBusy = false;      // 送信中(二重に押されるのを止める)
 //   やられて終わるとき … **約 1 秒前**の、まだ自機が無事な画面
 //   全面クリアのとき   … クリアのボーナス集計の画面
 let shareShotSaved = null;
-// やられる前の画面は、遊んでいるあいだ 0.5 秒ごとに撮って 2 枚だけ残す。
-// やられた瞬間の絵では自機がもう当たっているので、古いほう(0.5〜1 秒前)を使う。
+// やられる前の画面は、遊んでいるあいだ 0.25 秒ごとに撮って 3 枚だけ残す。
+// やられた瞬間の絵では自機がもう当たっているので、いちばん古い 1 枚を使う。
+//   撮る間隔 = 何秒前になるかの**ぶれ幅**、枚数 = どれだけ**さかのぼれるか**。
+//   0.25 秒ごとに 3 枚なら「必ず 0.5 秒以上前」で、ぶれは 0.5〜0.75 秒に収まる。
 // 原寸で撮るのがいちばん安く(実測 0.07 ミリ秒ほど。1 コマの持ち時間は 16.6 ミリ秒)、
-// 2 秒に 4 回でもコマ落ちには関わらない。2 倍に広げるのは**見せるときだけ**
-const SHARE_SHOT_EVERY = 30;
-let shareShotRing = [];     // 古い順。[0] が 0.5〜1 秒前の 1 枚
+// 毎秒 4 回でもコマ落ちには関わらない。2 倍に広げるのは**見せるときだけ**
+const SHARE_SHOT_EVERY = 15;
+const SHARE_SHOT_KEEP = 3;
+let shareShotRing = [];     // 古い順。[0] が 0.5〜0.75 秒前の 1 枚
 
 /** シェア用に画面を取る。**原寸**でよい。取れなければ null */
 function captureShareShot() {
@@ -3343,18 +3359,18 @@ function captureShareShot() {
   }
 }
 
-/** 0.5 秒ごとの 1 枚を積む。2 枚を超えたら古いほうから捨てる */
+/** 0.25 秒ごとの 1 枚を積む。決めた枚数を超えたら古いほうから捨てる */
 function pushShareShot() {
   const shot = captureShareShot();
   if (!shot) return;
   shareShotRing.push(shot);
-  if (shareShotRing.length > 2) shareShotRing.shift();
+  if (shareShotRing.length > SHARE_SHOT_KEEP) shareShotRing.shift();
 }
 
 /**
  * やられて終わるときに見せる絵。
- * 取ってあれば**約 1 秒前**の 1 枚。まだ 1 枚も無い(始めてすぐやられた)ときは、
- * 今までどおりその場で 1 枚取る
+ * 溜まっているうちの**いちばん古い 1 枚**(0.5〜0.75 秒前)。
+ * まだ 1 枚も無い(復活してすぐやられた)ときは、今までどおりその場で 1 枚取る
  */
 function deathShareShot() {
   return shareShotRing[0] || captureShareShot();
@@ -3719,7 +3735,7 @@ const ITEM_KINDS = ['power', 'speed', 'rapid', 'damage', 'barrier'];
 
 function randomItemKind() {
   // 100 の位で決める。同じ数字に張り付いたときの逃げとして小さな乱数を足す
-  const digit = (Math.floor(score / 100) + Math.floor(Math.random() * 3)) % 10;
+  const digit = (Math.floor(score / 100) + Math.floor(rnd() * 3)) % 10;
   const kind = ITEM_BY_DIGIT[digit];
 
   // すでに上限で、取っても意味がないもの
@@ -3740,12 +3756,12 @@ function randomItemKind() {
   const extras = digit === 0 ? ['life', 'coin', 'coin'] : [];
   const candidates = ITEM_KINDS.concat(extras);
   const useful = candidates.filter(k => !maxed[k]);
-  if (!useful.length) return Math.random() < 0.5 ? 'coin' : 'bomb';
+  if (!useful.length) return rnd() < 0.5 ? 'coin' : 'bomb';
   // WAY 数が主役なので、まだ上げられるうちは出やすくしておく
   // ワイドが 3 段階以上になったら出やすさを下げて、$ やボムに回す
   const bonus = maxed.power ? [] : (shotLevel >= 3 ? ['power'] : ['power', 'power']);
   const pool = useful.concat(bonus);
-  return pool[Math.floor(Math.random() * pool.length)];
+  return pool[Math.floor(rnd() * pool.length)];
 }
 
 /** @param {'power'|'star'|'bomb'|'speed'|'rapid'|'life'|'damage'|'barrier'} kind */
@@ -3935,7 +3951,7 @@ function spawnCrabBoss() {
     x: 0, y: -40, hp, max: hp, age: 0, flash: 0, dying: 0,
     eyeL, eyeR, charge: null,
     phase2: false,          // 甲羅がはがれてひっくり返った状態
-    side: Math.random() < 0.5 ? -1 : 1,  // -1 = 左の壁, 1 = 右の壁
+    side: rndBoss() < 0.5 ? -1 : 1,  // -1 = 左の壁, 1 = 右の壁
     mode: 'attach', claws: CRAB_CLAWS, clawStock: CRAB_CLAWS, vy: 0.8,
     // ハサミ 1 本ずつの生き死に。**本数だけで管理していたため**、
     // 下のハサミを壊しても「最後の 1 本」が消え、壊したはずの位置から
@@ -4170,7 +4186,7 @@ function updateCrabBoss(b) {
     // ひっくり返ったあとは泡(1 面のリング弾の色違い)を吹き続けるだけ
     if (b.age % 18 === 0) {
       const dir = b.side < 0 ? 1 : -1;   // 壁と反対側へ吹き出す
-      const a = (Math.random() - 0.5) * 1.4;
+      const a = (rndBoss() - 0.5) * 1.4;
       fireEnemyBullet(b.sx + (dir > 0 ? CRAB_W - 8 : -8), b.sy + CRAB_H / 2,
         Math.cos(a) * 0.7 * dir, Math.sin(a) * 0.7, true);
     }
@@ -4180,7 +4196,7 @@ function updateCrabBoss(b) {
   if (b.clawStock <= 0) {
     if (b.age % 20 === 0) {
       const dir = b.side < 0 ? 1 : -1;
-      const a = (Math.random() - 0.5) * 1.4;
+      const a = (rndBoss() - 0.5) * 1.4;
       fireEnemyBullet(b.sx + (dir > 0 ? CRAB_W - 8 : -8), b.sy + CRAB_H / 2,
         Math.cos(a) * 0.7 * dir, Math.sin(a) * 0.7, true);
     }
@@ -4248,7 +4264,7 @@ const NAUT_SPIN = 0.011;
 
 function spawnNautilusBoss() {
   const blocks = [];
-  const weakAt = Math.floor(Math.random() * NAUT_BLOCKS);
+  const weakAt = Math.floor(rndBoss() * NAUT_BLOCKS);
   for (let i = 0; i < NAUT_BLOCKS; i++) {
     const sp = mmsxx.bgSprite(i === weakAt ? IMG.gearWeak0 : IMG.gearBlock);
     sp.priority = BGP_FRONT + 2;
@@ -4338,7 +4354,7 @@ function updateNautilusBoss(b) {
   if (--b.ringTimer <= 0) {
     const wide = b.ringTarget === NAUT_R_WIDE;
     b.ringTarget = wide ? NAUT_R : NAUT_R_WIDE;
-    b.ringTimer = wide ? 300 + Math.floor(Math.random() * 180) : 180;
+    b.ringTimer = wide ? 300 + Math.floor(rndBoss() * 180) : 180;
   }
   b.ringR += ((b.ringTarget || NAUT_R) - b.ringR) * 0.03;
   b.sx = snap8(b.x); b.sy = snap8(b.y);
@@ -4360,7 +4376,7 @@ function updateNautilusBoss(b) {
       b.fire = Math.max(40, 80 - shotLevel * 5);
       const alive = b.blocks.filter(x => x.alive);
       for (let i = 0; i < 3 && alive.length; i++) {
-        const g = alive[Math.floor(Math.random() * alive.length)];
+        const g = alive[Math.floor(rndBoss() * alive.length)];
         const gx = g.sp.x + 8, gy = g.sp.y + 8;
         const a = Math.atan2(gy - cy, gx - cx);   // 輪の外へ向かって撃つ
         fireEnemyBullet(gx - 8, gy - 8, Math.cos(a) * 1.2, Math.sin(a) * 1.2, false);
@@ -4460,10 +4476,10 @@ function updateDragonBoss(b) {
       b.hide = RAGE_HIDE;
       b.telegraph = RAGE_TELEGRAPH;
       // 顔を出すのは画面の上か下。左右からは来ない
-      const side = Math.random() < 0.5 ? 0 : 1;   // 0 = 上, 1 = 下
+      const side = rndBoss() < 0.5 ? 0 : 1;   // 0 = 上, 1 = 下
       b.side = side;
       b.x = Math.max(0, Math.min(SCREEN_W - DRAGON_W,
-        player.x - 16 + (Math.random() - 0.5) * 96));
+        player.x - 16 + (rndBoss() - 0.5) * 96));
       b.y = side === 0 ? -DRAGON_H - 8 : SCREEN_H + 8;
     }
   } else if (b.mode === 'rage') {
@@ -4516,7 +4532,7 @@ function updateDragonBoss(b) {
       b.y += 0.7;
       if (b.y >= 24) {
         b.mode = 'spiral';
-        b.rageTimer = 260 + Math.floor(Math.random() * 180);
+        b.rageTimer = 260 + Math.floor(rndBoss() * 180);
       }
     }
   }
@@ -4728,7 +4744,7 @@ function updateTodoBeg(b) {
     b.begLine = -1;
     // **コンティニューで出会ったとき(客人)だけ**、裏技のヒント(0 番)で固定。
     // ボスラッシュでもシーン選択でも、教えてくれる中身は毎回変わる
-    b.begSecret = b.guest ? 0 : Math.floor(Math.random() * BEG_SECRETS.length);
+    b.begSecret = b.guest ? 0 : Math.floor(rndBoss() * BEG_SECRETS.length);
     // **飛んでいる自弾を消す**。連射したままだと、話し始めた瞬間に
     // 残っていた弾が当たって、そのまま会話が終わってしまうため
     for (const t of [...bullets]) removeBullet(t);
@@ -4990,7 +5006,7 @@ let farBeams = [];
 let farBeamTimer = 0;
 function fireFarBeam() {
   // 真下(+90 度)から ±14 度まで。ほぼまっすぐ落ちてくる
-  const a = Math.PI / 2 + (Math.random() - 0.5) * 0.5;
+  const a = Math.PI / 2 + (rndBoss() - 0.5) * 0.5;
   const n = KING_LINES_LONG.length;
   const step = Math.PI / n;
   const i = ((Math.round(a / step) % n) + n) % n;
@@ -4998,7 +5014,7 @@ function fireFarBeam() {
   sp.priority = 6;
   sp.blink = 2;   // 裂け目のレーザーと同じちらつき
   // 画面の上の外から、横位置はばらばらに
-  const x = Math.random() * SCREEN_W;
+  const x = rndBoss() * SCREEN_W;
   farBeams.push({ a, x, y: -48, sp });
   // ここではショット(SE_HIT)より強くして、必ず鳴らす。
   // 撃ちながらでも「前から来ている」ことを音で分からせたい
@@ -5568,7 +5584,7 @@ function updateKingFight(b) {
     b.x += ((RIFT_CX - KING_MAN_W / 2 + Math.sin(b.age * 0.013) * 56) - b.x) * 0.06;
     b.y += ((RIFT_CY - KING_MAN_H / 2 + Math.sin(b.age * 0.021) * 24) - b.y) * 0.06;
     if (--b.actTimer <= 0) {
-      const r = Math.random();
+      const r = rndBoss();
       const kiai = (n) => mmsxx.audio.playTalk(n, SE_EVENT);
       if (lowHp && r < 0.28) {
         // ムーンサルトだけは下から
@@ -5585,7 +5601,7 @@ function updateKingFight(b) {
         b.actTimer = KING_KICK_CIRCLE;
         b.orbR = KING_KICK_R;
         b.orbA = Math.atan2(b.y - py, b.x - px);
-        b.orbV = (Math.random() < 0.5 ? 1 : -1) * 0.030;
+        b.orbV = (rndBoss() < 0.5 ? 1 : -1) * 0.030;
       } else {
         // 波動。少し離れた輪を回りながら 3 回撃つ
         kiai('kiaiA');
@@ -5593,7 +5609,7 @@ function updateKingFight(b) {
         b.actTimer = KING_WAVE_SHOTS * KING_WAVE_GAP;
         b.orbR = KING_WAVE_R;
         b.orbA = Math.atan2(b.y - py, b.x - px);
-        b.orbV = (Math.random() < 0.5 ? 1 : -1) * 0.022;
+        b.orbV = (rndBoss() < 0.5 ? 1 : -1) * 0.022;
         b.waveLeft = KING_WAVE_SHOTS;
       }
     }
@@ -6653,7 +6669,7 @@ function updateBoss() {
   const gap = Math.max(24, 44 - shotLevel * 2);   // リングは少なめ
   const alive = (b.guards || []).filter(g => g.hp > 0);
   if (alive.length && b.age % gap === 0) {
-    const g = alive[Math.floor(Math.random() * alive.length)];
+    const g = alive[Math.floor(rndBoss() * alive.length)];
     const gx2 = g.sp.x + 8, gy2 = g.sp.y + 8;
     const ga = Math.atan2(player.y + 8 - gy2, player.x + 8 - gx2);
     fireEnemyBullet(gx2 - 8, gy2 - 8, Math.cos(ga) * 0.5, Math.sin(ga) * 0.5, true);
@@ -6662,7 +6678,7 @@ function updateBoss() {
 
 function updatePlay() {
   playFrame++;
-  // やられたときに見せる絵を 0.5 秒ごとに撮っておく。
+  // やられたときに見せる絵を 0.25 秒ごとに撮っておく。
   // ゲームオーバーの画面(state が 'over')になってからは撮らない
   if (state === 'play' && (playFrame % SHARE_SHOT_EVERY) === 0) pushShareShot();
   // 撃破タイムは「弾が当たる状態」のあいだだけ数える
@@ -6776,7 +6792,7 @@ function updatePlay() {
   // モアイも目玉も出ないまま終わりそうなら、どちらかを必ず出す
   if (canEnemy && !eyeSpawned && !moaiSpawned && !boss && !bossMode &&
       gameMode() !== 'bossrush' && playFrame > MUST_APPEAR) {
-    if (Math.random() < 0.5 && asteroids.length === 0) { eyeSpawned = true; spawnEyeballs(); }
+    if (rnd() < 0.5 && asteroids.length === 0) { eyeSpawned = true; spawnEyeballs(); }
     else { moaiSpawned = true; spawnMoai(); }
   }
   updateMoai();
@@ -6792,7 +6808,7 @@ function updatePlay() {
   updateAsteroids();
   // ロケット弾は 3 面以降、ときどき飛んでくる
   if (canEnemy && stageNo >= 3 && --rocketTimer <= 0) {
-    rocketTimer = ROCKET_INTERVAL + Math.floor(Math.random() * 300);
+    rocketTimer = ROCKET_INTERVAL + Math.floor(rnd() * 300);
     spawnRocket();
   }
   updateRockets();
@@ -6817,27 +6833,27 @@ function updatePlay() {
     }
     // ワープ機は 2 面以降、ときどき現れる
     if (stageNo >= 2 && --warperTimer <= 0) {
-      warperTimer = WARP_INTERVAL + Math.floor(Math.random() * 240);
+      warperTimer = WARP_INTERVAL + Math.floor(rnd() * 240);
       spawnWarper();
     }
     // 高速直進機は 2 面以降、ときどきまとめて降ってくる
     if (stageNo >= 2 && --dasherTimer <= 0) {
-      dasherTimer = DASHER_INTERVAL + Math.floor(Math.random() * 180);
+      dasherTimer = DASHER_INTERVAL + Math.floor(rnd() * 180);
       spawnDasher();
     }
     // 壁づたい機は 2 面以降。端に長居させないための相手
     if (stageNo >= 2 && --wallerTimer <= 0) {
-      wallerTimer = WALLER_INTERVAL + Math.floor(Math.random() * 200);
+      wallerTimer = WALLER_INTERVAL + Math.floor(rnd() * 200);
       spawnWaller();
     }
     // 全方位機は 3 面以降。1 度に 1 機だけ出す
     if (stageNo >= 3 && !enemies.some(e => e.type === 'L') && --spreaderTimer <= 0) {
-      spreaderTimer = SPREADER_INTERVAL + Math.floor(Math.random() * 240);
+      spreaderTimer = SPREADER_INTERVAL + Math.floor(rnd() * 240);
       spawnSpreader();
     }
     // 放物線機は 3 面以降、ときどき横から投げ込まれる
     if (stageNo >= 3 && --diverTimer <= 0) {
-      diverTimer = DIVER_INTERVAL + Math.floor(Math.random() * 200);
+      diverTimer = DIVER_INTERVAL + Math.floor(rnd() * 200);
       spawnDiver();
     }
     // 光る敵(宝箱)は没にした。処理と絵は残してあるので、
@@ -6849,7 +6865,7 @@ function updatePlay() {
     // 16t のおもりは 3 面以降。ミサイルや岩が出ているあいだは出てこない
     if (stageNo >= 3 && weights.length === 0 && weightQueue === 0 &&
         rockets.length === 0 && asteroids.length === 0 && --weightTimer <= 0) {
-      weightTimer = WEIGHT_INTERVAL + Math.floor(Math.random() * 500);
+      weightTimer = WEIGHT_INTERVAL + Math.floor(rnd() * 500);
       startWeightVolley();
     }
     // 挟み撃ち機はバリアを持っているときだけ、左右ペアで突っ込んでくる
@@ -6879,7 +6895,7 @@ function updatePlay() {
     // クリアの演出に入ったら、もう新しくは飛ばさない
     if (playFrame >= FAR_BEAM_AT && clearTimer <= 0 && !leaving && bossIntro <= 0 &&
         --farBeamTimer <= 0) {
-      farBeamTimer = FAR_BEAM_GAP + Math.floor(Math.random() * 40);
+      farBeamTimer = FAR_BEAM_GAP + Math.floor(rndBoss() * 40);
       fireFarBeam();
     }
   }
@@ -8479,7 +8495,8 @@ mmsxx.expose('mmsxxDebug', () => ({
   gear: { shotLevel, speedLevel, maxVolleys, damageLevel, barrierHP, ships },
   playerX: Math.round(player.x), bullets: bullets.length,
   talkHold, continueStages: { ...continueStages },
-  rank: { mode: RANK_MODE, browserId, playId, delay: RANK_DELAY, errorRate: RANK_ERROR },
+  rank: { mode: RANK_MODE, browserId, playId, seed: mmsxx.rng.masterSeed,
+    delay: RANK_DELAY, errorRate: RANK_ERROR },
   dragon: dragonSpot ? { hits: dragonSpot.hits, done: dragonSpot.done,
     x: dragonSpot.x, y: dragonSpotY() } : null,
   secret: secretSpots ? secretSpots.map(s => ({ x: s.x, y: s.y, hits: s.hits, done: s.done })) : null,
@@ -8549,10 +8566,10 @@ function startBossRush() {
     startStage();
     return;
   }
-  rushOrder = BOSS_RUSH_STAGES.slice().sort(() => Math.random() - 0.5);
+  rushOrder = BOSS_RUSH_STAGES.slice().sort(() => rnd() - 0.5);
   // 1 匹目は前回と違うボスにする(同じ相手が続かないように)
   if (rushOrder.length > 1 && rushOrder[0] === lastRushFirst) {
-    const i = 1 + Math.floor(Math.random() * (rushOrder.length - 1));
+    const i = 1 + Math.floor(rnd() * (rushOrder.length - 1));
     [rushOrder[0], rushOrder[i]] = [rushOrder[i], rushOrder[0]];
   }
   lastRushFirst = rushOrder[0];
