@@ -858,6 +858,9 @@ export class VDP {
     // セルの持ち物(どこに絵があるか)も埋めておく。合成の間引きに使われる
     if (L.cells) L.cells.fill(1);
     if (L.cellsOn !== undefined) L.cellsOn = L.cells ? L.cells.length : 0;
+    // **「空」の印を消す。** これを忘れると、合成のときにこのレイヤーが
+    // まるごと飛ばされ、写したはずのコマが画面に出ない
+    L.empty = false;
     return true;
   }
 

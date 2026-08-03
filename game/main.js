@@ -3054,8 +3054,9 @@ const REPLAY_HOLD = 1.2;
 // 「REPLAY」の見せかた。**16 ドット(8 ドットフォントの 2 倍)・赤・真ん中**
 const REPLAY_FONT = 2;         // 文字の倍率
 const REPLAY_COLOR = 8;        // 赤
-const REPLAY_BOOM = 100;       // 爆発を見せる長さ(約 1.7 秒)
+const REPLAY_BOOM = 60;        // 爆発を見せる長さ(1 秒)
 const REPLAY_TITLE = 60;       // 黒い画面に REPLAY を出す長さ(1 秒)
+const REPLAY_BLINK = 3;        // 「REPLAY」の点滅(3 コマ出て 3 コマ消える)
 let replayPhase = '';          // 'boom' / 'title' / 'play'
 let replayWait = 0;            // いまの場面があと何コマ続くか
 let replayThen = null;         // 流し終わったあとにやること
@@ -3124,13 +3125,8 @@ function startReplayTitle() {
   cancelFlash();
   hud.clear();               // ゲーム中の文字は消す
   mmsxx.hideSprites(true);   // スプライトも 1 枚も出さない
-  // 画面ぜんぶを黒で覆って、真ん中に文字を置く
-  const L = mmsxx.layer(REPLAY_LAYER);
-  const cw = 8 * REPLAY_FONT;
-  const w = REPLAY_TEXT.length * cw;
-  L.fill(1, 0, 0, SCREEN_W, SCREEN_H);
-  L.print(Math.round((SCREEN_W - w) / 2 / 8) * 8,
-    Math.round((SCREEN_H - cw) / 2 / 8) * 8, REPLAY_TEXT, REPLAY_COLOR, 1, REPLAY_FONT);
+  // 画面ぜんぶを黒で覆う(文字は updateReplay が毎コマ書き直して点滅させる)
+  mmsxx.layer(REPLAY_LAYER).fill(1, 0, 0, SCREEN_W, SCREEN_H);
   // ここで溜めを止める。**自機の爆発まで**溜まった状態で固定される
   stopDeathCapture();
 }
@@ -3160,6 +3156,18 @@ function updateReplay() {
     return;
   }
   if (replayPhase === 'title') {
+    // 3 コマ出て 3 コマ消える点滅。**出しはじめから数える**ので、
+    // 必ず出ている側から始まる
+    const past = REPLAY_TITLE - replayWait;
+    const L = mmsxx.layer(REPLAY_LAYER);
+    const cw = 8 * REPLAY_FONT;
+    const w = REPLAY_TEXT.length * cw;
+    const x = Math.round((SCREEN_W - w) / 2 / 8) * 8;
+    const y = Math.round((SCREEN_H - cw) / 2 / 8) * 8;
+    L.fill(1, x, y, w, cw);
+    if (Math.floor(past / REPLAY_BLINK) % 2 === 0) {
+      L.print(x, y, REPLAY_TEXT, REPLAY_COLOR, 1, REPLAY_FONT);
+    }
     if (--replayWait <= 0) startReplayPlay();
   }
   // 流しているあいだは何もしない(文字は乗せない)
@@ -3961,6 +3969,10 @@ function destroyPlayer(cause = 'unknown', noMercy = false) {
   coinValue = COIN_BASE;
   ships--;
   if (ships <= 0) {
+    // **自機は消す。** リプレイの前に爆発を見せるので、
+    // 消さないと壊れたはずの機体がそのまま残って見える
+    player.visible = false;
+    aux.visible = false;   // 炎とバリアも一緒に消す
     enterGameOver();
   } else {
     // 爆発を見せてから復帰させる
