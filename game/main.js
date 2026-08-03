@@ -2880,6 +2880,7 @@ function enterPlay(fromContinue = false) {
   coinValue = COIN_BASE;
   // 前のゲームで取っておいたシェアの絵は持ち越さない
   shareShotSaved = null;
+  shareShotRing = [];
   // ドラゴンの炎はやられても消えないが、新しいゲームでは持ち越さない
   dragonFlame = false;
   // モアイの案内は 1 プレイに 1 回ずつ。新しいゲームでは出し直す
@@ -3322,18 +3323,52 @@ let shareShot = null;       // いま見せている画面(2 倍)。送信でも
 let shareBusy = false;      // 送信中(二重に押されるのを止める)
 // ランクインで自動的に出すときに見せる絵。**遊んでいる最中**に取っておく。
 // ゲームオーバーの画面ではなく、遊んでいた画面を残したいため
-//   やられて終わるとき … 爆発する前のその瞬間
+//   やられて終わるとき … **約 1 秒前**の、まだ自機が無事な画面
 //   全面クリアのとき   … クリアのボーナス集計の画面
 let shareShotSaved = null;
+// やられる前の画面は、遊んでいるあいだ 0.5 秒ごとに撮って 2 枚だけ残す。
+// やられた瞬間の絵では自機がもう当たっているので、古いほう(0.5〜1 秒前)を使う。
+// 原寸で撮るのがいちばん安く(実測 0.07 ミリ秒ほど。1 コマの持ち時間は 16.6 ミリ秒)、
+// 2 秒に 4 回でもコマ落ちには関わらない。2 倍に広げるのは**見せるときだけ**
+const SHARE_SHOT_EVERY = 30;
+let shareShotRing = [];     // 古い順。[0] が 0.5〜1 秒前の 1 枚
 
-/** シェア用に画面を 2 倍で取る。取れなければ null */
+/** シェア用に画面を取る。**原寸**でよい。取れなければ null */
 function captureShareShot() {
   try {
-    return mmsxx.capture({ scale: 2, type: 'canvas' });
+    return mmsxx.capture({ type: 'canvas' });
   } catch (e) {
     mmsxx.errors.log('シェアの画面取り込み失敗: ' + e);
     return null;
   }
+}
+
+/** 0.5 秒ごとの 1 枚を積む。2 枚を超えたら古いほうから捨てる */
+function pushShareShot() {
+  const shot = captureShareShot();
+  if (!shot) return;
+  shareShotRing.push(shot);
+  if (shareShotRing.length > 2) shareShotRing.shift();
+}
+
+/**
+ * やられて終わるときに見せる絵。
+ * 取ってあれば**約 1 秒前**の 1 枚。まだ 1 枚も無い(始めてすぐやられた)ときは、
+ * 今までどおりその場で 1 枚取る
+ */
+function deathShareShot() {
+  return shareShotRing[0] || captureShareShot();
+}
+
+/** 板に載せる形にする。ドットをぼかさずに 2 倍へ広げる */
+function enlargeShareShot(src) {
+  const out = document.createElement('canvas');
+  out.width = src.width * 2;
+  out.height = src.height * 2;
+  const cx = out.getContext('2d');
+  cx.imageSmoothingEnabled = false;
+  cx.drawImage(src, 0, 0, out.width, out.height);
+  return out;
 }
 
 /** モードの名前。CONTINUE は NORMAL の続きなので NORMAL と名乗る */
@@ -3430,9 +3465,10 @@ function openShare(after, shot) {
   if (sharePaused) togglePause();
   makeShareEl().style.display = 'flex';
   // 渡された絵があればそれを見せる(ランクインのときの、遊んでいた画面)。
-  // 無ければ**始動した時点の画面**を 2 倍で取る(ALT+P で自分から出したとき)。
+  // 無ければ**始動した時点の画面**を取る(ALT+P で自分から出したとき)。
   // どちらも 1 枚に止めた絵なので、送信でも同じものを使える
-  shareShot = shot || captureShareShot();
+  const src = shot || captureShareShot();
+  shareShot = src ? enlargeShareShot(src) : null;
   if (shareShot) {
     // 大きい画面でも板からはみ出さないようにする。ドットはぼかさない
     Object.assign(shareShot.style, {
@@ -3575,9 +3611,10 @@ function destroyPlayer(cause = 'unknown', noMercy = false) {
   // NORMAL はバリアがあればそれで肩代わり。装備そのものは下げない
   if (isNormal() && barrierHP > 0 && !noMercy) { damagePlayer(cause); return; }
   // これが最後の 1 機なら、ここでゲームオーバーが決まる。
-  // シェアに載せる絵は**爆発する前のこの瞬間**を取っておく
-  // (capture は最後に描いた画面を写すので、まだ自機が生きている絵になる)
-  if (ships <= 1) shareShotSaved = captureShareShot();
+  // シェアに載せる絵は、**やられる前**に撮ってあった 1 枚を使う
+  if (ships <= 1) shareShotSaved = deathShareShot();
+  // 次の 1 機ぶんは撮り直す(前の機の、爆発や復活中の絵を混ぜない)
+  shareShotRing = [];
   // 大きな爆発を重ねて、やられたことがはっきり分かるようにする
   spawnBoom(player.x, player.y);
   for (let i = 0; i < 10; i++) {
@@ -6625,6 +6662,9 @@ function updateBoss() {
 
 function updatePlay() {
   playFrame++;
+  // やられたときに見せる絵を 0.5 秒ごとに撮っておく。
+  // ゲームオーバーの画面(state が 'over')になってからは撮らない
+  if (state === 'play' && (playFrame % SHARE_SHOT_EVERY) === 0) pushShareShot();
   // 撃破タイムは「弾が当たる状態」のあいだだけ数える
   if (bossTimeCounts()) bossFrames++;
   // ボスラッシュの経過時間(表示は 1/10 秒ごとに更新する)
