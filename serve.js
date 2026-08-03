@@ -28,7 +28,11 @@ const MIME = {
 
 /** data URL (PNG か GIF) を capture/ へ書き出して、古いものを消す */
 function saveCapture(dataUrl, name) {
-  const comma = dataUrl.indexOf(',');
+  // 本体の切れ目は **`;base64,`** で探す。最初のコンマではない。
+  // codecs 付き(video/mp4;codecs=avc1.42E01E,mp4a.40.2)は頭にコンマを含むので、
+  // 最初のコンマで切ると頭が欠けて、どのプレイヤーでも開けないものができる
+  const head = dataUrl.indexOf(';base64,');
+  const comma = (head < 0) ? -1 : head + ';base64,'.length - 1;
   // PNG のほかに GIF と動画(webm / mp4)も受ける(プレイ動画の下見用)
   const kinds = [['data:image/png;base64,', 'png'], ['data:image/gif;base64,', 'gif'],
     ['data:video/webm;base64,', 'webm'], ['data:video/mp4;base64,', 'mp4']];
