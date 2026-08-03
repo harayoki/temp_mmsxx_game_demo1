@@ -3308,11 +3308,37 @@ function updateSubmitting() {
 // ドットを汚さずに済み、文字も画像もそのまま扱えるため
 // (docs/SMARTPHONE.md の 5 節と同じ考えかた)。
 //
-// いまは**枠だけ**。画像・文言・ボタンの中身は別の作業で足す。
+// SNS へつなぐところはまだ無い。いまは**画像をクリップボードへ**渡すところまで。
 let shareEl = null;         // ダイアログの入れもの(初めて出すときに作る)
 let shareOpen = false;      // 出ているか
 let sharePaused = false;    // こちらでポーズしたか(閉じるときに戻す)
 let shareAfter = null;      // 閉じたあとにやること(ランクインのときの続き)
+let shareShotBox = null;    // 画面の絵を入れるところ
+let shareTextEl = null;     // シェア文言(日本語と英語)を入れるところ
+let shareStatusEl = null;   // 送信の結果を出すところ
+let shareShot = null;       // 始動した時点の画面(2 倍)。送信でも同じ絵を使う
+let shareBusy = false;      // 送信中(二重に押されるのを止める)
+
+/** モードの名前。CONTINUE は NORMAL の続きなので NORMAL と名乗る */
+function shareModeName() {
+  const id = gameMode();
+  if (id === 'hard') return 'HARD';
+  if (id === 'bossrush') return 'BOSS RUSH';
+  return 'NORMAL';
+}
+
+/**
+ * シェア文言。**日本語と英語を両方並べる**。
+ * ブラウザの言葉では切り替えない(どちらの人にもそのまま貼ってもらう)。
+ */
+function shareTextLines() {
+  const mode = shareModeName();
+  return [
+    `STAR FABLE で ${score} 点まで飛んだ！（ステージ ${stageNo} ・ ${mode}）`,
+    `Flew to ${score} points in STAR FABLE! (STAGE ${stageNo} / ${mode})`,
+    '#STARFABLE #MMSXX',
+  ];
+}
 
 /** ダイアログの板を作る(1 回だけ) */
 function makeShareEl() {
@@ -3330,12 +3356,23 @@ function makeShareEl() {
     background: '#101010', border: '2px solid #cccccc',
     padding: '20px 28px', lineHeight: '1.7',
   });
-  // 中身(画像と文言)はこれから作る。いまは枠とボタンだけ。
-  // **日本語と英語を両方並べる**(どちらの言葉の人にもそのまま使ってもらう)
-  const body = document.createElement('div');
-  body.innerHTML = 'SHARE<br>（ここに画像と文言が入ります）<br>'
-    + '(image and text go here)';
-  box.appendChild(body);
+  // 画面の絵。中身は出すたびに入れ替えるので、ここでは空の入れものだけ作る
+  const shot = document.createElement('div');
+  Object.assign(shot.style, { marginBottom: '14px', lineHeight: '0' });
+  box.appendChild(shot);
+  shareShotBox = shot;
+
+  // シェア文言。**日本語と英語を両方並べる**(どちらの言葉の人にもそのまま使ってもらう)
+  const text = document.createElement('div');
+  Object.assign(text.style, { textAlign: 'left', whiteSpace: 'pre-wrap' });
+  box.appendChild(text);
+  shareTextEl = text;
+
+  // 送信の結果(コピーできたか)。何もしていないうちは空
+  const status = document.createElement('div');
+  Object.assign(status.style, { marginTop: '10px', minHeight: '1.7em', color: '#9fdc9f' });
+  box.appendChild(status);
+  shareStatusEl = status;
 
   // DOM なのでボタンが置ける。**キーでも押せる**ようにしてある
   //   SPACE = 送信 / ESC = とじる
@@ -3374,22 +3411,67 @@ function openShare(after) {
   sharePaused = (state === 'play' && !paused);
   if (sharePaused) togglePause();
   makeShareEl().style.display = 'flex';
+  // **始動した時点の画面**を 2 倍で取る。以後この絵を見せ、送信でもこれを使う
+  // (ポーズしない画面では絵が動き続けるので、1 枚に止めておく)
+  try {
+    shareShot = mmsxx.capture({ scale: 2, type: 'canvas' });
+    // 大きい画面でも板からはみ出さないようにする。ドットはぼかさない
+    Object.assign(shareShot.style, {
+      display: 'block', maxWidth: '76vw', height: 'auto',
+      imageRendering: 'pixelated', border: '1px solid #444444',
+    });
+    shareShotBox.replaceChildren(shareShot);
+  } catch (e) {
+    shareShot = null;
+    shareShotBox.replaceChildren();
+    mmsxx.errors.log('シェアの画面取り込み失敗: ' + e);
+  }
+  shareTextEl.textContent = shareTextLines().join('\n');
+  shareStatusEl.textContent = '';
+  shareBusy = false;
   mmsxx.audio.playSE('shutter', SE_JINGLE);
 }
 
 /**
- * 送信。**SNS へつなぐところはまだ無い**ので、いまは閉じるだけ。
- * つなぐときはここに書き足す(画像はすでに 2 倍で取れる)
+ * 送信。**SNS へつなぐところはまだ無い**ので、いまは画像をクリップボードへ渡す。
+ * 貼れば文言と一緒に投稿できる(道は captureClipboard() と同じ)。
+ * 書けたかどうかを板の中で知らせてから、少し待って閉じる。
  */
 function sendShare() {
+  if (shareBusy) return;   // 書き終わるまでは二重に押させない
+  shareBusy = true;
   mmsxx.audio.playSE('item', SE_EVENT);
-  closeShare();
+  const done = (msg) => {
+    if (!shareOpen) return;   // 待つあいだに ESC で閉じられていたら何もしない
+    shareStatusEl.textContent = msg;
+    // 読む間をおいてから閉じる(ランクインのときはこのあと名前入力へ進む)
+    setTimeout(() => { shareBusy = false; closeShare(); }, 900);
+  };
+  if (!shareShot || !navigator.clipboard || !window.ClipboardItem) {
+    done('コピーできませんでした / COPY FAILED');
+    return;
+  }
+  try {
+    shareShot.toBlob((blob) => {
+      if (!blob) { done('コピーできませんでした / COPY FAILED'); return; }
+      navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+        .then(() => done('画像をコピーしました / IMAGE COPIED'))
+        .catch((e) => {
+          mmsxx.errors.log('シェアの clipboard 書き込み失敗: ' + e);
+          done('コピーできませんでした / COPY FAILED');
+        });
+    }, 'image/png');
+  } catch (e) {
+    mmsxx.errors.log('シェアの送信失敗: ' + e);
+    done('コピーできませんでした / COPY FAILED');
+  }
 }
 
 /** ダイアログを閉じて、元の状態へ戻す */
 function closeShare() {
   if (!shareOpen) return;
   shareOpen = false;
+  shareBusy = false;
   if (shareEl) shareEl.style.display = 'none';
   if (sharePaused) { togglePause(); sharePaused = false; }
   const after = shareAfter;
