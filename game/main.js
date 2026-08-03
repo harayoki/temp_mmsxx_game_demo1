@@ -10045,6 +10045,10 @@ const PAUSE_HINT = 'ESC:RESUME Q:RESET';
 const PAUSE_HINT2 = 'CODE + RETURN';
 function togglePause() {
   paused = !paused;
+  // 止めているあいだは画面と音を溜めない。
+  // 溜めつづけると、輪っかが「止まった画面」で埋まって、
+  // やられる直前の数秒が消えてしまう
+  mmsxx.holdCapture(paused);
   mmsxx.audio.playSE('pause');
   if (paused) {
     mmsxx.audio.stopBGM();

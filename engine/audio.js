@@ -171,11 +171,13 @@ class MmsxxTap extends AudioWorkletProcessor {
         for (let i = 0; i < this.len; i++) out[i] = this.buf[(start + i) % this.size];
         this.port.postMessage(out, [out.buffer]);
       } else if (e.data === 'clear') { this.at = 0; this.len = 0; }
+      else if (e.data === 'hold') { this.hold = true; }
+      else if (e.data === 'go') { this.hold = false; }
     };
   }
   process(inputs) {
     const ch = inputs[0] && inputs[0][0];
-    if (ch) {
+    if (ch && !this.hold) {
       for (let i = 0; i < ch.length; i++) {
         this.buf[this.at] = ch[i];
         this.at = (this.at + 1) % this.size;
@@ -233,6 +235,13 @@ registerProcessor('mmsxx-tap', MmsxxTap);
 
   /** 溜めたぶんを捨てて、いまから溜め直す */
   clearSound() { if (this._tap) this._tap.port.postMessage('clear'); }
+
+  /**
+   * **溜めるのをいったん止める / 再開する**(溜めたものは捨てない)。
+   * ポーズ中は音が出ていないので、止めておかないと
+   * 輪っかが無音で埋まってしまう
+   */
+  holdSound(on) { if (this._tap) this._tap.port.postMessage(on ? 'hold' : 'go'); }
 
   /**
    * 溜まっている音を受け取る。

@@ -231,6 +231,7 @@ export class VDP {
     this._buildPal32();
     // 直前のコマを溜める輪っか(keepFrames で始める)
     this._keepFrames = 0; this._frames = null; this._frameAt = 0; this._frameLen = 0;
+    this._frameHold = false;   // ポーズ中など、溜めるのを止めているあいだ
 
     /** 背景色(パレット番号 1..15)。全レイヤーが透明の場所に見える色 */
     this.backdrop = 1;
@@ -747,10 +748,17 @@ export class VDP {
     this._frameLen = 0;  // いま何コマ持っているか
   }
 
+  /**
+   * **溜めるのをいったん止める / 再開する**(溜めたものは捨てない)。
+   * ポーズ中も画面は描き続けているので、止めておかないと
+   * 輪っかが「止まった画面」で埋まってしまう
+   */
+  holdFrames(on) { this._frameHold = !!on; }
+
   /** 1 コマ写す(合成の最後に呼ばれる) */
   _pushFrame() {
     const n = this._keepFrames;
-    if (!n) return;
+    if (!n || this._frameHold) return;
     const src = this.outIdx;
     let buf = this._frames[this._frameAt];
     // 画面の大きさが変わったら作り直す

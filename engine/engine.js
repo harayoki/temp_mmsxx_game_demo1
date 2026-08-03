@@ -232,6 +232,15 @@ export class MMSXXEngine {
   keepSound(seconds) { this.audio.keepSound(seconds); }
 
   /**
+   * **溜めるのをいったん止める / 再開する**(溜めたものは捨てない)。
+   * 絵と音の両方に効く。**ポーズ中は必ず止めること**。
+   * 止めないと、輪っかが「止まった画面」と「無音」で埋まってしまい、
+   * せっかくの直前の数秒が消える。
+   * @param {boolean} on true で止める
+   */
+  holdCapture(on) { this.vdp.holdFrames(on); this.audio.holdSound(on); }
+
+  /**
    * **何秒前の画面**を取り出す。持っているなかでいちばん近いコマを返す。
    * 溜めていない・足りないときは null。
    * @param {number} secondsAgo 何秒前か
