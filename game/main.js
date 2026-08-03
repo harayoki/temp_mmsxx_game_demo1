@@ -3169,7 +3169,9 @@ let submitDone = false;      // 返事が返ってきたか
 let submitRank = -1;         // サーバが数えた順位(0 起点 / 載らなければ -1)
 let submitFailed = false;    // 通信に失敗したか(board.lastError を見る)
 let submitPage = 2;          // 進む先の一覧のページ
-let submitLocal = false;     // 知らせを出して、キーが押されるのを待っているあいだ
+// 結果の知らせ(送れた / 手元だけ)を出して、**キーが押されるのを待っている**あいだ。
+// 成功でも失敗でも同じ道を通る(読み終わってから先へ進んでもらう)
+let submitWaitKey = false;
 // **最低でもこれだけは見せる**。中身が手元の保存だと一瞬で返ってしまい、
 // 「送っています」が見えないまま画面が変わって、何が起きたのか分からない。
 // サーバに繋いだときと同じ手ざわりにするための、わざとの待ち
@@ -3188,7 +3190,7 @@ function startSubmit() {
   // 進む先は、ボスラッシュはタイムの表、それ以外は NORMAL / HARD それぞれの表
   submitPage = rush ? 4 : (gameMode() === 'hard' ? 3 : 2);
   submitRank = -1;
-  submitLocal = false;
+  submitWaitKey = false;
   state = 'submitting';
   sendSubmit();
 }
@@ -3251,7 +3253,7 @@ function updateSubmitting() {
     if (mmsxx.input.wasPressed('Escape')) {
       // あきらめる。**手元だけに残る**ことを知らせて、読み終わるまで待つ
       submitAsk = false;
-      submitLocal = true;
+      submitWaitKey = true;
       hud.fill(0, 0, 40, VW, 112);
       const s1 = 'LOCAL ONLY';
       hud.print(centerX(s1), 64, s1, 8);
@@ -3262,9 +3264,9 @@ function updateSubmitting() {
     return;
   }
   // 知らせ(送れた / 手元だけ)を読み終わるまで待つ。押されるまで先へ進まない
-  if (submitLocal) {
+  if (submitWaitKey) {
     if (!mmsxx.input.wasPressed('Space') && !mmsxx.input.wasPressed('Escape')) return;
-    submitLocal = false;
+    submitWaitKey = false;
     mmsxx.audio.stopBGM();
     currentBGM = null;
     // 名前を入れ終わったあとも CONTINUE を選んだ状態で戻す
@@ -3287,7 +3289,7 @@ function updateSubmitting() {
   }
   // 送れたときも知らせを出す。**押されるまで動かない**。
   // 黙って画面が変わると、送れたのかどうか分からないため
-  submitLocal = true;   // 「押されるまで待つ」の入れもの(失敗時と同じ道を通る)
+  submitWaitKey = true;
   hud.fill(0, 0, 40, VW, 112);
   const s1 = 'RECORD SAVED';
   hud.print(centerX(s1), 64, s1, 11);
