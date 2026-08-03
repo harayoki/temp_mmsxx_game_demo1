@@ -6676,12 +6676,13 @@ const DEATH_REACH = 56;        // 外の輪が広がりきる距離
 // 輪の作り。n = 枚数 / far = 広がる距離の割合 / turn = 回る向きと速さ /
 // off = 置きはじめの角度をずらす量(目盛りの何ぶんか)
 const DEATH_RINGS = [
-  // 外の輪。水色
+  // 外の輪。水色から始めて 1 個ごとに色を送る
   { n: 16, far: 1, turn: 1, off: 0, color: 1 },
-  // 内の輪。半目盛りずらして逆回り、色は白にして外と分ける
+  // 内の輪。半目盛りずらして逆回り。色は白から始めるので外と並びが食い違う
   { n: 8, far: 0.55, turn: -1.4, off: 0.5, color: 0 },
 ];
-// 光の色。**内と外で色をずらす**(下の DEATH_RINGS で輪ごとに指定)
+// 光の色。**1 個ごとに順ぐりに替える**。輪ごとに始まりの色をずらすので、
+// 内と外で色の並びも食い違う
 const DEATH_COLORS = [15, 7, 11];   // 白 / 水色 / 黄
 let deathBits = [];
 let deathSparkImg = null;      // 色ごとの絵(初めて使うときに作る)
@@ -6695,7 +6696,8 @@ function spawnDeathBurst(x, y) {
   let k = 0;
   for (const ring of DEATH_RINGS) {
     for (let i = 0; i < ring.n; i++) {
-      const sp = mmsxx.sprite(deathSparkImg[ring.color]);
+      // 色は**1 個ごとに送る**。輪ごとに始まりをずらしてある
+      const sp = mmsxx.sprite(deathSparkImg[(ring.color + i) % DEATH_COLORS.length]);
       sp.priority = 21;
       // **4 コマに 1 回**だけ出す。4 つの組に分けて、順ぐりに見せる
       sp.blink = DEATH_GROUP;
