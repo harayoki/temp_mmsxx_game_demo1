@@ -3044,12 +3044,12 @@ const REPLAY_TEXT = 'REPLAY';
 const REPLAY_MOVIE = 'mp4';
 // 録画の大きさ。**2 倍で録っておく**と、見る側が広げてもドットの角が溶けない
 const REPLAY_SCALE = 2;
-// 録画の重さ。この絵柄なら mid(400kbps)で足りる
-const REPLAY_BITRATE = BITRATE.mid;
-// 前後に置く間(秒)。いきなり流すと**同じ場面をもう一度見せられた**ようにしか
-// 見えないので、最初のコマで一拍おいて巻き戻しだと分からせ、
-// 最後のコマ(やられた瞬間)でも止めて、何が起きたかを残す
-const REPLAY_LEAD = 1;
+// 録画の重さ。人に渡すものなので high(800kbps)にしてある
+const REPLAY_BITRATE = BITRATE.high;
+// 後ろに置く間(秒)。最後のコマ(やられた瞬間)で止めて、何が起きたかを残す。
+// **前の間は置かない**。黒い画面の REPLAY がその役をしているので、
+// そのうえ止めると「動画の頭で自機が固まっている」ように見えてしまう
+const REPLAY_LEAD = 0;
 const REPLAY_HOLD = 1.2;
 // 「REPLAY」の見せかた。**16 ドット(8 ドットフォントの 2 倍)・赤・真ん中**
 const REPLAY_FONT = 2;         // 文字の倍率
@@ -3135,6 +3135,9 @@ function startReplayTitle() {
 function startReplayPlay() {
   replayPhase = 'play';
   mmsxx.layer(REPLAY_LAYER).clear();
+  // 生の曲は止める。**溜めた音のほうに入っている**ので、鳴らすと二重になる
+  mmsxx.audio.stopBGM();
+  currentBGM = null;
   // **ここから録る**。黒い画面は入れず、遊んでいた絵だけの動画にする。
   // 録れたものはシェアのダイアログから落とせる(開発中は capture/ にも残す)。
   // **mp4 で録る**(どこでも再生できる)。作れない環境では webm に落ちる
@@ -3143,7 +3146,10 @@ function startReplayPlay() {
     layer: REPLAY_LAYER, seconds: SHARE_KEEP_SEC,
     leadIn: REPLAY_LEAD, holdEnd: REPLAY_HOLD, onEnd: endReplay,
   });
-  if (!ok) endReplay();
+  if (!ok) { endReplay(); return; }
+  // **溜めてある音も一緒に流す**。絵と同じ時間ぶん溜めてあるので、
+  // 撃つ音も爆発の音もそのまま入る(無音のリプレイにならない)
+  mmsxx.audio.playSound();
 }
 
 /** 流しているあいだ。SPACE か ESC で飛ばせる */
