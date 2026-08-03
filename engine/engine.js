@@ -318,8 +318,10 @@ export class MMSXXEngine {
    *   scale = 何倍の大きさで録るか(既定 1、8 まで)。
    *   **1 ドットを四角に置き換えるだけ**なので、広げても角が立ったまま残る。
    *   等倍で録るとプレイヤー側が引き伸ばすときに色を混ぜてぼやける。
-   *   bitrate = 絵に使う 1 秒あたりのビット数。**小さくするほど軽くなる**が、
-   *   動きの多いところがにじむ。省くとブラウザ任せ。
+   *   bitrate = 絵に使う 1 秒あたりのビット数(既定 400000)。
+   *   **小さくするほど軽くなる**が、動きの多いところがにじむ。
+   *   色数が少ないので、この絵柄なら 400kbps でだいたい足りる。
+   *   0 を渡すとブラウザ任せになる。
    *   soundBitrate = 音のほう(省略時はブラウザ任せ。64000 くらいで足りる)
    * @returns {boolean} 始められたか(使えない環境では false)
    */
@@ -365,7 +367,8 @@ export class MMSXXEngine {
     // 重さの指定。渡さなければブラウザの見立てに任せる
     const conf = {};
     if (type) conf.mimeType = type;
-    if (opts.bitrate) conf.videoBitsPerSecond = Math.round(opts.bitrate);
+    const bitrate = (opts.bitrate === undefined) ? 400000 : opts.bitrate;
+    if (bitrate) conf.videoBitsPerSecond = Math.round(bitrate);
     if (opts.soundBitrate) conf.audioBitsPerSecond = Math.round(opts.soundBitrate);
     let rec;
     try { rec = new MediaRecorder(stream, conf); }
