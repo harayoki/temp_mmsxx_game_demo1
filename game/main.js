@@ -6669,7 +6669,7 @@ function clearWeakSparks() {
 // ただし 1 枚は **4 コマに 1 回**しか出さず、出る順番を 4 つの組に分けてある。
 // どの瞬間に見えているのは 6 枚ほどで、残りは消えている。
 // 実機のスプライトのちらつきを、そのまま演出に使っている。
-const DEATH_GROUP = 4;         // 何コマに 1 回出すか(= 同時に見える数の割り)
+const DEATH_GROUP = 2;         // 何コマに 1 回出すか(2 = 1 コマ出て 1 コマ消える)
 const DEATH_LIFE = 90;         // 散りきるまでのコマ数(1.5 秒)
 const DEATH_SPIN = 0.035;      // 1 コマあたりに輪が回る角度(ゆっくり)
 const DEATH_REACH = 45;        // 外の輪が広がりきる距離
@@ -6684,6 +6684,10 @@ const DEATH_RINGS = [
 // 光の色。**1 個ごとに順ぐりに替える**。輪ごとに始まりの色をずらすので、
 // 内と外で色の並びも食い違う
 const DEATH_COLORS = [15, 7, 11];   // 白 / 水色 / 黄
+// 輪だけだと整いすぎるので、**でたらめな場所にも光を散らす**。
+// 同じ絵を使い、居場所を数コマごとに飛ばして ちらちらさせる
+const DEATH_RAND = 8;          // でたらめに散らす数
+const DEATH_HOP = 5;           // 何コマごとに居場所を変えるか
 let deathBits = [];
 let deathSparkImg = null;      // 色ごとの絵(初めて使うときに作る)
 
@@ -6710,6 +6714,16 @@ function spawnDeathBurst(x, y) {
       k++;
     }
   }
+  // でたらめに散る光。輪の内も外もまたいで、ちらちらと居場所を変える
+  for (let i = 0; i < DEATH_RAND; i++) {
+    const sp = mmsxx.sprite(deathSparkImg[i % DEATH_COLORS.length]);
+    sp.priority = 21;
+    sp.blink = DEATH_GROUP;
+    sp.blinkPhase = k % DEATH_GROUP;
+    sp.x = x; sp.y = y;
+    deathBits.push({ sp, age: 0, x, y, hop: true, a0: 0, far: 1, turn: 0 });
+    k++;
+  }
 }
 
 function updateDeathBurst() {
@@ -6724,6 +6738,17 @@ function updateDeathBurst() {
     // 外へ出るのは速く、終わりはゆっくり(1 - (1-t)^2)。
     // 輪はゆっくり回しておくと、止まって見えない
     const r = DEATH_REACH * b.far * (1 - (1 - t) * (1 - t));
+    if (b.hop) {
+      // でたらめなぶん。数コマごとに、輪のあたりへ飛び先を取り直す
+      if ((b.age % DEATH_HOP) === 1) {
+        b.ra = Math.random() * Math.PI * 2;
+        b.rr = r * (0.35 + Math.random() * 0.9);
+      }
+      b.sp.x = b.x + Math.cos(b.ra || 0) * (b.rr || 0);
+      b.sp.y = b.y + Math.sin(b.ra || 0) * (b.rr || 0) * 0.85;
+      if (t > 0.8) b.sp.blink = DEATH_GROUP * 3;
+      continue;
+    }
     const a = b.a0 + b.age * DEATH_SPIN * b.turn;
     b.sp.x = b.x + Math.cos(a) * r;
     b.sp.y = b.y + Math.sin(a) * r * 0.85;   // 少し平たい輪にする
