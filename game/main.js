@@ -2490,7 +2490,9 @@ function enterTitle(page = 0, focusRank = -1, fromOver = false) {
   paused = false;
   bossPractice = false;   // 練習モードはタイトルへ戻ったら解除
   titleScene = true;      // タイトルは決まった背景にする
-  mmsxx.keepFrames(0);    // 遊んでいないあいだは画面を溜めない(持ちっぱなしにしない)
+  // 遊んでいないあいだは溜めない(持ちっぱなしにしない)
+  mmsxx.keepFrames(0);
+  mmsxx.keepSound(0);
   clearEntities();
   player.visible = false;
   aux.visible = false;   // 炎とバリアも一緒に消す
@@ -2909,8 +2911,9 @@ function enterPlay(fromContinue = false) {
   // 乱数の種も作り直す。**記録に残すのはこの数だけ**で、
   // 流れ('main' と 'boss')の種はここから作られる
   mmsxx.rng.seed();
-  // 直前の画面を溜めはじめる(シェアの 1 枚と、あとで作るリプレイに使う)
+  // 直前の画面と音を溜めはじめる(シェアの 1 枚と、あとで作るリプレイに使う)
   mmsxx.keepFrames(SHARE_KEEP_SEC);
+  mmsxx.keepSound(SHARE_KEEP_SEC);
   // 始めたときのランキングを覚えておく(ランクインしたか判定する基準)
   rankSnapshot = snapshotRanking();
   stats.startSession({ mode: gameMode() });

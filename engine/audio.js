@@ -109,12 +109,20 @@ export class PSGPlayer {
    */
   _out() {
     if (!this.ctx) return null;
-    if (!this._master) {
+    if (!this._bus) {
+      // 出口は 2 段。**手前(bus)で溜めて、後ろ(master)で消す**。
+      // こうしておくと、音を切って遊んでいた人でも
+      // 残した音には ちゃんと鳴っていたものが入る
       this._master = this.ctx.createGain();
       this._master.gain.value = this._muted ? 0 : 1;
       this._master.connect(this.ctx.destination);
+      this._bus = this.ctx.createGain();
+      this._bus.gain.value = 1;
+      this._bus.connect(this._master);
+      // 溜める指示が先に来ていたら、ここで始める
+      if (this._keepSec > 0) this._startTap(this._keepSec);
     }
-    return this._master;
+    return this._bus;
   }
 
   /**
@@ -125,7 +133,8 @@ export class PSGPlayer {
    */
   mute(on) {
     this._muted = (on === undefined) ? !this._muted : !!on;
-    const out = this._out();
+    this._out();                 // 出口を用意させる
+    const out = this._master;    // 絞るのは**後ろの段**(溜めるほうは絞らない)
     if (out) {
       const t = this.ctx.currentTime;
       out.gain.cancelScheduledValues(t);
@@ -138,6 +147,124 @@ export class PSGPlayer {
 
   /** いま音を消しているか */
   get muted() { return !!this._muted; }
+
+  // ---- 直前の音を溜める(あとで聞き直す・動画に付ける) ----
+  //
+  // 出口の**手前**に聞き耳の節をつないで、流れた波形を輪っかに溜める。
+  // 生の波形なので符号化は要らず、3 秒でも 0.6MB ほど(48kHz・モノラル)。
+  // **輪っかは AudioWorklet の中に置く**。毎回やりとりせず、欲しいときだけもらう。
+
+  /** 聞き耳の節の中身(文字列から作るので、ファイルは増えない) */
+  static get _tapCode() {
+    return `
+class MmsxxTap extends AudioWorkletProcessor {
+  constructor(opts) {
+    super();
+    this.size = opts.processorOptions.size | 0;
+    this.buf = new Float32Array(this.size);
+    this.at = 0; this.len = 0;
+    this.port.onmessage = (e) => {
+      if (e.data === 'grab') {
+        // 古い順に並べ直して渡す
+        const out = new Float32Array(this.len);
+        const start = (this.at - this.len + this.size) % this.size;
+        for (let i = 0; i < this.len; i++) out[i] = this.buf[(start + i) % this.size];
+        this.port.postMessage(out, [out.buffer]);
+      } else if (e.data === 'clear') { this.at = 0; this.len = 0; }
+    };
+  }
+  process(inputs) {
+    const ch = inputs[0] && inputs[0][0];
+    if (ch) {
+      for (let i = 0; i < ch.length; i++) {
+        this.buf[this.at] = ch[i];
+        this.at = (this.at + 1) % this.size;
+        if (this.len < this.size) this.len++;
+      }
+    }
+    return true;   // 音が止まっても回しつづける
+  }
+}
+registerProcessor('mmsxx-tap', MmsxxTap);
+`;
+  }
+
+  /**
+   * **直前の音を溜めはじめる**(0 でやめて捨てる)。
+   * まだ音が解禁されていなければ覚えておいて、解禁されたときに始める。
+   * @param {number} seconds 何秒ぶん持つか
+   */
+  keepSound(seconds) {
+    this._keepSec = Math.max(0, seconds);
+    if (!this.ctx) return;              // 解禁待ち(_out で始める)
+    if (this._keepSec <= 0) { this._stopTap(); return; }
+    this._out();                        // bus を用意させる
+    this._startTap(this._keepSec);
+  }
+
+  /** 聞き耳をつなぐ */
+  _startTap(seconds) {
+    if (this._tap || this._tapBusy || !this.ctx || !this._bus) return;
+    if (!this.ctx.audioWorklet) return;   // 使えない環境では黙って何もしない
+    this._tapBusy = true;
+    const size = Math.round(seconds * this.ctx.sampleRate);
+    const url = URL.createObjectURL(new Blob([PSGPlayer._tapCode], { type: 'application/javascript' }));
+    this.ctx.audioWorklet.addModule(url).then(() => {
+      URL.revokeObjectURL(url);
+      if (this._keepSec <= 0 || !this._bus) { this._tapBusy = false; return; }
+      const node = new AudioWorkletNode(this.ctx, 'mmsxx-tap', { processorOptions: { size } });
+      // 節を回しつづけるため、音の出ない先へつないでおく
+      const sink = this.ctx.createGain();
+      sink.gain.value = 0;
+      node.connect(sink);
+      sink.connect(this.ctx.destination);
+      this._bus.connect(node);
+      this._tap = node; this._tapSink = sink;
+      this._tapBusy = false;
+    }).catch(() => { this._tapBusy = false; });
+  }
+
+  /** 聞き耳を外して捨てる */
+  _stopTap() {
+    if (this._tap) { try { this._tap.disconnect(); } catch (e) { /* gone */ } }
+    if (this._tapSink) { try { this._tapSink.disconnect(); } catch (e) { /* gone */ } }
+    this._tap = null; this._tapSink = null;
+  }
+
+  /** 溜めたぶんを捨てて、いまから溜め直す */
+  clearSound() { if (this._tap) this._tap.port.postMessage('clear'); }
+
+  /**
+   * 溜まっている音を受け取る。
+   * @returns {Promise<AudioBuffer|null>} 鳴らせる形。溜めていなければ null
+   */
+  soundBack() {
+    const node = this._tap;
+    if (!node || !this.ctx) return Promise.resolve(null);
+    return new Promise((done) => {
+      const t = setTimeout(() => done(null), 500);   // 返事が来なければあきらめる
+      node.port.onmessage = (e) => {
+        clearTimeout(t);
+        const data = e.data;
+        if (!data || !data.length) { done(null); return; }
+        const buf = this.ctx.createBuffer(1, data.length, this.ctx.sampleRate);
+        buf.getChannelData(0).set(data);
+        done(buf);
+      };
+      node.port.postMessage('grab');
+    });
+  }
+
+  /** 溜まっている音をそのまま鳴らす(リプレイ用) */
+  async playSound() {
+    const buf = await this.soundBack();
+    if (!buf) return null;
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(this._out());
+    src.start();
+    return src;
+  }
 
   /** ユーザー操作を起点に AudioContext を有効化する(エンジンがキー入力時に呼ぶ) */
   unlock() {

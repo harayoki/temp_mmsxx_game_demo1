@@ -217,6 +217,21 @@ export class MMSXXEngine {
   get frameCount() { return this.vdp.frameCount; }
 
   /**
+   * **直前の音も溜めておく**(絵と同じ考えかた)。
+   * 出口の**手前**で拾うので、音を切って遊んでいても、残した音には
+   * ちゃんと鳴っていたものが入る。生の波形なので 3 秒で 0.6MB ほど。
+   *
+   * ```js
+   * mmsxx.keepSound(3);            // 直前 3 秒ぶんの音を溜める
+   * await mmsxx.audio.soundBack(); // 溜まっているぶん(AudioBuffer)
+   * mmsxx.audio.playSound();       // そのまま鳴らす(リプレイ用)
+   * mmsxx.keepSound(0);            // やめて捨てる
+   * ```
+   * @param {number} seconds 何秒ぶん持つか
+   */
+  keepSound(seconds) { this.audio.keepSound(seconds); }
+
+  /**
    * **何秒前の画面**を取り出す。持っているなかでいちばん近いコマを返す。
    * 溜めていない・足りないときは null。
    * @param {number} secondsAgo 何秒前か
