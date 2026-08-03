@@ -4031,6 +4031,20 @@ const SPARK_ART = [
     '...##...',
   ],
 ];
+// 自機が散るときの光。**四つ角にとがった星**にして、丸い爆発と区別する。
+// 16 枚を輪に並べて広げるので、1 枚は小さくてよい(8x8)
+const DEATH_SPARK_ART = [
+  '...##...',
+  '...##...',
+  '..####..',
+  '########',
+  '########',
+  '..####..',
+  '...##...',
+  '...##...',
+];
+const deathSpark = fromAscii(DEATH_SPARK_ART, { '#': '#ffffff' });
+
 const spark0 = fromAscii(SPARK_ART[0], { '#': '#ffffff' });
 const spark1 = fromAscii(SPARK_ART[1], { '#': '#ffffff' });
 const spark2 = fromAscii(SPARK_ART[2], { '#': '#ffffff' });
@@ -6140,7 +6154,7 @@ const images = {
   ufoFist: pad16(ufoFist), todoFace, todoBlush, todoGlint,
   gearBlock, gearGem, gearSpark1, gearWeak0, gearWeak1, nautilus, nautilusHurt,
   pilotEye, pilotWink, pilotSmile, pilotPupil, riftGlow,
-  spark0, spark1, spark2, guiNext0: guiNext[0], guiNext1: guiNext[1],
+  spark0, spark1, spark2, deathSpark, guiNext0: guiNext[0], guiNext1: guiNext[1],
   guiNext2: guiNext[2], guiNext3: guiNext[3], pilot, pilotBig, pilotTurnBig, whaleStar, birdStar, dragonStar, shipStar,
   dragonSky: dragonSkySmall, dragonItem: pad16(dragonItem),
   endRift0: endRiftGrow[0], endRift1: endRiftGrow[1], endRift2: endRiftGrow[2],

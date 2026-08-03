@@ -140,6 +140,7 @@ const SPRITE_COLORS = {
   kingWaveL: 1, kingWaveM: 1, kingWaveS: 1,
   // 型を分けたときに、宣言もれが見つかったぶん
   powerUp: 1, eyeIris0: 1, gearGem: 1, glower0: 1, spark0: 1, todoGlint: 1,
+  deathSpark: 1,   // 自機が散るときの光(白 1 色。色は使う側で替える)
   barrierItem: 1, bulletRing: 1, enemyH: 1, enemyI: 1, enemyJ: 1,
   fireBall: 1, fireBall1: 1, fireBall2: 1, fireM0: 1, fireM1: 1, fireS0: 1, fireS1: 1,
   chick0: 1, chick1: 1,   // 気絶のときに頭を回るひよこ
@@ -3144,13 +3145,19 @@ function startReplayPlay() {
   // 録れたものはシェアのダイアログから落とせる(開発中は capture/ にも残す)。
   // **mp4 で録る**(どこでも再生できる)。作れない環境では webm に落ちる
   mmsxx.startRecord({ type: REPLAY_MOVIE, scale: REPLAY_SCALE, bitrate: REPLAY_BITRATE });
+  // **音の尺に絵を合わせる。** 溜めてある音は SHARE_KEEP_SEC 秒ぶんだが、
+  // コマはそれより短いことがある(やられ直後にもう一度やられて、
+  // 絵だけ溜め直したときなど)。足りないぶんは**最後のコマで止めたまま**
+  // 待って、音が鳴りきってから終わる。止まった絵はやられたところなので、
+  // 見せて困らない。**動画の音が尻切れにならない**のが大事
+  const shown = Math.min(mmsxx.frameCount, SHARE_KEEP_SEC * 60);
+  const shortBy = Math.max(0, SHARE_KEEP_SEC * 60 - shown) / 60;
   const ok = mmsxx.playFrames({
     layer: REPLAY_LAYER, seconds: SHARE_KEEP_SEC,
-    leadIn: REPLAY_LEAD, holdEnd: REPLAY_HOLD, onEnd: endReplay,
+    leadIn: REPLAY_LEAD, holdEnd: REPLAY_HOLD + shortBy, onEnd: endReplay,
   });
   if (!ok) { endReplay(); return; }
-  // **溜めてある音も一緒に流す**。絵と同じ時間ぶん溜めてあるので、
-  // 撃つ音も爆発の音もそのまま入る(無音のリプレイにならない)
+  // **溜めてある音も一緒に流す**。撃つ音も爆発の音もそのまま入る
   mmsxx.audio.playSound();
 }
 
@@ -4077,8 +4084,9 @@ function destroyPlayer(cause = 'unknown', noMercy = false) {
   // シェアに載せる絵は、**やられる前**に溜めてあったコマから選ぶ
   if (ships <= 1) keepDeathShareShot();
   // 次の 1 機ぶんは溜め直す(前の機の、爆発や復活中の絵を混ぜない)。
+  // **絵と音はそろえて捨てる**。片方だけ残すと、リプレイで尺が食い違う。
   // **最後の 1 機のときは残す**。やられたあとのリプレイに使うため
-  else mmsxx.keepFrames(SHARE_KEEP_SEC);
+  else { mmsxx.keepFrames(SHARE_KEEP_SEC); mmsxx.keepSound(SHARE_KEEP_SEC); }
   // **白い光の渦**で散る。爆発を重ねると止め絵で汚くなるので、
   // 4 枚のスプライトを順ぐりに見せる形にしてある(spawnDeathBurst)
   spawnBoom(player.x, player.y);          // 最初のひと膨らみだけ残す
@@ -6653,30 +6661,52 @@ function clearWeakSparks() {
 }
 
 // ---- 自機の散りかた ----
-// 止め絵で見ても汚くならないよう、爆発を**白い光の渦**にする
-// (ファンタジーゾーンのオパオパが散るところの感じ)。
+// 止め絵で見ても汚くならないよう、爆発ではなく**光の輪**が広がる形にする
+// (ファンタジーゾーンでオパオパが散るところの感じ)。
 //
-// **使うスプライトは 4 枚だけ。** 1 枚を 4 コマに 1 回だけ出し、
-// 出る順番を 1 コマずつずらすので、どの瞬間も見えているのは 1 枚。
-// それでも目には尾を引いて「たくさん飛んでいる」ように映る。
+// **輪を 2 周ぶん重ねる。** 外の輪は 16 枚、内の輪は 8 枚。
+// 内の輪は**半目盛りずらして、逆へ回す**ので、二重の渦に見える。
+// ただし 1 枚は **4 コマに 1 回**しか出さず、出る順番を 4 つの組に分けてある。
+// どの瞬間に見えているのは 6 枚ほどで、残りは消えている。
 // 実機のスプライトのちらつきを、そのまま演出に使っている。
-const DEATH_BITS = 4;          // 使う枚数
-const DEATH_LIFE = 96;         // 散りきるまでのコマ数(1.6 秒)
-const DEATH_SPIN = 0.10;       // 1 コマあたりに回る角度
-const DEATH_REACH = 52;        // いちばん外まで広がる距離
+const DEATH_GROUP = 4;         // 何コマに 1 回出すか(= 同時に見える数の割り)
+const DEATH_LIFE = 90;         // 散りきるまでのコマ数(1.5 秒)
+const DEATH_SPIN = 0.035;      // 1 コマあたりに輪が回る角度(ゆっくり)
+const DEATH_REACH = 56;        // 外の輪が広がりきる距離
+// 輪の作り。n = 枚数 / far = 広がる距離の割合 / turn = 回る向きと速さ /
+// off = 置きはじめの角度をずらす量(目盛りの何ぶんか)
+const DEATH_RINGS = [
+  // 外の輪。水色
+  { n: 16, far: 1, turn: 1, off: 0, color: 1 },
+  // 内の輪。半目盛りずらして逆回り、色は白にして外と分ける
+  { n: 8, far: 0.55, turn: -1.4, off: 0.5, color: 0 },
+];
+// 光の色。**内と外で色をずらす**(下の DEATH_RINGS で輪ごとに指定)
+const DEATH_COLORS = [15, 7, 11];   // 白 / 水色 / 黄
 let deathBits = [];
+let deathSparkImg = null;      // 色ごとの絵(初めて使うときに作る)
 
-/** 自機が散る。中心から白い光が渦を描いて広がる */
+/** 自機が散る。中心から光の輪が広がる */
 function spawnDeathBurst(x, y) {
   clearDeathBurst();
-  for (let i = 0; i < DEATH_BITS; i++) {
-    const sp = mmsxx.sprite(SPRITE_SYMBOLS.boom1);
-    sp.priority = 21;
-    // **4 コマに 1 回**だけ出す。位相をずらして順番に見せる
-    sp.blink = DEATH_BITS;
-    sp.blinkPhase = i;
-    sp.x = x; sp.y = y;
-    deathBits.push({ sp, age: 0, a0: (Math.PI * 2 * i) / DEATH_BITS, x, y });
+  if (!deathSparkImg) {
+    deathSparkImg = DEATH_COLORS.map((c) => recolor(SPRITE_SYMBOLS.deathSpark, c));
+  }
+  let k = 0;
+  for (const ring of DEATH_RINGS) {
+    for (let i = 0; i < ring.n; i++) {
+      const sp = mmsxx.sprite(deathSparkImg[ring.color]);
+      sp.priority = 21;
+      // **4 コマに 1 回**だけ出す。4 つの組に分けて、順ぐりに見せる
+      sp.blink = DEATH_GROUP;
+      sp.blinkPhase = k % DEATH_GROUP;
+      sp.x = x; sp.y = y;
+      deathBits.push({
+        sp, age: 0, x, y, far: ring.far, turn: ring.turn,
+        a0: (Math.PI * 2 * (i + ring.off)) / ring.n,
+      });
+      k++;
+    }
   }
 }
 
@@ -6690,16 +6720,13 @@ function updateDeathBurst() {
     }
     const t = b.age / DEATH_LIFE;
     // 外へ出るのは速く、終わりはゆっくり(1 - (1-t)^2)。
-    // 回りながら広がるので、軌跡が渦になる
-    const r = DEATH_REACH * (1 - (1 - t) * (1 - t));
-    const a = b.a0 + b.age * DEATH_SPIN;
+    // 輪はゆっくり回しておくと、止まって見えない
+    const r = DEATH_REACH * b.far * (1 - (1 - t) * (1 - t));
+    const a = b.a0 + b.age * DEATH_SPIN * b.turn;
     b.sp.x = b.x + Math.cos(a) * r;
-    b.sp.y = b.y + Math.sin(a) * r * 0.8;   // 少し平たい渦にする
-    // 遠くへ行くほど小さくなって消える
-    b.sp.image = (t < 0.25) ? SPRITE_SYMBOLS.boom2
-      : (t < 0.6) ? SPRITE_SYMBOLS.boom1 : SPRITE_SYMBOLS.boom0;
+    b.sp.y = b.y + Math.sin(a) * r * 0.85;   // 少し平たい輪にする
     // 終わりぎわは点滅を粗くして、消えぎわを作る
-    if (t > 0.8) b.sp.blink = DEATH_BITS * 2;
+    if (t > 0.8) b.sp.blink = DEATH_GROUP * 2;
   }
 }
 
