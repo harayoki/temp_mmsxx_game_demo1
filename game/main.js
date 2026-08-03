@@ -2878,6 +2878,8 @@ function enterPlay(fromContinue = false) {
   // NORMAL はボスラッシュと同じ初期装備で始める(丸腰の時間を作らない)
   applyStartGear();
   coinValue = COIN_BASE;
+  // 前のゲームで取っておいたシェアの絵は持ち越さない
+  shareShotSaved = null;
   // ドラゴンの炎はやられても消えないが、新しいゲームでは持ち越さない
   dragonFlame = false;
   // モアイの案内は 1 プレイに 1 回ずつ。新しいゲームでは出し直す
@@ -3316,8 +3318,23 @@ let shareAfter = null;      // 閉じたあとにやること(ランクインの
 let shareShotBox = null;    // 画面の絵を入れるところ
 let shareTextEl = null;     // シェア文言(日本語と英語)を入れるところ
 let shareStatusEl = null;   // 送信の結果を出すところ
-let shareShot = null;       // 始動した時点の画面(2 倍)。送信でも同じ絵を使う
+let shareShot = null;       // いま見せている画面(2 倍)。送信でも同じ絵を使う
 let shareBusy = false;      // 送信中(二重に押されるのを止める)
+// ランクインで自動的に出すときに見せる絵。**遊んでいる最中**に取っておく。
+// ゲームオーバーの画面ではなく、遊んでいた画面を残したいため
+//   やられて終わるとき … 爆発する前のその瞬間
+//   全面クリアのとき   … クリアのボーナス集計の画面
+let shareShotSaved = null;
+
+/** シェア用に画面を 2 倍で取る。取れなければ null */
+function captureShareShot() {
+  try {
+    return mmsxx.capture({ scale: 2, type: 'canvas' });
+  } catch (e) {
+    mmsxx.errors.log('シェアの画面取り込み失敗: ' + e);
+    return null;
+  }
+}
 
 /** モードの名前。CONTINUE は NORMAL の続きなので NORMAL と名乗る */
 function shareModeName() {
@@ -3402,8 +3419,9 @@ function makeShareEl() {
 /**
  * シェアのダイアログを出す。
  * @param {() => void} [after] 閉じたあとにやること(ランクインのときの続き)
+ * @param {HTMLCanvasElement} [shot] 見せる絵。省くと**いまの画面**を取る
  */
-function openShare(after) {
+function openShare(after, shot) {
   if (shareOpen) return;
   shareOpen = true;
   shareAfter = after || null;
@@ -3411,20 +3429,19 @@ function openShare(after) {
   sharePaused = (state === 'play' && !paused);
   if (sharePaused) togglePause();
   makeShareEl().style.display = 'flex';
-  // **始動した時点の画面**を 2 倍で取る。以後この絵を見せ、送信でもこれを使う
-  // (ポーズしない画面では絵が動き続けるので、1 枚に止めておく)
-  try {
-    shareShot = mmsxx.capture({ scale: 2, type: 'canvas' });
+  // 渡された絵があればそれを見せる(ランクインのときの、遊んでいた画面)。
+  // 無ければ**始動した時点の画面**を 2 倍で取る(ALT+P で自分から出したとき)。
+  // どちらも 1 枚に止めた絵なので、送信でも同じものを使える
+  shareShot = shot || captureShareShot();
+  if (shareShot) {
     // 大きい画面でも板からはみ出さないようにする。ドットはぼかさない
     Object.assign(shareShot.style, {
       display: 'block', maxWidth: '76vw', height: 'auto',
       imageRendering: 'pixelated', border: '1px solid #444444',
     });
     shareShotBox.replaceChildren(shareShot);
-  } catch (e) {
-    shareShot = null;
+  } else {
     shareShotBox.replaceChildren();
-    mmsxx.errors.log('シェアの画面取り込み失敗: ' + e);
   }
   shareTextEl.textContent = shareTextLines().join('\n');
   shareStatusEl.textContent = '';
@@ -3557,6 +3574,10 @@ function destroyPlayer(cause = 'unknown', noMercy = false) {
   startShake(26);
   // NORMAL はバリアがあればそれで肩代わり。装備そのものは下げない
   if (isNormal() && barrierHP > 0 && !noMercy) { damagePlayer(cause); return; }
+  // これが最後の 1 機なら、ここでゲームオーバーが決まる。
+  // シェアに載せる絵は**爆発する前のこの瞬間**を取っておく
+  // (capture は最後に描いた画面を写すので、まだ自機が生きている絵になる)
+  if (ships <= 1) shareShotSaved = captureShareShot();
   // 大きな爆発を重ねて、やられたことがはっきり分かるようにする
   spawnBoom(player.x, player.y);
   for (let i = 0; i < 10; i++) {
@@ -6848,6 +6869,10 @@ function updatePlay() {
       clearTimer = 1;
     }
     clearTimer--;
+    // ボーナス集計が出そろったところで、シェアに載せる絵を取っておく。
+    // 全面クリアで終わったときはこれが最後の 1 枚になる
+    // (途中の面のぶんは、次のクリアかミスの絵で置き換わる)
+    if (clearTimer === 900) shareShotSaved = captureShareShot();
     if (clearTimer <= 0) {
       if (state === 'play') { // ゲームオーバー後は進行しない
         statsStageEnd();
@@ -10174,7 +10199,7 @@ mmsxx.run(() => {
     // 記録を出したときは、少し待てばスペースですぐ名前入力へ飛べる
     if (stateTimer > 90 && scoreCountsForRanking() && isHiScore(score) &&
         gameMode() !== 'bossrush' && mmsxx.input.wasPressed('Space')) {
-      openShare(() => enterNameEntry('score'));
+      openShare(() => enterNameEntry('score'), shareShotSaved);
       return;
     }
     // 「月光」を最後まで聞かせてから次へ進む
@@ -10185,8 +10210,9 @@ mmsxx.run(() => {
         else enterTitle();
       } else if (scoreCountsForRanking() && isHiScore(score)) {
         // 記録を出したときは、名前入力の前にシェアを見せる。
+        // 見せるのは**遊んでいた画面**(取っておいた 1 枚)。
         // 閉じたら今までどおり名前入力へ進む
-        openShare(() => enterNameEntry('score'));
+        openShare(() => enterNameEntry('score'), shareShotSaved);
       } else {
         // ゲームオーバーから戻ったときは CONTINUE が選ばれた状態にする
         enterTitle(0, -1, true);
