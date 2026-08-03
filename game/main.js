@@ -13,7 +13,7 @@ import { StaffRoll } from '../engine/util/staffroll.js';
 import { Gallery } from '../engine/util/gallery.js';
 import { SoundTest } from '../engine/util/soundtest.js';
 import { FpsMeter } from '../engine/util/fps.js';
-import { toneDemo, scaleDemo } from '../engine/util/demotunes.js';
+import { demoFor, scaleDemo } from '../engine/util/demotunes.js';
 import { LocalStorageStore } from '../engine/storage.js';
 import { StatsLog } from '../engine/stats.js';
 import { GAME_DATA } from './gamedata.js';
@@ -9559,7 +9559,7 @@ function updateStaffRoll() {
 // ---- サウンドテスト ----
 // 曲(ループするもの)は BGM 側、短いジングルは SE 側の先頭にまとめる
 // 未使用曲や場面ごとの曲もここから聴ける
-const SOUND_BGM = ['main', 'power', 'boss', 'lastboss', 'moai', 'todo', 'gameover',
+const SOUND_BGM = ['main', 'main2', 'power', 'boss', 'lastboss', 'moai', 'todo', 'gameover',
   'elise', 'fate', 'salut', 'botsu1', 'finalbattle', 'staff'];
 // ジングルは BGM として登録されているので、鳴らし方が SE と違う。欄も分ける
 const SOUND_JINGLE = ['start', 'unused1', 'fanfare', 'bonus'];
@@ -9571,9 +9571,10 @@ const SOUND_SE = ['shutter', 'autofire', 'heal', 'scold',
 // しゃべるもの(TALK)。SE とは鳴らし方が違うので分けておく
 const SOUND_TALK = ['kozorite', 'kingLaugh', 'kiaiA', 'kiaiB', 'kiaiC'];
 // 音色テスト。**1 つの音色だけ**で同じ小曲を鳴らして聞き比べる。
-// 曲はエンジン側(demotunes.js)にある。音色が増えれば、この欄も自然に増える
+// 曲はエンジン側(demotunes.js)にある。音色が増えれば、この欄も自然に増える。
+// 打楽器の音色(fmDrum...)だけは、ドレミではなくリズムの曲になる
 const SOUND_TONE = mmsxx.audio.waveNames;
-for (const w of SOUND_TONE) mmsxx.audio.defineBGM('tone_' + w, toneDemo(w));
+for (const w of SOUND_TONE) mmsxx.audio.defineBGM('tone_' + w, demoFor(w));
 // 音色を次々に替えてドレミを鳴らす曲。聞き比べは TONE 欄でやるので、
 // こちらはコンソールから鳴らしたいとき用に置いておくだけ
 mmsxx.audio.defineBGM('scale', scaleDemo(SOUND_TONE));
