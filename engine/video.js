@@ -1130,36 +1130,48 @@ export class VDP {
 
   /**
    * 内蔵フォントでテキストを描く(1文字 8x8)。
+   *
+   * `scale` を渡すと**1 ドットを四角に置き換えて大きく**する。
+   * 2 なら 1 文字 16x16 の「16 ドットフォント」になる。
+   * 別の書体を持つのではなく同じ字を太らせるだけなので、字面は変わらない。
    * @param {number} layerIndex
    * @param {number} x 仮想画面座標(ピクセル)
    * @param {number} y
    * @param {string} text
    * @param {number} color 文字色 1..15
    * @param {number} [bg=0] 背景色(0で透明のまま=重ね書き)
+   * @param {number} [scale=1] 何倍の大きさで描くか
    */
-  print(layerIndex, x, y, text, color = 15, bg = 0) {
+  print(layerIndex, x, y, text, color = 15, bg = 0, scale = 1) {
     const L = this.layers[layerIndex];
     const layer = L.pixels;
+    const k = Math.max(1, Math.round(scale));
+    const cw = 8 * k;                        // 1 文字の幅(と高さ)
     // 文字も 8 ドット単位に置く(1 文字 = 1 キャラクタ)
     x = snap8(x); y = snap8(y);
     for (let n = 0; n < text.length; n++) {
       const glyph = getGlyph(text[n]);
-      const cx = x + n * 8;
+      const cx = x + n * cw;
       for (let iy = 0; iy < 8; iy++) {
         const row = glyph[iy] || '';
-        const rowBase = ((y + iy) & L.maskY) << L.shift;
-        for (let ix = 0; ix < 8; ix++) {
-          const on = row[ix] === '#';
-          const c = on ? color : bg;
-          if (c === 0 && bg === 0 && !on) continue;
-          layer[rowBase | ((cx + ix) & L.maskX)] = c;
+        for (let sy = 0; sy < k; sy++) {
+          const rowBase = ((y + iy * k + sy) & L.maskY) << L.shift;
+          for (let ix = 0; ix < 8; ix++) {
+            const on = row[ix] === '#';
+            const c = on ? color : bg;
+            if (c === 0 && bg === 0 && !on) continue;
+            for (let sx = 0; sx < k; sx++) {
+              layer[rowBase | ((cx + ix * k + sx) & L.maskX)] = c;
+            }
+          }
         }
       }
     }
     L.empty = false;
-    this._blackenCells(L, x, y, text.length * 8, 8);
-    this._enforceRuns(L, x, y, text.length * 8, 8);
-    this._markCells(L, x, y, text.length * 8, 8, 1);
+    const w = text.length * cw;
+    this._blackenCells(L, x, y, w, cw);
+    this._enforceRuns(L, x, y, w, cw);
+    this._markCells(L, x, y, w, cw, 1);
   }
 
   /**

@@ -3029,8 +3029,9 @@ const scoreCountsForRanking = () => true;
 //
 // 出しかたは**いちばん手前のレイヤーへ写す**形。スプライトはまとめて隠し、
 // HUD の文字も消すので、遊んでいたときの絵だけが出る。
-// 「REPLAY」は**同じレイヤーへ 8 ドットフォントで**点滅させる
-// (DOM を重ねない方針。録画にそのまま入ってよい)
+// 「REPLAY」は**同じレイヤーへ 16 ドットフォントで**点滅させる。
+// 画面の真ん中に赤で出し、**0.5 秒で消す**(そのあとは絵だけを見せたいため)。
+// DOM を重ねない方針なので、録画にもそのまま入ってよい
 const REPLAY_LAYER = 5;        // dbg。ふだんは当たり判定の表示にしか使わない
 const REPLAY_TEXT = 'REPLAY';
 // 録画の入れもの。'mp4' はどこでも再生でき、'webm' は作れる環境が広い
@@ -3044,6 +3045,13 @@ const REPLAY_BITRATE = BITRATE.mid;
 // 最後のコマ(やられた瞬間)でも止めて、何が起きたかを残す
 const REPLAY_LEAD = 1;
 const REPLAY_HOLD = 1.2;
+// 「REPLAY」の見せかた。**16 ドット(8 ドットフォントの 2 倍)・赤・真ん中**。
+// 出しておくのは 0.5 秒だけで、消えたあとは絵だけが残る
+const REPLAY_FONT = 2;         // 文字の倍率
+const REPLAY_COLOR = 8;        // 赤
+const REPLAY_SHOW = 30;        // 出しておくコマ数(0.5 秒)
+const REPLAY_BLINK = 4;        // 点滅の速さ(コマ)
+let replayShow = 0;            // あと何コマ出しておくか
 let replayThen = null;         // 流し終わったあとにやること
 let replayFile = 0;            // 録画したものを保存するときの通し番号
 
@@ -3057,6 +3065,7 @@ function startReplay(then) {
   }
   replayThen = then;
   state = 'replay';
+  replayShow = REPLAY_SHOW;  // 「REPLAY」はここから 0.5 秒だけ出す
   hud.clear();               // ゲーム中の文字は消す
   mmsxx.hideSprites(true);   // スプライトも 1 枚も出さない
   // 開発中は、流れているところをそのまま録って capture/ へ残す。
@@ -3100,12 +3109,27 @@ function saveReplayMovie() {
 
 /** 流しているあいだ。SPACE か ESC で飛ばせる */
 function updateReplay() {
-  // 「REPLAY」を上のほうに点滅で出す。**すき間は黒で埋める**ので、
-  // 下の絵が透けない(リプレイのレイヤーに直接書いている)
-  const L = mmsxx.layer(REPLAY_LAYER);
-  const x = centerX(REPLAY_TEXT);
-  L.fill(1, x - 8, 8, (REPLAY_TEXT.length + 2) * 8, 8);
-  if ((mmsxx.frame >> 4) & 1) L.print(x, 8, REPLAY_TEXT, 11, 1);
+  // 「REPLAY」を画面の真ん中に、赤の 16 ドットフォントで点滅させる。
+  // **すき間は黒で埋める**ので、下の絵が透けない
+  // (リプレイのレイヤーに直接書いている)
+  if (replayShow > 0) {
+    const L = mmsxx.layer(REPLAY_LAYER);
+    const cw = 8 * REPLAY_FONT;
+    const w = REPLAY_TEXT.length * cw;
+    const x = Math.round((SCREEN_W - w) / 2 / 8) * 8;   // 8 ドット単位に置く
+    const y = Math.round((SCREEN_H - cw) / 2 / 8) * 8;
+    replayShow--;
+    if (replayShow > 0) {
+      L.fill(1, x - 8, y, w + 16, cw);
+      if ((mmsxx.frame >> REPLAY_BLINK) & 1) {
+        L.print(x, y, REPLAY_TEXT, REPLAY_COLOR, 1, REPLAY_FONT);
+      }
+    } else {
+      // 出しおわり。**消したところは次のコマの絵で埋まる**ので、
+      // ここで黒くしておけば残らない
+      L.fill(0, x - 8, y, w + 16, cw);
+    }
+  }
   if (mmsxx.input.wasPressed('Space') || mmsxx.input.wasPressed('Escape')) endReplay();
 }
 
