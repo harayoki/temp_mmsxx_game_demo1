@@ -310,11 +310,14 @@ export class MMSXXEngine {
    * mmsxx.startRecord();                 // 録りはじめ
    * const blob = await mmsxx.stopRecord();  // 止めて受け取る(既定は mp4)
    * ```
-   * @param {{sound?:boolean, fps?:number, type?:'mp4'|'webm'}} [opts]
+   * @param {{sound?:boolean, fps?:number, type?:'mp4'|'webm', scale?:number}} [opts]
    *   sound = 音も入れるか(既定 true)。**ミュートの手前**から拾うので、
    *   音を切って遊んでいても動画には入る。
    *   type = 入れもの(既定 'mp4')。**mp4 はどこでも再生できる**が、
-   *   作れない環境もあるので、その場合は webm に落ちる
+   *   作れない環境もあるので、その場合は webm に落ちる。
+   *   scale = 何倍の大きさで録るか(既定 1、8 まで)。
+   *   **1 ドットを四角に置き換えるだけ**なので、広げても角が立ったまま残る。
+   *   等倍で録るとプレイヤー側が引き伸ばすときに色を混ぜてぼやける
    * @returns {boolean} 始められたか(使えない環境では false)
    */
   startRecord(opts = {}) {
@@ -322,8 +325,23 @@ export class MMSXXEngine {
     const canvas = this.vdp.canvas;
     if (!canvas || !canvas.captureStream) return false;
     const fps = Math.max(1, Math.min(60, Math.round(opts.fps || 60)));
+    // 大きく録るときは、写し取り用の板を別に用意する。
+    // **色を混ぜない**設定で毎コマ写すので、ドットの角が溶けない
+    const scale = Math.max(1, Math.min(8, Math.round(opts.scale || 1)));
+    let from = canvas;
+    if (scale > 1) {
+      const big = document.createElement('canvas');
+      big.width = canvas.width * scale;
+      big.height = canvas.height * scale;
+      const bctx = big.getContext('2d');
+      bctx.imageSmoothingEnabled = false;
+      this._recBig = { canvas: big, ctx: bctx };
+      this._blitRecord();     // 1 コマ目を入れておく(まっさらな板から始めない)
+      from = big;
+    }
     let stream;
-    try { stream = canvas.captureStream(fps); } catch (e) { return false; }
+    try { stream = from.captureStream(fps); }
+    catch (e) { this._recBig = null; return false; }
     // 音は出口の手前(bus)から分けてもらう
     if (opts.sound !== false && this.audio.ctx) {
       try {
@@ -343,12 +361,14 @@ export class MMSXXEngine {
     const type = types.find(ok);
     let rec;
     try { rec = new MediaRecorder(stream, type ? { mimeType: type } : undefined); }
-    catch (e) { return false; }
+    catch (e) { this._recBig = null; return false; }
     const chunks = [];
     rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
     this._rec = { rec, chunks, type: type || 'video/webm' };
     /** できたものの入れもの('mp4' か 'webm') */
     this.recordKind = (type || '').startsWith('video/mp4') ? 'mp4' : 'webm';
+    /** できたものの大きさ(ドット数) */
+    this.recordSize = { width: from.width, height: from.height };
     rec.start();
     return true;
   }
@@ -364,6 +384,7 @@ export class MMSXXEngine {
     return new Promise((done) => {
       r.rec.onstop = () => {
         if (this._recDest) { this.audio.recordTo(null); this._recDest = null; }
+        this._recBig = null;
         done(r.chunks.length ? new Blob(r.chunks, { type: r.type }) : null);
       };
       try { r.rec.stop(); } catch (e) { done(null); }
@@ -372,6 +393,13 @@ export class MMSXXEngine {
 
   /** いま録画中か */
   get recording() { return !!this._rec; }
+
+  /** 大きくして録っているときに、いまの画面を写し取る(描いた直後に呼ばれる) */
+  _blitRecord() {
+    const b = this._recBig;
+    if (!b) return;
+    b.ctx.drawImage(this.vdp.canvas, 0, 0, b.canvas.width, b.canvas.height);
+  }
 
   /** 再生を 1 コマ進める(run のなかで呼ばれる) */
   _tickReplay() {
@@ -632,6 +660,7 @@ export class MMSXXEngine {
       }
       if (steps === 4) acc = 0;
       this.vdp.render();
+      if (this._recBig) this._blitRecord();
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
@@ -648,5 +677,6 @@ export class MMSXXEngine {
       this.frame++;
     }
     this.vdp.render();
+    if (this._recBig) this._blitRecord();
   }
 }
