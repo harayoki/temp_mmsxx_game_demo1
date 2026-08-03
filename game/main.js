@@ -134,17 +134,22 @@ const SPRITE_COLORS = {
   todoBlush: 2,   // 赤みと影の 2 色
   riftGlow: 2,    // 水色と白の 2 色
 };
-const IMG = {};
+// 絵は**用途ごとに別の入れもの**へ入れる。
+// 取り違えたら、渡した先(sprite() / draw())でその場で分かる
+const SPRITE_SYMBOLS = {};   // スプライトに使う絵
+const BG_SYMBOLS = {};       // BG(レイヤーと BG スプライト)に使う絵
 for (const [name, im] of Object.entries(GAME_DATA.images)) {
   const raw = MMSXXEngine.imageFromBase64(im.b64, im.width, im.height);
   // 絵は**ここで型を決めて作る**。決まりを守っているかの検査もここだけ。
   // SPRITE_COLORS に載っている名前がスプライト用、それ以外は BG 用。
   // 名前を渡しておくと、引っかかったときに**どの絵か**が出る
-  IMG[name] = SPRITE_COLORS[name]
-    ? mmsxx.spriteSymbol(raw, { name, colors: SPRITE_COLORS[name] })
-    : mmsxx.bgSymbol(raw, { name });
+  if (SPRITE_COLORS[name]) {
+    SPRITE_SYMBOLS[name] = mmsxx.spriteSymbol(raw, { name, colors: SPRITE_COLORS[name] });
+  } else {
+    BG_SYMBOLS[name] = mmsxx.bgSymbol(raw, { name });
+  }
   // スプライトの絵を BG にも置きたいときは、BG 用の型も作る(図鑑の大きい絵)
-  if (BG_TWINS.has(name)) IMG[name + 'BG'] = mmsxx.bgSymbol(raw, { name: name + '(BG)' });
+  if (BG_TWINS.has(name)) BG_SYMBOLS[name + 'BG'] = mmsxx.bgSymbol(raw, { name: name + '(BG)' });
 }
 
 /** 変換済み画像の色を全部差し替えたコピーを作る(単色スプライトの色違い用) */
@@ -154,43 +159,43 @@ function recolor(img, color) {
   // 型はそのまま引き継ぐ(色の置き換えは 1 対 1 なので、決まりは保たれる)
   return img.derive(pixels, img.name ? img.name + '(単色' + color + ')' : img.name);
 }
-IMG.itemW = recolor(IMG.item, 15);   // アイテム点滅用(黄と白を1フレーム交互)
+SPRITE_SYMBOLS.itemW = recolor(SPRITE_SYMBOLS.item, 15);   // アイテム点滅用(黄と白を1フレーム交互)
 // 色違いで使い回していた敵は、それぞれ専用の絵に差し替えた
 // (enemyC / enemyF / enemyG / warper は makedata.mjs で描き起こしている)
-IMG.bulletB = recolor(IMG.bulletE, 8); // 赤い弾 = 撃ち落とせるボスの弾
-IMG.cubeItem = recolor(IMG.cube, 3);   // 緑のキューブ = アイテム入り
-IMG.starW = recolor(IMG.star, 15);     // ★の点滅用
-IMG.asteroidHiWarn = recolor(IMG.asteroidHi, 11);  // 被弾時のハイライト(黄)
-IMG.bulletRingCyan = recolor(IMG.bulletRing, 7);   // リング弾の色替え(水色)
-IMG.crownCyan = recolor(IMG.octoCrown, 7);        // 未実装君の王冠(顔と色がかぶらないよう水色)
-IMG.tearDrop = recolor(IMG.bulletP, 7);           // 未実装君の涙
+SPRITE_SYMBOLS.bulletB = recolor(SPRITE_SYMBOLS.bulletE, 8); // 赤い弾 = 撃ち落とせるボスの弾
+SPRITE_SYMBOLS.cubeItem = recolor(SPRITE_SYMBOLS.cube, 3);   // 緑のキューブ = アイテム入り
+SPRITE_SYMBOLS.starW = recolor(SPRITE_SYMBOLS.star, 15);     // ★の点滅用
+SPRITE_SYMBOLS.asteroidHiWarn = recolor(SPRITE_SYMBOLS.asteroidHi, 11);  // 被弾時のハイライト(黄)
+SPRITE_SYMBOLS.bulletRingCyan = recolor(SPRITE_SYMBOLS.bulletRing, 7);   // リング弾の色替え(水色)
+SPRITE_SYMBOLS.crownCyan = recolor(SPRITE_SYMBOLS.octoCrown, 7);        // 未実装君の王冠(顔と色がかぶらないよう水色)
+SPRITE_SYMBOLS.tearDrop = recolor(SPRITE_SYMBOLS.bulletP, 7);           // 未実装君の涙
 // ドラゴンの炎。先頭を黄色、後ろへいくほど赤くして炎らしく見せる
 for (const [n, col] of [['fireBall', 11], ['fireBall1', 11], ['fireBall2', 11],
   ['fireM0', 9], ['fireM1', 9], ['fireS0', 8], ['fireS1', 8]]) {
-  IMG[n] = recolor(IMG[n], col);
+  SPRITE_SYMBOLS[n] = recolor(SPRITE_SYMBOLS[n], col);
 }
-IMG.ufoGuardHit = recolor(IMG.ufoGuard, 15);   // ガードの被弾点滅(白)
+SPRITE_SYMBOLS.ufoGuardHit = recolor(SPRITE_SYMBOLS.ufoGuard, 15);   // ガードの被弾点滅(白)
 // 溜めエフェクトは黄(11)と白(15)を 1 コマずつ入れ替えて光らせる
 for (const n of ['chargeOrb0', 'chargeOrb1', 'chargeOrb2',
   'chargeRing0', 'chargeRing1', 'chargeRing2']) {
-  IMG[n + '0'] = recolor(IMG[n], 15);   // 白
-  IMG[n + '1'] = recolor(IMG[n], 11);   // 黄
-  IMG[n + '2'] = recolor(IMG[n], 7);    // 水色
+  SPRITE_SYMBOLS[n + '0'] = recolor(SPRITE_SYMBOLS[n], 15);   // 白
+  SPRITE_SYMBOLS[n + '1'] = recolor(SPRITE_SYMBOLS[n], 11);   // 黄
+  SPRITE_SYMBOLS[n + '2'] = recolor(SPRITE_SYMBOLS[n], 7);    // 水色
 }
-IMG.ufoFistHit = recolor(IMG.ufoFist, 15);     // グーの被弾点滅(白)
-IMG.rocketHit = recolor(IMG.rocket, 15);   // 被弾時の白い点滅
-IMG.cubeAuto = recolor(IMG.cube, 11);  // 黄色のキューブ = ? アイテム入り
-IMG.cubeStar = recolor(IMG.cube, 13);  // 紫のキューブ = 耐久力2倍・★入り
+BG_SYMBOLS.ufoFistHit = recolor(BG_SYMBOLS.ufoFist, 15);     // グーの被弾点滅(白)
+BG_SYMBOLS.rocketHit = recolor(BG_SYMBOLS.rocket, 15);   // 被弾時の白い点滅
+SPRITE_SYMBOLS.cubeAuto = recolor(SPRITE_SYMBOLS.cube, 11);  // 黄色のキューブ = ? アイテム入り
+SPRITE_SYMBOLS.cubeStar = recolor(SPRITE_SYMBOLS.cube, 13);  // 紫のキューブ = 耐久力2倍・★入り
 // ラスボスの回転レーザー。角度違いの線素材をまとめておく(1 発 = 1 枚)
 const KING_LINES = [];
-for (let i = 0; IMG['kingLine' + i]; i++) KING_LINES.push(IMG['kingLine' + i]);
+for (let i = 0; SPRITE_SYMBOLS['kingLine' + i]; i++) KING_LINES.push(SPRITE_SYMBOLS['kingLine' + i]);
 // 同じレーザーの 3 倍長い版(48x48)。5 面ではるか前方から飛んでくるもの
 const KING_LINES_LONG = [];
-for (let i = 0; IMG['kingLineL' + i]; i++) KING_LINES_LONG.push(IMG['kingLineL' + i]);
+for (let i = 0; SPRITE_SYMBOLS['kingLineL' + i]; i++) KING_LINES_LONG.push(SPRITE_SYMBOLS['kingLineL' + i]);
 // 裂け目が開くまでの途中のコマ。最後に開ききった姿(kingRift0)を足す
 const KING_RIFT_OPEN = [];
-for (let i = 0; IMG['kingRiftOpen' + i]; i++) KING_RIFT_OPEN.push(IMG['kingRiftOpen' + i]);
-KING_RIFT_OPEN.push(IMG.kingRift0);
+for (let i = 0; BG_SYMBOLS['kingRiftOpen' + i]; i++) KING_RIFT_OPEN.push(BG_SYMBOLS['kingRiftOpen' + i]);
+KING_RIFT_OPEN.push(BG_SYMBOLS.kingRift0);
 // ゲーム側で足す波形メモリ。**曲を組み立てる前に登録する**
 // (MML はここで名前を番号に直すので、あとから足しても間に合わない)。
 // メインの曲の歌メロに使う。基音のうえに 3 倍・5 倍を強めに乗せた、
@@ -235,9 +240,9 @@ near.snap = 8;
 neb.snap = 8;
 for (let y = 0; y < VH; y += 128) {
   for (let x = 0; x < VW; x += 128) {
-    far.draw(x, y, IMG.starsFar);
-    mid.draw(x, y, IMG.starsMid);
-    near.draw(x, y, IMG.starsNear);
+    far.draw(x, y, BG_SYMBOLS.starsFar);
+    mid.draw(x, y, BG_SYMBOLS.starsMid);
+    near.draw(x, y, BG_SYMBOLS.starsNear);
   }
 }
 
@@ -354,8 +359,8 @@ function dragonSpotY() {
  * 顔がいきなり出ると何の絵か分からないので、この順のほうがよい。
  */
 function showSkyDragon() {
-  const dy = Math.floor(neb.scrollY) - IMG.dragonSky.height;
-  neb.draw(DRAGON_X, dy, IMG.dragonSky);
+  const dy = Math.floor(neb.scrollY) - BG_SYMBOLS.dragonSky.height;
+  neb.draw(DRAGON_X, dy, BG_SYMBOLS.dragonSky);
   dragonSpot = {
     hits: 0, done: false,
     x: DRAGON_X + DRAGON_FACE.x - DRAGON_FACE.size / 2,
@@ -365,8 +370,8 @@ function showSkyDragon() {
 
 /** 木星を、画面のすぐ上に置く(この面の後半だけの背景) */
 function showJupiter() {
-  const jy = Math.floor(neb.scrollY) - IMG.jupiter.height;
-  neb.draw(JUPITER_X, jy, IMG.jupiter);
+  const jy = Math.floor(neb.scrollY) - BG_SYMBOLS.jupiter.height;
+  neb.draw(JUPITER_X, jy, BG_SYMBOLS.jupiter);
   jupiterShown = true;
 }
 let jupiterShown = false;
@@ -386,14 +391,14 @@ function drawFarObjects() {
     // タイトルはブラックホールを主役に、ステーションとモアイを添える
     // ブラックホールだけ走査線を入れて、遠くで光っている感じにする
     // (絵はそのまま。抜いた絵はエンジン側で作り置きされる)
-    neb.draw(72, 120, IMG.blackhole, true, { scanline: 0 });
-    neb.draw(64, 660, IMG.blackhole, true, { scanline: 1 });
-    neb.draw(24, 40, IMG.station);
-    neb.draw(168, 560, IMG.station);
-    neb.draw(160, 300, IMG.moai);
-    neb.draw(40, 840, IMG.moaiFlip);
+    neb.draw(72, 120, BG_SYMBOLS.blackhole, true, { scanline: 0 });
+    neb.draw(64, 660, BG_SYMBOLS.blackhole, true, { scanline: 1 });
+    neb.draw(24, 40, BG_SYMBOLS.station);
+    neb.draw(168, 560, BG_SYMBOLS.station);
+    neb.draw(160, 300, BG_SYMBOLS.moai);
+    neb.draw(40, 840, BG_SYMBOLS.moaiFlip);
     for (const [x, y] of [[64, 300], [176, 620], [16, 940], [112, 780]]) {
-      neb.draw(x, y, IMG.nebula);
+      neb.draw(x, y, BG_SYMBOLS.nebula);
     }
     return;
   }
@@ -401,16 +406,16 @@ function drawFarObjects() {
   if (gameMode() === 'bossrush') return;
   // 大きい絵ほど後の面に出す(全 5 面ぶんの目安)
   const limit = 48 + Math.min(6, stageNo) * 24;   // 1 面 72 ドット .. 6 面 192 ドット
-  const pool = FAR_OBJECTS.filter(o => IMG[o.img].width <= limit);
+  const pool = FAR_OBJECTS.filter(o => BG_SYMBOLS[o.img].width <= limit);
   const pick = (pool.length ? pool : FAR_OBJECTS).slice()
     .sort(() => Math.random() - 0.5).slice(0, 3);
   for (const o of pick) {
     // scanline を持つ賑やかしは 1 ライン おきに抜いて描く
     const opts = o.scanline == null ? undefined : { scanline: o.scanline };
-    for (const [x, y] of o.spots) neb.draw(x, y, IMG[o.img], true, opts);
+    for (const [x, y] of o.spots) neb.draw(x, y, BG_SYMBOLS[o.img], true, opts);
   }
   // 星雲はふだん青。4 面だけ赤い星雲にして、ラスボスの面が近いことを見せる
-  const neb2 = stageNo === 4 ? IMG.nebulaRed : IMG.nebula;
+  const neb2 = stageNo === 4 ? BG_SYMBOLS.nebulaRed : BG_SYMBOLS.nebula;
   for (const [x, y] of [[64, 300], [176, 620], [16, 940], [112, 780]]) neb.draw(x, y, neb2);
 }
 drawFarObjects();
@@ -605,12 +610,12 @@ let respawnDelay = 0;  // ミス後、復帰するまでの待ちフレーム
 let stateTimer = 0;
 let clearTimer = 0;
 
-const player = mmsxx.sprite(IMG.player);
+const player = mmsxx.sprite(SPRITE_SYMBOLS.player);
 player.priority = 10;
 player.visible = false;
 // 自機の補助表示。推進炎とバリアは 1 枚のスプライト枠を交互に使って見せる
 // (実機のスプライト数を節約する見せ方)。
-const aux = mmsxx.sprite(IMG.flameSmall);
+const aux = mmsxx.sprite(SPRITE_SYMBOLS.flameSmall);
 aux.priority = 11;
 aux.visible = false;
 
@@ -663,20 +668,20 @@ let asteroids = [];
 // 弾が当たったときの点滅用。当たるたびに白と黄で交互に光らせて存在を目立たせる
 let astFlashImgs = null;
 const astFlash = i => (astFlashImgs || (astFlashImgs =
-  [recolor(IMG.asteroid, 15), recolor(IMG.asteroid, 11)]))[i];
+  [recolor(BG_SYMBOLS.asteroid, 15), recolor(BG_SYMBOLS.asteroid, 11)]))[i];
 /** 難易度が上がると同時に出せる数が増える(最大 3 つ) */
 function maxAsteroids() {
   if (isNormal()) return 1;   // NORMAL は 1 つだけ
   return Math.min(3, 1 + Math.floor((stageNo - 1) / 2));
 }
 function spawnAsteroid() {
-  const sp = mmsxx.bgSprite(IMG.asteroid);
+  const sp = mmsxx.bgSprite(BG_SYMBOLS.asteroid);
   sp.priority = BGP_FRONT;
   sp.x = 16 + Math.floor(rnd() * (SCREEN_W - 80));
   sp.y = -AST_SIZE;
   // 白いハイライトはスプライト 1 枚。3 フレームに 1 回だけ出して
   // 「スプライトを減らしている」ちらつきを見せる
-  const hi = mmsxx.sprite(IMG.asteroidHi);
+  const hi = mmsxx.sprite(SPRITE_SYMBOLS.asteroidHi);
   hi.priority = 6;
   hi.blink = 3;
   asteroids.push({ sp, hi, age: 0, flash: 0, flashColor: 0, hp: AST_HP });
@@ -700,15 +705,15 @@ function updateAsteroids() {
     a.sp.y += 0.55;
     a.sp.x += Math.sin(a.age * 0.012) * 0.4;
     // 本体はいつも同じ絵。光るのは重ねたハイライトのスプライトだけにする
-    a.sp.image = IMG.asteroid;
+    a.sp.image = BG_SYMBOLS.asteroid;
     if (a.hi) {
       if (a.flash > 0) {
         // 被弾中はハイライトを白/黄で強く光らせる
         a.flash--;
-        a.hi.image = a.flashColor ? IMG.asteroidHiWarn : IMG.asteroidHi;
+        a.hi.image = a.flashColor ? SPRITE_SYMBOLS.asteroidHiWarn : SPRITE_SYMBOLS.asteroidHi;
         a.hi.blink = 1;
       } else {
-        a.hi.image = IMG.asteroidHi;
+        a.hi.image = SPRITE_SYMBOLS.asteroidHi;
         a.hi.blink = 3;   // ふだんは 3 コマに 1 回のちらつき
       }
     }
@@ -730,7 +735,7 @@ function updateAsteroids() {
 const EYE_SIZE = 32;
 const EYE_GAP = 80;             // 2 体の間隔(斜めショットがちょうど届くくらい)
 // 瞳(絞り)はダメージが進むほど閉じていく
-const IRIS_IMGS = () => [IMG.eyeIris0, IMG.eyeIris1, IMG.eyeIris2, IMG.eyeIris3];
+const IRIS_IMGS = () => [SPRITE_SYMBOLS.eyeIris0, BG_SYMBOLS.eyeIris1, BG_SYMBOLS.eyeIris2, BG_SYMBOLS.eyeIris3];
 const EYE_HP = 32;              // 攻撃力によらず 32 発で壊れる
 const EYE_HOVER = 600;          // 画面に留まる時間(10 秒)
 const EYE_BONUS = 100000;
@@ -754,14 +759,14 @@ function spawnEyeballs() {
   // 左右は画面の中央。2 体そろって出る
   const cx = (SCREEN_W - EYE_GAP - EYE_SIZE) / 2;
   for (let i = 0; i < 2; i++) {
-    const sp = mmsxx.bgSprite(IMG.eyeball);
+    const sp = mmsxx.bgSprite(BG_SYMBOLS.eyeball);
     sp.priority = BGP_FRONT;
     sp.x = cx + i * EYE_GAP;
     sp.y = fromBelow ? SCREEN_H + EYE_SIZE : -EYE_SIZE;
-    const pupil = mmsxx.sprite(IMG.eyeIris0);
+    const pupil = mmsxx.sprite(SPRITE_SYMBOLS.eyeIris0);
     pupil.priority = 10;
     // 血管は赤の単色スプライト。瞳と交互に出して重ね枚数を抑える
-    const vein = mmsxx.sprite(IMG.eyeVein);
+    const vein = mmsxx.sprite(SPRITE_SYMBOLS.eyeVein);
     vein.priority = 10;
     // 瞳と血管はエンジンの「何フレームに 1 回出すか」で交互に表示する
     pupil.blink = 2; pupil.blinkPhase = 0;
@@ -852,8 +857,8 @@ let shootStars = [];
 let shootTimer = 240;
 
 function spawnShootStar() {
-  const sp = mmsxx.bgSprite(IMG.shootStar0);
-  sp.frames = [IMG.shootStar0, IMG.shootStar1, IMG.shootStar2, IMG.shootStar3];
+  const sp = mmsxx.bgSprite(BG_SYMBOLS.shootStar0);
+  sp.frames = [BG_SYMBOLS.shootStar0, BG_SYMBOLS.shootStar1, BG_SYMBOLS.shootStar2, BG_SYMBOLS.shootStar3];
   sp.frameRate = 4;
   // 大きな背景オブジェクト(木星など)より奥。BG スプライトとレイヤーは
   // 同じ優先度空間なので、この 1 行で「星より手前・木星より奥」に置ける
@@ -958,10 +963,10 @@ function spawnMoai() {
     waitLen: MOAI_WAIT_MIN + Math.floor(rnd() * (MOAI_WAIT_MAX - MOAI_WAIT_MIN + 1)),
     parts: [
       // 上半分は画面の上から、下半分は下から入ってくる
-      mk(IMG.moaiTL, cx - 48, -MOAI_QH - 8, 0),
-      mk(IMG.moaiTR, cx + MOAI_QW + 48, -MOAI_QH - 8, 1),
-      mk(IMG.moaiBL, cx - 48, SCREEN_H + 8, 2),
-      mk(IMG.moaiBR, cx + MOAI_QW + 48, SCREEN_H + 8, 3),
+      mk(BG_SYMBOLS.moaiTL, cx - 48, -MOAI_QH - 8, 0),
+      mk(BG_SYMBOLS.moaiTR, cx + MOAI_QW + 48, -MOAI_QH - 8, 1),
+      mk(BG_SYMBOLS.moaiBL, cx - 48, SCREEN_H + 8, 2),
+      mk(BG_SYMBOLS.moaiBR, cx + MOAI_QW + 48, SCREEN_H + 8, 3),
     ],
   };
   // 怒ると赤とピンクに変わる(色だけで伝える)
@@ -1014,11 +1019,11 @@ const MOAI_BLUE = {
 };
 /** 色が変わっていく途中の絵を返す(step 0..9) */
 function moaiWaveImage(step, key) {
-  if (step === 0) return IMG[MOAI_PLAIN[key]];
-  if (step === 5) return IMG[MOAI_BLUE[key]];
+  if (step === 0) return BG_SYMBOLS[MOAI_PLAIN[key]];
+  if (step === 5) return BG_SYMBOLS[MOAI_BLUE[key]];
   const dir = step < 5 ? 'B' : 'G';
   const n = step < 5 ? step : step - 5;
-  return IMG['moaiW' + dir + n + key];
+  return BG_SYMBOLS['moaiW' + dir + n + key];
 }
 
 // 上下の端ぎりぎりだと、下から撃ってくる敵の居場所が無くなるので
@@ -1074,8 +1079,8 @@ function mergeMoaiParts() {
     // 上下は一心同体。内側から削ると 2 つまとめて壊れる
     m.insideHp = 256;   // 内側から削るぶんの耐久力
     m.parts = [];
-    if (top) m.parts.push(mk(IMG.moaiTop, 0));
-    if (bot) m.parts.push(mk(IMG.moaiBottom, 1));
+    if (top) m.parts.push(mk(BG_SYMBOLS.moaiTop, 0));
+    if (bot) m.parts.push(mk(BG_SYMBOLS.moaiBottom, 1));
     m.state = 'q2';
     // すぐ上下合体に入らず、2〜5 秒のあいだ そのまま待つ。
     // 待ち終わりに一瞬白く光ってから合体に入るので、合図は出るが
@@ -1090,7 +1095,7 @@ function mergeMoaiParts() {
   } else {
     // 上下をくっつけて 1 体になる
     for (const p of m.parts) mmsxx.removeBgSprite(p.sp);
-    const sp = mmsxx.bgSprite(IMG.moaiFront);
+    const sp = mmsxx.bgSprite(BG_SYMBOLS.moaiFront);
     // くっついた場所からそのまま始めて、居座る高さへはゆっくり上がっていく
     m.y = MOAI_MEET_Y;
     sp.x = m.x; sp.y = m.y; sp.priority = BGP_FRONT + 1;
@@ -1283,8 +1288,8 @@ function updateMoai() {
     m.tintStep = (m.tintStep + 1) % (10 * STEP_LEN);
     const step = Math.floor(m.tintStep / STEP_LEN);   // 0..9
     const WAVE = [
-      IMG.moaiFront, IMG.moaiWaveB1, IMG.moaiWaveB2, IMG.moaiWaveB3, IMG.moaiWaveB4,
-      IMG.moaiFrontBlue, IMG.moaiWaveG1, IMG.moaiWaveG2, IMG.moaiWaveG3, IMG.moaiWaveG4,
+      BG_SYMBOLS.moaiFront, BG_SYMBOLS.moaiWaveB1, BG_SYMBOLS.moaiWaveB2, BG_SYMBOLS.moaiWaveB3, BG_SYMBOLS.moaiWaveB4,
+      BG_SYMBOLS.moaiFrontBlue, BG_SYMBOLS.moaiWaveG1, BG_SYMBOLS.moaiWaveG2, BG_SYMBOLS.moaiWaveG3, BG_SYMBOLS.moaiWaveG4,
     ];
     p0.sp.image = WAVE[step];
     // 一度怒らせたら、合体したあともずっと赤とピンクのまま
@@ -1333,7 +1338,7 @@ function updateMoai() {
 const ROCKET_W = 24, ROCKET_H = 96;
 // 見せるコマ。灰と白を毎コマ入れ替えつつ、**4 コマに 1 回だけ黄色**を混ぜて
 // 弾頭が光ったように見せる。重ねるスプライトは使わない
-const ROCKET_FRAMES = () => [IMG.rocket, IMG.rocketAlt, IMG.rocketGlow, IMG.rocketGlowAlt];
+const ROCKET_FRAMES = () => [BG_SYMBOLS.rocket, BG_SYMBOLS.rocketAlt, BG_SYMBOLS.rocketGlow, BG_SYMBOLS.rocketGlowAlt];
 const ROCKET_HP = 128;
 const ROCKET_INTERVAL = 900;
 let rockets = [];
@@ -1343,7 +1348,7 @@ const MAX_ROCKETS = 3;
 
 function spawnRocket() {
   if (rockets.length >= MAX_ROCKETS) return;   // 同時に 3 本まで
-  const sp = mmsxx.bgSprite(IMG.rocket);
+  const sp = mmsxx.bgSprite(BG_SYMBOLS.rocket);
   sp.priority = BGP_FRONT;
   // 当たり判定のある BG は、背景と見間違えないよう毎コマ色を入れ替える
   sp.frameRate = 1;
@@ -1356,9 +1361,9 @@ function spawnRocket() {
   // 尾を引く炎。長さの違う 3 コマと透明の 1 コマを回して揺らめかせる。
   // こちらも BG スプライト(通常スプライトを 1 体ぶん減らす)。
   // セルが黒で埋まるが、宇宙は黒なので見た目には出ない
-  const flame = mmsxx.bgSprite(IMG.rocketFlame1);
+  const flame = mmsxx.bgSprite(BG_SYMBOLS.rocketFlame1);
   flame.priority = BGP_FRONT - 1;   // ミサイル本体より奥
-  flame.frames = [IMG.rocketFlame1, IMG.rocketFlame2, IMG.rocketFlame3, IMG.rocketFlame0];
+  flame.frames = [BG_SYMBOLS.rocketFlame1, BG_SYMBOLS.rocketFlame2, BG_SYMBOLS.rocketFlame3, BG_SYMBOLS.rocketFlame0];
   flame.frameRate = 3;
   flame.blink = 2;   // 2 コマに 1 回だけ出して、実機のスプライトらしくちらつかせる
   rockets.push({ sp, flame, hp: ROCKET_HP, flash: 0 });
@@ -1379,7 +1384,7 @@ function updateRockets() {
       r.flash--;
       // 被弾中だけ白く光らせる(ふだんは frames の色替えにまかせる)
       r.sp.frames = null;
-      r.sp.image = (r.flash & 1) ? IMG.rocket : IMG.rocketHit;
+      r.sp.image = (r.flash & 1) ? BG_SYMBOLS.rocket : BG_SYMBOLS.rocketHit;
     } else if (!r.sp.frames) {
       r.sp.frames = ROCKET_FRAMES();
     }
@@ -1536,7 +1541,7 @@ function fireShot() {
   let phase = 0;
   for (const d of dirs) {
     // すべて 16x16 スプライトなので、中心を合わせれば自機の中心から出る
-    const sp = mmsxx.sprite(IMG.bulletP);
+    const sp = mmsxx.sprite(SPRITE_SYMBOLS.bulletP);
     sp.x = player.x + (d.dx || 0);
     sp.y = player.y;
     sp.priority = 5;
@@ -1612,7 +1617,7 @@ function dragonFlameImg() {
   // 形は**中身だけ**の 1 種類。外わくだけの絵は使わない(欠けて見えるため)。
   // 色は 2 コマごとに七色を回す
   if (!dragonFlameImgs) {
-    dragonFlameImgs = DRAGON_FLAME_COLORS.map(c => recolor(IMG.flameDragonB, c));
+    dragonFlameImgs = DRAGON_FLAME_COLORS.map(c => recolor(SPRITE_SYMBOLS.flameDragonB, c));
   }
   const c = Math.floor(flameFrame / 2) % dragonFlameImgs.length;
   return dragonFlameImgs[c];
@@ -1804,9 +1809,9 @@ function updateFlash() {
 }
 
 const IMG_BY_TYPE = {
-  A: IMG.enemyA, B: IMG.enemyB, C: IMG.enemyC, F: IMG.enemyF, G: IMG.enemyG,
+  A: SPRITE_SYMBOLS.enemyA, B: SPRITE_SYMBOLS.enemyB, C: SPRITE_SYMBOLS.enemyC, F: SPRITE_SYMBOLS.enemyF, G: SPRITE_SYMBOLS.enemyG,
   // 追加した 3 種。K = 壁づたい / L = 全方位 / M = 放物線
-  K: IMG.enemyH, L: IMG.enemyI, M: IMG.enemyJ,
+  K: SPRITE_SYMBOLS.enemyH, L: SPRITE_SYMBOLS.enemyI, M: SPRITE_SYMBOLS.enemyJ,
 };
 // 出現位置: 降下型は上から / F は下から / 円盤(UFO)は画面上部を横切る
 const SPAWN_Y = { A: -18, B: 16, C: 16, F: SCREEN_H + 18, G: -18,
@@ -1920,8 +1925,8 @@ function spawnCubes() {
   const order = [...Array(n).keys()].sort(() => rnd() - 0.5);
   for (let i = 0; i < n; i++) {
     const isStar = i === withStar, isItem = i === withItem, isAuto = i === withAuto;
-    const sp = mmsxx.sprite(isAuto ? IMG.cubeAuto
-      : isStar ? IMG.cubeStar : isItem ? IMG.cubeItem : IMG.cube);
+    const sp = mmsxx.sprite(isAuto ? SPRITE_SYMBOLS.cubeAuto
+      : isStar ? SPRITE_SYMBOLS.cubeStar : isItem ? SPRITE_SYMBOLS.cubeItem : SPRITE_SYMBOLS.cube);
     sp.x = Math.round(order[i] * slot + rnd() * (slot - 16));
     sp.y = -18 - i * 7;                              // ほぼ横一列で来るよう縦のずれは小さく
     sp.priority = 8;
@@ -1938,7 +1943,7 @@ const BOUNCER_INTERVAL = 420;
 const BOUNCER_LEAST = 3, BOUNCER_LEAST_HARD = 8;
 let bouncerTimer = 0;
 function spawnBouncer() {
-  const sp = mmsxx.sprite(IMG.bouncer);
+  const sp = mmsxx.sprite(SPRITE_SYMBOLS.bouncer);
   sp.x = rnd() < 0.5 ? 8 : SCREEN_W - 24;
   // まとめて出すと同じ動きで固まってしまうので、
   // 出る高さと速さを 1 匹ずつばらけさせる(跳ね返る位相がずれる)
@@ -1961,7 +1966,7 @@ let warperTimer = WARP_INTERVAL;
 function spawnWarper() {
   const n = 1 + Math.floor(rnd() * 2);
   for (let i = 0; i < n; i++) {
-    const sp = mmsxx.sprite(IMG.warper);
+    const sp = mmsxx.sprite(SPRITE_SYMBOLS.warper);
     sp.x = 24 + Math.floor(rnd() * (SCREEN_W - 64));
     sp.y = -20 - i * 28;
     sp.priority = 8;
@@ -1976,7 +1981,7 @@ let dasherTimer = DASHER_INTERVAL;
 function spawnDasher() {
   const n = 1 + Math.floor(rnd() * 3);
   for (let i = 0; i < n; i++) {
-    const sp = mmsxx.sprite(IMG.enemyA);
+    const sp = mmsxx.sprite(SPRITE_SYMBOLS.enemyA);
     sp.x = Math.max(0, Math.min(SCREEN_W - 16, player.x + (rnd() - 0.5) * 80));
     sp.y = -20 - i * 22;
     sp.priority = 8;
@@ -1996,7 +2001,7 @@ function spawnRammerPair() {
   // (enemyAllowed を通らない経路なので、ここで止める必要がある)
   if (isNormal()) return;
   for (const dir of [1, -1]) {
-    const sp = mmsxx.sprite(IMG.rammer);
+    const sp = mmsxx.sprite(SPRITE_SYMBOLS.rammer);
     sp.flipX = dir < 0;   // 1 枚の絵を左右反転して両向きに使う
     sp.x = dir > 0 ? -20 : SCREEN_W + 4;
     // 画面の端に張り付いていても当たらないよう、少し上下にずらして出す
@@ -2078,7 +2083,7 @@ const GLOWER_LIFE = 600;       // 一定時間浮いたら去っていく
 const GLOWER_COINS = 6;        // ばらまく $ の数
 let glowerTimer = GLOWER_INTERVAL;
 function spawnGlower() {
-  const sp = mmsxx.sprite(IMG.glower0);
+  const sp = mmsxx.sprite(SPRITE_SYMBOLS.glower0);
   sp.x = 32 + Math.floor(rnd() * (SCREEN_W - 80));
   sp.y = -20;
   sp.priority = 9;
@@ -2102,7 +2107,7 @@ let weightTimer = WEIGHT_INTERVAL;
 let weightQueue = 0;        // あと何発落とすか(前の 1 発が画面から消えたら次)
 let weights = [];
 function spawnWeight() {
-  const sp = mmsxx.sprite(IMG.weight16t);
+  const sp = mmsxx.sprite(SPRITE_SYMBOLS.weight16t);
   sp.x = 16 + Math.floor(rnd() * (SCREEN_W - 64));
   sp.y = -WEIGHT_H;
   sp.priority = 11;   // 敵より手前。自機の弾は素通りする
@@ -2190,14 +2195,14 @@ function updateBooms() {
   for (const b of [...booms]) {
     b.age++;
     // 絵は白 1 色なので、**コマごとに色を替えて**熱が冷める様子を出す
-    if (b.age === 5) { b.sp.image = IMG.boom1; b.sp.colorMap = BOOM_MAP1; }
-    else if (b.age === 10) { b.sp.image = IMG.boom2; b.sp.colorMap = BOOM_MAP2; }
+    if (b.age === 5) { b.sp.image = SPRITE_SYMBOLS.boom1; b.sp.colorMap = BOOM_MAP1; }
+    else if (b.age === 10) { b.sp.image = SPRITE_SYMBOLS.boom2; b.sp.colorMap = BOOM_MAP2; }
     else if (b.age >= 15) { mmsxx.removeSprite(b.sp); booms.splice(booms.indexOf(b), 1); }
   }
 }
 
 function spawnBoom(x, y) {
-  const sp = mmsxx.sprite(IMG.boom0);
+  const sp = mmsxx.sprite(SPRITE_SYMBOLS.boom0);
   sp.x = x; sp.y = y; sp.priority = 20;
   booms.push({ sp, age: 0 });
 }
@@ -2402,9 +2407,9 @@ let titleSparks = [];
 function ensureTitleSparks() {
   if (titleSparks.length) return;
   for (let i = 0; i < SPARK_COUNT; i++) {
-    const sp = mmsxx.sprite(IMG.spark0);
+    const sp = mmsxx.sprite(SPRITE_SYMBOLS.spark0);
     sp.priority = 30;
-    sp.frames = [IMG.spark0, IMG.spark1, IMG.spark2, IMG.spark1];
+    sp.frames = [SPRITE_SYMBOLS.spark0, BG_SYMBOLS.spark1, BG_SYMBOLS.spark2, BG_SYMBOLS.spark1];
     sp.frameRate = 5;
     sp.framePhase = i * 7;
     titleSparks.push(sp);
@@ -2420,7 +2425,7 @@ function ensureTitleSparks() {
 const LOGO_SLANT = 0.3;
 let logoBoxes = null;
 function buildLogoBoxes() {
-  const img = IMG.logo;
+  const img = BG_SYMBOLS.logo;
   // 重なっていない帯。上は STAR だけ、下は FABLE だけが写っている
   const bands = [[0, 26], [40, img.height - 1]];
   logoBoxes = bands.map(([ya, yb], i) => {
@@ -2456,7 +2461,7 @@ function updateTitleSparks() {
   // ロゴが出ているページ(0 枚目)だけ光らせる
   const on = (titlePage === 0);
   if (!logoBoxes) buildLogoBoxes();
-  const ox = (SCREEN_W - IMG.logo.width) >> 1, oy = 8;
+  const ox = (SCREEN_W - BG_SYMBOLS.logo.width) >> 1, oy = 8;
   titleSparks.forEach((sp, i) => {
     sp.visible = on;
     if (!on) return;
@@ -2649,16 +2654,16 @@ function drawTitlePage() {
   if (titlePage === 0) {
     // ロゴも BG として描く(スプライトで補助しない = 横8ドット2色の制約に従う)
     // ロゴは 2 行ぶん上へ詰める(下に余白を残す)
-    const logoX = (SCREEN_W - IMG.logo.width) >> 1, logoY = 8;
-    hud.draw(logoX, logoY, IMG.logo);
+    const logoX = (SCREEN_W - BG_SYMBOLS.logo.width) >> 1, logoY = 8;
+    hud.draw(logoX, logoY, BG_SYMBOLS.logo);
     // ゲームの版はロゴの右下に小さく添える(文字は 8 ドット単位に置かれる)
     const gver = BUILD.version;
     // 右端ぴったりだと詰まって見えるので、1 文字ぶん内側へ寄せる
-    hud.print(logoX + IMG.logo.width - (gver.length + 1) * 8, logoY + IMG.logo.height,
+    hud.print(logoX + BG_SYMBOLS.logo.width - (gver.length + 1) * 8, logoY + BG_SYMBOLS.logo.height,
       gver, 14);
     // エンジンの版はその下に(ロゴから 2 行ぶん下)
     const ver = 'MMSXX ENGINE V' + MMSXXEngine.version;
-    hud.print(centerX(ver), logoY + IMG.logo.height + 16, ver, 14);
+    hud.print(centerX(ver), logoY + BG_SYMBOLS.logo.height + 16, ver, 14);
     const help = String.fromCharCode(0x18, 0x19, 0x1a, 0x1b) + ':MOVE  SP:SHOT  ESC:PAUSE';
     hud.print(centerX(help), 158, help, 10);
     // 著作権表示はいちばん下に
@@ -3675,14 +3680,14 @@ function respawnPlayer() {
 }
 
 const ITEM_IMG = {
-  power: IMG.item, star: IMG.star, bomb: IMG.bomb,
-  speed: IMG.speedUp, rapid: IMG.rapidUp, life: IMG.oneUp,
-  damage: IMG.powerUp, barrier: IMG.barrierItem,
-  coin: IMG.coinItem, auto: IMG.autoItem,
+  power: SPRITE_SYMBOLS.item, star: SPRITE_SYMBOLS.star, bomb: SPRITE_SYMBOLS.bomb,
+  speed: SPRITE_SYMBOLS.speedUp, rapid: SPRITE_SYMBOLS.rapidUp, life: SPRITE_SYMBOLS.oneUp,
+  damage: SPRITE_SYMBOLS.powerUp, barrier: SPRITE_SYMBOLS.barrierItem,
+  coin: SPRITE_SYMBOLS.coinItem, auto: SPRITE_SYMBOLS.autoItem,
   // そらのドラゴンの顔からだけ出る。取るとフルパワー(オート連射ではない)
-  dragon: IMG.dragonItem,
+  dragon: SPRITE_SYMBOLS.dragonItem,
   // 未実装さんを見逃すと置いていく飴。取っても何も起きない
-  candy: IMG.candyItem,
+  candy: SPRITE_SYMBOLS.candyItem,
 };
 
 // 点滅用の白バージョン
@@ -3938,8 +3943,8 @@ let clawMissiles = [];
 function spawnCrabBoss() {
   const hp = 40 + stageNo * 16;
   // 目はタコと同じ水色 1 色。自機のいる方へ少し寄る
-  const eyeL = mmsxx.sprite(IMG.bossEye2);
-  const eyeR = mmsxx.sprite(IMG.bossEye2);
+  const eyeL = mmsxx.sprite(SPRITE_SYMBOLS.bossEye2);
+  const eyeR = mmsxx.sprite(SPRITE_SYMBOLS.bossEye2);
   eyeL.priority = eyeR.priority = 13;
   boss = {
     kind: 'crab',
@@ -3957,21 +3962,21 @@ function spawnCrabBoss() {
     jumpFrom: 0, jumpTo: 0, jumpT: 0,
     fireTimer: 40,   // 1 発目は早めに撃つ
   };
-  boss.partBody = bossPart(IMG.crabR);
+  boss.partBody = bossPart(BG_SYMBOLS.crabR);
   // 脚。ジャンプ中に壁から離れて伸び、そこだけが狙える弱点になる
   // 脚は BG スプライト。甲羅(priority 1)より奥に置くので、
   // めり込んだ付け根は胴に隠れて見える
   boss.legs = CRAB_LEG_Y.map((ly, i) => ({
-    sp: bossPart(IMG.crabLeg, 0), hp: CRAB_LEG_HP, y: ly, flipY: i >= CRAB_LEGS / 2,
+    sp: bossPart(BG_SYMBOLS.crabLeg, 0), hp: CRAB_LEG_HP, y: ly, flipY: i >= CRAB_LEGS / 2,
   }));
-  boss.partClaws = [bossPart(IMG.crabClawBig), bossPart(IMG.crabClawBig)];
+  boss.partClaws = [bossPart(BG_SYMBOLS.crabClawBig), bossPart(BG_SYMBOLS.crabClawBig)];
   // 王冠(タコと同じもの)。甲羅のてっぺんに斜めにかぶせる
-  boss.crown = mmsxx.sprite(IMG.octoCrown);
+  boss.crown = mmsxx.sprite(SPRITE_SYMBOLS.octoCrown);
   boss.crown.priority = 12;
   boss.crown.flipX = true;    // カニは反転してかぶる
   // 装甲に取り付いている装置。スプライトなので 8 ドットに縛られず置ける
   boss.pods = CRAB_POD_POS.map((_, i) => {
-    const sp = mmsxx.sprite(IMG.crabPod);
+    const sp = mmsxx.sprite(SPRITE_SYMBOLS.crabPod);
     sp.priority = 9;
     sp.flipX = (i === 1);   // 真ん中のパネルだけ向きを変える
     return sp;
@@ -3988,12 +3993,12 @@ function spawnCrabBoss() {
  *  壊せるが、壊すと弾が散る。反対の壁へ跳ぶとハサミは生え変わる */
 function fireClawMissile(x, y, flipX = false, from = -1) {
   // 本体に付いていたのと同じ絵を、多色のまま飛ばす(BG スプライト)
-  const sp = mmsxx.bgSprite(IMG.crabClawBig);
+  const sp = mmsxx.bgSprite(BG_SYMBOLS.crabClawBig);
   sp.x = x; sp.y = y; sp.priority = BGP_FRONT + 4; sp.flipX = flipX;
   // 壁と反対側へ、まっすぐ横に飛んでいく
   const out = flipX ? -1 : 1;
   // お尻(飛んでいく向きと反対側)に噴射をつける
-  const jet = mmsxx.sprite(IMG.flameBig);
+  const jet = mmsxx.sprite(SPRITE_SYMBOLS.flameBig);
   jet.priority = 8;
   jet.rotate = out > 0 ? 90 : 270;   // 下向きの炎を横向きにする
   clawMissiles.push({ sp, vx: out * 2.4, vy: 0, hp: CRAB_CLAW_HP, jet, out, from });
@@ -4045,7 +4050,7 @@ function updateClawMissiles() {
     m.sp.x += m.vx; m.sp.y += m.vy;
     if (m.jet) {
       // 噴射はハサミのお尻。1 コマおきに大きさを変えてゆらめかせる
-      m.jet.image = (mmsxx.frame & 3) < 2 ? IMG.flameBig : IMG.flameSmall;
+      m.jet.image = (mmsxx.frame & 3) < 2 ? SPRITE_SYMBOLS.flameBig : SPRITE_SYMBOLS.flameSmall;
       m.jet.x = m.out > 0 ? m.sp.x - 12 : m.sp.x + CRAB_CLAW_W - 4;
       m.jet.y = m.sp.y + CRAB_CLAW_H / 2 - 8;
     }
@@ -4261,7 +4266,7 @@ function spawnNautilusBoss() {
   const blocks = [];
   const weakAt = Math.floor(rndBoss() * NAUT_BLOCKS);
   for (let i = 0; i < NAUT_BLOCKS; i++) {
-    const sp = mmsxx.bgSprite(i === weakAt ? IMG.gearWeak0 : IMG.gearBlock);
+    const sp = mmsxx.bgSprite(i === weakAt ? BG_SYMBOLS.gearWeak0 : BG_SYMBOLS.gearBlock);
     sp.priority = BGP_FRONT + 2;
     // 壊れない装甲はスプライトを使わず BG だけでしのぐ
     blocks.push({
@@ -4274,10 +4279,10 @@ function spawnNautilusBoss() {
   // 数は装甲の半分、速さは 3 倍。
   const orbs = [];
   for (let i = 0; i < NAUT_BLOCKS / 2; i++) {
-    const sp = mmsxx.sprite(IMG.gearGem);
+    const sp = mmsxx.sprite(SPRITE_SYMBOLS.gearGem);
     sp.priority = 14;
     // 2 コマで形が変わる稲妻。1 つおきに位相をずらす
-    sp.frames = [IMG.gearGem, IMG.gearSpark1];
+    sp.frames = [SPRITE_SYMBOLS.gearGem, BG_SYMBOLS.gearSpark1];
     sp.frameRate = 2;
     sp.framePhase = i;
     // 2 コマおきの明滅(出たり消えたり)で、電気が走っている感じにする
@@ -4285,13 +4290,13 @@ function spawnNautilusBoss() {
     sp.blinkPhase = i & 1;
     orbs.push({ sp, angle: (Math.PI * 2 * i) / (NAUT_BLOCKS / 2) });
   }
-  const core = mmsxx.bgSprite(IMG.nautilus);
+  const core = mmsxx.bgSprite(BG_SYMBOLS.nautilus);
   core.priority = BGP_FRONT + 1;
   // ほかのボスと同じ水色の目を、殻に開けた穴へ重ねる
-  const eyeL = mmsxx.sprite(IMG.bossEye2);
+  const eyeL = mmsxx.sprite(SPRITE_SYMBOLS.bossEye2);
   eyeL.priority = 13;
   // 王冠(ほかのボスと同じもの)。渦巻きのてっぺんに斜めにかぶせる
-  const crown = mmsxx.sprite(IMG.octoCrown);
+  const crown = mmsxx.sprite(SPRITE_SYMBOLS.octoCrown);
   crown.priority = 15;
   boss = {
     kind: 'nautilus',
@@ -4402,14 +4407,14 @@ const DRAGON_CALM = 120;
 function spawnDragonBoss() {
   const hp = 40 + stageNo * 16;
   // 眼窩の奥にタコと同じ水色の目を入れる
-  const eyeL = mmsxx.sprite(IMG.bossEye2);
-  const eyeR = mmsxx.sprite(IMG.bossEye2);
+  const eyeL = mmsxx.sprite(SPRITE_SYMBOLS.bossEye2);
+  const eyeR = mmsxx.sprite(SPRITE_SYMBOLS.bossEye2);
   eyeL.priority = eyeR.priority = 13;
   // 胴体の節は BG スプライトで、頭が通った跡をなぞらせる
   const segs = [];
   for (let i = 0; i < DRAGON_SEGS; i++) {
     // 最後の 1 節だけ、しっぽの形にする
-    const sp = mmsxx.bgSprite(i === DRAGON_SEGS - 1 ? IMG.dragonTail : IMG.dragonBody);
+    const sp = mmsxx.bgSprite(i === DRAGON_SEGS - 1 ? BG_SYMBOLS.dragonTail : BG_SYMBOLS.dragonBody);
     sp.priority = BGP_FRONT;
     sp.x = -99; sp.y = -99;
     segs.push(sp);
@@ -4425,9 +4430,9 @@ function spawnDragonBoss() {
     segs,
   };
   // 頭は胴体の節より手前に置く(顔が埋もれないように)
-  boss.partHead = bossPart(IMG.dragonHead, 1);
+  boss.partHead = bossPart(BG_SYMBOLS.dragonHead, 1);
   // 王冠(タコ・カニと同じもの)。頭蓋のてっぺんにかぶせる
-  boss.crown = mmsxx.sprite(IMG.octoCrown);
+  boss.crown = mmsxx.sprite(SPRITE_SYMBOLS.octoCrown);
   boss.crown.priority = 12;
   drawBossBody();
   playBGM('boss', true);
@@ -4589,9 +4594,9 @@ function updateDragonBoss(b) {
       // 絵は回さない(丸い炎なので向きは要らない)
       // 先頭(大きい黄色) -> 中(赤) -> 後ろ(小さい赤) の 3 連で噴射に見せる
       const JET = [
-        [IMG.fireS0, IMG.fireS1, 12, 4],
-        [IMG.fireM0, IMG.fireM1, 6, 2],
-        [IMG.fireBall, IMG.fireBall1, 0, 0],
+        [SPRITE_SYMBOLS.fireS0, SPRITE_SYMBOLS.fireS1, 12, 4],
+        [SPRITE_SYMBOLS.fireM0, SPRITE_SYMBOLS.fireM1, 6, 2],
+        [SPRITE_SYMBOLS.fireBall, SPRITE_SYMBOLS.fireBall1, 0, 0],
       ];
       for (const [img0, img1, back, off] of JET) {
         fireEnemyBullet(mx - Math.cos(a) * back + off, my - Math.sin(a) * back + off,
@@ -4632,20 +4637,20 @@ function spawnTodoBoss() {
   // 面数で決めると 103 面あつかいのときだけ極端に硬くなり、
   // コンティニューのときは紙のように弱くなってしまっていた
   const hp = TODO_HP;
-  const eyeL = mmsxx.sprite(IMG.bossEye);
-  const eyeR = mmsxx.sprite(IMG.bossEye);
+  const eyeL = mmsxx.sprite(SPRITE_SYMBOLS.bossEye);
+  const eyeR = mmsxx.sprite(SPRITE_SYMBOLS.bossEye);
   eyeL.visible = eyeR.visible = false;
   boss = {
     kind: 'todo',
     x: (SCREEN_W - TODO_W) / 2, y: -TODO_H, hp, max: hp, age: 0, flash: 0, dying: 0,
     eyeL, eyeR, charge: null, phase2: false,
   };
-  boss.partFace = bossPart(IMG.todoFace);
-  boss.crown = mmsxx.sprite(IMG.crownCyan);   // 顔と色がかぶるので水色
+  boss.partFace = bossPart(BG_SYMBOLS.todoFace);
+  boss.crown = mmsxx.sprite(SPRITE_SYMBOLS.crownCyan);   // 顔と色がかぶるので水色
   boss.crown.priority = 15;
   // 撃たれると泣く。涙は左右 1 粒ずつ
   boss.tears = [0, 1].map(() => {
-    const sp = mmsxx.sprite(IMG.tearDrop);
+    const sp = mmsxx.sprite(SPRITE_SYMBOLS.tearDrop);
     sp.priority = 16;
     sp.visible = false;
     return { sp, age: -1, x: 0, y: 0, vx: 0, vy: 0 };
@@ -4653,11 +4658,11 @@ function spawnTodoBoss() {
   boss.cry = 0;
   // ほおの赤み(赤 + 黒の斜線)と、目の中の反射
   boss.blush = [0, 1].map(() => {
-    const sp = mmsxx.sprite(IMG.todoBlush);
+    const sp = mmsxx.sprite(SPRITE_SYMBOLS.todoBlush);
     sp.priority = 14;
     return sp;
   });
-  boss.glint = mmsxx.sprite(IMG.todoGlint);
+  boss.glint = mmsxx.sprite(SPRITE_SYMBOLS.todoGlint);
   boss.glint.priority = 17;
   drawBossBody();
   playBGM('todo', true);   // 仮ボス専用の、力が抜ける曲
@@ -4767,7 +4772,7 @@ function updateTodoBeg(b) {
   // 消えるのは、話し終えて帰るときと、撃たれてやめたときだけ
   if (line && !bubbleRect && !b.begGone) {
     // 顔の右横に出す(顔を隠さない位置)。尻尾が顔のほうを指す
-    bubbleRect = drawBubble(b.x + TODO_W + 24, b.y + 10, IMG.talkBubble);
+    bubbleRect = drawBubble(b.x + TODO_W + 24, b.y + 10, BG_SYMBOLS.talkBubble);
   }
   // 話し終わり。**体力を削りすぎていなければ**、いいことを教えて飴を置いていく。
   // 削ってしまっていたら、そのまま戦いに戻る(見逃したことにはならない)
@@ -4845,7 +4850,7 @@ function escapeTodoBoss() {
 /** 命ごいの最中に倒した。「ヒドイ」と言って、涙の海で爆発する */
 function killTodoWhileBegging(b) {
   clearBubble();
-  bubbleRect = drawBubble(b.x + TODO_W + 24, b.y + 10, IMG.talkBubble);
+  bubbleRect = drawBubble(b.x + TODO_W + 24, b.y + 10, BG_SYMBOLS.talkBubble);
   showNotice(BEG_HURT, 240, BEG_TEXT_Y);
   b.cry = 240;          // 涙を出しつづける
   b.tearBurst = 90;     // 大量の涙をまき散らす
@@ -4858,7 +4863,7 @@ function killTodoWhileBegging(b) {
 function todoGiveUp(b) {
   b.begSad = true;
   clearBubble();
-  bubbleRect = drawBubble(b.x + TODO_W + 24, b.y + 10, IMG.talkBubble);
+  bubbleRect = drawBubble(b.x + TODO_W + 24, b.y + 10, BG_SYMBOLS.talkBubble);
   showNotice(BEG_SAD, 300, BEG_TEXT_Y);
   b.cry = 300;
   b.tearBurst = 120;
@@ -5225,8 +5230,8 @@ function spawnKingBoss() {
  */
 function makeKingMan(b) {
   if (!b || b.man) return b && b.man;
-  b.man = mmsxx.sprite(IMG.kingMan01);
-  b.man.frames = [IMG.kingMan01, IMG.kingMan01b];
+  b.man = mmsxx.sprite(SPRITE_SYMBOLS.kingMan01);
+  b.man.frames = [SPRITE_SYMBOLS.kingMan01, SPRITE_SYMBOLS.kingMan01b];
   b.man.frameRate = 30;
   b.man.priority = 10;
   b.man.blink = 4; b.man.blinkOn = 2; b.man.blinkPhase = 0;   // 2:2
@@ -5257,8 +5262,8 @@ function updateChicks(b) {
   if (!b.chicks) {
     b.chicks = [];
     for (let i = 0; i < CHICKS; i++) {
-      const sp = mmsxx.sprite(IMG.chick0);
-      sp.frames = [IMG.chick0, IMG.chick1];
+      const sp = mmsxx.sprite(SPRITE_SYMBOLS.chick0);
+      sp.frames = [SPRITE_SYMBOLS.chick0, SPRITE_SYMBOLS.chick1];
       sp.frameRate = 6;          // 羽ばたき
       sp.priority = 12;          // 本体より手前
       sp.blink = 2;              // 1:1 の点滅
@@ -5331,7 +5336,7 @@ function updateKingBoss(b) {
   if (b.stage === 'break') {
     // 中から無理やり押し広げられて、まわりにひびが走り、やがて砕ける
     b.timer--;
-    if (b.rift) b.rift.image = IMG.kingRift2;
+    if (b.rift) b.rift.image = BG_SYMBOLS.kingRift2;
     if (b.timer % 30 === 0) mmsxx.audio.playSE('rifttear', SE_EVENT + 1);
     if (b.timer % 5 === 0) {
       spawnBoom(Math.random() * (SCREEN_W - 16), Math.random() * (SCREEN_H - 16));
@@ -5371,7 +5376,7 @@ function updateKingBoss(b) {
       showNotice('BURN ITS HEAD!');
       // 待機(コマ 00)。2 コマでゆっくり呼吸させる
       if (b.man) {
-        b.man.frames = [IMG.kingMan00, IMG.kingMan00b];
+        b.man.frames = [SPRITE_SYMBOLS.kingMan00, SPRITE_SYMBOLS.kingMan00b];
         b.man.frameRate = 24;
       }
       drawBossBar();
@@ -5390,13 +5395,13 @@ function updateKingBoss(b) {
     if (b.hurtPose > 0) {
       b.hurtPose--;
       if (b.man.frames) b.man.frames = null;
-      b.man.image = (b.hurtPose & 4) ? IMG.kingMan05 : IMG.kingMan05b;
+      b.man.image = (b.hurtPose & 4) ? SPRITE_SYMBOLS.kingMan05 : SPRITE_SYMBOLS.kingMan05b;
     } else if (b.meditate > 0) {
       // 座って瞑想。撃たれても姿は変わらない(無敵)。
       // 体力が戻っていくあいだは、黒ではなく**青 1 色**にして、
       // ふだんの黒いシルエットと見分けられるようにする
       if (b.man.frames) b.man.frames = null;
-      b.man.image = IMG.kingMan11;
+      b.man.image = SPRITE_SYMBOLS.kingMan11;
       // 6 コマごとに色が変わる(黒いシルエットとはっきり見分けられる)
       b.man.colorMap = kingZenMap();
     } else if (b.stun > 0) {
@@ -5404,11 +5409,11 @@ function updateKingBoss(b) {
       // 気絶そのものは頭の上のひよこで見せる
       if (b.man.frames) b.man.frames = null;
       b.man.colorMap = null;
-      b.man.image = IMG.kingMan12;
+      b.man.image = SPRITE_SYMBOLS.kingMan12;
     } else if (b.guard > 0) {
       // 腕で受けている(または息が上がって固まっている)あいだはガードの姿
       if (b.man.frames) b.man.frames = null;
-      b.man.image = IMG.kingMan02;
+      b.man.image = SPRITE_SYMBOLS.kingMan02;
     } else {
       // いまの技に合わせた姿。構えだけ 2 コマで呼吸させる
       if (!['kick', 'kickCircle', 'kickWind'].includes(b.act)) b.man.flipX = false;
@@ -5461,7 +5466,7 @@ function fireKingWave(b) {
   const deg = (Math.atan2(uy, ux) * 180) / Math.PI;
   const rot = ((Math.round(deg / 90) * 90) % 360 + 360) % 360;
   // 先頭がいちばん大きく、後ろへ行くほど小さい = 押し寄せてくるように見える
-  const set = [[IMG.kingWaveL, 0], [IMG.kingWaveM, 10], [IMG.kingWaveS, 18]];
+  const set = [[SPRITE_SYMBOLS.kingWaveL, 0], [SPRITE_SYMBOLS.kingWaveM, 10], [SPRITE_SYMBOLS.kingWaveS, 18]];
   for (const [i, [img, back]] of set.entries()) {
     const sp = mmsxx.sprite(img);
     sp.priority = 7;
@@ -5703,24 +5708,24 @@ function kingFightPose(b) {
   // キックは進む向きへ体を向ける(絵は右向きなので、左へ行くときは反転)
   if (b.act === 'kick') {
     if (b.man) b.man.flipX = b.dvx < 0;
-    return [IMG.kingMan07];
+    return [SPRITE_SYMBOLS.kingMan07];
   }
   // うろうろ〜助走のあいだは構えたまま。自機のいるほうへ体を向ける
   if (b.act === 'kickCircle' || b.act === 'kickWind') {
     if (b.man) b.man.flipX = (player.x + 8) < b.x + KING_MAN_W / 2;
-    return [IMG.kingMan06];
+    return [SPRITE_SYMBOLS.kingMan06];
   }
   if (b.act === 'moon') {
     // サマーソルト。ただ逆さで昇るだけだと跳んでいるようにしか見えないので、
     // 上がりながら 90 度ずつ回して**宙返り**にする。
     // スプライトの回転は 0/90/180/270 の 4 とおり。1 回転を 2 度ぶん回す
     if (b.man) b.man.rotate = [0, 90, 180, 270][Math.floor((b.moonT || 0) * 8) & 3];
-    return [IMG.kingMan10];   // 横を向いて足を抱え込んだ姿
+    return [SPRITE_SYMBOLS.kingMan10];   // 横を向いて足を抱え込んだ姿
   }
   if (b.act === 'punch') {
-    return b.actTimer > KING_PUNCH_HOLD ? [IMG.kingMan06] : [IMG.kingMan06b];
+    return b.actTimer > KING_PUNCH_HOLD ? [SPRITE_SYMBOLS.kingMan06] : [SPRITE_SYMBOLS.kingMan06b];
   }
-  return [IMG.kingMan00, IMG.kingMan00b];
+  return [SPRITE_SYMBOLS.kingMan00, SPRITE_SYMBOLS.kingMan00b];
 }
 
 // ---- 割れ目が広がる演出 ----
@@ -5850,33 +5855,33 @@ function spawnBoss() {
   if (kind === 'king') { spawnKingBoss(); return; }
   const hp = 40 + stageNo * 16;
   // 目は水色 1 色。点滅させず、自機のいる方へ少しだけ寄る
-  const eyeL = mmsxx.sprite(IMG.bossEye2);
-  const eyeR = mmsxx.sprite(IMG.bossEye2);
+  const eyeL = mmsxx.sprite(SPRITE_SYMBOLS.bossEye2);
+  const eyeR = mmsxx.sprite(SPRITE_SYMBOLS.bossEye2);
   eyeL.priority = eyeR.priority = 9;
   const eyeL2 = null, eyeR2 = null;
   const mouth = null;   // 口のスプライトは使わない
   // UFO のまわりを回るガード。全部壊すと壺が割れてタコだけになる
   const guards = [];
   for (let i = 0; i < GUARD_COUNT; i++) {
-    const sp = mmsxx.sprite(IMG.ufoGuard);
+    const sp = mmsxx.sprite(SPRITE_SYMBOLS.ufoGuard);
     sp.priority = 8;
     // 手のひらは高速で明滅させる(実機のスプライト多重表示らしく)
     sp.blink = 2;
     sp.blinkPhase = i & 1;
     guards.push({ sp, hp: GUARD_HP, flash: 0, angle: (Math.PI * 2 * i) / GUARD_COUNT });
   }
-  const charge = mmsxx.sprite(IMG.chargeOrb0);
+  const charge = mmsxx.sprite(SPRITE_SYMBOLS.chargeOrb0);
   charge.priority = 12;
   charge.visible = false;
   // 外側の輪。溜めが進むほど小さい輪に替えて、光が集まってくるように見せる
-  const chargeRing = mmsxx.sprite(IMG.chargeRing0);
+  const chargeRing = mmsxx.sprite(SPRITE_SYMBOLS.chargeRing0);
   chargeRing.priority = 11;
   chargeRing.visible = false;
   // 「UFO に乗ったタコ」だと分かるよう、足と頭のふくらみを単色スプライトで重ねる。
   // 2 コマに 1 回だけ表示して、実機のスプライト多重表示のちらつきを出す
-  const arms = mmsxx.sprite(IMG.octoArms);
+  const arms = mmsxx.sprite(SPRITE_SYMBOLS.octoArms);
   arms.priority = 7; arms.blink = 2; arms.blinkPhase = 0;
-  const brow = mmsxx.sprite(IMG.octoCrown);
+  const brow = mmsxx.sprite(SPRITE_SYMBOLS.octoCrown);
   brow.priority = 12;   // 王冠は点滅させない(色が違うので重ねても見分けが付く)
   boss = {
     kind: 'octopus',    // これが無いと「壺に乗っている間は無敵」の判定が働かない
@@ -5887,8 +5892,8 @@ function spawnBoss() {
     muzzleHp: 12,       // 発射口の耐久。壊すとその場で撃破(手のひらを削る道もある)
     charging: 0, firing: 0, laserLen: 0,
   };
-  boss.partHead = bossPart(IMG.bossHead);
-  boss.partShip = bossPart(IMG.bossShip);
+  boss.partHead = bossPart(BG_SYMBOLS.bossHead);
+  boss.partShip = bossPart(BG_SYMBOLS.bossShip);
   drawBossBody();
   playBGM('boss', true);
 }
@@ -5928,8 +5933,8 @@ function lookEye(sp, cx, cy, lens = true) {
   const dx = Math.round(Math.cos(k * Math.PI / 8) * 2);
   const dy = Math.round(Math.sin(k * Math.PI / 8) * 2);
   const key = Math.abs(dx) + '' + Math.abs(dy);     // '20' '21' '11' '12' '02'
-  const mid = lens ? IMG.bossEye2 : IMG.bossEye;
-  sp.image = IMG[(lens ? 'bossEye2_' : 'bossEye') + key] || mid;
+  const mid = lens ? SPRITE_SYMBOLS.bossEye2 : SPRITE_SYMBOLS.bossEye;
+  sp.image = SPRITE_SYMBOLS[(lens ? 'bossEye2_' : 'bossEye') + key] || mid;
   sp.flipX = dx < 0;
   sp.flipY = dy < 0;
   // レンズは 8 ドット、眼窩(BG 側)は 11 ドットで中心が半端になる。
@@ -5978,7 +5983,7 @@ function drawBossBody() {
         b.rift.image = KING_RIFT_OPEN[n];
       } else {
         // 撃っても広がらない。開ききった姿のまま
-        b.rift.image = IMG.kingRift1;
+        b.rift.image = BG_SYMBOLS.kingRift1;
       }
       // 1 コマおきに色を入れ替えて脈打たせる。
       // 連射を休んでいるあいだは強く光らせて、次が来ることを知らせる
@@ -5994,7 +5999,7 @@ function drawBossBody() {
     return;
   }
   if (b.kind === 'nautilus') {
-    b.core.image = b.phase2 ? IMG.nautilusHurt : IMG.nautilus;
+    b.core.image = b.phase2 ? BG_SYMBOLS.nautilusHurt : BG_SYMBOLS.nautilus;
     b.core.x = b.x; b.core.y = b.y; b.core.visible = vis;
     const cx = b.x + NAUT_CORE / 2, cy = b.y + NAUT_CORE / 2;
     for (const g of b.blocks) {
@@ -6003,7 +6008,7 @@ function drawBossBody() {
       g.sp.x = cx + Math.cos(a) * b.ringR - 8;
       g.sp.y = cy + Math.sin(a) * b.ringR - 8;
       // 弱点の装甲は火花を散らして、ここだけ作りが違うと分かるようにする
-      if (g.weak) g.sp.image = (mmsxx.frame & 2) ? IMG.gearWeak1 : IMG.gearWeak0;
+      if (g.weak) g.sp.image = (mmsxx.frame & 2) ? BG_SYMBOLS.gearWeak1 : BG_SYMBOLS.gearWeak0;
     }
     // 輪の内側を走る電撃。装甲の半分の半径を、3 倍の速さでなめらかに回る。
     // 弱点の装甲が壊れたら電撃は消える(輪が開いたことが分かるように)
@@ -6034,7 +6039,7 @@ function drawBossBody() {
   if (b.kind === 'dragon') {
     // 突進のあいだと、炎を吐いているあいだは口を大きく開ける
     b.partHead.image = (b.mode === 'rage' || b.mouthOpen)
-      ? IMG.dragonHeadOpen : IMG.dragonHead;
+      ? BG_SYMBOLS.dragonHeadOpen : BG_SYMBOLS.dragonHead;
     b.partHead.x = b.x; b.partHead.y = b.y; b.partHead.visible = vis;
     return;
   }
@@ -6045,7 +6050,7 @@ function drawBossBody() {
     b.partBody.flipX = flip;
     // ひっくり返ったあとは縦 96 ドットの壁になって邪魔なので、斜めに傾いた絵に替える。
     // 絵は左右に CRAB_TILT_PAD ずつ広いだけで、当たり判定はもとの 64x96 のまま
-    b.partBody.image = b.phase2 ? IMG.crabTilt : IMG.crabR;
+    b.partBody.image = b.phase2 ? BG_SYMBOLS.crabTilt : BG_SYMBOLS.crabR;
     b.partBody.x = b.x - (b.phase2 ? CRAB_TILT_PAD : 0);
     b.partBody.y = b.y; b.partBody.visible = vis;
     // ダメージが通ったときだけ、甲羅を白く光らせる(4 発に 1 回なので分かりにくかった)
@@ -6059,8 +6064,8 @@ function drawBossBody() {
       // 撃ち落とされたぶん(在庫切れ)は何も出さない
       const g = b.grow[i];
       sp.visible = vis && !b.phase2 && b.clawAlive[i];
-      sp.image = g >= CRAB_CLAW_GROW ? IMG.crabClawBig
-        : g >= CRAB_CLAW_GROW * 0.55 ? IMG.crabClawMid : IMG.crabClawStub;
+      sp.image = g >= CRAB_CLAW_GROW ? BG_SYMBOLS.crabClawBig
+        : g >= CRAB_CLAW_GROW * 0.55 ? BG_SYMBOLS.crabClawMid : BG_SYMBOLS.crabClawStub;
       sp.flipX = flip;
       sp.x = clawX; sp.y = b.y + CRAB_CLAW_Y[i];
     });
@@ -6069,10 +6074,10 @@ function drawBossBody() {
     const jumping = b.mode === 'jump';
     const out = jumping ? 14 : 0;   // 跳んでいるあいだは大きく踏ん張る
     // 壁にいるあいだは 3 コマで曲げ具合を変えて、脚をわしゃわしゃ動かす
-    const LEG_ANIM = [IMG.crabLeg, IMG.crabLegMid, IMG.crabLegExt, IMG.crabLegMid];
+    const LEG_ANIM = [BG_SYMBOLS.crabLeg, BG_SYMBOLS.crabLegMid, BG_SYMBOLS.crabLegExt, BG_SYMBOLS.crabLegMid];
     b.legs.forEach((lg, i) => {
       lg.sp.visible = vis && !b.phase2 && lg.hp > 0;
-      lg.sp.image = jumping ? IMG.crabLegExt
+      lg.sp.image = jumping ? BG_SYMBOLS.crabLegExt
         : LEG_ANIM[(Math.floor(mmsxx.frame / 6) + i) & 3];
       lg.sp.flipX = flip; lg.sp.flipY = lg.flipY;
       // 付け根が甲羅の中に入るまで、しっかりめり込ませる。
@@ -6089,7 +6094,7 @@ function drawBossBody() {
     return;
   }
   // タコ: 第2形態は船から出たタコ(短い脚つき)
-  b.partHead.image = b.phase2 ? IMG.bossHead2 : IMG.bossHead;
+  b.partHead.image = b.phase2 ? BG_SYMBOLS.bossHead2 : BG_SYMBOLS.bossHead;
   b.partHead.x = b.x + HEAD_DX;
   b.partHead.y = b.y + (b.phase2 ? 0 : HEAD_SINK);
   b.partHead.visible = vis;
@@ -6183,7 +6188,7 @@ function breakShip() {
 // 弱点に当たったときの光。単色スプライトを 2 コマに 1 回出す
 let weakSparks = [];
 function spawnWeakSpark(x, y) {
-  const sp = mmsxx.sprite(IMG.boom0);
+  const sp = mmsxx.sprite(SPRITE_SYMBOLS.boom0);
   sp.x = x; sp.y = y; sp.priority = 21;
   sp.blink = 2;
   weakSparks.push({ sp, age: 0 });
@@ -6191,7 +6196,7 @@ function spawnWeakSpark(x, y) {
 function updateWeakSparks() {
   for (const w of [...weakSparks]) {
     w.age++;
-    if (w.age === 3) w.sp.image = IMG.boom1;
+    if (w.age === 3) w.sp.image = SPRITE_SYMBOLS.boom1;
     else if (w.age >= 6) {
       mmsxx.removeSprite(w.sp);
       weakSparks.splice(weakSparks.indexOf(w), 1);
@@ -6329,12 +6334,12 @@ function startKingEscape(cx, cy) {
   // 評価の文字(レイヤー 4)より奥に出す。BG スプライトはレイヤーと同じ
   // 優先度の並びに入るので、priority 4 = 「レイヤー 4 の手前」ではなく
   // 「レイヤー 4 を描く直前」= 文字の下になる
-  const rift = mmsxx.bgSprite(IMG.kingRiftBlueThin);
+  const rift = mmsxx.bgSprite(BG_SYMBOLS.kingRiftBlueThin);
   rift.priority = 4;
   rift.x = x; rift.y = Math.round(y) - 24;
   // 本人は**ふつうのスプライト**。BG スプライトだと 8 ドット刻みで
   // カクカク昇ってしまうので、1 ドット単位で滑らかに動かす
-  const man = mmsxx.sprite(IMG.kingMan01);
+  const man = mmsxx.sprite(SPRITE_SYMBOLS.kingMan01);
   man.priority = 8;
   man.x = Math.round(cx - KING_MAN_W / 2); man.y = Math.round(y) + 40;
   kingEscape = { t: 0, rift, man, x: cx - KING_MAN_W / 2, y };
@@ -6371,7 +6376,7 @@ const KING_ROAR_WAIT = 120;
 function fireEnemyBullet(x, y, vx, vy, breakable = false, image = null) {
   // ボスの弾(撃ち落とせる)は 16x16 のリング、通常の敵弾は小さな丸。
   // image を渡すと、その絵の弾になる(ドラゴンの炎など)
-  const sp = mmsxx.sprite(image || (breakable ? IMG.bulletRing : IMG.bulletE));
+  const sp = mmsxx.sprite(image || (breakable ? SPRITE_SYMBOLS.bulletRing : SPRITE_SYMBOLS.bulletE));
   sp.x = x; sp.y = y; sp.priority = 6;
   // リング弾は消えるのではなく、ピンクと薄い赤を 1 コマずつ入れ替えて見せる
   if (breakable && !image) sp.__ringPhase = enemyBullets.length & 1;
@@ -6452,10 +6457,10 @@ function updateLaser(b) {
     // 玉と輪は位相をずらして、ぶつかり合うように光らせる
     const c = Math.floor(mmsxx.frame / 2) % 3;
     const cr = (Math.floor(mmsxx.frame / 2) + 2) % 3;
-    const orb = t < 0.4 ? IMG['chargeOrb0' + c]
-      : t < 0.75 ? IMG['chargeOrb1' + c] : IMG['chargeOrb2' + c];
-    const ring = t < 0.4 ? IMG['chargeRing0' + cr]
-      : t < 0.75 ? IMG['chargeRing1' + cr] : IMG['chargeRing2' + cr];
+    const orb = t < 0.4 ? SPRITE_SYMBOLS['chargeOrb0' + c]
+      : t < 0.75 ? SPRITE_SYMBOLS['chargeOrb1' + c] : SPRITE_SYMBOLS['chargeOrb2' + c];
+    const ring = t < 0.4 ? SPRITE_SYMBOLS['chargeRing0' + cr]
+      : t < 0.75 ? SPRITE_SYMBOLS['chargeRing1' + cr] : SPRITE_SYMBOLS['chargeRing2' + cr];
     const cx = b.sx + BOSS_W / 2, cy = b.sy + BOSS_H - 4;
     b.charge.image = orb;
     b.charge.visible = true;
@@ -6522,7 +6527,7 @@ function updateBoss() {
       beginRestoreSpace();
       if (b.man) {
         b.man.frames = null;
-        b.man.image = IMG.kingMan09;      // 崩れ落ちる姿
+        b.man.image = SPRITE_SYMBOLS.kingMan09;      // 崩れ落ちる姿
         // ひざを折ったぶん、少しだけ沈ませる
         b.y += (RIFT_CY - KING_MAN_H / 2 + 10 - b.y) * 0.06;
       }
@@ -6631,11 +6636,11 @@ function updateBoss() {
       // 掌は外を向くように、左半分にいるときだけ左右反転する
       g.sp.flipX = Math.cos(g.angle) < 0;
       // 当たったあとしばらく白く点滅させる
-      const open = tight ? IMG.ufoFist : IMG.ufoGuard;
+      const open = tight ? BG_SYMBOLS.ufoFist : SPRITE_SYMBOLS.ufoGuard;
       if (g.flash > 0) {
         g.flash--;
         g.sp.image = (g.flash & 1)
-          ? (tight ? IMG.ufoFistHit : IMG.ufoGuardHit) : open;
+          ? (tight ? BG_SYMBOLS.ufoFistHit : SPRITE_SYMBOLS.ufoGuardHit) : open;
       } else {
         g.sp.image = open;
       }
@@ -7060,7 +7065,7 @@ function updatePlay() {
       sp.y += (e.y0 - sp.y) * 0.02;
       sp.x = e.x0 + Math.sin(e.phase + e.age * 0.024) * 20;
       const t = 1 - e.hp / e.max;
-      sp.image = t > 0.66 ? IMG.glower2 : t > 0.33 ? IMG.glower1 : IMG.glower0;
+      sp.image = t > 0.66 ? BG_SYMBOLS.glower2 : t > 0.33 ? BG_SYMBOLS.glower1 : SPRITE_SYMBOLS.glower0;
       // 開くほど強く光る(明滅を速くする)
       sp.blink = t > 0.66 ? 2 : 0;
       if (--e.life <= 0) sp.y -= 2.4;   // 時間が来たら上へ去る
@@ -7109,7 +7114,7 @@ function updatePlay() {
     // リング弾は 3 コマごとに色を入れ替える(ピンク <-> 水色)
     if (b.breakable) {
       b.sp.image = ((Math.floor(mmsxx.frame / 3) + (b.sp.__ringPhase || 0)) & 1)
-        ? IMG.bulletRingCyan : IMG.bulletRing;
+        ? SPRITE_SYMBOLS.bulletRingCyan : SPRITE_SYMBOLS.bulletRing;
     }
     // リング弾(撃ち落とせる弾)は、ゆっくり自機の方へ向きを変える
     // 自機より下まで来たら追うのをやめる(引き返してこない)
@@ -8078,8 +8083,8 @@ function updatePlay() {
   // **ふちどりだけ**しか見えなかった。4 コマごとにして噛み合わせる
   const fl = Math.floor(flameFrame / 4) & 1;
   const flameImg = dragonFlame ? dragonFlameImg()
-    : speedLevel >= 3 ? (fl ? IMG.flameBigB : IMG.flameBigA)
-    : (fl ? IMG.flameSmallB : IMG.flameSmall);
+    : speedLevel >= 3 ? (fl ? SPRITE_SYMBOLS.flameBigB : SPRITE_SYMBOLS.flameBigA)
+    : (fl ? SPRITE_SYMBOLS.flameSmallB : SPRITE_SYMBOLS.flameSmall);
   // 緑の炎は段階 1 でも出る(死んでも残る強化なので、いつでも使えるようにする)
   const wantFlame = alive && (speedLevel >= 2 || dragonFlame);
   const wantBarrier = alive && barrierHP > 0;
@@ -8088,13 +8093,13 @@ function updatePlay() {
     const showBarrier = (mmsxx.frame & 2) === 0; // 2 コマごとに交互
     aux.visible = true;
     if (showBarrier) {
-      aux.image = IMG.barrier; aux.x = player.x; aux.y = player.y;
+      aux.image = SPRITE_SYMBOLS.barrier; aux.x = player.x; aux.y = player.y;
     } else {
       aux.image = flameImg; aux.x = player.x; aux.y = player.y + FLAME_OFFSET;
       flameShown = true;
     }
   } else if (wantBarrier) {
-    aux.visible = true; aux.image = IMG.barrier; aux.x = player.x; aux.y = player.y;
+    aux.visible = true; aux.image = SPRITE_SYMBOLS.barrier; aux.x = player.x; aux.y = player.y;
   } else if (wantFlame) {
     // ドラゴンの炎は明滅させず、出しっぱなしで色だけ変える。
     // ふつうの炎は実機らしく 4 コマに 1 回だけ出す
@@ -8382,7 +8387,7 @@ function killKingWithRoar() {
   bossVisible = true;
   if (boss.man) {
     boss.man.frames = null;
-    boss.man.image = IMG.kingMan05;
+    boss.man.image = SPRITE_SYMBOLS.kingMan05;
   }
   drawBossBody();
   mmsxx.audio.stopBGM();
@@ -9061,26 +9066,26 @@ let storySprites = null;
 
 function storySpriteSet() {
   if (!storySprites) {
-    const man = mmsxx.sprite(IMG.kingMan00);
+    const man = mmsxx.sprite(SPRITE_SYMBOLS.kingMan00);
     man.priority = 20;
-    const ship = mmsxx.sprite(IMG.player);
+    const ship = mmsxx.sprite(SPRITE_SYMBOLS.player);
     ship.priority = 20;
-    const jet = mmsxx.sprite(IMG.flameBig);
+    const jet = mmsxx.sprite(SPRITE_SYMBOLS.flameBig);
     jet.priority = 19;
     // パイロットの目。絵に描き込むとディザでつぶれるのでスプライトにする。
     // 見開いた目(青い丸)は 1 色スプライトだと「玉」にしか見えず気味が悪いので、
     // **両目とも閉じた線**にする。左右で線の向きを反転させて表情をそろえる
-    const eye = mmsxx.sprite(IMG.pilotWink);
+    const eye = mmsxx.sprite(SPRITE_SYMBOLS.pilotWink);
     eye.flipX = true;
-    const wink = mmsxx.sprite(IMG.pilotWink);
-    const smile = mmsxx.sprite(IMG.pilotSmile);   // 笑った口
+    const wink = mmsxx.sprite(SPRITE_SYMBOLS.pilotWink);
+    const smile = mmsxx.sprite(SPRITE_SYMBOLS.pilotSmile);   // 笑った口
     // ひとみ。絵に描いた 1 ドットの点の上に重ねる 4x4 の黒い丸
-    const pupilL = mmsxx.sprite(IMG.pilotPupil);
-    const pupilR = mmsxx.sprite(IMG.pilotPupil);
+    const pupilL = mmsxx.sprite(SPRITE_SYMBOLS.pilotPupil);
+    const pupilR = mmsxx.sprite(SPRITE_SYMBOLS.pilotPupil);
     eye.priority = wink.priority = smile.priority = 21;
     pupilL.priority = pupilR.priority = 22;
     // 裂け目の真ん中を補う光。走査線で落ちる明るさをここで足す
-    const glow = mmsxx.sprite(IMG.riftGlow);
+    const glow = mmsxx.sprite(SPRITE_SYMBOLS.riftGlow);
     glow.priority = 21;
     storySprites = { man, ship, jet, eye, wink, smile, pupilL, pupilR, glow };
     for (const sp of Object.values(storySprites)) sp.visible = false;
@@ -9096,7 +9101,7 @@ function buildEnding() {
     manual: true,
     // 「押してほしそう」を文字ではなく 8x8 の絵の動きで伝える。
     // 場所を書かないと、文章の最後の行のうしろに付く
-    prompt: { frames: [IMG.guiNext0, IMG.guiNext1, IMG.guiNext2, IMG.guiNext3], rate: 8, after: 24 },
+    prompt: { frames: [BG_SYMBOLS.guiNext0, BG_SYMBOLS.guiNext1, BG_SYMBOLS.guiNext2, BG_SYMBOLS.guiNext3], rate: 8, after: 24 },
     scenes: [
       {
         // 1. 宇宙に平和が戻った
@@ -9105,8 +9110,8 @@ function buildEnding() {
         onEnter: () => { mmsxx.backdrop = 1; },
         // 192x192。中間色は 1 ライン おきのディザ。
         // duo を持つ場面は、1 コマごとにディザを裏返して描き直す(下の updateStory)
-        duo: { image: IMG.earthBig, maps: GAME_DATA.duo.earth, x: 32, y: 0 },
-        draw: (m, art) => { art.draw(32, 0, IMG.earthBig, true,
+        duo: { image: BG_SYMBOLS.earthBig, maps: GAME_DATA.duo.earth, x: 32, y: 0 },
+        draw: (m, art) => { art.draw(32, 0, BG_SYMBOLS.earthBig, true,
           { colorMap: GAME_DATA.duo.earth[0] }); },
         sprites: () => {
           const s = storySpriteSet();
@@ -9122,8 +9127,8 @@ function buildEnding() {
         text: ['BACK AMONG FRIENDS AT LAST.', 'MAY SHE NEVER LAUNCH AGAIN.'],
         textColor: 11,
         onEnter: () => { mmsxx.backdrop = 1; },
-        duo: { image: IMG.endBase, maps: GAME_DATA.duo.base, x: 16, y: 0 },
-        draw: (m, art) => { art.draw(16, 0, IMG.endBase, true,
+        duo: { image: BG_SYMBOLS.endBase, maps: GAME_DATA.duo.base, x: 16, y: 0 },
+        draw: (m, art) => { art.draw(16, 0, BG_SYMBOLS.endBase, true,
           { colorMap: GAME_DATA.duo.base[0] }); },
       },
       {
@@ -9134,8 +9139,8 @@ function buildEnding() {
         textColor: 11,
         onEnter: () => { mmsxx.backdrop = 1; },
         // 中間色は 1 ライン おきのディザ。目印の色を実際の色へ置き換えて描く
-        duo: { image: IMG.pilot, maps: GAME_DATA.duo.pilot, x: PILOT_X, y: 0 },
-        draw: (m, art) => { art.draw(PILOT_X, 0, IMG.pilot, true,
+        duo: { image: BG_SYMBOLS.pilot, maps: GAME_DATA.duo.pilot, x: PILOT_X, y: 0 },
+        draw: (m, art) => { art.draw(PILOT_X, 0, BG_SYMBOLS.pilot, true,
           { colorMap: GAME_DATA.duo.pilot[0] }); },
         sprites: () => {
           // 顔の上に目を置く。絵は中身を測って中央に寄せてあり、
@@ -9173,15 +9178,15 @@ function buildEnding() {
         // 曲は 10 秒かけてゆっくり落とす(場面は 6 秒なので、
         // 消えきる前に静かになっていく)
         onEnter: () => { mmsxx.backdrop = 1; mmsxx.audio.fadeOutBGM(10); },
-        duo: { image: IMG.endRift, maps: GAME_DATA.duo.rift, x: 16, y: 0 },
-        draw: (m, art) => { art.draw(16, 0, IMG.endRift, true,
+        duo: { image: BG_SYMBOLS.endRift, maps: GAME_DATA.duo.rift, x: 16, y: 0 },
+        draw: (m, art) => { art.draw(16, 0, BG_SYMBOLS.endRift, true,
           { colorMap: GAME_DATA.duo.rift[0] }); },
         // 絵は 4 コマのパラパラアニメで、真ん中から上下へ裂けて出てくる。
         // ちらつきも重ねて「まだ実体でない」感じを出す。
         // はじめの 2 秒は真っ黒のまま待ってから出はじめる
         fadeIn: true,
         fadeDelay: 120,
-        growFrames: [IMG.endRift0, IMG.endRift1, IMG.endRift2, IMG.endRift],
+        growFrames: [BG_SYMBOLS.endRift0, BG_SYMBOLS.endRift1, BG_SYMBOLS.endRift2, BG_SYMBOLS.endRift],
         sprites: () => {
           // 縦の真ん中だけ、スプライトで白く光らせて補う。
           // 走査線は絵のほうに残したまま、明るさだけ足す形
@@ -9429,10 +9434,10 @@ function enterStaffRoll() {
 // 小さいものから見せて、いちばん大きいりゅうを最後に持ってくる。
 // 横位置もそろえない
 const STAFF_STARS = [
-  [IMG.birdStar, 88, 900],     // 900 + 122 = 1022
-  [IMG.whaleStar, 30, 692],    // 692 + 136 = 828
-  [IMG.shipStar, 110, 468],    // 468 + 104 = 572
-  [IMG.dragonStar, 34, 220],   // 220 + 156 = 376
+  [BG_SYMBOLS.birdStar, 88, 900],     // 900 + 122 = 1022
+  [BG_SYMBOLS.whaleStar, 30, 692],    // 692 + 136 = 828
+  [BG_SYMBOLS.shipStar, 110, 468],    // 468 + 104 = 572
+  [BG_SYMBOLS.dragonStar, 34, 220],   // 220 + 156 = 376
 ];
 // 文字と同じ向き(下から上へ)にゆっくり流して、奥にあるように見せる
 const STAFF_STAR_SPEED = -0.18;
@@ -9601,7 +9606,7 @@ const BG_PART_LIST = [
 
 function buildBgPartPages() {
   const items = BG_PART_LIST
-    .map(([name, label]) => ({ name, label, w: IMG[name].width, h: IMG[name].height }))
+    .map(([name, label]) => ({ name, label, w: BG_SYMBOLS[name].width, h: BG_SYMBOLS[name].height }))
     .sort((a, b) => (a.w * a.h) - (b.w * b.h));
   const pages = [];
   for (let i = 0; i < items.length;) {
@@ -9941,7 +9946,7 @@ function drawCharList() {
     // 姿の代わりに出すものが決めてあれば、? ではなくそれを出す
     if (page.secretArt) {
       const [name, bx, by] = page.secretArt;
-      neb.draw(bx, by, IMG[name], true);
+      neb.draw(bx, by, BG_SYMBOLS[name], true);
     } else drawBigQuestion(SCREEN_W / 2, 92);
     // 名前も伏せたいページは、伏せたときの表記に差し替える。
     // true なら ???、文字列ならそれを出す(「THE KING」だけ見せる、など)
@@ -9960,10 +9965,10 @@ function drawCharList() {
   for (const part of (page.parts || [])) {
     if (Array.isArray(part)) {
       const [name, bx, by] = part;
-      neb.draw(bx, by, IMG[name], true);
+      neb.draw(bx, by, BG_SYMBOLS[name], true);
       continue;
     }
-    const sp = mmsxx.sprite(IMG[part.img]);
+    const sp = mmsxx.sprite(SPRITE_SYMBOLS[part.img]);
     sp.x = part.x; sp.y = part.y; sp.priority = 20;
     if (part.flipX) sp.flipX = true;
     // 黒 1 色の絵は宇宙の黒に沈むので、色を指定して置き換えられるようにする
@@ -9980,7 +9985,7 @@ function drawCharList() {
   charMoai = page.moai ? (page.parts || []).filter(p => Array.isArray(p)) : null;
   // 大きい絵は BG に直接置いて、名前をその下に出す
   for (const [name, label, bx, by] of (page.big || [])) {
-    const img = IMG[name];
+    const img = BG_SYMBOLS[name];
     neb.draw(bx, by, img);
     // 名前は絵から 8 ドット空ける(くっついて読みにくかった)
     if (label) hud.print(bx, Math.min(160, by + img.height + 12), label, 11);
@@ -9988,7 +9993,7 @@ function drawCharList() {
   // BG の絵に重ねるスプライト(目玉の瞳と血管)。
   // ゲーム中と同じく、瞳と血管は 1 フレームおきの交互表示にする
   for (const [name, ox, oy] of (page.overlay || [])) {
-    const sp = mmsxx.sprite(IMG[name]);
+    const sp = mmsxx.sprite(SPRITE_SYMBOLS[name]);
     sp.x = ox; sp.y = oy; sp.priority = 20;
     // ゲーム中と同じちらつき(瞳と血管を交互に、ハイライトは 3 回に 1 回)
     if (name === 'eyeVein') { sp.blink = 2; sp.blinkPhase = 1; }
@@ -10006,7 +10011,7 @@ function drawCharList() {
   // 6 つ並ぶページは、最後の行が下のナビに近づくので 8 ドット上から始める
   let y = (page.items || []).length >= 6 ? 32 : 40;
   for (const [name, label] of (page.items || [])) {
-    const img = IMG[name];
+    const img = SPRITE_SYMBOLS[name];
     const sp = mmsxx.sprite(img);
     sp.x = 48; sp.y = y - 4; sp.priority = 20;
     charSprites.push(sp);
@@ -10041,7 +10046,7 @@ function updateCharAnim() {
   if (charRocket.length) {
     charRocketAlt = !charRocketAlt;
     for (const r of charRocket) {
-      neb.draw(r.bx, r.by, charRocketAlt ? IMG.rocketAlt : IMG.rocket);
+      neb.draw(r.bx, r.by, charRocketAlt ? BG_SYMBOLS.rocketAlt : BG_SYMBOLS.rocket);
     }
   }
   // 小惑星はゆっくり白く光る(ゲーム中と同じ周期)
@@ -10049,7 +10054,7 @@ function updateCharAnim() {
   if (phase !== charFlashPhase) {
     charFlashPhase = phase;
     for (const f of charFlash) {
-      neb.draw(f.bx, f.by, phase ? astFlash(0) : IMG[f.name]);
+      neb.draw(f.bx, f.by, phase ? astFlash(0) : BG_SYMBOLS[f.name]);
     }
   }
 }
