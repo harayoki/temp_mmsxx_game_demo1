@@ -3552,7 +3552,8 @@ let shareSendBtn = null;    // SHARE のボタン(出したときはここを選
 // 板の中で押せるもの。**左右で選び、SPACE で実行、ESC でとじる**。
 // マウスなら、そのまま押しても同じ(押したものが選ばれた状態になる)
 let shareItems = [];        // 並び順。{ el, run, repeat }
-let shareFocus = 0;         // いま選んでいるもの
+let shareFocus = 0;         // 下のボタンのうち、いま選んでいるもの
+let shareZone = 'buttons';  // 'frame' = 矢印(時間を選ぶ) / 'buttons' = 下のボタン
 let shareHiScore = false;   // ランクインで出したか(文言が変わる)
 // **やられる前の数秒を録った動画**(mp4。作れない環境では webm)。
 // リプレイを流したときに録ってあり、ダイアログから落とせる。
@@ -3642,7 +3643,7 @@ function shareModeName() {
 // タグはそのまま貼ってもらうものなので、日本語のタグも混ぜてよい
 const SHARE_INTRO =
   "STAR FABLE - a retro-PC style shoot-'em-up made with Claude (Fable 5 + Opus 5)";
-const SHARE_TAGS = '#mmsxx #fable #opus #msx #TMS9918 #シューティング';
+const SHARE_TAGS = '#mmsxx #fable #opus #msx #TMS9918 #shmup';
 
 /**
  * シェア文言。**ハイスコアのときだけ言うことが変わる**。
@@ -3709,9 +3710,15 @@ function makeShareEl() {
 
   /** 矢印。押しっぱなしのときは、少し待ってから送り続ける(キーと同じ間合い) */
   const mkArrow = (label, fn) => {
-    const b = mkItem(fn, true);
+    const b = document.createElement('button');
     b.textContent = label;
-    Object.assign(b.style, { font: '18px monospace', padding: '12px 8px', lineHeight: '1' });
+    Object.assign(b.style, {
+      font: '18px monospace', color: '#e8e8e8', background: '#202020',
+      border: '2px solid #cccccc', padding: '12px 8px', cursor: 'pointer',
+      lineHeight: '1', flex: '0 0 auto',
+    });
+    // マウスで押したときは、矢印のほうを選んだ状態にする
+    b.addEventListener('click', () => { b.blur(); setShareZone('frame'); fn(); });
     let wait = 0, run = 0;
     const stop = () => { clearTimeout(wait); clearInterval(run); wait = run = 0; };
     b.addEventListener('pointerdown', () => {
@@ -3754,12 +3761,10 @@ function makeShareEl() {
     row.appendChild(b);
     return b;
   };
-  // X(旧 Twitter)の絵。**まだ繋いでいない**ので、押しても知らせを出すだけ。
-  // ほかの SNS を足すときも、ここに絵を並べていけばよい
-  const x = mkItem(() => { shareStatusEl.textContent = 'X: NOT CONNECTED YET'; });
-  Object.assign(x.style, { padding: '6px 10px', lineHeight: '0' });
-  x.appendChild(mkXIcon());
-  row.appendChild(x);
+  // X(旧 Twitter)へ出す口。**まだ繋いでいない**ので、押しても知らせを出すだけ。
+  // 絵は**公式の素材が要る**(自分で描いた × 印は「閉じる」に見えてしまう)ので、
+  // それが来るまでは文字で置いておく。ほかの SNS もここへ並べる
+  mkBtn('POST TO X', () => { shareStatusEl.textContent = 'X: NOT CONNECTED YET'; });
   shareSendBtn = mkBtn('SHARE', () => sendShare());
   // 動画は録れているときだけ出す(始めてすぐやられると溜まっていない)
   shareMovieBtn = mkBtn('SAVE VIDEO', () => saveShareMovie());
@@ -3771,33 +3776,32 @@ function makeShareEl() {
   return el;
 }
 
-/** X の絵(交差する 2 本の線)。外から画像を持ってこないよう SVG で描く */
-function mkXIcon() {
-  const ns = 'http://www.w3.org/2000/svg';
-  const svg = document.createElementNS(ns, 'svg');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('width', '16');
-  svg.setAttribute('height', '16');
-  for (const d of ['M3 2 L21 22', 'M21 2 L3 22']) {
-    const line = document.createElementNS(ns, 'path');
-    line.setAttribute('d', d);
-    line.setAttribute('stroke', '#e8e8e8');
-    line.setAttribute('stroke-width', '3');
-    line.setAttribute('fill', 'none');
-    svg.appendChild(line);
-  }
-  return svg;
-}
-
 /** いま選んでいるものを見た目でも出す(枠と地の色を変える) */
 function focusShareItem(i) {
-  if (i < 0 || i >= shareItems.length) return;
-  shareFocus = i;
+  if (i >= 0 && i < shareItems.length) shareFocus = i;
+  const here = shareZone === 'buttons';
   shareItems.forEach((it, n) => {
-    const on = n === i;
-    it.el.style.borderColor = on ? '#ffe000' : '#cccccc';
-    it.el.style.background = on ? '#3a3520' : '#202020';
+    paintShareItem(it.el, here && n === shareFocus);
   });
+}
+
+/** 選ばれているものは枠と地の色を変える */
+function paintShareItem(el, on) {
+  el.style.borderColor = on ? '#ffe000' : '#cccccc';
+  el.style.background = on ? '#3a3520' : '#202020';
+}
+
+/**
+ * どこを選んでいるかを決める。
+ * @param {string} z 'frame' なら矢印(左右で時間を選ぶ) / 'buttons' なら下のボタン
+ */
+function setShareZone(z) {
+  // コマを選べないとき(集計画面など)は、いつでも下のボタン
+  shareZone = (z === 'frame' && shareBack >= 0) ? 'frame' : 'buttons';
+  const on = shareZone === 'frame';
+  paintShareItem(shareLeftBtn, on);
+  paintShareItem(shareRightBtn, on);
+  focusShareItem(shareFocus);
 }
 
 /** いま押せるものか(隠れているもの・端まで来た矢印は飛ばす) */
@@ -3821,12 +3825,6 @@ function moveShareFocus(d) {
 function runShareFocus() {
   const it = shareItems[shareFocus];
   if (it && shareItemLive(it)) it.run();
-}
-
-/** いま選んでいるものは、押しっぱなしで送り続けてよいか(矢印だけ) */
-function shareFocusRepeats() {
-  const it = shareItems[shareFocus];
-  return !!(it && it.repeat && shareItemLive(it));
 }
 
 /**
@@ -3856,7 +3854,8 @@ function drawShareShot() {
   setArrowEnabled(shareRightBtn, shareBack > lo);
   const n = hi - shareBack + 1, of = hi - lo + 1;   // 古いほうから数えた番号
   shareHintEl.textContent =
-    `FRAME ${n}/${of} - ${(shareBack / 60).toFixed(2)}s BEFORE  (ARROWS OR LEFT-RIGHT KEYS)`;
+    `FRAME ${n}/${of} - ${(shareBack / 60).toFixed(2)}s BEFORE`
+    + '  (UP-DOWN: SWITCH / LEFT-RIGHT: TIME OR BUTTON / SPACE: RUN)';
 }
 
 /** 端まで来た矢印は押せなくする(押せるかどうかを見た目でも出す) */
@@ -3914,8 +3913,9 @@ function openShare(after, spec) {
   shareBusy = false;
   shareRepeat = 0;
   updateShareMovieBtn();
-  // 出したときは SHARE を選んでおく(そのまま SPACE で送れる)
-  focusShareItem(shareItems.findIndex(it => it.el === shareSendBtn));
+  // 出したときは下のボタンの SHARE を選んでおく(そのまま SPACE で送れる)
+  shareFocus = Math.max(0, shareItems.findIndex(it => it.el === shareSendBtn));
+  setShareZone('buttons');
   mmsxx.audio.playSE('shutter', SE_JINGLE);
 }
 
@@ -3981,7 +3981,9 @@ function closeShare() {
   shareOpen = false;
   shareBusy = false;
   if (shareEl) shareEl.style.display = 'none';
-  if (sharePaused) { togglePause(); sharePaused = false; }
+  // **ポーズはそのままにする。** ESC で閉じた勢いでゲームが動き出すと、
+  // 見ていた人が置いていかれる。動かすのはもう一度 ESC を押したとき
+  sharePaused = false;
   // 選ぶために止めていた溜めを戻す(ポーズ中はポーズ側が止めたままにする)
   if (!paused) mmsxx.holdCapture(false);
   shareBack = -1;
@@ -10601,14 +10603,28 @@ mmsxx.run(() => {
   // シェアのダイアログが出ているあいだは、**キーをゲームへ流さない**。
   // 閉じるのは ESC だけ
   if (shareOpen) {
-    // **左右で選び、SPACE で実行、ESC でとじる**。マウスで押しても同じ
-    if (mmsxx.input.wasPressed('Escape')) closeShare();
-    else if (mmsxx.input.wasPressed('ArrowLeft')) moveShareFocus(-1);
-    else if (mmsxx.input.wasPressed('ArrowRight')) moveShareFocus(1);
-    else if (mmsxx.input.wasPressed('Space')) { runShareFocus(); shareRepeat = 20; }
-    else if (mmsxx.input.isDown('Space') && shareFocusRepeats()) {
-      // 矢印を選んでいるあいだは、押しっぱなしでコマを送り続ける
-      if (--shareRepeat <= 0) { runShareFocus(); shareRepeat = 3; }
+    // **上下で「矢印」と「下のボタン」を行き来する**。
+    //   矢印にいるとき … 左右でコマ(時間)を選ぶ
+    //   ボタンにいるとき … 左右で選び、SPACE で実行
+    // ESC はどこにいても閉じる(CLOSE を押したのと同じ)
+    const key = mmsxx.input;
+    if (key.wasPressed('Escape')) { closeShare(); return; }
+    if (shareBack >= 0 && (key.wasPressed('ArrowUp') || key.wasPressed('ArrowDown'))) {
+      setShareZone(shareZone === 'frame' ? 'buttons' : 'frame');
+    } else if (shareZone === 'frame') {
+      // 1 コマずつなので、押しっぱなしのときは少し待ってから送り続ける
+      if (key.wasPressed('ArrowLeft')) { stepShareShot(1); shareRepeat = 20; }
+      else if (key.wasPressed('ArrowRight')) { stepShareShot(-1); shareRepeat = 20; }
+      else if (key.isDown('ArrowLeft') || key.isDown('ArrowRight')) {
+        if (--shareRepeat <= 0) {
+          stepShareShot(key.isDown('ArrowLeft') ? 1 : -1);
+          shareRepeat = 3;
+        }
+      }
+    } else {
+      if (key.wasPressed('ArrowLeft')) moveShareFocus(-1);
+      else if (key.wasPressed('ArrowRight')) moveShareFocus(1);
+      else if (key.wasPressed('Space')) runShareFocus();
     }
     return;
   }
