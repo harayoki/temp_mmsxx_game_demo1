@@ -1471,6 +1471,7 @@ function clearEntities() {
   clearMoai();
   clearShootStars();
   clearWeakSparks();
+  clearDeathBurst();
   if (boss) {
     if (boss.eyeL) mmsxx.removeSprite(boss.eyeL);
     if (boss.eyeR) mmsxx.removeSprite(boss.eyeR);
@@ -4078,18 +4079,10 @@ function destroyPlayer(cause = 'unknown', noMercy = false) {
   // 次の 1 機ぶんは溜め直す(前の機の、爆発や復活中の絵を混ぜない)。
   // **最後の 1 機のときは残す**。やられたあとのリプレイに使うため
   else mmsxx.keepFrames(SHARE_KEEP_SEC);
-  // 大きな爆発を重ねて、やられたことがはっきり分かるようにする
-  spawnBoom(player.x, player.y);
-  for (let i = 0; i < 10; i++) {
-    const a = (Math.PI * 2 * i) / 10 + Math.random() * 0.4;
-    const d = 6 + Math.random() * 20;
-    spawnBoom(player.x + Math.cos(a) * d, player.y + Math.sin(a) * d);
-  }
-  for (let i = 0; i < 8; i++) {
-    // 破片が四方へ飛び散る(当たらない飾り)
-    const a = (Math.PI * 2 * i) / 8 + Math.random() * 0.3;
-    spawnWeakSpark(player.x + Math.cos(a) * 10, player.y + Math.sin(a) * 10);
-  }
+  // **白い光の渦**で散る。爆発を重ねると止め絵で汚くなるので、
+  // 4 枚のスプライトを順ぐりに見せる形にしてある(spawnDeathBurst)
+  spawnBoom(player.x, player.y);          // 最初のひと膨らみだけ残す
+  spawnDeathBurst(player.x, player.y);
   flashTimer = 5;
   // やられた瞬間に残っていた弾は消す(復活演出中に当たり続けないように)
   for (const b of [...bullets]) removeBullet(b);
@@ -6659,6 +6652,62 @@ function clearWeakSparks() {
   weakSparks = [];
 }
 
+// ---- 自機の散りかた ----
+// 止め絵で見ても汚くならないよう、爆発を**白い光の渦**にする
+// (ファンタジーゾーンのオパオパが散るところの感じ)。
+//
+// **使うスプライトは 4 枚だけ。** 1 枚を 4 コマに 1 回だけ出し、
+// 出る順番を 1 コマずつずらすので、どの瞬間も見えているのは 1 枚。
+// それでも目には尾を引いて「たくさん飛んでいる」ように映る。
+// 実機のスプライトのちらつきを、そのまま演出に使っている。
+const DEATH_BITS = 4;          // 使う枚数
+const DEATH_LIFE = 96;         // 散りきるまでのコマ数(1.6 秒)
+const DEATH_SPIN = 0.10;       // 1 コマあたりに回る角度
+const DEATH_REACH = 52;        // いちばん外まで広がる距離
+let deathBits = [];
+
+/** 自機が散る。中心から白い光が渦を描いて広がる */
+function spawnDeathBurst(x, y) {
+  clearDeathBurst();
+  for (let i = 0; i < DEATH_BITS; i++) {
+    const sp = mmsxx.sprite(SPRITE_SYMBOLS.boom1);
+    sp.priority = 21;
+    // **4 コマに 1 回**だけ出す。位相をずらして順番に見せる
+    sp.blink = DEATH_BITS;
+    sp.blinkPhase = i;
+    sp.x = x; sp.y = y;
+    deathBits.push({ sp, age: 0, a0: (Math.PI * 2 * i) / DEATH_BITS, x, y });
+  }
+}
+
+function updateDeathBurst() {
+  for (const b of [...deathBits]) {
+    b.age++;
+    if (b.age >= DEATH_LIFE) {
+      mmsxx.removeSprite(b.sp);
+      deathBits.splice(deathBits.indexOf(b), 1);
+      continue;
+    }
+    const t = b.age / DEATH_LIFE;
+    // 外へ出るのは速く、終わりはゆっくり(1 - (1-t)^2)。
+    // 回りながら広がるので、軌跡が渦になる
+    const r = DEATH_REACH * (1 - (1 - t) * (1 - t));
+    const a = b.a0 + b.age * DEATH_SPIN;
+    b.sp.x = b.x + Math.cos(a) * r;
+    b.sp.y = b.y + Math.sin(a) * r * 0.8;   // 少し平たい渦にする
+    // 遠くへ行くほど小さくなって消える
+    b.sp.image = (t < 0.25) ? SPRITE_SYMBOLS.boom2
+      : (t < 0.6) ? SPRITE_SYMBOLS.boom1 : SPRITE_SYMBOLS.boom0;
+    // 終わりぎわは点滅を粗くして、消えぎわを作る
+    if (t > 0.8) b.sp.blink = DEATH_BITS * 2;
+  }
+}
+
+function clearDeathBurst() {
+  for (const b of deathBits) mmsxx.removeSprite(b.sp);
+  deathBits = [];
+}
+
 // ---- ボス撃破の評価 ----
 // 早く倒すほど高いランク。C はボーナス無し。
 // ボーナスは面数によらず固定額。ランクだけで決まる
@@ -8566,6 +8615,7 @@ function updatePlay() {
 
   if (tearSplash > 0) tearSplash--;
   updateWeakSparks();
+  updateDeathBurst();
   updatePopups();
   updateFlash();
   updateNotice();
