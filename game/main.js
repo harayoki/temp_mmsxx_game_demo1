@@ -2918,9 +2918,10 @@ function enterPlay(fromContinue = false) {
   // NORMAL はボスラッシュと同じ初期装備で始める(丸腰の時間を作らない)
   applyStartGear();
   coinValue = COIN_BASE;
-  // 前のゲームで取っておいたシェアの絵は持ち越さない
+  // 前のゲームで取っておいたシェアの絵と動画は持ち越さない
   shareShotSaved = null;
   shareBackSaved = -1;
+  shareMovie = null;
   // ドラゴンの炎はやられても消えないが、新しいゲームでは持ち越さない
   dragonFlame = false;
   // モアイの案内は 1 プレイに 1 回ずつ。新しいゲームでは出し直す
@@ -3072,11 +3073,10 @@ function startReplay(then) {
   cancelFlash();
   hud.clear();               // ゲーム中の文字は消す
   mmsxx.hideSprites(true);   // スプライトも 1 枚も出さない
-  // 開発中は、流れているところをそのまま録って capture/ へ残す。
+  // **いつでも録る**。録れたものはシェアのダイアログから落とせる
+  // (開発中は capture/ にも残す)。
   // **mp4 で録る**(どこでも再生できる)。作れない環境では webm に落ちる
-  if (DEV) {
-    mmsxx.startRecord({ type: REPLAY_MOVIE, scale: REPLAY_SCALE, bitrate: REPLAY_BITRATE });
-  }
+  mmsxx.startRecord({ type: REPLAY_MOVIE, scale: REPLAY_SCALE, bitrate: REPLAY_BITRATE });
   return true;
 }
 
@@ -3089,16 +3089,26 @@ function endReplay() {
   mmsxx.hideSprites(false);
   mmsxx.layer(REPLAY_LAYER).clear();
   hud.clear();
-  if (DEV && mmsxx.recording) saveReplayMovie();
+  if (mmsxx.recording) keepReplayMovie();
   const then = replayThen;
   replayThen = null;
   if (then) then();
 }
 
-/** 録ったものを開発サーバへ送って capture/ に残す(手元だけ) */
-function saveReplayMovie() {
+/**
+ * 録り終えた動画を**シェアで渡せるように取っておく**。
+ * 開発中は capture/ にも書き出す(手元で中身を見るため)。
+ *
+ * 持っているのは Blob 1 つだけ。次のリプレイで置き換わる。
+ * 落とすときの URL は**押されたときに作って、すぐ捨てる**
+ */
+function keepReplayMovie() {
   mmsxx.stopRecord().then((blob) => {
     if (!blob) return;
+    shareMovie = blob;
+    shareMovieKind = mmsxx.recordKind || 'mp4';
+    if (shareOpen) updateShareMovieBtn();   // 出ている最中なら、その場で使えるようにする
+    if (!DEV) return;
     const r = new FileReader();
     r.onload = () => {
       fetch('/__capture', {
@@ -3508,6 +3518,12 @@ let shareBase = 0;          // 選びはじめのコマ(ここから前後 3 コ
 let shareFixed = null;      // その 1 枚(原寸)
 let shareRepeat = 0;        // 左右を押しっぱなしにしたときの送り
 let shareHintEl = null;     // 何秒前かの案内を出すところ
+// **やられる前の数秒を録った動画**(mp4。作れない環境では webm)。
+// リプレイを流したときに録ってあり、ダイアログから落とせる。
+// いずれは SNS へ上げるところまでやるが、いまは手元に落とすところまで
+let shareMovie = null;      // Blob。まだ録れていなければ null
+let shareMovieKind = 'mp4'; // 落とすときの拡張子
+let shareMovieBtn = null;   // 「動画を保存」のボタン(録れていないときは隠す)
 // **直前の画面はエンジンが溜めている**。色番号のまま持つので、
 // 60fps で 3 秒でも 9MB ほどで収まる(1 コマ 51.6KB)。
 // 溜めはじめはゲームを始めるとき。何秒ぶん持つかはゲームが決める。
@@ -3637,6 +3653,8 @@ function makeShareEl() {
     return b;
   };
   mkBtn('送信 / SHARE', () => sendShare());
+  // 動画は録れているときだけ出す(始めてすぐやられると溜まっていない)
+  shareMovieBtn = mkBtn('動画を保存 / SAVE VIDEO', () => saveShareMovie());
   mkBtn('とじる / CLOSE', () => closeShare());
   box.appendChild(row);
   el.appendChild(box);
@@ -3724,7 +3742,29 @@ function openShare(after, spec) {
   shareStatusEl.textContent = '';
   shareBusy = false;
   shareRepeat = 0;
+  updateShareMovieBtn();
   mmsxx.audio.playSE('shutter', SE_JINGLE);
+}
+
+/** 動画のボタンを出す / 隠す(録れているときだけ押せる) */
+function updateShareMovieBtn() {
+  if (shareMovieBtn) shareMovieBtn.style.display = shareMovie ? '' : 'none';
+}
+
+/**
+ * 録ってある動画を手元へ落とす。
+ * **URL は押されたときに作って、すぐ捨てる**(持ち続けると中身が消えない)。
+ * SNS へ上げるところは通信の作業で足す。ここは渡し口だけ
+ */
+function saveShareMovie() {
+  if (!shareMovie) return;
+  const url = URL.createObjectURL(shareMovie);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `starfable-${Date.now()}.${shareMovieKind}`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  shareStatusEl.textContent = '動画を保存しました / VIDEO SAVED';
 }
 
 /**
