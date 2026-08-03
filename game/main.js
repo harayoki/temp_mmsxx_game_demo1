@@ -3066,6 +3066,10 @@ function startReplay(then) {
   replayThen = then;
   state = 'replay';
   replayShow = REPLAY_SHOW;  // 「REPLAY」はここから 0.5 秒だけ出す
+  // やられたときのフラッシュを**必ず消してから**流す。
+  // 光を戻すのは updatePlay の中なので、ここへ来ると戻す人がいなくなり、
+  // 背景が白いまま固まる(画面が真っ白になる)
+  cancelFlash();
   hud.clear();               // ゲーム中の文字は消す
   mmsxx.hideSprites(true);   // スプライトも 1 枚も出さない
   // 開発中は、流れているところをそのまま録って capture/ へ残す。
@@ -3121,7 +3125,10 @@ function updateReplay() {
     replayShow--;
     if (replayShow > 0) {
       L.fill(1, x - 8, y, w + 16, cw);
-      if ((mmsxx.frame >> REPLAY_BLINK) & 1) {
+      // 点滅は**出しはじめから数える**。mmsxx.frame で数えると、
+      // 運悪く消えている側から始まって 0.5 秒まるごと出ないことがある
+      const past = REPLAY_SHOW - replayShow;
+      if (Math.floor(past / REPLAY_BLINK) % 2 === 0) {
         L.print(x, y, REPLAY_TEXT, REPLAY_COLOR, 1, REPLAY_FONT);
       }
     } else {
