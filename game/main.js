@@ -3,7 +3,7 @@
 // P アイテムでショットが 1way -> 3way -> 5way。被弾で 1 段階ダウン、1way で被弾すると 1 ミス。
 // ステージ後半は月面上空、最後にタコ型ボス。
 
-import { MMSXXEngine, SCREEN_W, SCREEN_H } from '../engine/engine.js';
+import { MMSXXEngine, SCREEN_W, SCREEN_H, BITRATE } from '../engine/engine.js';
 // ランキングは「読み出しは同期のまま、背後で取り直す」形の表を使う。
 // いまの供給元は localStorage。サーバができたら source を差し替えるだけで移れる
 // (docs/RANKING_PLAN.md)
@@ -3016,12 +3016,24 @@ const REPLAY_LAYER = 5;        // dbg。ふだんは当たり判定の表示に�
 const REPLAY_TEXT = 'REPLAY';
 // 録画の入れもの。'mp4' はどこでも再生でき、'webm' は作れる環境が広い
 const REPLAY_MOVIE = 'mp4';
+// 録画の大きさ。**2 倍で録っておく**と、見る側が広げてもドットの角が溶けない
+const REPLAY_SCALE = 2;
+// 録画の重さ。この絵柄なら mid(400kbps)で足りる
+const REPLAY_BITRATE = BITRATE.mid;
+// 前後に置く間(秒)。いきなり流すと**同じ場面をもう一度見せられた**ようにしか
+// 見えないので、最初のコマで一拍おいて巻き戻しだと分からせ、
+// 最後のコマ(やられた瞬間)でも止めて、何が起きたかを残す
+const REPLAY_LEAD = 1;
+const REPLAY_HOLD = 1.2;
 let replayThen = null;         // 流し終わったあとにやること
 let replayFile = 0;            // 録画したものを保存するときの通し番号
 
 /** 直前の数秒を流す。溜まっていなければ何もせず false */
 function startReplay(then) {
-  if (!mmsxx.playFrames({ layer: REPLAY_LAYER, seconds: SHARE_KEEP_SEC, onEnd: endReplay })) {
+  if (!mmsxx.playFrames({
+    layer: REPLAY_LAYER, seconds: SHARE_KEEP_SEC,
+    leadIn: REPLAY_LEAD, holdEnd: REPLAY_HOLD, onEnd: endReplay,
+  })) {
     return false;
   }
   replayThen = then;
@@ -3030,7 +3042,9 @@ function startReplay(then) {
   mmsxx.hideSprites(true);   // スプライトも 1 枚も出さない
   // 開発中は、流れているところをそのまま録って capture/ へ残す。
   // **mp4 で録る**(どこでも再生できる)。作れない環境では webm に落ちる
-  if (DEV) mmsxx.startRecord({ type: REPLAY_MOVIE });
+  if (DEV) {
+    mmsxx.startRecord({ type: REPLAY_MOVIE, scale: REPLAY_SCALE, bitrate: REPLAY_BITRATE });
+  }
   return true;
 }
 

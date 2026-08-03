@@ -5,6 +5,23 @@ import { ErrorLog } from './errorlog.js';
 import { createRng } from './rng.js';
 
 export { SCREEN_W, SCREEN_H, VIRTUAL_W, VIRTUAL_H };
+
+/**
+ * 録画の重さ(1 秒あたりのビット数)につける名前。
+ * `startRecord({ bitrate: BITRATE.low })` のように使う。
+ * 数字をそのまま渡してもよい('low' のような文字列でも受ける)。
+ *
+ * この絵柄(色が少なく、平らな面ばかり)を目安にした値。
+ * MID で 2 倍・5 秒が 300KB ほど。LOW まで落とすと、
+ * 爆発が広がるところで背景の星がにじみはじめる。
+ */
+export const BITRATE = {
+  low: 200000,
+  mid: 400000,
+  high: 800000,
+  max: 1500000,
+  auto: 0,        // ブラウザの見立てに任せる
+};
 export { ErrorLog };
 
 /** レイヤー操作のハンドル。MMSXXEngine.layer(n) で取得する。 */
@@ -253,10 +270,21 @@ export class MMSXXEngine {
    * **画面に出した文字は録画にも入る。** 「REPLAY」のような案内を
    * 録画へ入れたくないときは、canvas ではなく **DOM に出す**こと
    * (FPS の表示と同じ考えかた)。
+   * ## 前と後ろに間を置く
+   *
+   * いきなり流しはじめると、**同じ場面をもう一度見せられただけ**に見える。
+   * 最初のコマを少し出したままにして「これから巻き戻す」と分からせ、
+   * 最後のコマでも止めて「何が起きたか」を残すと、ぐっと読めるようになる。
+   *
+   * ```js
+   * mmsxx.playFrames({ seconds: 3, leadIn: 1, holdEnd: 1, onEnd: 次へ });
+   * ```
    * @param {{layer?:number, seconds?:number, fps?:number, loop?:boolean,
-   *          onEnd?:() => void}} opts
+   *          leadIn?:number, holdEnd?:number, onEnd?:() => void}} opts
    *   seconds = 何秒ぶん流すか(省略すると溜まっているぶん全部)
    *   fps = 1 秒あたりのコマ数(既定 60 = 溜めたまま)
+   *   leadIn = 流しはじめる前に、**最初のコマ**を出したまま待つ秒数
+   *   holdEnd = 流し終わったあと、**最後のコマ**を出したまま待つ秒数
    * @returns {boolean} 始められたか
    */
   playFrames(opts = {}) {
@@ -273,6 +301,10 @@ export class MMSXXEngine {
       wait: 0,
       loop: !!opts.loop,
       first: Math.min(have, want) - 1,
+      // 前後の間(コマ数)。くり返し再生のときは置かない
+      lead: opts.loop ? 0 : Math.max(0, Math.round((opts.leadIn || 0) * 60)),
+      tail: opts.loop ? 0 : Math.max(0, Math.round((opts.holdEnd || 0) * 60)),
+      end: 0,          // 後ろの間。数え終わったら onEnd
       onEnd: opts.onEnd || null,
     };
     this.holdCapture(true);   // 再生中は溜めない(自分の絵を溜め直さない)
@@ -318,10 +350,10 @@ export class MMSXXEngine {
    *   scale = 何倍の大きさで録るか(既定 1、8 まで)。
    *   **1 ドットを四角に置き換えるだけ**なので、広げても角が立ったまま残る。
    *   等倍で録るとプレイヤー側が引き伸ばすときに色を混ぜてぼやける。
-   *   bitrate = 絵に使う 1 秒あたりのビット数(既定 400000)。
+   *   bitrate = 絵に使う 1 秒あたりのビット数(既定 BITRATE.mid = 400000)。
    *   **小さくするほど軽くなる**が、動きの多いところがにじむ。
-   *   色数が少ないので、この絵柄なら 400kbps でだいたい足りる。
-   *   0 を渡すとブラウザ任せになる。
+   *   数字のほか `BITRATE.low` や `'low'` のような名前でも渡せる
+   *   (low / mid / high / max / auto)。0 か 'auto' でブラウザ任せ。
    *   soundBitrate = 音のほう(省略時はブラウザ任せ。64000 くらいで足りる)
    * @returns {boolean} 始められたか(使えない環境では false)
    */
@@ -367,7 +399,7 @@ export class MMSXXEngine {
     // 重さの指定。渡さなければブラウザの見立てに任せる
     const conf = {};
     if (type) conf.mimeType = type;
-    const bitrate = (opts.bitrate === undefined) ? 400000 : opts.bitrate;
+    const bitrate = this._bitrate(opts.bitrate);
     if (bitrate) conf.videoBitsPerSecond = Math.round(bitrate);
     if (opts.soundBitrate) conf.audioBitsPerSecond = Math.round(opts.soundBitrate);
     let rec;
@@ -402,6 +434,20 @@ export class MMSXXEngine {
     });
   }
 
+  /**
+   * 重さの指定を数に直す。名前('low' など)でも数でも受ける。
+   * 綴りを間違えたときに黙って別の値で録ってしまわないよう、知らない名前は止める
+   */
+  _bitrate(v) {
+    if (v === undefined) return BITRATE.mid;
+    if (typeof v !== 'string') return v;
+    const n = BITRATE[v];
+    if (n === undefined) {
+      throw new Error(`bitrate: 知らない名前 '${v}'(${Object.keys(BITRATE).join(' / ')})`);
+    }
+    return n;
+  }
+
   /** いま録画中か */
   get recording() { return !!this._rec; }
 
@@ -417,6 +463,13 @@ export class MMSXXEngine {
     const r = this._replay;
     if (!r) return;
     if (r.wait > 0) { r.wait--; return; }
+    // 最後のコマで止めているところ(出したまま数えるだけ)
+    if (r.end > 0) {
+      r.end--;
+      if (r.end === 0) { const done = r.onEnd; this.stopFrames(); if (done) done(); }
+      return;
+    }
+    const atFirst = (r.back === r.first);
     let ok;
     if (r.layer == null) {
       const idx = this.vdp.frameBack(r.back);
@@ -426,10 +479,13 @@ export class MMSXXEngine {
       ok = this.vdp.frameToLayer(r.layer, r.back);
     }
     if (!ok) { this.stopFrames(); return; }
-    r.wait = r.hold - 1;
+    // 1 コマ目だけは長めに出す(これから巻き戻すと分かるように)
+    r.wait = (atFirst && r.lead) ? r.lead : r.hold - 1;
     r.back -= r.step;
     if (r.back < 0) {
       if (r.loop) { r.back = r.first; return; }
+      // 最後のコマは出したまま残す。数え終わってから次へ
+      if (r.tail) { r.end = r.tail; return; }
       const done = r.onEnd;
       this.stopFrames();
       if (done) done();
