@@ -20,24 +20,27 @@ const MIME = {
   '.mjs': 'text/javascript; charset=utf-8',
   '.json': 'application/json',
   '.png': 'image/png',
+  '.gif': 'image/gif',
   '.css': 'text/css',
 };
 
-/** data URL (image/png) を capture/ へ書き出して、古いものを消す */
+/** data URL (PNG か GIF) を capture/ へ書き出して、古いものを消す */
 function saveCapture(dataUrl, name) {
   const comma = dataUrl.indexOf(',');
-  if (comma < 0 || !dataUrl.startsWith('data:image/png;base64,')) {
-    throw new Error('PNG の data URL ではありません');
+  // PNG のほかに GIF も受ける(プレイ動画の下見用)
+  const isGif = dataUrl.startsWith('data:image/gif;base64,');
+  if (comma < 0 || !(isGif || dataUrl.startsWith('data:image/png;base64,'))) {
+    throw new Error('PNG か GIF の data URL ではありません');
   }
   fs.mkdirSync(CAPTURE_DIR, { recursive: true });
   // 名前は「日時 + 呼び出し側から渡された短い説明」。並べると時系列になる
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const safe = String(name || 'shot').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 32);
-  const file = path.join(CAPTURE_DIR, `${stamp}_${safe}.png`);
+  const file = path.join(CAPTURE_DIR, `${stamp}_${safe}.${isGif ? 'gif' : 'png'}`);
   fs.writeFileSync(file, Buffer.from(dataUrl.slice(comma + 1), 'base64'));
   // 新しい順に並べて、あふれたぶんを消す
   const olds = fs.readdirSync(CAPTURE_DIR)
-    .filter(f => f.endsWith('.png'))
+    .filter(f => f.endsWith('.png') || f.endsWith('.gif'))
     .sort()
     .reverse()
     .slice(CAPTURE_KEEP);
