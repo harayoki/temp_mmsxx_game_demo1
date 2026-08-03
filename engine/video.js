@@ -232,6 +232,7 @@ export class VDP {
     // 直前のコマを溜める輪っか(keepFrames で始める)
     this._keepFrames = 0; this._frames = null; this._frameAt = 0; this._frameLen = 0;
     this._frameHold = false;   // ポーズ中など、溜めるのを止めているあいだ
+    this._showFrame = null;    // これが入っていると、合成せずにそれを出す
 
     /** 背景色(パレット番号 1..15)。全レイヤーが透明の場所に見える色 */
     this.backdrop = 1;
@@ -813,6 +814,13 @@ export class VDP {
   }
 
   /**
+   * **溜めたコマをそのまま出す**(合成を飛ばす)。null で元へ戻す。
+   * レイヤーへ写すやりかたと違い、スプライトも割り込めない
+   * @param {Uint8Array|null} idx 色番号の並び(frameBack が返すもの)
+   */
+  showFrame(idx) { this._showFrame = idx || null; }
+
+  /**
    * 溜めたコマを**レイヤーへ写す**(リプレイの再生に使う)。
    * 溜めてあるのはボーダー込みの絵なので、**描画領域のぶんだけ**切り出す。
    * 透明(0)は背景色に置き換えるので、下のレイヤーは透けない。
@@ -1344,6 +1352,15 @@ export class VDP {
   render() {
     this.frames = (this.frames || 0) + 1;
     const profAt = this.profile ? performance.now() : 0;
+    // **溜めたコマをそのまま出す**ときは、合成をまるごと飛ばす。
+    // レイヤーもスプライトも割り込めないので、ドットが完全に一致する
+    // (録画するときは、余計なものが混じらないこちらを使う)
+    if (this._showFrame) {
+      const src = this._showFrame, dst2 = this.frame32, pal2 = this.pal32;
+      for (let i = 0; i < src.length; i++) dst2[i] = pal2[src[i]];
+      this.ctx.putImageData(this.imageData, 0, 0);
+      return;
+    }
     // 合成のあいだは**パレット番号のまま**扱う(色に直すのは最後の 1 回だけ)
     const frame = this.activeIdx;
     const W = this.width, H = this.height;

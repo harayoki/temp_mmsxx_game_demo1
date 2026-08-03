@@ -3005,28 +3005,44 @@ const scoreCountsForRanking = () => true;
 
 // ---- やられたあとのリプレイ ----
 // ゲームオーバーの文字を出す前に、**直前の 3 秒**をそのまま流す。
-// 溜めてあるコマをいちばん手前のレイヤー(dbg)へ写すだけなので、
-// ゲームの状態はいっさい動かない。SPACE か ESC で飛ばせる
-const REPLAY_LAYER = 5;        // dbg。ふだんは当たり判定の表示にしか使わない
+// 溜めてあるコマを出すだけなので、ゲームの状態はいっさい動かない。
+// SPACE か ESC で飛ばせる。
+//
+// **画面ぜんぶを覆う出しかた**を使う(レイヤーへ写すのではなく)。
+// スプライトも割り込めないので、遊んでいたときのドットが完全に出る。
+// そのぶん canvas には何も足せないので、**「REPLAY」の案内は DOM に出す**
+// (canvas に描くと、そのまま録画にも入ってしまうため)
 let replayThen = null;         // 流し終わったあとにやること
+let replayEl = null;           // 「REPLAY」の札(DOM)
+
+/** 「REPLAY」の札を作る(1 回だけ) */
+function makeReplayEl() {
+  if (replayEl) return replayEl;
+  const el = document.createElement('div');
+  Object.assign(el.style, {
+    position: 'fixed', top: '8px', left: '0', right: '0', display: 'none',
+    textAlign: 'center', font: '14px monospace', color: '#ded087',
+    textShadow: '0 0 4px #000', zIndex: '9997', pointerEvents: 'none',
+  });
+  el.textContent = 'REPLAY   SPACE: SKIP';
+  document.body.appendChild(el);
+  replayEl = el;
+  return el;
+}
 
 /** 直前の数秒を流す。溜まっていなければ何もせず false */
 function startReplay(then) {
-  if (!mmsxx.playFrames({ layer: REPLAY_LAYER, seconds: SHARE_KEEP_SEC, onEnd: endReplay })) {
-    return false;
-  }
+  if (!mmsxx.playFrames({ seconds: SHARE_KEEP_SEC, onEnd: endReplay })) return false;
   replayThen = then;
   state = 'replay';
-  hud.clear();
-  const t = 'REPLAY';
-  hud.print(centerX(t), 8, t, 11);
+  makeReplayEl().style.display = 'block';
   return true;
 }
 
 /** 流し終わった(または飛ばした)。片づけて次へ進む */
 function endReplay() {
   mmsxx.stopFrames();
-  mmsxx.layer(REPLAY_LAYER).clear();
+  if (replayEl) replayEl.style.display = 'none';
   hud.clear();
   const then = replayThen;
   replayThen = null;
@@ -3035,9 +3051,6 @@ function endReplay() {
 
 /** 流しているあいだ。SPACE か ESC で飛ばせる */
 function updateReplay() {
-  // 見出しだけは毎フレーム描き直す(下のレイヤーが上書きされるため)
-  const t = 'REPLAY';
-  hud.print(centerX(t), 8, t, 11);
   if (mmsxx.input.wasPressed('Space') || mmsxx.input.wasPressed('Escape')) endReplay();
 }
 

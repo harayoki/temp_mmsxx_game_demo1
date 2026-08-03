@@ -234,15 +234,26 @@ export class MMSXXEngine {
   /**
    * **溜めたコマを再生する**(やられたあとのリプレイなど)。
    *
-   * 指定したレイヤーへ 1 コマずつ写す。**再生のあいだ、そのレイヤーは
-   * リプレイに占領される**ので、空いているレイヤー(いちばん手前など)を渡すこと。
-   * 溜めるのは自動で止まり、終わると元へ戻る。
+   * 出しかたは 2 とおり。
+   *
+   * - **layer を渡さない … 画面ぜんぶを覆う。** 合成を飛ばして溜めたコマを
+   *   そのまま出すので、レイヤーもスプライトも割り込めない。
+   *   ドットが完全に一致するので、**録画するならこちら**
+   * - **layer を渡す … そのレイヤーへ写す。** 上にスプライトや文字を重ねられる。
+   *   渡したレイヤーは再生に占領されるので、空いているものを渡すこと
+   *
+   * どちらも溜めるのは自動で止まり、終わると元へ戻る。
    *
    * ```js
-   * mmsxx.playFrames({ layer: 5, seconds: 3, onEnd: () => 次へ進む() });
+   * mmsxx.playFrames({ seconds: 3, onEnd: () => 次へ進む() });   // 覆う
+   * mmsxx.playFrames({ layer: 5, seconds: 3 });                 // レイヤーへ
    * mmsxx.stopFrames();   // 途中でやめる(キーで飛ばすときなど)
    * ```
-   * @param {{layer:number, seconds?:number, fps?:number, loop?:boolean,
+   *
+   * **画面に出した文字は録画にも入る。** 「REPLAY」のような案内を
+   * 録画へ入れたくないときは、canvas ではなく **DOM に出す**こと
+   * (FPS の表示と同じ考えかた)。
+   * @param {{layer?:number, seconds?:number, fps?:number, loop?:boolean,
    *          onEnd?:() => void}} opts
    *   seconds = 何秒ぶん流すか(省略すると溜まっているぶん全部)
    *   fps = 1 秒あたりのコマ数(既定 60 = 溜めたまま)
@@ -250,11 +261,11 @@ export class MMSXXEngine {
    */
   playFrames(opts = {}) {
     const have = this.vdp.frameCount;
-    if (!have || opts.layer == null) return false;
+    if (!have) return false;
     const fps = Math.max(1, Math.min(60, Math.round(opts.fps || 60)));
     const want = opts.seconds ? Math.round(opts.seconds * 60) : have;
     this._replay = {
-      layer: opts.layer,
+      layer: (opts.layer == null) ? null : opts.layer,
       // いちばん古いところから始めて、新しいほうへ進む
       back: Math.min(have, want) - 1,
       step: Math.max(1, Math.round(60 / fps)),
@@ -268,10 +279,11 @@ export class MMSXXEngine {
     return true;
   }
 
-  /** 再生をやめる(レイヤーは呼んだ側で消すこと) */
+  /** 再生をやめる(レイヤーへ写していたときは、消すのは呼んだ側) */
   stopFrames() {
     if (!this._replay) return;
     this._replay = null;
+    this.vdp.showFrame(null);
     this.holdCapture(false);
   }
 
@@ -283,7 +295,15 @@ export class MMSXXEngine {
     const r = this._replay;
     if (!r) return;
     if (r.wait > 0) { r.wait--; return; }
-    if (!this.vdp.frameToLayer(r.layer, r.back)) { this.stopFrames(); return; }
+    let ok;
+    if (r.layer == null) {
+      const idx = this.vdp.frameBack(r.back);
+      this.vdp.showFrame(idx);
+      ok = !!idx;
+    } else {
+      ok = this.vdp.frameToLayer(r.layer, r.back);
+    }
+    if (!ok) { this.stopFrames(); return; }
     r.wait = r.hold - 1;
     r.back -= r.step;
     if (r.back < 0) {
