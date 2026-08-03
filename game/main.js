@@ -3036,7 +3036,8 @@ const scoreCountsForRanking = () => true;
 // 出しかたは**いちばん手前のレイヤーへ写す**形。スプライトはまとめて隠し、
 // HUD の文字も消すので、遊んでいたときの絵だけが出る。
 // DOM を重ねない方針なので、録画にもそのまま入ってよい。
-// **録りはじめるのは 2 から**。爆発は録らず、動画は黒い画面から始まる
+// **録りはじめるのは 3 から**。爆発も黒い画面も動画には入らず、
+// 遊んでいた絵だけの動画になる
 const REPLAY_LAYER = 5;        // dbg。ふだんは当たり判定の表示にしか使わない
 const REPLAY_TEXT = 'REPLAY';
 // 録画の入れもの。'mp4' はどこでも再生でき、'webm' は作れる環境が広い
@@ -3130,16 +3131,18 @@ function startReplayTitle() {
   L.fill(1, 0, 0, SCREEN_W, SCREEN_H);
   L.print(Math.round((SCREEN_W - w) / 2 / 8) * 8,
     Math.round((SCREEN_H - cw) / 2 / 8) * 8, REPLAY_TEXT, REPLAY_COLOR, 1, REPLAY_FONT);
-  // **いつでも録る**。録れたものはシェアのダイアログから落とせる
-  // (開発中は capture/ にも残す)。
-  // **mp4 で録る**(どこでも再生できる)。作れない環境では webm に落ちる
-  mmsxx.startRecord({ type: REPLAY_MOVIE, scale: REPLAY_SCALE, bitrate: REPLAY_BITRATE });
+  // ここで溜めを止める。**自機の爆発まで**溜まった状態で固定される
+  stopDeathCapture();
 }
 
 /** 溜めたコマを流しはじめる。流せなければそのまま終わる */
 function startReplayPlay() {
   replayPhase = 'play';
   mmsxx.layer(REPLAY_LAYER).clear();
+  // **ここから録る**。黒い画面は入れず、遊んでいた絵だけの動画にする。
+  // 録れたものはシェアのダイアログから落とせる(開発中は capture/ にも残す)。
+  // **mp4 で録る**(どこでも再生できる)。作れない環境では webm に落ちる
+  mmsxx.startRecord({ type: REPLAY_MOVIE, scale: REPLAY_SCALE, bitrate: REPLAY_BITRATE });
   const ok = mmsxx.playFrames({
     layer: REPLAY_LAYER, seconds: SHARE_KEEP_SEC,
     leadIn: REPLAY_LEAD, holdEnd: REPLAY_HOLD, onEnd: endReplay,
@@ -3542,7 +3545,10 @@ let shareMovieBtn = null;   // 「動画を保存」のボタン(録れていな
 //   ・シェアの 1 枚 … 「何秒前をくれ」と頼んで、いちばん近いコマをもらう
 //   ・やられる前の絵 … 自機がまだ無事な **1 秒前**を使う
 //   ・あとで作るリプレイ … 溜まっているコマを頭から流せばよい
-const SHARE_KEEP_SEC = 3;      // 何秒ぶん持つか
+// 何秒ぶん持つか。**自機の爆発を見せているあいだも溜めつづける**ので、
+// 「爆発のぶん + 見せたい何秒前」が入る長さが要る
+// (爆発 REPLAY_BOOM コマ + 1 秒 = 160 コマ。4 秒 = 240 コマなら余裕がある)
+const SHARE_KEEP_SEC = 4;
 const SHARE_SHOT_AGO = 1;      // やられたとき、何秒前の絵を使うか
 
 /** シェア用に画面を取る。**原寸**でよい。取れなければ null */
@@ -3562,11 +3568,27 @@ function captureShareShot() {
  * 溜まっていない(始めてすぐやられた)ときだけ、その場で 1 枚取る
  */
 function keepDeathShareShot() {
-  mmsxx.holdCapture(true);   // ここから先は溜めない。直前の数秒を残す
   shareShotSaved = null;
-  shareBackSaved = mmsxx.frameCount
-    ? Math.min(SHARE_SHOT_AGO * 60, mmsxx.frameCount - 1) : -1;
-  if (shareBackSaved < 0) shareShotSaved = captureShareShot();
+  shareBackSaved = -1;
+  // **ここでは溜めを止めない。** 自機の爆発まで溜めきってから止める
+  // (シェアしたい瞬間は「やられたところ」かもしれないので、その絵も残す)。
+  // 止めるのはリプレイが黒い画面へ移るとき(stopDeathCapture)。
+  // 1 コマも溜まっていないときだけ、その場で 1 枚取る
+  if (!mmsxx.frameCount) shareShotSaved = captureShareShot();
+}
+
+/**
+ * 溜めるのをここで止めて、**シェアに出す 1 枚**を決める。
+ * 爆発まで溜めたあとなので、いま(back = 0)は**やられきったところ**。
+ * 最初に見せるのはその手前の、まだ自機が無事な絵にする
+ */
+function stopDeathCapture() {
+  mmsxx.holdCapture(true);
+  if (!mmsxx.frameCount) return;
+  // 爆発を見せていたぶんだけ、さらにさかのぼる
+  const back = REPLAY_BOOM + SHARE_SHOT_AGO * 60;
+  shareShotSaved = null;
+  shareBackSaved = Math.min(back, mmsxx.frameCount - 1);
 }
 
 /** ランクインで見せる絵の指定。何も無ければ null(その場の画面を取る) */
