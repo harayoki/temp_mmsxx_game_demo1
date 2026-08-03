@@ -954,6 +954,16 @@ registerProcessor('mmsxx-tap', MmsxxTap);
       depth.gain.linearRampToValueAtTime(peak, t0 + Math.min(wf.attack, (t1 - t0) * 0.5));
       depth.gain.exponentialRampToValueAtTime(Math.max(1, keep),
         Math.min(t1, t0 + wf.attack + wf.decay));
+      // 音程が落ちる打楽器(バスドラムなど)。**高いところから始めて**、
+      // すぐ本来の高さへ落とす。変調側も同じ比のまま連れていく
+      if (wf.drop > 0) {
+        const top = freq * (1 + wf.drop);
+        const land = Math.min(t1, t0 + wf.dropTime);
+        src.frequency.setValueAtTime(top, t0);
+        src.frequency.exponentialRampToValueAtTime(freq, land);
+        mod.frequency.setValueAtTime(top * wf.ratio, t0);
+        mod.frequency.exponentialRampToValueAtTime(freq * wf.ratio, land);
+      }
       mod.start(t0);
       mod.stop(t1 + 0.02);
       mod.__endTime = t1 + 0.02;

@@ -9559,7 +9559,7 @@ function updateStaffRoll() {
 // ---- サウンドテスト ----
 // 曲(ループするもの)は BGM 側、短いジングルは SE 側の先頭にまとめる
 // 未使用曲や場面ごとの曲もここから聴ける
-const SOUND_BGM = ['main', 'main2', 'power', 'boss', 'lastboss', 'moai', 'todo', 'gameover',
+const SOUND_BGM = ['main', 'power', 'boss', 'lastboss', 'moai', 'todo', 'gameover',
   'elise', 'fate', 'salut', 'botsu1', 'finalbattle', 'staff'];
 // ジングルは BGM として登録されているので、鳴らし方が SE と違う。欄も分ける
 const SOUND_JINGLE = ['start', 'unused1', 'fanfare', 'bonus'];

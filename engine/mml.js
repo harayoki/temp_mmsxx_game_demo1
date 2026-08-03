@@ -113,10 +113,16 @@ function requireFreeName(name, overwrite) {
  *   - `depth` 揺らしの深さ。大きいほど倍音が増えて硬くなる
  *   - `decay` 揺らしの減り方(秒)。**時間とともに倍音が減る**のが FM らしさ
  *
- * @param {string} name 名前。**`fm` で始める**
+ * バスドラムのように**音程そのものが落ちる**打楽器には `drop` を使う。
+ * 鳴りはじめだけ高いところから始めて、すぐ本来の高さへ落とす。
+ * これが無いと、低い音を短く切っただけの「ボッ」にしかならない。
+ *
+ * @param {string} name 名前。**`fm` で始める**(打楽器は `fmDrum`)
  * @param {{ratio?:number, depth?:number, attack?:number, decay?:number,
- *          sustain?:number, wave?:string}} params
+ *          sustain?:number, wave?:string, drop?:number, dropTime?:number}} params
  *   wave = 変調側の波形(WAVE の値。既定は WAVE.SINE)
+ *   drop = 鳴りはじめを何倍の高さから始めるか(0 で無効。バスドラムは 6〜8)
+ *   dropTime = 本来の高さへ落ちきるまでの秒数(既定 0.05)
  * @param {{overwrite?:boolean}} [opts]
  * @returns {number} 音色の番号(ふだんは名前で呼ぶので使わない)
  */
@@ -130,6 +136,8 @@ export function registerFM(name, params = {}, opts = {}) {
     decay: params.decay ?? 0.3,
     sustain: params.sustain ?? 0.15,
     wave: params.wave || WAVE.SINE,
+    drop: params.drop ?? 0,
+    dropTime: params.dropTime ?? 0.05,
   };
   if (at >= 0) WAVEFORMS[at] = entry; else WAVEFORMS.push(entry);
   return entry.id;

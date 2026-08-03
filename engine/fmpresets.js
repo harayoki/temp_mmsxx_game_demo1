@@ -64,8 +64,17 @@ export const FM_PRESETS = {
   // 名前は **fmDrum で始める**。一覧に並んだときに打楽器だと分かるうえ、
   // 道具の側も名前だけで見分けられる(音色テストはこれを見て、
   // ドレミではなくリズムの曲を鳴らす)
-  fmDrumKick: { ratio: 0.5, depth: 12, attack: 0.001, decay: 0.05, sustain: 0 },
-  fmDrumTom: { ratio: 1.7, depth: 9, attack: 0.001, decay: 0.07, sustain: 0 },
+  // バスドラム。**音程が落ちる**のがこの楽器の正体なので drop を使う。
+  // 高いところから一瞬で落ちる「ドッ」があって、はじめて胴の音に聞こえる
+  fmDrumKick: {
+    ratio: 1, depth: 5, attack: 0.001, decay: 0.12, sustain: 0,
+    drop: 7, dropTime: 0.045,
+  },
+  // タムも少しだけ落ちる(バスドラムほどではない)
+  fmDrumTom: {
+    ratio: 1.7, depth: 9, attack: 0.001, decay: 0.12, sustain: 0,
+    drop: 1.4, dropTime: 0.05,
+  },
   fmDrumRim: { ratio: 5.7, depth: 10, attack: 0.001, decay: 0.03, sustain: 0 },
   fmDrumCymbal: { ratio: 9.3, depth: 14, attack: 0.001, decay: 0.25, sustain: 0.02 },
 };
