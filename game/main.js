@@ -7189,7 +7189,9 @@ function updatePlay() {
       sp.x += e.vx; sp.y += e.vy;
       if (sp.x <= 0) { sp.x = 0; e.vx = Math.abs(e.vx); }
       if (sp.x >= SCREEN_W - 16) { sp.x = SCREEN_W - 16; e.vx = -Math.abs(e.vx); }
-      if (sp.y <= 20) { sp.y = 20; e.vy = Math.abs(e.vy); }
+      // 上は**画面のいちばん上**まで跳ねる(HUD にかぶってよい)。
+      // 手前で折り返していると、上のほうに逃げ場が残って動きが狭く見える
+      if (sp.y <= 0) { sp.y = 0; e.vy = Math.abs(e.vy); }
       if (sp.y >= SCREEN_H - 16) { sp.y = SCREEN_H - 16; e.vy = -Math.abs(e.vy); }
     } else if (e.type === 'J') {
       // 止まって待つ -> 桂馬の位置へ **超高速でまっすぐ移動**、をくり返す。

@@ -84,6 +84,16 @@ export class Sprite {
     /** 回転(0 / 90 / 180 / 270 度。時計回り) */
     this.rotate = 0;
     /**
+     * **拡大**。1(既定)か 2。2 にすると 1 ドットが 2x2 の四角になり、
+     * 16x16 の絵が 32x32 で出る(実機の拡大スプライト)。
+     * 置く位置(x, y)は左上のまま。当たり判定はゲームが持つので、
+     * 大きくしたぶんは**ゲーム側でも見てやること**。
+     *
+     * 実機は VDP のビット 1 つで**全部のスプライトが同時に**大きくなるが、
+     * ここでは 1 枚ずつ決められる
+     */
+    this.mag = 1;
+    /**
      * 何フレームに 1 回表示するか。1 = 毎フレーム(既定)。
      * 2 なら 2 フレームに 1 回だけ出る(実機のスプライト多重表示のちらつき)。
      */
@@ -1347,14 +1357,17 @@ export class VDP {
       const img = bg ? this._bgCellFilled(src) : src;
       const bx = bg ? snap8(s.x) : Math.round(s.x);
       const by = bg ? snap8(s.y) : Math.round(s.y);
-      for (let iy = 0; iy < img.height; iy++) {
-        const y = by + iy;
+      // 拡大(1 ドットを mag x mag の四角にする)。1 のときは今までと同じ道を通る
+      const mag = Math.max(1, Math.min(2, s.mag | 0)) || 1;
+      const dh = img.height * mag, dw = img.width * mag;
+      for (let dy = 0; dy < dh; dy++) {
+        const y = by + dy;
         if (y < 0 || y >= H) continue;
-        const srcBase = iy * img.width;
-        for (let ix = 0; ix < img.width; ix++) {
-          const x = bx + ix;
+        const srcBase = ((mag === 1) ? dy : (dy / mag) | 0) * img.width;
+        for (let dx = 0; dx < dw; dx++) {
+          const x = bx + dx;
           if (x < 0 || x >= W) continue;
-          const c = img.pixels[srcBase + ix];
+          const c = img.pixels[srcBase + ((mag === 1) ? dx : (dx / mag) | 0)];
           if (c !== 0) frame[y * W + x] = c;
         }
       }
