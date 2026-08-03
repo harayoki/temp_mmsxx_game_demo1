@@ -3548,6 +3548,12 @@ let shareRepeat = 0;        // 左右を押しっぱなしにしたときの送�
 let shareHintEl = null;     // 何コマめかの案内を出すところ
 let shareLeftBtn = null;    // 古いほうへ送る矢印
 let shareRightBtn = null;   // 新しいほうへ送る矢印
+let shareSendBtn = null;    // SHARE のボタン(出したときはここを選んでおく)
+// 板の中で押せるもの。**左右で選び、SPACE で実行、ESC でとじる**。
+// マウスなら、そのまま押しても同じ(押したものが選ばれた状態になる)
+let shareItems = [];        // 並び順。{ el, run, repeat }
+let shareFocus = 0;         // いま選んでいるもの
+let shareHiScore = false;   // ランクインで出したか(文言が変わる)
 // **やられる前の数秒を録った動画**(mp4。作れない環境では webm)。
 // リプレイを流したときに録ってあり、ダイアログから落とせる。
 // いずれは SNS へ上げるところまでやるが、いまは手元に落とすところまで
@@ -3632,16 +3638,25 @@ function shareModeName() {
   return 'NORMAL';
 }
 
+// 投稿する文言の決まった部分。**画面に出す文字はすべて英語**。
+// タグはそのまま貼ってもらうものなので、日本語のタグも混ぜてよい
+const SHARE_INTRO =
+  "STAR FABLE - a retro-PC style shoot-'em-up made with Claude (Fable 5 + Opus 5)";
+const SHARE_TAGS = '#mmsxx #fable #opus #msx #TMS9918 #シューティング';
+
 /**
- * シェア文言。**日本語と英語を両方並べる**。
- * ブラウザの言葉では切り替えない(どちらの人にもそのまま貼ってもらう)。
+ * シェア文言。**ハイスコアのときだけ言うことが変わる**。
+ * ブラウザの言葉では切り替えない(英語 1 本にそろえる)。
+ * @param {boolean} [hi] ランクインしたときの文言にするか
  */
-function shareTextLines() {
+function shareTextLines(hi) {
   const mode = shareModeName();
   return [
-    `STAR FABLE で ${score} 点まで飛んだ！（ステージ ${stageNo} ・ ${mode}）`,
-    `Flew to ${score} points in STAR FABLE! (STAGE ${stageNo} / ${mode})`,
-    '#STARFABLE #MMSXX',
+    SHARE_INTRO,
+    // ハイスコアのときは面ではなく記録を言う。ふだんはどこまで進んだかを言う
+    hi ? `Played ${mode} and got a high score of ${score} points`
+      : `Played STAGE ${stageNo} / ${mode}`,
+    SHARE_TAGS,
   ];
 }
 
@@ -3661,6 +3676,25 @@ function makeShareEl() {
     background: '#101010', border: '2px solid #cccccc',
     padding: '20px 28px', lineHeight: '1.7',
   });
+  // 押せるものを 1 つ作る。作った順が**左右で選ぶときの並び**になる
+  const mkItem = (fn, repeat = false) => {
+    const b = document.createElement('button');
+    Object.assign(b.style, {
+      font: '13px monospace', color: '#e8e8e8', background: '#202020',
+      border: '2px solid #cccccc', padding: '8px 16px', cursor: 'pointer',
+      flex: '0 0 auto',
+    });
+    const item = { el: b, run: fn, repeat };
+    // マウスで押したものは、選んだ状態にもする(キーと行き来しても迷わない)
+    b.addEventListener('click', () => {
+      b.blur();   // 焦点を残さない(そのあとの SPACE で二重に押されるのを防ぐ)
+      focusShareItem(shareItems.indexOf(item));
+      fn();
+    });
+    shareItems.push(item);
+    return b;
+  };
+
   // 画面の絵。中身は出すたびに入れ替えるので、ここでは空の入れものだけ作る。
   // **左右に矢印を添える**(キーだけだと動かせることに気づけないため)。
   // スマホのときは、この並びをそのままスワイプで動かせるようにする
@@ -3675,18 +3709,12 @@ function makeShareEl() {
 
   /** 矢印。押しっぱなしのときは、少し待ってから送り続ける(キーと同じ間合い) */
   const mkArrow = (label, fn) => {
-    const b = document.createElement('button');
+    const b = mkItem(fn, true);
     b.textContent = label;
-    Object.assign(b.style, {
-      font: '18px monospace', color: '#e8e8e8', background: '#202020',
-      border: '2px solid #cccccc', padding: '12px 8px', cursor: 'pointer',
-      lineHeight: '1', flex: '0 0 auto',
-    });
+    Object.assign(b.style, { font: '18px monospace', padding: '12px 8px', lineHeight: '1' });
     let wait = 0, run = 0;
     const stop = () => { clearTimeout(wait); clearInterval(run); wait = run = 0; };
     b.addEventListener('pointerdown', () => {
-      b.blur();   // 焦点を残さない(そのあとの SPACE でボタンが押されるのを防ぐ)
-      fn();
       stop();
       wait = setTimeout(() => { run = setInterval(fn, 50); }, 350);
     });
@@ -3721,18 +3749,18 @@ function makeShareEl() {
   const row = document.createElement('div');
   Object.assign(row.style, { marginTop: '16px', display: 'flex', gap: '12px', justifyContent: 'center' });
   const mkBtn = (label, fn) => {
-    const b = document.createElement('button');
+    const b = mkItem(fn);
     b.textContent = label;
-    Object.assign(b.style, {
-      font: '13px monospace', color: '#e8e8e8', background: '#202020',
-      border: '2px solid #cccccc', padding: '8px 16px', cursor: 'pointer',
-    });
-    // 押したあとに焦点を残さない(そのあとの SPACE でボタンが再び押されるのを防ぐ)
-    b.addEventListener('click', () => { b.blur(); fn(); });
     row.appendChild(b);
     return b;
   };
-  mkBtn('SHARE', () => sendShare());
+  // X(旧 Twitter)の絵。**まだ繋いでいない**ので、押しても知らせを出すだけ。
+  // ほかの SNS を足すときも、ここに絵を並べていけばよい
+  const x = mkItem(() => { shareStatusEl.textContent = 'X: NOT CONNECTED YET'; });
+  Object.assign(x.style, { padding: '6px 10px', lineHeight: '0' });
+  x.appendChild(mkXIcon());
+  row.appendChild(x);
+  shareSendBtn = mkBtn('SHARE', () => sendShare());
   // 動画は録れているときだけ出す(始めてすぐやられると溜まっていない)
   shareMovieBtn = mkBtn('SAVE VIDEO', () => saveShareMovie());
   mkBtn('CLOSE', () => closeShare());
@@ -3741,6 +3769,64 @@ function makeShareEl() {
   document.body.appendChild(el);
   shareEl = el;
   return el;
+}
+
+/** X の絵(交差する 2 本の線)。外から画像を持ってこないよう SVG で描く */
+function mkXIcon() {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('width', '16');
+  svg.setAttribute('height', '16');
+  for (const d of ['M3 2 L21 22', 'M21 2 L3 22']) {
+    const line = document.createElementNS(ns, 'path');
+    line.setAttribute('d', d);
+    line.setAttribute('stroke', '#e8e8e8');
+    line.setAttribute('stroke-width', '3');
+    line.setAttribute('fill', 'none');
+    svg.appendChild(line);
+  }
+  return svg;
+}
+
+/** いま選んでいるものを見た目でも出す(枠と地の色を変える) */
+function focusShareItem(i) {
+  if (i < 0 || i >= shareItems.length) return;
+  shareFocus = i;
+  shareItems.forEach((it, n) => {
+    const on = n === i;
+    it.el.style.borderColor = on ? '#ffe000' : '#cccccc';
+    it.el.style.background = on ? '#3a3520' : '#202020';
+  });
+}
+
+/** いま押せるものか(隠れているもの・端まで来た矢印は飛ばす) */
+function shareItemLive(it) {
+  return it.el.style.display !== 'none' && !it.el.disabled;
+}
+
+/**
+ * 選ぶものを左右に動かす。押せないものは飛ばす。
+ * @param {number} d +1 で右へ、-1 で左へ
+ */
+function moveShareFocus(d) {
+  const n = shareItems.length;
+  for (let i = 1; i <= n; i++) {
+    const at = (shareFocus + d * i + n * n) % n;
+    if (shareItemLive(shareItems[at])) { focusShareItem(at); return; }
+  }
+}
+
+/** いま選んでいるものを実行する */
+function runShareFocus() {
+  const it = shareItems[shareFocus];
+  if (it && shareItemLive(it)) it.run();
+}
+
+/** いま選んでいるものは、押しっぱなしで送り続けてよいか(矢印だけ) */
+function shareFocusRepeats() {
+  const it = shareItems[shareFocus];
+  return !!(it && it.repeat && shareItemLive(it));
 }
 
 /**
@@ -3810,6 +3896,7 @@ function openShare(after, spec) {
   if (shareOpen) return;
   shareOpen = true;
   shareAfter = after || null;
+  shareHiScore = !!(spec && spec.hi);
   // 裏ではポーズしておく。すでにポーズ中なら触らない
   // (ポーズすると溜めも止まるので、出しているあいだコマは動かない)
   sharePaused = (state === 'play' && !paused);
@@ -3822,11 +3909,13 @@ function openShare(after, spec) {
   else if (state === 'play' && mmsxx.frameCount) shareBack = 0;   // ALT+P: いまの画面
   else shareFixed = captureShareShot();
   drawShareShot();
-  shareTextEl.textContent = shareTextLines().join('\n');
+  shareTextEl.textContent = shareTextLines(shareHiScore).join('\n');
   shareStatusEl.textContent = '';
   shareBusy = false;
   shareRepeat = 0;
   updateShareMovieBtn();
+  // 出したときは SHARE を選んでおく(そのまま SPACE で送れる)
+  focusShareItem(shareItems.findIndex(it => it.el === shareSendBtn));
   mmsxx.audio.playSE('shutter', SE_JINGLE);
 }
 
@@ -3897,6 +3986,7 @@ function closeShare() {
   if (!paused) mmsxx.holdCapture(false);
   shareBack = -1;
   shareFixed = null;
+  shareHiScore = false;
   const after = shareAfter;
   shareAfter = null;
   if (after) after();
@@ -10511,17 +10601,14 @@ mmsxx.run(() => {
   // シェアのダイアログが出ているあいだは、**キーをゲームへ流さない**。
   // 閉じるのは ESC だけ
   if (shareOpen) {
-    if (mmsxx.input.wasPressed('Space')) sendShare();
-    else if (mmsxx.input.wasPressed('Escape')) closeShare();
-    // 左右で見せるコマを選ぶ(左が古いほう)。
-    // 1 コマずつなので、押しっぱなしのときは少し待ってから送り続ける
-    else if (mmsxx.input.wasPressed('ArrowLeft')) { stepShareShot(1); shareRepeat = 20; }
-    else if (mmsxx.input.wasPressed('ArrowRight')) { stepShareShot(-1); shareRepeat = 20; }
-    else if (mmsxx.input.isDown('ArrowLeft') || mmsxx.input.isDown('ArrowRight')) {
-      if (--shareRepeat <= 0) {
-        stepShareShot(mmsxx.input.isDown('ArrowLeft') ? 1 : -1);
-        shareRepeat = 3;
-      }
+    // **左右で選び、SPACE で実行、ESC でとじる**。マウスで押しても同じ
+    if (mmsxx.input.wasPressed('Escape')) closeShare();
+    else if (mmsxx.input.wasPressed('ArrowLeft')) moveShareFocus(-1);
+    else if (mmsxx.input.wasPressed('ArrowRight')) moveShareFocus(1);
+    else if (mmsxx.input.wasPressed('Space')) { runShareFocus(); shareRepeat = 20; }
+    else if (mmsxx.input.isDown('Space') && shareFocusRepeats()) {
+      // 矢印を選んでいるあいだは、押しっぱなしでコマを送り続ける
+      if (--shareRepeat <= 0) { runShareFocus(); shareRepeat = 3; }
     }
     return;
   }
@@ -10646,7 +10733,7 @@ mmsxx.run(() => {
     // 記録を出したときは、少し待てばスペースですぐ名前入力へ飛べる
     if (stateTimer > 90 && scoreCountsForRanking() && isHiScore(score) &&
         gameMode() !== 'bossrush' && mmsxx.input.wasPressed('Space')) {
-      openShare(() => enterNameEntry('score'), savedShareSpec());
+      openShare(() => enterNameEntry('score'), { ...savedShareSpec(), hi: true });
       return;
     }
     // 「月光」を最後まで聞かせてから次へ進む
@@ -10659,7 +10746,7 @@ mmsxx.run(() => {
         // 記録を出したときは、名前入力の前にシェアを見せる。
         // 見せるのは**遊んでいた画面**(取っておいた 1 枚)。
         // 閉じたら今までどおり名前入力へ進む
-        openShare(() => enterNameEntry('score'), savedShareSpec());
+        openShare(() => enterNameEntry('score'), { ...savedShareSpec(), hi: true });
       } else {
         // ゲームオーバーから戻ったときは CONTINUE が選ばれた状態にする
         enterTitle(0, -1, true);
