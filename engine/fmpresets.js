@@ -70,6 +70,14 @@ export const FM_PRESETS = {
     ratio: 1, depth: 5, attack: 0.001, decay: 0.12, sustain: 0,
     drop: 7, dropTime: 0.045,
   },
+  // スネアドラム。**胴の音と、裏に張った響き線のざらつき**が重なった楽器。
+  // 2 オペでノイズは作れないので、比を整数から大きく外して深く揺らし、
+  // 倍音をびっしり詰めて**ノイズに近い濁り**を作る。
+  // そこへ短い落ち(drop)を足すと、皮を張った胴を叩いた感じになる
+  fmDrumSnare: {
+    ratio: 3.7, depth: 18, attack: 0.001, decay: 0.14, sustain: 0.02,
+    drop: 1.6, dropTime: 0.02,
+  },
   // タムも少しだけ落ちる(バスドラムほどではない)
   fmDrumTom: {
     ratio: 1.7, depth: 9, attack: 0.001, decay: 0.12, sustain: 0,
