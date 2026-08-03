@@ -27,9 +27,11 @@ import { gameStop } from './console-stop.js';
 const mmsxx = new MMSXXEngine(document.getElementById('screen'), {
   scale: 3, virtualWidth: 256, virtualHeight: 1024,
   layers: [{}, {}, {}, {}, {}, {}],
-  // 曲が 6 音使うので、SE のぶんを空けておく(8 のままだと登場音が鳴らない)
-  maxVoices: 12,
-  maxNoise: 2,   // 爆発が重なるとノイズを取り合って消えるので 2 本にする
+  // 内訳は 曲 6 + 撃つ音の席 2 + 当たった音の席 6 + 残り 6(レーザーなど)。
+  // 席の分けかたは下の reserveSE を見ること
+  maxVoices: 20,
+  // ノイズは種類ごとに席を取っておく(下の reserveSE)。その合計ぶん要る
+  maxNoise: 4,
   // 開発版かどうかは**ビルドで決める**(場所では決めない)。
   // これ 1 つで、シーン選択・コンソール関数・画面の保存・
   // 開発用の裏技・BG の検査が まとめて出入りする
@@ -37,6 +39,20 @@ const mmsxx = new MMSXXEngine(document.getElementById('screen'), {
 });
 /** 開発用の機能を出すか。細かい出し分けはこれを見て決める */
 const DEV = mmsxx.dev;
+
+// **音の席を種類ごとに取っておく**。
+// 優先度だけで取り合わせると、撃つ音が鳴りつづけているあいだ
+// 場所が空かず、**当たった音と爆発が聞こえなくなる**。
+// 撃つ音と、当たった音・爆発を別の席にしておけば、互いに消し合わない。
+// 名前を書いておけば鳴らす側は今までどおりでよい(席は自動で決まる)
+mmsxx.audio.reserveSE({
+  shot: { voices: 2, noise: 1, names: ['shot'] },
+  hit: {
+    // 大きな爆発(3 声)と小さな爆発(2 声)が重なっても入る広さ
+    voices: 6, noise: 2,
+    names: ['hit', 'clink', 'thud', 'guardhit', 'boom', 'bigboom', 'bossboom'],
+  },
+});
 
 // **ゲームの結果に効く乱数は種つき**にする(あとで操作の記録から再現できるように)。
 // 見た目だけのもの(爆発の粒・画面揺れ・背景の賑やかし)は `Math.random()` のまま。
@@ -692,7 +708,9 @@ function spawnAsteroid() {
 }
 /** 小惑星に弾が当たった: 鈍い「ごわっ!」を鳴らして白/黄で強く光らせる */
 function pingAsteroid(a) {
-  mmsxx.audio.playSE('thud');
+  // **当たった音は撃つ音と同じ強さ**にする。優先度を落としていると、
+  // 撃ちつづけているあいだ場所が空かず、当たった手ごたえが消える
+  mmsxx.audio.playSE('thud', SE_HIT);
   a.flashColor ^= 1;   // 当たるたびに白と黄を入れ替える
   a.flash = 8;
 }
@@ -7317,7 +7335,7 @@ function updatePlay() {
     const blocked = !off && enemies.some(e =>
       e.type === 'D' && Math.abs(b.sp.x - e.sp.x) < 10 && Math.abs(b.sp.y - e.sp.y) < 10);
     if (off || blocked) {
-      if (blocked) mmsxx.audio.playSE('clink');
+      if (blocked) mmsxx.audio.playSE('clink', SE_HIT);
       mmsxx.removeSprite(b.sp); enemyBullets.splice(enemyBullets.indexOf(b), 1);
     }
   }
@@ -7522,7 +7540,7 @@ function updatePlay() {
         bulletHits(b);
         r.hp -= DAMAGE_TABLE[damageLevel - 1];
         if (r.hp <= 0) breakRocket(r);
-        else { r.flash = 4; mmsxx.audio.playSE('thud'); }
+        else { r.flash = 4; mmsxx.audio.playSE('thud', SE_HIT); }
         break;
       }
     }
@@ -7556,7 +7574,7 @@ function updatePlay() {
           if (boss && boss.kind === 'crab') killCrabClaw(boss, m.from);
           removeClawMissile(m, true);  // 壊すと弾が散る
         }
-        else mmsxx.audio.playSE('clink');
+        else mmsxx.audio.playSE('clink', SE_HIT);
         break;
       }
     }
@@ -7797,7 +7815,7 @@ function updatePlay() {
         if (Math.abs((b.sp.x + 8) - (g.sp.x + 8)) < 10 &&
             Math.abs((b.sp.y + 8) - (g.sp.y + 8)) < 10) {
           bulletHits(b);
-          mmsxx.audio.playSE('clink');
+          mmsxx.audio.playSE('clink', SE_HIT);
           break;
         }
       }
@@ -7844,7 +7862,7 @@ function updatePlay() {
         bulletHits(b);
         sp.hits++;
         spawnWeakSpark(b.sp.x, b.sp.y);
-        mmsxx.audio.playSE('clink');
+        mmsxx.audio.playSE('clink', SE_HIT);
         if (sp.hits >= SECRET_NEED) {
           sp.done = true;
           spawnBoom(sp.x + 2, sp.y + 2);
@@ -7869,7 +7887,7 @@ function updatePlay() {
         dragonSpot.hits++;
         // 手応えが分かるように、当たった場所で光らせて音を出す
         spawnWeakSpark(b.sp.x, b.sp.y);
-        mmsxx.audio.playSE('clink');
+        mmsxx.audio.playSE('clink', SE_HIT);
         if (dragonSpot.hits >= DRAGON_FACE.need) {
           dragonSpot.done = true;
           spawnBoom(sx, sy);

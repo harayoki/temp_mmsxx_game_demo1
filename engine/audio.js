@@ -94,6 +94,73 @@ export class PSGPlayer {
     return this.seVoices.reduce((n, v) => n + v.noise, 0);
   }
 
+  /**
+   * **SE の席をカテゴリごとに取っておく**。
+   *
+   * 優先度だけで譲り合わせると、**先に鳴っていた音が場所を握ったまま**になり、
+   * 撃つ音が鳴りつづけているあいだ、当たった音や爆発が聞こえなくなる。
+   * 種類ごとに席を分けておけば、その心配が無くなる。
+   *
+   * ```js
+   * mmsxx.audio.reserveSE({
+   *   shot: { voices: 2, noise: 1, names: ['shot'] },
+   *   hit:  { voices: 4, noise: 2, names: ['hit', 'clink', 'boom', 'bigboom'] },
+   * });
+   * ```
+   *
+   * `names` に書いておけば、**鳴らす側は今までどおり**でよい
+   * (`playSE('boom', SE_HIT)` だけで hit の席に座る)。
+   * その場で決めたいときは `playSE('boom', SE_HIT, { ch: 'hit' })` と書く。
+   *
+   * **取っておいた席は、そのカテゴリの中だけで取り合う。** ほかの音には渡さない。
+   * カテゴリを指定しない SE は**残りの席**を使い、そこは今までどおり
+   * 優先度で取り合う。
+   *
+   * @param {Object<string,{voices?:number, noise?:number, names?:string[]}|number>} map
+   *   数だけ渡すと声の数の指定になる(ノイズは 0)。
+   *   names = その席に座らせる SE の名前
+   */
+  reserveSE(map) {
+    this._chans = new Map();
+    this._chanOf = new Map();
+    for (const [name, v] of Object.entries(map || {})) {
+      const q = (typeof v === 'number') ? { voices: v } : (v || {});
+      this._chans.set(name, {
+        voices: Math.max(0, q.voices || 0),
+        noise: Math.max(0, q.noise || 0),
+      });
+      for (const se of q.names || []) this._chanOf.set(se, name);
+    }
+  }
+
+  /** 取ってある席の合計(声 / ノイズ) */
+  _reserved() {
+    let voices = 0, noise = 0;
+    for (const q of (this._chans || new Map()).values()) { voices += q.voices; noise += q.noise; }
+    return { voices, noise };
+  }
+
+  /**
+   * その SE が使う席の上限と、いまの使用数を返す。
+   * 取ってあるカテゴリならその席、そうでなければ**残りの席**。
+   */
+  _scope(ch) {
+    const q = ch && this._chans && this._chans.get(ch);
+    const mine = (v) => (q ? v.ch === ch
+      : !(v.ch && this._chans && this._chans.has(v.ch)));
+    const list = this.seVoices.filter(mine);
+    const used = list.reduce((n, v) => n + v.voices, 0);
+    const usedNoise = list.reduce((n, v) => n + v.noise, 0);
+    if (q) return { max: q.voices, maxNoise: q.noise, used, usedNoise, list };
+    const r = this._reserved();
+    return {
+      // 残りの席。BGM のぶんはここから引く(取ってある席は SE 専用)
+      max: this.maxVoices - r.voices - this.bgmVoices,
+      maxNoise: this.maxNoise - r.noise,
+      used, usedNoise, list,
+    };
+  }
+
   /** 1 つの SE を止める */
   _stopVoice(v) {
     if (v.timer) { clearTimeout(v.timer); v.timer = 0; }
@@ -603,12 +670,42 @@ registerProcessor('mmsxx-tap', MmsxxTap);
    *   どうしても無限が要るときは、止める場所を先に決めてから使うこと
    *   (面が変わる・ボスが消える・ポーズに入る、など)。
    *
+   *   ch = 席のカテゴリ(reserveSE で取っておいたもの)。
+   *   指定すると**その席の中だけで取り合う**ので、ほかの音に消されない。
+   *
    *   resume = ポーズを解いたときの鳴らしかた。
    *   'head'(既定) = くり返しの頭から / 'continue' = 止めたところの続きから。
    *   1 回だけの SE は、どちらにしても鳴り直さない
    * @returns {number} 管理番号。stopSE(番号) で**これだけ**止められる。
    *   鳴らせなかったときは 0
    */
+  /**
+   * 場所を空けるために止める SE を 1 つ選ぶ。
+   *
+   * まず**自分より低い優先度**のうち、いちばん低いものを探す。
+   * 見つからなければ**同じ優先度でいちばん古いもの**を止める。
+   *
+   * 同じ優先度で譲り合うと、**先に鳴っていた音が場所を握ったまま**になり、
+   * あとから起きた出来事の音が鳴らなくなる。
+   * ショットを撃ちつづけていると当たった音や爆発が聞こえない、というのがこれ。
+   * 実機の音源も**あとから鳴らしたほうが勝つ**ので、それに合わせる。
+   * @param {number} priority 鳴らそうとしている音の優先度
+   * @param {boolean} noiseOnly ノイズを使っているものだけから選ぶか
+   */
+  _victim(priority, noiseOnly, list) {
+    let low = null, old = null;
+    for (const v of (list || this.seVoices)) {
+      if (noiseOnly && !v.noise) continue;
+      if (v.priority < priority) {
+        if (!low || v.priority < low.priority) low = v;
+      } else if (v.priority === priority) {
+        // id は鳴らした順に増えるので、小さいほうが古い
+        if (!old || v.id < old.id) old = v;
+      }
+    }
+    return low || old;
+  }
+
   playSE(name, priority = 0, opts = {}) {
     const tracks = this.seDefs.get(name);
     if (!tracks || !this.ctx) return 0;
@@ -621,27 +718,26 @@ registerProcessor('mmsxx-tap', MmsxxTap);
     }
     const need = tracks.length;
     const needNoise = noiseCount(tracks);
+    // 席は、その場の指定 > 名前で決めた割り当て、の順で決める
+    const ch = opts.ch || (this._chanOf && this._chanOf.get(name)) || null;
+    // **席の取り合いは、その範囲の中だけで起きる**。
+    // 取ってあるカテゴリならその席、指定が無ければ残りの席
+    let sc = this._scope(ch);
     // 空きが足りなければ、優先度の低いものから止めて場所を作る
-    while (this._usedVoices() + need > this.maxVoices) {
-      let low = null;
-      for (const v of this.seVoices) {
-        if (v.priority >= priority) continue;
-        if (!low || v.priority < low.priority) low = v;
-      }
+    while (sc.used + need > sc.max) {
+      const low = this._victim(priority, false, sc.list);
       if (!low) return 0;   // 止められるものが無い = 鳴らさない
       this._stopVoice(low);
+      sc = this._scope(ch);
     }
     // ノイズは本数が決まっているので、あふれるならノイズを使っている SE を止める
     // (1 つの SE だけでノイズを使い切る場合は、その SE 自体は鳴らす)
-    while (needNoise > 0 && needNoise <= this.maxNoise
-           && this._usedNoise() + needNoise > this.maxNoise) {
-      let low = null;
-      for (const v of this.seVoices) {
-        if (!v.noise || v.priority >= priority) continue;
-        if (!low || v.priority < low.priority) low = v;
-      }
-      if (!low) return;
+    while (needNoise > 0 && needNoise <= sc.maxNoise
+           && sc.usedNoise + needNoise > sc.maxNoise) {
+      const low = this._victim(priority, true, sc.list);
+      if (!low) return 0;
       this._stopVoice(low);
+      sc = this._scope(ch);
     }
     const gain = this.ctx.createGain();
     gain.gain.value = 1;
@@ -651,7 +747,7 @@ registerProcessor('mmsxx-tap', MmsxxTap);
     const id = ++this._seSeq;
     const when = now + 0.02;
     const state = {
-      id, gain, nodes: [], priority, voices: need, noise: needNoise,
+      id, gain, nodes: [], priority, voices: need, noise: needNoise, ch,
       endTime: when + len, exclusive: !!opts.exclusive,
       left: loop, timer: 0, nextAt: when + len,
       paused: false, tracks, len,
