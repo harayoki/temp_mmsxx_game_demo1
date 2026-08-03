@@ -3099,7 +3099,8 @@ function endReplay() {
  */
 function keepReplayMovie() {
   mmsxx.stopRecord().then((blob) => {
-    if (!blob) return;
+    // 中身の無いものは持たない(空のファイルが落ちてしまうため)
+    if (!blob || !blob.size) return;
     shareMovie = blob;
     shareMovieKind = mmsxx.recordKind || 'mp4';
     if (shareOpen) updateShareMovieBtn();   // 出ている最中なら、その場で使えるようにする
@@ -3540,13 +3541,13 @@ let shareShotSaved = null;  // 溜めと関係ない 1 枚(集計画面など)
 let shareBackSaved = -1;    // 溜めてあるコマの位置(何コマ前)。-1 なら使わない
 // 板に出しているコマ。溜めてあるコマを見せているあいだは**左右で選び直せる**。
 // 明滅するスプライトは写らないコマがあるので、1 コマずつ前後させて選べるようにする。
-// 選べるのは**基準のコマの前後 3 コマ**(合わせて 7 コマ)。細かい調整なのでこれで足りる
-const SHARE_PICK_RANGE = 3;
+// 選べるのは**溜まっているコマ全部**(3 秒ぶん)
 let shareBack = -1;         // いま見せているコマ。-1 = 溜め以外の 1 枚
-let shareBase = 0;          // 選びはじめのコマ(ここから前後 3 コマ)
 let shareFixed = null;      // その 1 枚(原寸)
 let shareRepeat = 0;        // 左右を押しっぱなしにしたときの送り
-let shareHintEl = null;     // 何秒前かの案内を出すところ
+let shareHintEl = null;     // 何コマめかの案内を出すところ
+let shareLeftBtn = null;    // 古いほうへ送る矢印
+let shareRightBtn = null;   // 新しいほうへ送る矢印
 // **やられる前の数秒を録った動画**(mp4。作れない環境では webm)。
 // リプレイを流したときに録ってあり、ダイアログから落とせる。
 // いずれは SNS へ上げるところまでやるが、いまは手元に落とすところまで
@@ -3570,7 +3571,7 @@ function captureShareShot() {
   try {
     return mmsxx.capture({ type: 'canvas' });
   } catch (e) {
-    mmsxx.errors.log('シェアの画面取り込み失敗: ' + e);
+    mmsxx.errors.log('share: capture failed: ' + e);
     return null;
   }
 }
@@ -3660,11 +3661,42 @@ function makeShareEl() {
     background: '#101010', border: '2px solid #cccccc',
     padding: '20px 28px', lineHeight: '1.7',
   });
-  // 画面の絵。中身は出すたびに入れ替えるので、ここでは空の入れものだけ作る
+  // 画面の絵。中身は出すたびに入れ替えるので、ここでは空の入れものだけ作る。
+  // **左右に矢印を添える**(キーだけだと動かせることに気づけないため)。
+  // スマホのときは、この並びをそのままスワイプで動かせるようにする
+  const stage = document.createElement('div');
+  Object.assign(stage.style, {
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    gap: '8px', marginBottom: '6px',
+  });
   const shot = document.createElement('div');
-  Object.assign(shot.style, { marginBottom: '6px', lineHeight: '0' });
-  box.appendChild(shot);
+  Object.assign(shot.style, { lineHeight: '0' });
   shareShotBox = shot;
+
+  /** 矢印。押しっぱなしのときは、少し待ってから送り続ける(キーと同じ間合い) */
+  const mkArrow = (label, fn) => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    Object.assign(b.style, {
+      font: '18px monospace', color: '#e8e8e8', background: '#202020',
+      border: '2px solid #cccccc', padding: '12px 8px', cursor: 'pointer',
+      lineHeight: '1', flex: '0 0 auto',
+    });
+    let wait = 0, run = 0;
+    const stop = () => { clearTimeout(wait); clearInterval(run); wait = run = 0; };
+    b.addEventListener('pointerdown', () => {
+      b.blur();   // 焦点を残さない(そのあとの SPACE でボタンが押されるのを防ぐ)
+      fn();
+      stop();
+      wait = setTimeout(() => { run = setInterval(fn, 50); }, 350);
+    });
+    for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) b.addEventListener(ev, stop);
+    return b;
+  };
+  shareLeftBtn = mkArrow('◀', () => stepShareShot(1));    // 古いほうへ
+  shareRightBtn = mkArrow('▶', () => stepShareShot(-1));  // 新しいほうへ
+  stage.append(shareLeftBtn, shot, shareRightBtn);
+  box.appendChild(stage);
 
   // どのコマを見せているかの案内。溜めたコマを出しているときだけ中身が入る
   const hint = document.createElement('div');
@@ -3700,10 +3732,10 @@ function makeShareEl() {
     row.appendChild(b);
     return b;
   };
-  mkBtn('送信 / SHARE', () => sendShare());
+  mkBtn('SHARE', () => sendShare());
   // 動画は録れているときだけ出す(始めてすぐやられると溜まっていない)
-  shareMovieBtn = mkBtn('動画を保存 / SAVE VIDEO', () => saveShareMovie());
-  mkBtn('とじる / CLOSE', () => closeShare());
+  shareMovieBtn = mkBtn('SAVE VIDEO', () => saveShareMovie());
+  mkBtn('CLOSE', () => closeShare());
   box.appendChild(row);
   el.appendChild(box);
   document.body.appendChild(el);
@@ -3729,23 +3761,28 @@ function drawShareShot() {
   } else {
     shareShotBox.replaceChildren();
   }
-  // **日本語と英語を並べる**のは文言と同じ扱い
-  if (shareBack < 0) { shareHintEl.textContent = ''; return; }
-  const sec = (shareBack / 60).toFixed(2);
+  // 案内と矢印。**画面に出す文字は英語**にそろえる(コメントだけ日本語)
+  const pick = shareBack >= 0;
+  shareLeftBtn.style.display = shareRightBtn.style.display = pick ? '' : 'none';
+  if (!pick) { shareHintEl.textContent = ''; return; }
   const { lo, hi } = shareWindow();
+  setArrowEnabled(shareLeftBtn, shareBack < hi);
+  setArrowEnabled(shareRightBtn, shareBack > lo);
   const n = hi - shareBack + 1, of = hi - lo + 1;   // 古いほうから数えた番号
   shareHintEl.textContent =
-    `← → でコマを選ぶ（${n}/${of} コマめ・${sec} 秒前） / `
-    + `LEFT-RIGHT to pick a frame (${n}/${of}, ${sec}s before)`;
+    `FRAME ${n}/${of} - ${(shareBack / 60).toFixed(2)}s BEFORE  (ARROWS OR LEFT-RIGHT KEYS)`;
 }
 
-/** 選べるコマの範囲(基準の前後 3 コマ。溜めの端でははみ出さない) */
+/** 端まで来た矢印は押せなくする(押せるかどうかを見た目でも出す) */
+function setArrowEnabled(btn, on) {
+  btn.disabled = !on;
+  btn.style.opacity = on ? '1' : '0.3';
+  btn.style.cursor = on ? 'pointer' : 'default';
+}
+
+/** 選べるコマの範囲。**溜まっているぶん全部**から選べる */
 function shareWindow() {
-  const last = mmsxx.frameCount - 1;
-  return {
-    lo: Math.max(0, shareBase - SHARE_PICK_RANGE),     // 新しいほうの端
-    hi: Math.min(last, shareBase + SHARE_PICK_RANGE),  // 古いほうの端
-  };
+  return { lo: 0, hi: Math.max(0, mmsxx.frameCount - 1) };   // lo = 新しい端 / hi = 古い端
 }
 
 /**
@@ -3784,7 +3821,6 @@ function openShare(after, spec) {
   else if (spec && spec.back >= 0) shareBack = Math.min(spec.back, mmsxx.frameCount - 1);
   else if (state === 'play' && mmsxx.frameCount) shareBack = 0;   // ALT+P: いまの画面
   else shareFixed = captureShareShot();
-  shareBase = Math.max(0, shareBack);   // ここを真ん中にして前後 3 コマから選ぶ
   drawShareShot();
   shareTextEl.textContent = shareTextLines().join('\n');
   shareStatusEl.textContent = '';
@@ -3812,7 +3848,7 @@ function saveShareMovie() {
   a.download = `starfable-${Date.now()}.${shareMovieKind}`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 10000);
-  shareStatusEl.textContent = '動画を保存しました / VIDEO SAVED';
+  shareStatusEl.textContent = 'VIDEO SAVED';
 }
 
 /**
@@ -3831,22 +3867,22 @@ function sendShare() {
     setTimeout(() => { shareBusy = false; closeShare(); }, 900);
   };
   if (!shareShot || !navigator.clipboard || !window.ClipboardItem) {
-    done('コピーできませんでした / COPY FAILED');
+    done('COPY FAILED');
     return;
   }
   try {
     shareShot.toBlob((blob) => {
-      if (!blob) { done('コピーできませんでした / COPY FAILED'); return; }
+      if (!blob) { done('COPY FAILED'); return; }
       navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
-        .then(() => done('画像をコピーしました / IMAGE COPIED'))
+        .then(() => done('IMAGE COPIED'))
         .catch((e) => {
-          mmsxx.errors.log('シェアの clipboard 書き込み失敗: ' + e);
-          done('コピーできませんでした / COPY FAILED');
+          mmsxx.errors.log('share: clipboard write failed: ' + e);
+          done('COPY FAILED');
         });
     }, 'image/png');
   } catch (e) {
-    mmsxx.errors.log('シェアの送信失敗: ' + e);
-    done('コピーできませんでした / COPY FAILED');
+    mmsxx.errors.log('share: send failed: ' + e);
+    done('COPY FAILED');
   }
 }
 
