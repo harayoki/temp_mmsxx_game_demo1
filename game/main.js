@@ -490,7 +490,37 @@ let playId = newUuid();
 const RANK_QUERY = new URLSearchParams(location.search);
 const RANK_DELAY = DEV ? (Number(RANK_QUERY.get('delay')) || 0) : 0;
 const RANK_ERROR = DEV ? (Number(RANK_QUERY.get('error')) || 0) : 0;
-const rankSource = new LocalRankingSource({ delay: RANK_DELAY, errorRate: RANK_ERROR });
+
+/**
+ * どこへ繋ぐか。
+ *   'local' … 手元の localStorage(開発版の既定。ふだんはこれ)
+ *   'dev'   … 開発用のランキングサーバ(開発版で `?rank=dev` を付けたとき)
+ *   'prod'  … 本番のランキングサーバ(公開版はいつもこれ)
+ *
+ * **本番の宛先は開発版から選べない**。URL で選べるのは手元と開発用の 2 つだけで、
+ * 公開版は URL に何を書かれても 'prod' から動かない。
+ * ふだんの作業でうっかりサーバへ書き込む事故を防ぐため、既定は手元にしてある。
+ *
+ * サーバの URL は**通信する部品が両方とも知っていて**、開発版かどうかで
+ * 自分で選ぶ。ここは「どちらを使うか」を決めるだけで、URL は持たない
+ */
+const RANK_MODE = DEV ? (RANK_QUERY.get('rank') === 'dev' ? 'dev' : 'local') : 'prod';
+
+/**
+ * サーバのランキングに繋ぐ供給元を作る。
+ * **通信する部品はまだ無い**ので、いまは手元の保存に落として動かしつづける。
+ * できあがったら、この中で `new RemoteRankingSource({ dev })` を返すだけでよい。
+ * @param {boolean} dev 開発用のサーバを使うか(false なら本番)
+ */
+function makeRemoteRankSource(dev) {
+  console.warn('[STAR FABLE] ランキングサーバの口はまだありません。'
+    + '手元の保存を使います (' + (dev ? 'dev' : 'prod') + ')');
+  return new LocalRankingSource({ delay: RANK_DELAY, errorRate: RANK_ERROR });
+}
+
+const rankSource = RANK_MODE === 'local'
+  ? new LocalRankingSource({ delay: RANK_DELAY, errorRate: RANK_ERROR })
+  : makeRemoteRankSource(RANK_MODE === 'dev');
 
 // ハイスコア表はエンジン側の仕組みを使う(供給元は差し替えられる)
 const hardTable = new RankingBoard({
@@ -8201,7 +8231,7 @@ mmsxx.expose('mmsxxDebug', () => ({
   gear: { shotLevel, speedLevel, maxVolleys, damageLevel, barrierHP, ships },
   playerX: Math.round(player.x), bullets: bullets.length,
   talkHold, continueStages: { ...continueStages },
-  rank: { browserId, playId, delay: RANK_DELAY, errorRate: RANK_ERROR },
+  rank: { mode: RANK_MODE, browserId, playId, delay: RANK_DELAY, errorRate: RANK_ERROR },
   dragon: dragonSpot ? { hits: dragonSpot.hits, done: dragonSpot.done,
     x: dragonSpot.x, y: dragonSpotY() } : null,
   secret: secretSpots ? secretSpots.map(s => ({ x: s.x, y: s.y, hits: s.hits, done: s.done })) : null,
