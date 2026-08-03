@@ -21,26 +21,33 @@ const MIME = {
   '.json': 'application/json',
   '.png': 'image/png',
   '.gif': 'image/gif',
+  '.webm': 'video/webm',
+  '.mp4': 'video/mp4',
   '.css': 'text/css',
 };
 
 /** data URL (PNG か GIF) を capture/ へ書き出して、古いものを消す */
 function saveCapture(dataUrl, name) {
   const comma = dataUrl.indexOf(',');
-  // PNG のほかに GIF も受ける(プレイ動画の下見用)
-  const isGif = dataUrl.startsWith('data:image/gif;base64,');
-  if (comma < 0 || !(isGif || dataUrl.startsWith('data:image/png;base64,'))) {
-    throw new Error('PNG か GIF の data URL ではありません');
+  // PNG のほかに GIF と動画(webm / mp4)も受ける(プレイ動画の下見用)
+  const kinds = [['data:image/png;base64,', 'png'], ['data:image/gif;base64,', 'gif'],
+    ['data:video/webm;base64,', 'webm'], ['data:video/mp4;base64,', 'mp4']];
+  const hit = kinds.find(([head]) => dataUrl.startsWith(head))
+    // codecs 付き(video/webm;codecs=vp9,opus)も受ける
+    || (dataUrl.startsWith('data:video/webm;') ? [null, 'webm'] : null);
+  if (comma < 0 || !hit) {
+    throw new Error('PNG / GIF / 動画 の data URL ではありません');
   }
+  const ext = hit[1];
   fs.mkdirSync(CAPTURE_DIR, { recursive: true });
   // 名前は「日時 + 呼び出し側から渡された短い説明」。並べると時系列になる
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const safe = String(name || 'shot').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 32);
-  const file = path.join(CAPTURE_DIR, `${stamp}_${safe}.${isGif ? 'gif' : 'png'}`);
+  const file = path.join(CAPTURE_DIR, `${stamp}_${safe}.${ext}`);
   fs.writeFileSync(file, Buffer.from(dataUrl.slice(comma + 1), 'base64'));
   // 新しい順に並べて、あふれたぶんを消す
   const olds = fs.readdirSync(CAPTURE_DIR)
-    .filter(f => f.endsWith('.png') || f.endsWith('.gif'))
+    .filter(f => /\.(png|gif|webm|mp4)$/.test(f))
     .sort()
     .reverse()
     .slice(CAPTURE_KEEP);

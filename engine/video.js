@@ -233,6 +233,7 @@ export class VDP {
     this._keepFrames = 0; this._frames = null; this._frameAt = 0; this._frameLen = 0;
     this._frameHold = false;   // ポーズ中など、溜めるのを止めているあいだ
     this._showFrame = null;    // これが入っていると、合成せずにそれを出す
+    this.spritesHidden = false; // true のあいだ、スプライトを 1 枚も描かない
 
     /** 背景色(パレット番号 1..15)。全レイヤーが透明の場所に見える色 */
     this.backdrop = 1;
@@ -1371,7 +1372,9 @@ export class VDP {
     // BG スプライトの priority = n は「レイヤー n の手前」を意味する
     // (n が負なら全部のレイヤーより奥)。
     frame.fill(back);
-    const bgList = [...this.bgSprites].sort((a, b) => a.priority - b.priority);
+    // スプライトをまとめて隠しているあいだは、1 枚も描かない
+    // (リプレイのように「溜めた絵だけ」を見せたいときに使う)
+    const bgList = this.spritesHidden ? [] : [...this.bgSprites].sort((a, b) => a.priority - b.priority);
     let bi = 0;
     for (let li = 0; li < this.layers.length; li++) {
       // このレイヤーより奥に置かれた BG スプライトを先に描く
@@ -1431,7 +1434,7 @@ export class VDP {
     // いちばん手前のレイヤーより手前に置かれた BG スプライト
     while (bi < bgList.length) this._drawSprite(bgList[bi++], true);
     // スプライト (priority 昇順 = 大きいほど後=手前)
-    this._drawSprites(this.sprites, false);
+    if (!this.spritesHidden) this._drawSprites(this.sprites, false);
 
     // ボーダーと画面ずらしを付けて、実際に出す面へ写す。
     // どちらも無いときは activeIdx と outIdx が同じものなので、写す手間は要らない

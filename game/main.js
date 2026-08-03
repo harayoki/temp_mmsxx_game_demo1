@@ -3008,49 +3008,65 @@ const scoreCountsForRanking = () => true;
 // 溜めてあるコマを出すだけなので、ゲームの状態はいっさい動かない。
 // SPACE か ESC で飛ばせる。
 //
-// **画面ぜんぶを覆う出しかた**を使う(レイヤーへ写すのではなく)。
-// スプライトも割り込めないので、遊んでいたときのドットが完全に出る。
-// そのぶん canvas には何も足せないので、**「REPLAY」の案内は DOM に出す**
-// (canvas に描くと、そのまま録画にも入ってしまうため)
+// 出しかたは**いちばん手前のレイヤーへ写す**形。スプライトはまとめて隠し、
+// HUD の文字も消すので、遊んでいたときの絵だけが出る。
+// 「REPLAY」は**同じレイヤーへ 8 ドットフォントで**点滅させる
+// (DOM を重ねない方針。録画にそのまま入ってよい)
+const REPLAY_LAYER = 5;        // dbg。ふだんは当たり判定の表示にしか使わない
+const REPLAY_TEXT = 'REPLAY';
 let replayThen = null;         // 流し終わったあとにやること
-let replayEl = null;           // 「REPLAY」の札(DOM)
-
-/** 「REPLAY」の札を作る(1 回だけ) */
-function makeReplayEl() {
-  if (replayEl) return replayEl;
-  const el = document.createElement('div');
-  Object.assign(el.style, {
-    position: 'fixed', top: '8px', left: '0', right: '0', display: 'none',
-    textAlign: 'center', font: '14px monospace', color: '#ded087',
-    textShadow: '0 0 4px #000', zIndex: '9997', pointerEvents: 'none',
-  });
-  el.textContent = 'REPLAY   SPACE: SKIP';
-  document.body.appendChild(el);
-  replayEl = el;
-  return el;
-}
+let replayFile = 0;            // 録画したものを保存するときの通し番号
 
 /** 直前の数秒を流す。溜まっていなければ何もせず false */
 function startReplay(then) {
-  if (!mmsxx.playFrames({ seconds: SHARE_KEEP_SEC, onEnd: endReplay })) return false;
+  if (!mmsxx.playFrames({ layer: REPLAY_LAYER, seconds: SHARE_KEEP_SEC, onEnd: endReplay })) {
+    return false;
+  }
   replayThen = then;
   state = 'replay';
-  makeReplayEl().style.display = 'block';
+  hud.clear();               // ゲーム中の文字は消す
+  mmsxx.hideSprites(true);   // スプライトも 1 枚も出さない
+  // 開発中は、流れているところをそのまま録って capture/ へ残す
+  if (DEV) mmsxx.startRecord();
   return true;
 }
 
 /** 流し終わった(または飛ばした)。片づけて次へ進む */
 function endReplay() {
   mmsxx.stopFrames();
-  if (replayEl) replayEl.style.display = 'none';
+  mmsxx.hideSprites(false);
+  mmsxx.layer(REPLAY_LAYER).clear();
   hud.clear();
+  if (DEV && mmsxx.recording) saveReplayMovie();
   const then = replayThen;
   replayThen = null;
   if (then) then();
 }
 
+/** 録ったものを開発サーバへ送って capture/ に残す(手元だけ) */
+function saveReplayMovie() {
+  mmsxx.stopRecord().then((blob) => {
+    if (!blob) return;
+    const r = new FileReader();
+    r.onload = () => {
+      fetch('/__capture', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: r.result, name: 'replay' + (++replayFile) }),
+      }).catch(() => {});
+    };
+    r.readAsDataURL(blob);
+  });
+}
+
 /** 流しているあいだ。SPACE か ESC で飛ばせる */
 function updateReplay() {
+  // 「REPLAY」を上のほうに点滅で出す。**すき間は黒で埋める**ので、
+  // 下の絵が透けない(リプレイのレイヤーに直接書いている)
+  const L = mmsxx.layer(REPLAY_LAYER);
+  const x = centerX(REPLAY_TEXT);
+  L.fill(1, x - 8, 8, (REPLAY_TEXT.length + 2) * 8, 8);
+  if ((mmsxx.frame >> 4) & 1) L.print(x, 8, REPLAY_TEXT, 11, 1);
   if (mmsxx.input.wasPressed('Space') || mmsxx.input.wasPressed('Escape')) endReplay();
 }
 

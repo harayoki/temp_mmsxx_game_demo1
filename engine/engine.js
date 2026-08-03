@@ -290,6 +290,81 @@ export class MMSXXEngine {
   /** いま再生中か */
   get replaying() { return !!this._replay; }
 
+  /**
+   * **スプライトをまとめて隠す / 戻す**。
+   * リプレイのように「溜めた絵だけ」を見せたいときに使う
+   * (1 枚ずつ visible を触らなくてよい)。
+   * @param {boolean} on
+   */
+  hideSprites(on) { this.vdp.spritesHidden = !!on; }
+
+  /**
+   * **いまの画面を録画しはじめる**。canvas の中身をそのまま録る。
+   *
+   * 画面に映っているものではなく**キャンバスの中身**を録るので、
+   * ウィンドウが隠れていても、別のタブが手前にあっても録れる。
+   * 逆に、canvas に描いた文字は**そのまま動画にも入る**。
+   * 入れたくない案内は DOM に出すこと。
+   *
+   * ```js
+   * mmsxx.startRecord();                 // 録りはじめ
+   * const blob = await mmsxx.stopRecord();  // 止めて受け取る(video/webm)
+   * ```
+   * @param {{sound?:boolean, fps?:number}} [opts]
+   *   sound = 音も入れるか(既定 true)。**ミュートの手前**から拾うので、
+   *   音を切って遊んでいても動画には入る
+   * @returns {boolean} 始められたか(使えない環境では false)
+   */
+  startRecord(opts = {}) {
+    if (this._rec || typeof MediaRecorder === 'undefined') return false;
+    const canvas = this.vdp.canvas;
+    if (!canvas || !canvas.captureStream) return false;
+    const fps = Math.max(1, Math.min(60, Math.round(opts.fps || 60)));
+    let stream;
+    try { stream = canvas.captureStream(fps); } catch (e) { return false; }
+    // 音は出口の手前(bus)から分けてもらう
+    if (opts.sound !== false && this.audio.ctx) {
+      try {
+        const dest = this.audio.ctx.createMediaStreamDestination();
+        this.audio.recordTo(dest);
+        for (const t of dest.stream.getAudioTracks()) stream.addTrack(t);
+        this._recDest = dest;
+      } catch (e) { /* 音なしで続ける */ }
+    }
+    // 作れる形を上から順に試す(環境によって作れるものが違う)
+    const types = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus',
+      'video/webm', 'video/mp4'];
+    const type = types.find(t => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t));
+    let rec;
+    try { rec = new MediaRecorder(stream, type ? { mimeType: type } : undefined); }
+    catch (e) { return false; }
+    const chunks = [];
+    rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    this._rec = { rec, chunks, type: type || 'video/webm' };
+    rec.start();
+    return true;
+  }
+
+  /**
+   * 録画を止めて、できたものを受け取る。
+   * @returns {Promise<Blob|null>} 録れていなければ null
+   */
+  stopRecord() {
+    const r = this._rec;
+    if (!r) return Promise.resolve(null);
+    this._rec = null;
+    return new Promise((done) => {
+      r.rec.onstop = () => {
+        if (this._recDest) { this.audio.recordTo(null); this._recDest = null; }
+        done(r.chunks.length ? new Blob(r.chunks, { type: r.type }) : null);
+      };
+      try { r.rec.stop(); } catch (e) { done(null); }
+    });
+  }
+
+  /** いま録画中か */
+  get recording() { return !!this._rec; }
+
   /** 再生を 1 コマ進める(run のなかで呼ばれる) */
   _tickReplay() {
     const r = this._replay;

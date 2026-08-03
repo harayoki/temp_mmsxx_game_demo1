@@ -234,6 +234,20 @@ registerProcessor('mmsxx-tap', MmsxxTap);
     this._tap = null; this._tapSink = null;
   }
 
+  /**
+   * **録画へ音を分ける**。出口の手前(bus)からつなぐので、
+   * ミュート中でも動画には音が入る。null で外す。
+   * @param {MediaStreamAudioDestinationNode|null} dest
+   */
+  recordTo(dest) {
+    const bus = this._out();
+    if (!bus) return false;
+    if (this._recDest) { try { bus.disconnect(this._recDest); } catch (e) { /* gone */ } }
+    this._recDest = dest || null;
+    if (dest) bus.connect(dest);
+    return true;
+  }
+
   /** 溜めたぶんを捨てて、いまから溜め直す */
   clearSound() { if (this._tap) this._tap.port.postMessage('clear'); }
 
