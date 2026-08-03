@@ -2902,6 +2902,7 @@ function enterPlay(fromContinue = false) {
   coinValue = COIN_BASE;
   // 前のゲームで取っておいたシェアの絵は持ち越さない
   shareShotSaved = null;
+  shareBackSaved = -1;
   // ドラゴンの炎はやられても消えないが、新しいゲームでは持ち越さない
   dragonFlame = false;
   // モアイの案内は 1 プレイに 1 回ずつ。新しいゲームでは出し直す
@@ -3051,6 +3052,9 @@ function startReplay(then) {
 /** 流し終わった(または飛ばした)。片づけて次へ進む */
 function endReplay() {
   mmsxx.stopFrames();
+  // stopFrames() は溜めを再開させるので、シェアで選ぶぶんを残すときは止め直す。
+  // 止めないと、このあとのゲームオーバー画面で直前の数秒が消えてしまう
+  if (shareBackSaved >= 0) mmsxx.holdCapture(true);
   mmsxx.hideSprites(false);
   mmsxx.layer(REPLAY_LAYER).clear();
   hud.clear();
@@ -3444,7 +3448,17 @@ let shareBusy = false;      // 送信中(二重に押されるのを止める)
 // ゲームオーバーの画面ではなく、遊んでいた画面を残したいため
 //   やられて終わるとき … **約 1 秒前**の、まだ自機が無事な画面
 //   全面クリアのとき   … クリアのボーナス集計の画面
-let shareShotSaved = null;
+let shareShotSaved = null;  // 溜めと関係ない 1 枚(集計画面など)
+let shareBackSaved = -1;    // 溜めてあるコマの位置(何コマ前)。-1 なら使わない
+// 板に出しているコマ。溜めてあるコマを見せているあいだは**左右で選び直せる**。
+// 明滅するスプライトは写らないコマがあるので、1 コマずつ前後させて選べるようにする。
+// 選べるのは**基準のコマの前後 3 コマ**(合わせて 7 コマ)。細かい調整なのでこれで足りる
+const SHARE_PICK_RANGE = 3;
+let shareBack = -1;         // いま見せているコマ。-1 = 溜め以外の 1 枚
+let shareBase = 0;          // 選びはじめのコマ(ここから前後 3 コマ)
+let shareFixed = null;      // その 1 枚(原寸)
+let shareRepeat = 0;        // 左右を押しっぱなしにしたときの送り
+let shareHintEl = null;     // 何秒前かの案内を出すところ
 // **直前の画面はエンジンが溜めている**。色番号のまま持つので、
 // 60fps で 3 秒でも 9MB ほどで収まる(1 コマ 51.6KB)。
 // 溜めはじめはゲームを始めるとき。何秒ぶん持つかはゲームが決める。
@@ -3465,11 +3479,24 @@ function captureShareShot() {
 }
 
 /**
- * やられて終わるときに見せる絵。**1 秒前**の、まだ自機が無事な画面。
- * 溜まっていない(始めてすぐやられた)ときは、その場で 1 枚取る
+ * やられて終わるときの絵を決める。
+ * **溜めてあるコマをそのまま残して**、その中の 1 秒前を最初に見せる
+ * (ダイアログの左右でコマを選び直せるようにするため)。
+ * 溜まっていない(始めてすぐやられた)ときだけ、その場で 1 枚取る
  */
-function deathShareShot() {
-  return mmsxx.frameAgo(SHARE_SHOT_AGO) || captureShareShot();
+function keepDeathShareShot() {
+  mmsxx.holdCapture(true);   // ここから先は溜めない。直前の数秒を残す
+  shareShotSaved = null;
+  shareBackSaved = mmsxx.frameCount
+    ? Math.min(SHARE_SHOT_AGO * 60, mmsxx.frameCount - 1) : -1;
+  if (shareBackSaved < 0) shareShotSaved = captureShareShot();
+}
+
+/** ランクインで見せる絵の指定。何も無ければ null(その場の画面を取る) */
+function savedShareSpec() {
+  if (shareShotSaved) return { shot: shareShotSaved };
+  if (shareBackSaved >= 0) return { back: shareBackSaved };
+  return null;
 }
 
 /** 板に載せる形にする。ドットをぼかさずに 2 倍へ広げる */
@@ -3522,9 +3549,15 @@ function makeShareEl() {
   });
   // 画面の絵。中身は出すたびに入れ替えるので、ここでは空の入れものだけ作る
   const shot = document.createElement('div');
-  Object.assign(shot.style, { marginBottom: '14px', lineHeight: '0' });
+  Object.assign(shot.style, { marginBottom: '6px', lineHeight: '0' });
   box.appendChild(shot);
   shareShotBox = shot;
+
+  // どのコマを見せているかの案内。溜めたコマを出しているときだけ中身が入る
+  const hint = document.createElement('div');
+  Object.assign(hint.style, { font: '12px monospace', color: '#9a9a9a', marginBottom: '10px' });
+  box.appendChild(hint);
+  shareHintEl = hint;
 
   // シェア文言。**日本語と英語を両方並べる**(どちらの言葉の人にもそのまま使ってもらう)
   const text = document.createElement('div');
@@ -3564,23 +3597,13 @@ function makeShareEl() {
 }
 
 /**
- * シェアのダイアログを出す。
- * @param {() => void} [after] 閉じたあとにやること(ランクインのときの続き)
- * @param {HTMLCanvasElement} [shot] 見せる絵。省くと**いまの画面**を取る
+ * いま選んでいるコマを板に載せる。**送信もこの絵になる**。
+ * 溜めてあるコマなら何秒前かを添える(左右で選べることも書いておく)
  */
-function openShare(after, shot) {
-  if (shareOpen) return;
-  shareOpen = true;
-  shareAfter = after || null;
-  // 裏ではポーズしておく。すでにポーズ中なら触らない
-  sharePaused = (state === 'play' && !paused);
-  if (sharePaused) togglePause();
-  makeShareEl().style.display = 'flex';
-  // 渡された絵があればそれを見せる(ランクインのときの、遊んでいた画面)。
-  // 無ければ**始動した時点の画面**を取る(ALT+P で自分から出したとき)。
-  // どちらも 1 枚に止めた絵なので、送信でも同じものを使える
-  const src = shot || captureShareShot();
-  shareShot = src ? enlargeShareShot(src) : null;
+function drawShareShot() {
+  const src = shareBack >= 0 ? mmsxx.frameBackCanvas(shareBack, 2)
+    : (shareFixed ? enlargeShareShot(shareFixed) : null);
+  shareShot = src;
   if (shareShot) {
     // 大きい画面でも板からはみ出さないようにする。ドットはぼかさない
     Object.assign(shareShot.style, {
@@ -3591,9 +3614,67 @@ function openShare(after, shot) {
   } else {
     shareShotBox.replaceChildren();
   }
+  // **日本語と英語を並べる**のは文言と同じ扱い
+  if (shareBack < 0) { shareHintEl.textContent = ''; return; }
+  const sec = (shareBack / 60).toFixed(2);
+  const { lo, hi } = shareWindow();
+  const n = hi - shareBack + 1, of = hi - lo + 1;   // 古いほうから数えた番号
+  shareHintEl.textContent =
+    `← → でコマを選ぶ（${n}/${of} コマめ・${sec} 秒前） / `
+    + `LEFT-RIGHT to pick a frame (${n}/${of}, ${sec}s before)`;
+}
+
+/** 選べるコマの範囲(基準の前後 3 コマ。溜めの端でははみ出さない) */
+function shareWindow() {
+  const last = mmsxx.frameCount - 1;
+  return {
+    lo: Math.max(0, shareBase - SHARE_PICK_RANGE),     // 新しいほうの端
+    hi: Math.min(last, shareBase + SHARE_PICK_RANGE),  // 古いほうの端
+  };
+}
+
+/**
+ * 見せるコマを前後させる。
+ * @param {number} d +1 で古いほうへ、-1 で新しいほうへ
+ */
+function stepShareShot(d) {
+  if (shareBack < 0) return;   // 溜め以外の 1 枚は選びようがない
+  const { lo, hi } = shareWindow();
+  const next = Math.max(lo, Math.min(hi, shareBack + d));
+  if (next === shareBack) return;
+  shareBack = next;
+  drawShareShot();
+}
+
+/**
+ * シェアのダイアログを出す。
+ * @param {() => void} [after] 閉じたあとにやること(ランクインのときの続き)
+ * @param {{back?:number, shot?:HTMLCanvasElement}} [spec] 見せる絵。
+ *   back = 溜めてあるコマ(何コマ前) / shot = 溜めと関係ない 1 枚。
+ *   省いたときは、遊んでいる最中なら溜めてあるいちばん新しいコマ、
+ *   そうでなければその場の画面を 1 枚取る
+ */
+function openShare(after, spec) {
+  if (shareOpen) return;
+  shareOpen = true;
+  shareAfter = after || null;
+  // 裏ではポーズしておく。すでにポーズ中なら触らない
+  // (ポーズすると溜めも止まるので、出しているあいだコマは動かない)
+  sharePaused = (state === 'play' && !paused);
+  if (sharePaused) togglePause();
+  makeShareEl().style.display = 'flex';
+  shareFixed = null;
+  shareBack = -1;
+  if (spec && spec.shot) shareFixed = spec.shot;
+  else if (spec && spec.back >= 0) shareBack = Math.min(spec.back, mmsxx.frameCount - 1);
+  else if (state === 'play' && mmsxx.frameCount) shareBack = 0;   // ALT+P: いまの画面
+  else shareFixed = captureShareShot();
+  shareBase = Math.max(0, shareBack);   // ここを真ん中にして前後 3 コマから選ぶ
+  drawShareShot();
   shareTextEl.textContent = shareTextLines().join('\n');
   shareStatusEl.textContent = '';
   shareBusy = false;
+  shareRepeat = 0;
   mmsxx.audio.playSE('shutter', SE_JINGLE);
 }
 
@@ -3639,6 +3720,10 @@ function closeShare() {
   shareBusy = false;
   if (shareEl) shareEl.style.display = 'none';
   if (sharePaused) { togglePause(); sharePaused = false; }
+  // 選ぶために止めていた溜めを戻す(ポーズ中はポーズ側が止めたままにする)
+  if (!paused) mmsxx.holdCapture(false);
+  shareBack = -1;
+  shareFixed = null;
   const after = shareAfter;
   shareAfter = null;
   if (after) after();
@@ -3723,8 +3808,8 @@ function destroyPlayer(cause = 'unknown', noMercy = false) {
   // NORMAL はバリアがあればそれで肩代わり。装備そのものは下げない
   if (isNormal() && barrierHP > 0 && !noMercy) { damagePlayer(cause); return; }
   // これが最後の 1 機なら、ここでゲームオーバーが決まる。
-  // シェアに載せる絵は、**やられる前**に撮ってあった 1 枚を使う
-  if (ships <= 1) shareShotSaved = deathShareShot();
+  // シェアに載せる絵は、**やられる前**に溜めてあったコマから選ぶ
+  if (ships <= 1) keepDeathShareShot();
   // 次の 1 機ぶんは溜め直す(前の機の、爆発や復活中の絵を混ぜない)。
   // **最後の 1 機のときは残す**。やられたあとのリプレイに使うため
   else mmsxx.keepFrames(SHARE_KEEP_SEC);
@@ -7022,7 +7107,7 @@ function updatePlay() {
     // ボーナス集計が出そろったところで、シェアに載せる絵を取っておく。
     // 全面クリアで終わったときはこれが最後の 1 枚になる
     // (途中の面のぶんは、次のクリアかミスの絵で置き換わる)
-    if (clearTimer === 900) shareShotSaved = captureShareShot();
+    if (clearTimer === 900) { shareShotSaved = captureShareShot(); shareBackSaved = -1; }
     if (clearTimer <= 0) {
       if (state === 'play') { // ゲームオーバー後は進行しない
         statsStageEnd();
@@ -10244,6 +10329,16 @@ mmsxx.run(() => {
   if (shareOpen) {
     if (mmsxx.input.wasPressed('Space')) sendShare();
     else if (mmsxx.input.wasPressed('Escape')) closeShare();
+    // 左右で見せるコマを選ぶ(左が古いほう)。
+    // 1 コマずつなので、押しっぱなしのときは少し待ってから送り続ける
+    else if (mmsxx.input.wasPressed('ArrowLeft')) { stepShareShot(1); shareRepeat = 20; }
+    else if (mmsxx.input.wasPressed('ArrowRight')) { stepShareShot(-1); shareRepeat = 20; }
+    else if (mmsxx.input.isDown('ArrowLeft') || mmsxx.input.isDown('ArrowRight')) {
+      if (--shareRepeat <= 0) {
+        stepShareShot(mmsxx.input.isDown('ArrowLeft') ? 1 : -1);
+        shareRepeat = 3;
+      }
+    }
     return;
   }
   // ALT + P でシェアのダイアログを出す。どの画面でも効く
@@ -10367,7 +10462,7 @@ mmsxx.run(() => {
     // 記録を出したときは、少し待てばスペースですぐ名前入力へ飛べる
     if (stateTimer > 90 && scoreCountsForRanking() && isHiScore(score) &&
         gameMode() !== 'bossrush' && mmsxx.input.wasPressed('Space')) {
-      openShare(() => enterNameEntry('score'), shareShotSaved);
+      openShare(() => enterNameEntry('score'), savedShareSpec());
       return;
     }
     // 「月光」を最後まで聞かせてから次へ進む
@@ -10380,7 +10475,7 @@ mmsxx.run(() => {
         // 記録を出したときは、名前入力の前にシェアを見せる。
         // 見せるのは**遊んでいた画面**(取っておいた 1 枚)。
         // 閉じたら今までどおり名前入力へ進む
-        openShare(() => enterNameEntry('score'), shareShotSaved);
+        openShare(() => enterNameEntry('score'), savedShareSpec());
       } else {
         // ゲームオーバーから戻ったときは CONTINUE が選ばれた状態にする
         enterTitle(0, -1, true);
