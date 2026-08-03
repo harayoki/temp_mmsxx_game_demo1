@@ -6670,8 +6670,6 @@ function updateBoss() {
 
 function updatePlay() {
   playFrame++;
-  // やられたときに見せる絵を 0.25 秒ごとに撮っておく。
-  // ゲームオーバーの画面(state が 'over')になってからは撮らない
   // 撃破タイムは「弾が当たる状態」のあいだだけ数える
   if (bossTimeCounts()) bossFrames++;
   // ボスラッシュの経過時間(表示は 1/10 秒ごとに更新する)
