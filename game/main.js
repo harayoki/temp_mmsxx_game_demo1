@@ -3028,11 +3028,15 @@ const scoreCountsForRanking = () => true;
 // 溜めてあるコマを出すだけなので、ゲームの状態はいっさい動かない。
 // SPACE か ESC で飛ばせる。
 //
+// 見せる順番は 3 つ。
+//   1. **自機の爆発を最後まで見せる**(ゲームの絵をそのまま動かす)
+//   2. **黒い画面に REPLAY** を 1 秒(16 ドットフォント・赤・真ん中)
+//   3. **再生**。ここには何も乗せない(遊んでいた絵だけを見せる)
+//
 // 出しかたは**いちばん手前のレイヤーへ写す**形。スプライトはまとめて隠し、
 // HUD の文字も消すので、遊んでいたときの絵だけが出る。
-// 「REPLAY」は**同じレイヤーへ 16 ドットフォントで**点滅させる。
-// 画面の真ん中に赤で出し、**0.5 秒で消す**(そのあとは絵だけを見せたいため)。
-// DOM を重ねない方針なので、録画にもそのまま入ってよい
+// DOM を重ねない方針なので、録画にもそのまま入ってよい。
+// **録りはじめるのは 2 から**。爆発は録らず、動画は黒い画面から始まる
 const REPLAY_LAYER = 5;        // dbg。ふだんは当たり判定の表示にしか使わない
 const REPLAY_TEXT = 'REPLAY';
 // 録画の入れもの。'mp4' はどこでも再生でき、'webm' は作れる環境が広い
@@ -3046,37 +3050,26 @@ const REPLAY_BITRATE = BITRATE.mid;
 // 最後のコマ(やられた瞬間)でも止めて、何が起きたかを残す
 const REPLAY_LEAD = 1;
 const REPLAY_HOLD = 1.2;
-// 「REPLAY」の見せかた。**16 ドット(8 ドットフォントの 2 倍)・赤・真ん中**。
-// 出しておくのは 0.5 秒だけで、消えたあとは絵だけが残る
+// 「REPLAY」の見せかた。**16 ドット(8 ドットフォントの 2 倍)・赤・真ん中**
 const REPLAY_FONT = 2;         // 文字の倍率
 const REPLAY_COLOR = 8;        // 赤
-const REPLAY_SHOW = 30;        // 出しておくコマ数(0.5 秒)
-const REPLAY_BLINK = 4;        // 点滅の速さ(コマ)
-let replayShow = 0;            // あと何コマ出しておくか
+const REPLAY_BOOM = 100;       // 爆発を見せる長さ(約 1.7 秒)
+const REPLAY_TITLE = 60;       // 黒い画面に REPLAY を出す長さ(1 秒)
+let replayPhase = '';          // 'boom' / 'title' / 'play'
+let replayWait = 0;            // いまの場面があと何コマ続くか
 let replayThen = null;         // 流し終わったあとにやること
 let replayFile = 0;            // 録画したものを保存するときの通し番号
 
 /** 直前の数秒を流す。溜まっていなければ何もせず false */
 function startReplay(then) {
-  if (!mmsxx.playFrames({
-    layer: REPLAY_LAYER, seconds: SHARE_KEEP_SEC,
-    leadIn: REPLAY_LEAD, holdEnd: REPLAY_HOLD, onEnd: endReplay,
-  })) {
-    return false;
-  }
+  // 溜まっていなければ何もしない(始めてすぐやられたとき)。
+  // 流しはじめるのは 3 つめの場面なので、ここで先に見ておく
+  if (!mmsxx.frameCount) return false;
   replayThen = then;
   state = 'replay';
-  replayShow = REPLAY_SHOW;  // 「REPLAY」はここから 0.5 秒だけ出す
-  // やられたときのフラッシュを**必ず消してから**流す。
-  // 光を戻すのは updatePlay の中なので、ここへ来ると戻す人がいなくなり、
-  // 背景が白いまま固まる(画面が真っ白になる)
-  cancelFlash();
-  hud.clear();               // ゲーム中の文字は消す
-  mmsxx.hideSprites(true);   // スプライトも 1 枚も出さない
-  // **いつでも録る**。録れたものはシェアのダイアログから落とせる
-  // (開発中は capture/ にも残す)。
-  // **mp4 で録る**(どこでも再生できる)。作れない環境では webm に落ちる
-  mmsxx.startRecord({ type: REPLAY_MOVIE, scale: REPLAY_SCALE, bitrate: REPLAY_BITRATE });
+  // まずは**爆発を見せる場面**から。ここはゲームの絵をそのまま動かす
+  replayPhase = 'boom';
+  replayWait = REPLAY_BOOM;
   return true;
 }
 
@@ -3121,33 +3114,52 @@ function keepReplayMovie() {
   });
 }
 
+/** 黒い画面に「REPLAY」を出す。ここから録りはじめる */
+function startReplayTitle() {
+  replayPhase = 'title';
+  replayWait = REPLAY_TITLE;
+  // やられたときのフラッシュを**必ず消す**。光を戻すのは updatePlay の中なので、
+  // ここへ来ると戻す人がいなくなり、背景が白いまま固まる
+  cancelFlash();
+  hud.clear();               // ゲーム中の文字は消す
+  mmsxx.hideSprites(true);   // スプライトも 1 枚も出さない
+  // 画面ぜんぶを黒で覆って、真ん中に文字を置く
+  const L = mmsxx.layer(REPLAY_LAYER);
+  const cw = 8 * REPLAY_FONT;
+  const w = REPLAY_TEXT.length * cw;
+  L.fill(1, 0, 0, SCREEN_W, SCREEN_H);
+  L.print(Math.round((SCREEN_W - w) / 2 / 8) * 8,
+    Math.round((SCREEN_H - cw) / 2 / 8) * 8, REPLAY_TEXT, REPLAY_COLOR, 1, REPLAY_FONT);
+  // **いつでも録る**。録れたものはシェアのダイアログから落とせる
+  // (開発中は capture/ にも残す)。
+  // **mp4 で録る**(どこでも再生できる)。作れない環境では webm に落ちる
+  mmsxx.startRecord({ type: REPLAY_MOVIE, scale: REPLAY_SCALE, bitrate: REPLAY_BITRATE });
+}
+
+/** 溜めたコマを流しはじめる。流せなければそのまま終わる */
+function startReplayPlay() {
+  replayPhase = 'play';
+  mmsxx.layer(REPLAY_LAYER).clear();
+  const ok = mmsxx.playFrames({
+    layer: REPLAY_LAYER, seconds: SHARE_KEEP_SEC,
+    leadIn: REPLAY_LEAD, holdEnd: REPLAY_HOLD, onEnd: endReplay,
+  });
+  if (!ok) endReplay();
+}
+
 /** 流しているあいだ。SPACE か ESC で飛ばせる */
 function updateReplay() {
-  // 「REPLAY」を画面の真ん中に、赤の 16 ドットフォントで点滅させる。
-  // **すき間は黒で埋める**ので、下の絵が透けない
-  // (リプレイのレイヤーに直接書いている)
-  if (replayShow > 0) {
-    const L = mmsxx.layer(REPLAY_LAYER);
-    const cw = 8 * REPLAY_FONT;
-    const w = REPLAY_TEXT.length * cw;
-    const x = Math.round((SCREEN_W - w) / 2 / 8) * 8;   // 8 ドット単位に置く
-    const y = Math.round((SCREEN_H - cw) / 2 / 8) * 8;
-    replayShow--;
-    if (replayShow > 0) {
-      L.fill(1, x - 8, y, w + 16, cw);
-      // 点滅は**出しはじめから数える**。mmsxx.frame で数えると、
-      // 運悪く消えている側から始まって 0.5 秒まるごと出ないことがある
-      const past = REPLAY_SHOW - replayShow;
-      if (Math.floor(past / REPLAY_BLINK) % 2 === 0) {
-        L.print(x, y, REPLAY_TEXT, REPLAY_COLOR, 1, REPLAY_FONT);
-      }
-    } else {
-      // 出しおわり。**消したところは次のコマの絵で埋まる**ので、
-      // ここで黒くしておけば残らない
-      L.fill(0, x - 8, y, w + 16, cw);
-    }
+  if (mmsxx.input.wasPressed('Space') || mmsxx.input.wasPressed('Escape')) { endReplay(); return; }
+  if (replayPhase === 'boom') {
+    // 爆発を最後まで見せる。溜めは止めてあるので、この絵は記録に混ざらない
+    updatePlay();
+    if (--replayWait <= 0) startReplayTitle();
+    return;
   }
-  if (mmsxx.input.wasPressed('Space') || mmsxx.input.wasPressed('Escape')) endReplay();
+  if (replayPhase === 'title') {
+    if (--replayWait <= 0) startReplayPlay();
+  }
+  // 流しているあいだは何もしない(文字は乗せない)
 }
 
 function enterGameOver() {
