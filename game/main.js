@@ -426,18 +426,13 @@ function markMet(id) {
 
 let state = 'title'; // 'title' | 'play' | 'over'
 let score = 0;
-// ---- ハイスコア(上位 5 人) ----
+// ---- ハイスコア ----
 // localStorage はブラウザ設定によっては参照した時点で例外を投げるので必ず包む
 const HISCORE_MAX = 100;
 const HISCORE_ROWS = 7;              // 一度に表示する人数(画面に収まる数)
-// 初期データは 1 位 50000 点から下へ並べた 100 人ぶん
-const DEFAULT_NAMES = ['MMSXX', 'FABLE', 'STAR', 'MSX', 'YOU'];
-// 得点は 100 点刻みでしか入らないので、**10 の位から下は必ず 0**。
-// 初期データもその形にそろえる(1 位 50000 点から 500 点ずつ下げる)
-const DEFAULT_HISCORES = [...Array(HISCORE_MAX).keys()].map(i => ({
-  name: DEFAULT_NAMES[i % DEFAULT_NAMES.length],
-  score: Math.max(500, 50000 - i * 500),
-}));
+// **作り物の初期データは持たない**。並ぶのは実際に遊んだ人の記録だけ。
+// サーバに何件かは先に入れてあるので、繋がればそれが出る。
+// 繋がらないうちは空の表になり、NO RECORDS YET と出る
 
 // ---- ランキングサーバへ送るときの見分け ID ----
 // まだ送っていないが、繋ぐときに要るので先に用意しておく(送らなくても害は無い)。
@@ -528,7 +523,7 @@ const hardTable = new RankingBoard({
   key: 'starfable-hiscores',
   meKey: 'starfable-me',
   max: HISCORE_MAX,
-  defaults: DEFAULT_HISCORES,
+  defaults: [],
   compare: byScore,
 });
 // NORMAL と HARD は別のランキングに載せる(同じ表に混ぜない)。
@@ -538,7 +533,7 @@ const normalTable = new RankingBoard({
   key: 'starfable-hiscores-easy',
   meKey: 'starfable-me-easy',
   max: HISCORE_MAX,
-  defaults: DEFAULT_HISCORES,
+  defaults: [],
   compare: byScore,
 });
 /**
@@ -570,8 +565,6 @@ function refreshRankings() {
 
 /** いま遊んでいるモードのランキング表 */
 const scoreTable = () => (gameMode() === 'hard' ? hardTable : normalTable);
-/** 表示用のトップスコア */
-const topScore = () => (scoreTable().top() ? scoreTable().top().score : 0);
 /** 表に載るかどうか */
 const isHiScore = (v) => scoreTable().qualifies({ score: v });
 let ships = 0;   // 残機。0 になったらゲームオーバー
@@ -2587,7 +2580,19 @@ function drawHiScoreList() {
     hud.print(56, y, (e.name + '     ').slice(0, 5), isMine ? 11 : 7);
     hud.print(104, y, String(e.score).padStart(SCORE_DIGITS, '0'), isMine ? 11 : 15);
   }
+  if (tbl.entries.length === 0) drawNoRecords();
   drawHiArrows(tbl.entries.length);
+}
+
+/**
+ * まだ 1 件も記録が無いときの知らせ。
+ * 作り物の初期データを持たないので、**遊ばれるまでは表が空**になる。
+ * サーバから取れていないときも同じ(見出しだけだと壊れて見えるため)。
+ * 取りに行っている最中かどうかは出さない ―― また見に来ればよい
+ */
+function drawNoRecords() {
+  const s = 'NO RECORDS YET';
+  hud.print(centerX(s), HI_LIST_Y + (HISCORE_ROWS >> 1) * 16, s, 14);
 }
 
 // 一覧の上下に出す ▲▼(点滅させない。消し込みで文字が欠けるため)
@@ -8379,11 +8384,7 @@ mmsxx.expose('mmsxxStatsReset', () => { stats.reset(); return 'クリアしま�
 const BOSS_RUSH_STAGES = [1, 2, 3, 4];
 const RUSH_KEY = 'starfable-rushtimes';
 const RUSH_MAX = 100;
-// 既定のタイム(1 位 60 秒から少しずつ遅くなる 100 件)
-const DEFAULT_RUSH = [...Array(RUSH_MAX).keys()].map(i => ({
-  name: DEFAULT_NAMES[i % DEFAULT_NAMES.length],
-  frames: Math.round((60 + i * 1.8) * 60),
-}));
+// 得点の表と同じく、作り物の初期データは持たない
 let rushDone = false;      // ボスラッシュを 1 巡したか
 let rushStartFrame = -1;   // ボスラッシュ開始フレーム(通算)
 let rushFrames = 0;        // 経過フレーム
@@ -8454,7 +8455,7 @@ const rushTable = new RankingBoard({
   key: RUSH_KEY,
   meKey: RUSH_KEY + '-me',
   max: RUSH_MAX,
-  defaults: DEFAULT_RUSH,
+  defaults: [],
   compare: byTime,
 });
 
@@ -8476,6 +8477,7 @@ function drawRushList() {
     hud.print(56, y, ((e.name || 'YOU') + '     ').slice(0, 5), mine ? 11 : 7);
     hud.print(104, y, formatTime(e.frames), mine ? 11 : 15);
   }
+  if (rushTable.entries.length === 0) drawNoRecords();
   drawRushArrows();
 }
 function drawRushArrows() {
