@@ -232,6 +232,69 @@ export class MMSXXEngine {
   keepSound(seconds) { this.audio.keepSound(seconds); }
 
   /**
+   * **溜めたコマを再生する**(やられたあとのリプレイなど)。
+   *
+   * 指定したレイヤーへ 1 コマずつ写す。**再生のあいだ、そのレイヤーは
+   * リプレイに占領される**ので、空いているレイヤー(いちばん手前など)を渡すこと。
+   * 溜めるのは自動で止まり、終わると元へ戻る。
+   *
+   * ```js
+   * mmsxx.playFrames({ layer: 5, seconds: 3, onEnd: () => 次へ進む() });
+   * mmsxx.stopFrames();   // 途中でやめる(キーで飛ばすときなど)
+   * ```
+   * @param {{layer:number, seconds?:number, fps?:number, loop?:boolean,
+   *          onEnd?:() => void}} opts
+   *   seconds = 何秒ぶん流すか(省略すると溜まっているぶん全部)
+   *   fps = 1 秒あたりのコマ数(既定 60 = 溜めたまま)
+   * @returns {boolean} 始められたか
+   */
+  playFrames(opts = {}) {
+    const have = this.vdp.frameCount;
+    if (!have || opts.layer == null) return false;
+    const fps = Math.max(1, Math.min(60, Math.round(opts.fps || 60)));
+    const want = opts.seconds ? Math.round(opts.seconds * 60) : have;
+    this._replay = {
+      layer: opts.layer,
+      // いちばん古いところから始めて、新しいほうへ進む
+      back: Math.min(have, want) - 1,
+      step: Math.max(1, Math.round(60 / fps)),
+      hold: Math.max(1, Math.round(60 / fps)),   // 1 コマを何フレーム出すか
+      wait: 0,
+      loop: !!opts.loop,
+      first: Math.min(have, want) - 1,
+      onEnd: opts.onEnd || null,
+    };
+    this.holdCapture(true);   // 再生中は溜めない(自分の絵を溜め直さない)
+    return true;
+  }
+
+  /** 再生をやめる(レイヤーは呼んだ側で消すこと) */
+  stopFrames() {
+    if (!this._replay) return;
+    this._replay = null;
+    this.holdCapture(false);
+  }
+
+  /** いま再生中か */
+  get replaying() { return !!this._replay; }
+
+  /** 再生を 1 コマ進める(run のなかで呼ばれる) */
+  _tickReplay() {
+    const r = this._replay;
+    if (!r) return;
+    if (r.wait > 0) { r.wait--; return; }
+    if (!this.vdp.frameToLayer(r.layer, r.back)) { this.stopFrames(); return; }
+    r.wait = r.hold - 1;
+    r.back -= r.step;
+    if (r.back < 0) {
+      if (r.loop) { r.back = r.first; return; }
+      const done = r.onEnd;
+      this.stopFrames();
+      if (done) done();
+    }
+  }
+
+  /**
    * **溜めるのをいったん止める / 再開する**(溜めたものは捨てない)。
    * 絵と音の両方に効く。**ポーズ中は必ず止めること**。
    * 止めないと、輪っかが「止まった画面」と「無音」で埋まってしまい、
@@ -455,6 +518,9 @@ export class MMSXXEngine {
       last = now;
       let steps = 0;
       while (acc >= STEP && steps < 4) {
+        // リプレイ中は、ゲームより先に 1 コマ進める
+        // (ゲーム側がそのレイヤーへ描いても、上書きされないように)
+        if (this._replay) this._tickReplay();
         update(this);
         this.input.endFrame();
         this.frame++;

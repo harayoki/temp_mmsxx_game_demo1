@@ -580,8 +580,12 @@ function refreshRankings() {
 
 /** いま遊んでいるモードのランキング表 */
 const scoreTable = () => (gameMode() === 'hard' ? hardTable : normalTable);
-/** 表に載るかどうか */
-const isHiScore = (v) => scoreTable().qualifies({ score: v });
+/**
+ * 表に載るかどうか。
+ * **0 点は載せない**。表がまだ 100 件たまっていないと何点でも載ってしまうので、
+ * 1 点も取っていない記録がここで弾かれるようにしておく
+ */
+const isHiScore = (v) => v > 0 && scoreTable().qualifies({ score: v });
 let ships = 0;   // 残機。0 になったらゲームオーバー
 let shotLevel = 1;    // 1..5 = 同時に撃つ弾の本数
 let stars = 0;        // 集めた★の数。規定数そろうとボス戦
@@ -2944,7 +2948,7 @@ function snapshotRanking() {
 
 /** 開始時のランキングを基準にして、この得点が載るか */
 function willRankIn(v) {
-  if (!rankSnapshot) return false;
+  if (!rankSnapshot || v <= 0) return false;   // 0 点は載らない(isHiScore と同じ扱い)
   const { scores, max } = rankSnapshot;
   if (scores.length < max) return true;
   return v > scores[max - 1];
@@ -2999,6 +3003,44 @@ function captureClipboard() {
 // NORMAL も別表に載るので、どのモードでも記録は残る
 const scoreCountsForRanking = () => true;
 
+// ---- やられたあとのリプレイ ----
+// ゲームオーバーの文字を出す前に、**直前の 3 秒**をそのまま流す。
+// 溜めてあるコマをいちばん手前のレイヤー(dbg)へ写すだけなので、
+// ゲームの状態はいっさい動かない。SPACE か ESC で飛ばせる
+const REPLAY_LAYER = 5;        // dbg。ふだんは当たり判定の表示にしか使わない
+let replayThen = null;         // 流し終わったあとにやること
+
+/** 直前の数秒を流す。溜まっていなければ何もせず false */
+function startReplay(then) {
+  if (!mmsxx.playFrames({ layer: REPLAY_LAYER, seconds: SHARE_KEEP_SEC, onEnd: endReplay })) {
+    return false;
+  }
+  replayThen = then;
+  state = 'replay';
+  hud.clear();
+  const t = 'REPLAY';
+  hud.print(centerX(t), 8, t, 11);
+  return true;
+}
+
+/** 流し終わった(または飛ばした)。片づけて次へ進む */
+function endReplay() {
+  mmsxx.stopFrames();
+  mmsxx.layer(REPLAY_LAYER).clear();
+  hud.clear();
+  const then = replayThen;
+  replayThen = null;
+  if (then) then();
+}
+
+/** 流しているあいだ。SPACE か ESC で飛ばせる */
+function updateReplay() {
+  // 見出しだけは毎フレーム描き直す(下のレイヤーが上書きされるため)
+  const t = 'REPLAY';
+  hud.print(centerX(t), 8, t, 11);
+  if (mmsxx.input.wasPressed('Space') || mmsxx.input.wasPressed('Escape')) endReplay();
+}
+
 function enterGameOver() {
   // ラスボスに負けたときは、画面を止めて高笑いを聞かせる。
   // (倒したときの名乗りと対になる演出)
@@ -3022,6 +3064,14 @@ function enterGameOver() {
     captureShare('rankin' + score);
   }
   statsFinish();
+  // 先に直前の 3 秒を流してから、ゲームオーバーの画面へ。
+  // 流せなければ(溜まっていなければ)そのまま進む
+  if (startReplay(showGameOver)) return;
+  showGameOver();
+}
+
+/** ゲームオーバーの画面を出す(リプレイのあとに呼ばれる) */
+function showGameOver() {
   state = 'over';
   stateTimer = 0;
   player.visible = false;
@@ -3629,8 +3679,9 @@ function destroyPlayer(cause = 'unknown', noMercy = false) {
   // これが最後の 1 機なら、ここでゲームオーバーが決まる。
   // シェアに載せる絵は、**やられる前**に撮ってあった 1 枚を使う
   if (ships <= 1) shareShotSaved = deathShareShot();
-  // 次の 1 機ぶんは溜め直す(前の機の、爆発や復活中の絵を混ぜない)
-  mmsxx.keepFrames(SHARE_KEEP_SEC);
+  // 次の 1 機ぶんは溜め直す(前の機の、爆発や復活中の絵を混ぜない)。
+  // **最後の 1 機のときは残す**。やられたあとのリプレイに使うため
+  else mmsxx.keepFrames(SHARE_KEEP_SEC);
   // 大きな爆発を重ねて、やられたことがはっきり分かるようにする
   spawnBoom(player.x, player.y);
   for (let i = 0; i < 10; i++) {
@@ -10252,6 +10303,8 @@ mmsxx.run(() => {
   } else if (state === 'play') {
     updateStageNotice();
     updatePlay();
+  } else if (state === 'replay') {
+    updateReplay();
   } else if (state === 'over') {
     updatePlay(); // 残った敵や爆発は動かし続ける
     stateTimer++;

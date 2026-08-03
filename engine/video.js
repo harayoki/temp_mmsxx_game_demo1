@@ -812,6 +812,36 @@ export class VDP {
     return out;
   }
 
+  /**
+   * 溜めたコマを**レイヤーへ写す**(リプレイの再生に使う)。
+   * 溜めてあるのはボーダー込みの絵なので、**描画領域のぶんだけ**切り出す。
+   * 透明(0)は背景色に置き換えるので、下のレイヤーは透けない。
+   * @param {number} layerIndex 写す先
+   * @param {number} back 何コマ前か(0 = いちばん新しい)
+   * @returns {boolean} 写せたか
+   */
+  frameToLayer(layerIndex, back) {
+    const idx = this.frameBack(back);
+    const L = this.layers[layerIndex];
+    if (!idx || !L) return false;
+    const ow = this.outWidth;
+    const bx = this.borderX, by = this.borderY;
+    const w = Math.min(this.width, L.width), h = Math.min(this.height, L.height);
+    const bg = this.backdrop || 1;
+    for (let y = 0; y < h; y++) {
+      const src = (y + by) * ow + bx;
+      const dst = y * L.width;
+      for (let x = 0; x < w; x++) {
+        const c = idx[src + x];
+        L.pixels[dst + x] = c === 0 ? bg : c;
+      }
+    }
+    // セルの持ち物(どこに絵があるか)も埋めておく。合成の間引きに使われる
+    if (L.cells) L.cells.fill(1);
+    if (L.cellsOn !== undefined) L.cellsOn = L.cells ? L.cells.length : 0;
+    return true;
+  }
+
   /** パレットの 32bit 値を作り直す(色合いを切り替えたとき) */
   _buildPal32() {
     for (let i = 1; i <= 15; i++) {
