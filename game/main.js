@@ -13,7 +13,7 @@ import { StaffRoll } from '../engine/util/staffroll.js';
 import { Gallery } from '../engine/util/gallery.js';
 import { SoundTest } from '../engine/util/soundtest.js';
 import { FpsMeter } from '../engine/util/fps.js';
-import { demoFor, scaleDemo } from '../engine/util/demotunes.js';
+import { demoFor, scaleDemo, drumKitDemo } from '../engine/util/demotunes.js';
 import { LocalStorageStore } from '../engine/storage.js';
 import { StatsLog } from '../engine/stats.js';
 import { GAME_DATA } from './gamedata.js';
@@ -9660,6 +9660,11 @@ const SOUND_TALK = ['kozorite', 'kingLaugh', 'kiaiA', 'kiaiB', 'kiaiC'];
 // 打楽器の音色(fmDrum...)だけは、ドレミではなくリズムの曲になる
 const SOUND_TONE = mmsxx.audio.waveNames;
 for (const w of SOUND_TONE) mmsxx.audio.defineBGM('tone_' + w, demoFor(w));
+// **打楽器を全部使った曲**。音色そのものではないので、欄のいちばん下へ足す。
+// 1 つずつ聞いたあとに、組にするとどう鳴るかを聞くためのもの
+const DRUM_KIT = 'drumKit';
+mmsxx.audio.defineBGM('tone_' + DRUM_KIT, drumKitDemo());
+const SOUND_TONE_LIST = [...SOUND_TONE, DRUM_KIT];
 // 音色を次々に替えてドレミを鳴らす曲。聞き比べは TONE 欄でやるので、
 // こちらはコンソールから鳴らしたいとき用に置いておくだけ
 mmsxx.audio.defineBGM('scale', scaleDemo(SOUND_TONE));
@@ -9718,7 +9723,7 @@ function enterSoundTest() {
       // (先にセリフを聞かせないため)
       {
         // 音色テスト。波形メモリ(wt〜)もここに並ぶ
-        title: 'TONE', items: SOUND_TONE,
+        title: 'TONE', items: SOUND_TONE_LIST,
         play: (name) => { soundBack = 'tone_' + name; mmsxx.audio.playBGM(soundBack, false, true); },
       },
       ...((DEV || metSet.has('kingdown')) ? [{
