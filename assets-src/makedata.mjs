@@ -3816,99 +3816,6 @@ const CANON_HARMONY_A2 = [
 // 前(A)と後ろ(B, C)は休む。1 小節 = l1 の休符 1 つ
 const REST_BARS = (n) => 'l1 ' + 'r '.repeat(n);
 
-// ---- メイン BGM の別アレンジ(MAIN2) ----
-// 同じカノン進行・同じ骨格のまま、**イース の草原**のような
-// 走りつづける野外曲に仕立て直したもの。古代節を少しだけ入れてある。
-//
-// もとの MAIN との違いは 4 つ。
-//   ・**テンポを上げる**(150 -> 172)。歩く曲から駆ける曲へ
-//   ・**前打音**を足す。拍の頭へ 16 分でぶつけてから本命の音へ入る
-//     (「タラー」と滑り込むあの感じ。古代節でいちばん耳につくところ)
-//   ・**ベースを 16 分のギャロップ**にする(付点 8 分 + 16 分のはねから、
-//     8 分 + 16 分オクターブ上 + 16 分へ)。前へ前へ転がる推進力が出る
-//   ・**ハイハットを 16 分**で刻む。ノリを 8 ビートから 16 ビートへ
-//
-// 音程の骨格はもとのまま(小節の頭はコードの構成音)。
-// 歌はそのまま、走りかたを変えただけ、という関係にしてある。
-
-// A メロ。もとの旋律に前打音と 8 分の刻みを足したもの
-const YS_MELODY_A = [
-  'o5 e8. d16 e4 d8 c8 r4',            // Am7  前打音 d から e へ
-  'o5 d8. b16 d4 b8 g8 b4',            // Em7
-  'o5 c8. a16 c4 a8 f8 r4',            // FM7
-  'o5 l12 b b >c< l8 b4 g8 e8 g4',     // CM7  三連はもとのまま残す
-  'o5 a8. f16 a4 f8 d8 r4',            // Dm7
-  'o5 g8. e16 g4 e8 c8 e4',            // Am7
-  'o5 l12 f g a l8 f4 d8 f8 a4',       // Dm7  三連の駆け上がり
-  'o5 e4. b8 >e4< b8 g+8',             // E7   オクターブ跳びで決める
-].join(' ');
-
-// A' メロ。2 周目。音を切らさず、上へ抜ける形を増やす
-const YS_MELODY_A2 = [
-  'o5 e8 >e8< d8. c16 e4 r4',          // Am7  頭でオクターブ上を叩く
-  'o5 d8. e16 d8 b8 g4 b8 >d8<',       // Em7
-  'o5 c8. d16 c8 a8 f4 a8 >c8<',       // FM7
-  'o5 l12 b b >c< l8 b8 g8 b4 >c8< b8', // CM7
-  'o5 a8. b16 a8 f8 d4 f8 a8',         // Dm7
-  'o5 g8. a16 g8 e8 c4 e8 g8',         // Am7
-  'o5 l12 f g a l8 >d8< a8 f8 d8 f4',  // Dm7
-  'o5 e4 g+8 b8 >e4< b8 g+8',          // E7
-].join(' ');
-
-// B メロ(展開)。跳ねずに、ひたすら前へ進む形にする
-const YS_MELODY_B = [
-  'o5 f8. d16 f4 a8 f8 d4',            // Dm7
-  'o5 g8. f16 g4 b8 g8 d4',            // G7
-  'o5 e8. c16 e4 g8 e8 c4',            // CM7
-  'o5 a8. g16 a4 >c8< a8 e4',          // Am7
-  'o5 f8. a16 f4 d8 f8 a4',            // Dm7
-  'o5 g+8. b16 g+4 e8 g+8 b4',         // E7
-  'o5 a8. b16 a8 g8 e8 c8 e4',         // Am7
-  'o5 b4 g+8 e8 b4 >e4<',              // E7
-].join(' ');
-
-// C メロ(終結)。いちばん高いところを通してから元へ帰る
-const YS_MELODY_C = [
-  'o5 >c8.< a16 >c4< a8 f8 a4',        // FM7
-  'o5 b8. g16 b4 >d8< b8 g4',          // G7
-  'o5 g8. e16 g4 b8 g8 e4',            // Em7
-  'o5 l12 a b >c< l8 a4 e8 a8 >c4<',   // Am7
-  'o5 f8. d16 f4 a8 f8 d4',            // Dm7
-  'o5 g8. b16 >d4< b8 g8 d4',          // G7
-  'o5 e8. g16 >c4< g8 e8 g4',          // CM7
-  'o5 b2 g+8 b8 >e4<',                 // E7
-].join(' ');
-
-/**
- * ギャロップのベース。1 拍を「8 分 + 16 分(オクターブ上) + 16 分」で刻む。
- * 付点のはねより**前のめり**になり、走っている感じが出る
- */
-const YS_BASS = (roots) => roots.map((r) => `o2 [${r}8 >${r}16< ${r}16 ]4`).join(' ');
-// コード進行はもとのまま。A(8) を 2 回、B(8)、C(8) で 32 小節
-const YS_BASS_A = YS_BASS(['a', 'e', 'f', 'c', 'd', 'a', 'd', 'e']);
-const YS_BASS_B = YS_BASS(['d', 'g', 'c', 'a', 'd', 'e', 'a', 'e']);
-const YS_BASS_C = YS_BASS(['f', 'g', 'e', 'a', 'd', 'g', 'c', 'e']);
-
-// ドラム。2 拍ぶんの型(バスドラ + 16 分ハイハット + スネア + ハイハット)。
-// 32 小節 = 64 回まわす
-const YS_DRUM = 'v13o2c8 v5o6c16 v5o6c16 v11o4c8 v5o6c16 v5o6c16';
-
-const BGM_MAIN2 = [
-  // 歌メロ。ビブラート(@v)を深めにかけ、エコー(@s)で残響を作る。
-  // 1 オクターブ重ね(@o1)とデチューン(@d8)で、線を太くする
-  't172 q7 v10 l8 @{saw} @e{soft} @s3 @v5 @o1 @d8 ' +
-    YS_MELODY_A + ' ' + YS_MELODY_A2 + ' ' + YS_MELODY_B + ' ' + YS_MELODY_C,
-  // アルペジオはもとのまま。細いパルスにしてエコーを深くし、きらつかせる
-  't172 q7 v8 l16 @{pulse12} @e{flat} @s4 [' + CANON_ARP + ']2 ' +
-    BRIDGE_ARP + ' ' + CODA_ARP,
-  // ベースは三角波のギャロップ
-  't172 q8 v12 l8 @{triangle} @e{flat} [' + YS_BASS_A + ']2 ' +
-    YS_BASS_B + ' ' + YS_BASS_C,
-  // ドラム(ノイズ)。16 分のハイハットで前へ押す
-  '@{noise} @e{percussive} t172 l8 [' + YS_DRUM + ']64',
-];
-
-
 // メイン BGM: 明るいパルス波のアルペジオ + 三角波ベース + ノイズドラム
 // 構成は A - A'(変奏) - B(展開) - C(終結) の 32 小節でループする
 const BGM_MAIN = [
@@ -6468,8 +6375,6 @@ const out =
     images: imagesOut,
     bgm: {
       start: BGM_START, fanfare: BGM_BONUS, main: BGM_MAIN,
-      // メインの別アレンジ(イースの草原ふうに走らせたもの)
-      main2: BGM_MAIN2,
       // フルパワー時は「幻想即興曲」。前の曲は没曲 1 として残す
       power: BGM_IMPROMPTU, botsu1: BGM_POWER,
       boss: BGM_BOSS, lastboss: BGM_LASTBOSS, moai: BGM_MOAI, todo: BGM_TODO, // 面クリアのマーチ。いまは鳴らしていない(そのうち使う)ので UNUSED1 の名前で置いてある
