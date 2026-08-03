@@ -195,6 +195,8 @@ export class RankingBoard {
     this.fetchedAt = 0;
     /** @type {any} 直近の通信で起きた失敗(遊びは止めないので、見たい人だけ見る) */
     this.lastError = null;
+    /** @type {object|null} submit() で入れたが、まだ送れていない記録(送り直し用) */
+    this._sent = null;
 
     const me = this.meStore.load(this.meKey);
     this.me = me && typeof me === 'object' ? me : null;
@@ -322,12 +324,32 @@ export class RankingBoard {
    * @returns {Promise<number>} 順位(0 起点)。載らなかったときは -1
    */
   async submit(entry, asMine = true) {
+    // 送り直しに備える。同じ記録をもう一度送るとき、前に入れたぶんが
+    // 残っていると一覧に同じ名前が並んでしまうので、先に取り除く
+    this._dropSent(entry);
     const rank = this._apply(entry, asMine);
+    // 送れなかったときに取り除けるよう、入れたものを覚えておく
+    this._sent = rank >= 0 ? this.entries[rank] : null;
     const real = await this._send(entry, rank);
+    // 送れたのなら、もう取り除く必要はない
+    if (!this.lastError) this._sent = null;
     return typeof real === 'number' ? real : rank;
   }
 
   // ---- 内部 ----
+
+  /**
+   * 送れなかった記録を手元の一覧から取り除く(送り直しの前に呼ぶ)。
+   * **同じ中身のときだけ**取り除く。別の記録を送るときは何もしない
+   * (前に送れなかったぶんは、手元の記録としてそのまま残す)
+   */
+  _dropSent(entry) {
+    const sent = this._sent;
+    this._sent = null;
+    if (!sent || !this._sameEntry(sent, entry)) return;
+    const i = this.entries.indexOf(sent);
+    if (i >= 0) this.entries.splice(i, 1);
+  }
 
   /** 手元の表へ入れて順位を返す(通信はしない) */
   _apply(entry, asMine) {
