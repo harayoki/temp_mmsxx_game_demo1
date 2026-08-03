@@ -2487,7 +2487,7 @@ function enterTitle(page = 0, focusRank = -1, fromOver = false) {
   // ゲームオーバーから戻ったときは、それが選ばれた状態にする
   refreshModes(fromOver);
   state = 'title';
-  paused = false;
+  setPaused(false);
   bossPractice = false;   // 練習モードはタイトルへ戻ったら解除
   titleScene = true;      // タイトルは決まった背景にする
   // 遊んでいないあいだは溜めない(持ちっぱなしにしない)
@@ -2740,7 +2740,7 @@ function startStage() {
   // ここまでタイトル用の背景だったので、面の背景に切り替える。
   // (以前はボスが出るまで解除されず、1 面がずっとタイトルの背景のままだった)
   titleScene = false;
-  paused = false;
+  setPaused(false);
   clearEntities();
   for (const sp of helpIconSprites()) sp.visible = false;
   playFrame = 0;
@@ -8242,7 +8242,21 @@ function updateHitArea() {
 }
 
 // ---- ポーズ (P キー / ESC) ----
+// **直に書き換えない。** かならず setPaused() を通す。
+// ポーズ中は画面と音を溜めるのも止める必要があり、直書きするとそこが抜ける
+// (「ポーズ -> Q -> 遊び直し」で 1 コマも溜まらない、という不具合が出た)
 let paused = false;
+
+/**
+ * ポーズを入り切りする。**溜めるのを止める/戻すのも一緒に面倒を見る**。
+ * ポーズ中も画面は描き続けているので、止めないと輪っかが
+ * 「止まった画面」で埋まり、やられる直前の数秒が消える
+ * @param {boolean} v
+ */
+function setPaused(v) {
+  paused = !!v;
+  mmsxx.holdCapture(paused);
+}
 // ---- ポーズ中の隠しコマンド ----
 // ↑↑↓↓←→←→BA と "HYPER" は全パワーアップ(どちらも 1 ゲームに 1 回だけ)。
 // 名前を打ち込むとステージワープ、"AHO"/"BAKA" で自爆する。
@@ -8661,7 +8675,7 @@ let bossPractice = false;
 
 function warpToStage(n, boss) {
   stageNo = n;
-  paused = false;
+  setPaused(false);
   bossPractice = !!boss;
   hud.fill(0, 0, 112, VW, 24);
   startStage();
@@ -8837,7 +8851,7 @@ function runCheatWord(word) {
   // 一気にゲームオーバー。残機を捨てて終わらせる(スタッフロールには載せない)。
   // 'AHO' より先に見ること(AHOAHO は AHO でも終わってしまうため)
   if (word.endsWith('AHOAHO') || word.endsWith('BAKABON')) {
-    paused = false;
+    setPaused(false);
     hud.fill(0, 0, 80, VW, 64);
     ships = 0;
     barrierHP = 0;   // バリアで肩代わりされないように
@@ -8845,7 +8859,7 @@ function runCheatWord(word) {
     return;
   }
   if (word.endsWith('AHO') || word.endsWith('BAKA')) {
-    paused = false;
+    setPaused(false);
     hud.fill(0, 0, 80, VW, 64);
     destroyPlayer("CHEAT SUICIDE");
     return;
@@ -8932,7 +8946,7 @@ let scenes = [];
 /** 一覧から選ぶ画面(シーン選択とボスラッシュのメニューで使い回す) */
 function enterListMenu(title, items) {
   state = 'scene';
-  paused = false;
+  setPaused(false);
   clearEntities();
   for (const sp of helpIconSprites()) sp.visible = false;
   player.visible = false;
@@ -9198,7 +9212,7 @@ function finishStory() {
 function enterStory(build, bgm, onDone) {
   storyDone = onDone || null;
   state = 'story';
-  paused = false;
+  setPaused(false);
   clearEntities();
   for (const sp of helpIconSprites()) sp.visible = false;
   player.visible = false;
@@ -9378,7 +9392,7 @@ let staffRoll = null;
 function enterStaffRoll() {
   if (currentBGM === 'elise') { mmsxx.audio.stopBGM(); currentBGM = null; }
   state = 'staff';
-  paused = false;
+  setPaused(false);
   clearEntities();
   for (const sp of helpIconSprites()) sp.visible = false;
   player.visible = false;
@@ -9473,7 +9487,7 @@ let soundPage = null;
 function enterSoundTest() {
   if (currentBGM === 'elise') { mmsxx.audio.stopBGM(); currentBGM = null; }
   state = 'sound';
-  paused = false;
+  setPaused(false);
   clearEntities();
   player.visible = false;
   aux.visible = false;   // 炎とバリアも一緒に消す
@@ -9873,7 +9887,7 @@ let charBook = null;
 function enterCharList() {
   if (currentBGM === 'elise') { mmsxx.audio.stopBGM(); currentBGM = null; }
   state = 'chars';
-  paused = false;
+  setPaused(false);
   clearEntities();
   player.visible = false;
   aux.visible = false;   // 炎とバリアも一緒に消す
@@ -10044,11 +10058,7 @@ const PAUSE_TEXT = 'PAUSE';
 const PAUSE_HINT = 'ESC:RESUME Q:RESET';
 const PAUSE_HINT2 = 'CODE + RETURN';
 function togglePause() {
-  paused = !paused;
-  // 止めているあいだは画面と音を溜めない。
-  // 溜めつづけると、輪っかが「止まった画面」で埋まって、
-  // やられる直前の数秒が消えてしまう
-  mmsxx.holdCapture(paused);
+  setPaused(!paused);
   mmsxx.audio.playSE('pause');
   if (paused) {
     mmsxx.audio.stopBGM();
@@ -10161,7 +10171,7 @@ mmsxx.run(() => {
     }
     // ポーズ中に Q でタイトルへ戻す
     if (mmsxx.input.wasPressed('KeyQ')) {
-      paused = false;
+      setPaused(false);
       statsFinish();
       // ポーズから抜けて終わった場合は、**コンティニューできない**。
       // (やられていないのに、同じ面から何度でも始められてしまうため)

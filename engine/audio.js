@@ -198,6 +198,7 @@ registerProcessor('mmsxx-tap', MmsxxTap);
    */
   keepSound(seconds) {
     this._keepSec = Math.max(0, seconds);
+    this.holdSound(false);   // 止めたままにしない(絵と同じ理由)
     if (!this.ctx) return;              // 解禁待ち(_out で始める)
     if (this._keepSec <= 0) { this._stopTap(); return; }
     this._out();                        // bus を用意させる

@@ -743,6 +743,9 @@ export class VDP {
   keepFrames(seconds) {
     const n = Math.max(0, Math.round(seconds * 60));
     this._keepFrames = n;
+    // **止めたままにしない**。溜めはじめるのに止まっている、という
+    // 組み合わせがあると、気づかないまま 1 コマも溜まらなくなる
+    this._frameHold = false;
     this._frames = n ? [] : null;
     this._frameAt = 0;   // 次に書く場所(輪っか)
     this._frameLen = 0;  // いま何コマ持っているか
