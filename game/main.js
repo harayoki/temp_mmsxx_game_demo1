@@ -3296,6 +3296,100 @@ function updateSubmitting() {
   mmsxx.audio.playSE('item', SE_EVENT);
 }
 
+// ---- シェア(遊んだ画面を人に見せる) ----
+// **canvas の中には描かない**。DOM の板を上に重ねる。
+// ドットを汚さずに済み、文字も画像もそのまま扱えるため
+// (docs/SMARTPHONE.md の 5 節と同じ考えかた)。
+//
+// いまは**枠だけ**。画像・文言・ボタンの中身は別の作業で足す。
+let shareEl = null;         // ダイアログの入れもの(初めて出すときに作る)
+let shareOpen = false;      // 出ているか
+let sharePaused = false;    // こちらでポーズしたか(閉じるときに戻す)
+let shareAfter = null;      // 閉じたあとにやること(ランクインのときの続き)
+
+/** ダイアログの板を作る(1 回だけ) */
+function makeShareEl() {
+  if (shareEl) return shareEl;
+  const el = document.createElement('div');
+  el.id = 'share';
+  Object.assign(el.style, {
+    position: 'fixed', inset: '0', display: 'none',
+    alignItems: 'center', justifyContent: 'center',
+    background: 'rgba(0,0,0,0.72)', zIndex: '9998',
+  });
+  const box = document.createElement('div');
+  Object.assign(box.style, {
+    font: '14px monospace', color: '#e8e8e8', textAlign: 'center',
+    background: '#101010', border: '2px solid #cccccc',
+    padding: '20px 28px', lineHeight: '1.7',
+  });
+  // 中身(画像と文言)はこれから作る。いまは枠とボタンだけ。
+  // **日本語と英語を両方並べる**(どちらの言葉の人にもそのまま使ってもらう)
+  const body = document.createElement('div');
+  body.innerHTML = 'SHARE<br>（ここに画像と文言が入ります）<br>'
+    + '(image and text go here)';
+  box.appendChild(body);
+
+  // DOM なのでボタンが置ける。**キーでも押せる**ようにしてある
+  //   SPACE = 送信 / ESC = とじる
+  const row = document.createElement('div');
+  Object.assign(row.style, { marginTop: '16px', display: 'flex', gap: '12px', justifyContent: 'center' });
+  const mkBtn = (label, fn) => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    Object.assign(b.style, {
+      font: '13px monospace', color: '#e8e8e8', background: '#202020',
+      border: '2px solid #cccccc', padding: '8px 16px', cursor: 'pointer',
+    });
+    // 押したあとに焦点を残さない(そのあとの SPACE でボタンが再び押されるのを防ぐ)
+    b.addEventListener('click', () => { b.blur(); fn(); });
+    row.appendChild(b);
+    return b;
+  };
+  mkBtn('送信 / SHARE', () => sendShare());
+  mkBtn('とじる / CLOSE', () => closeShare());
+  box.appendChild(row);
+  el.appendChild(box);
+  document.body.appendChild(el);
+  shareEl = el;
+  return el;
+}
+
+/**
+ * シェアのダイアログを出す。
+ * @param {() => void} [after] 閉じたあとにやること(ランクインのときの続き)
+ */
+function openShare(after) {
+  if (shareOpen) return;
+  shareOpen = true;
+  shareAfter = after || null;
+  // 裏ではポーズしておく。すでにポーズ中なら触らない
+  sharePaused = (state === 'play' && !paused);
+  if (sharePaused) togglePause();
+  makeShareEl().style.display = 'flex';
+  mmsxx.audio.playSE('shutter', SE_JINGLE);
+}
+
+/**
+ * 送信。**SNS へつなぐところはまだ無い**ので、いまは閉じるだけ。
+ * つなぐときはここに書き足す(画像はすでに 2 倍で取れる)
+ */
+function sendShare() {
+  mmsxx.audio.playSE('item', SE_EVENT);
+  closeShare();
+}
+
+/** ダイアログを閉じて、元の状態へ戻す */
+function closeShare() {
+  if (!shareOpen) return;
+  shareOpen = false;
+  if (shareEl) shareEl.style.display = 'none';
+  if (sharePaused) { togglePause(); sharePaused = false; }
+  const after = shareAfter;
+  shareAfter = null;
+  if (after) after();
+}
+
 /** 被弾: バリアが最優先で身代わり、次にパワーダウン、1way なら爆発して 1 機失う */
 function damagePlayer(cause = 'unknown') {
   startShake(10);
@@ -9868,6 +9962,19 @@ mmsxx.run(() => {
     }
     return;
   }
+  // シェアのダイアログが出ているあいだは、**キーをゲームへ流さない**。
+  // 閉じるのは ESC だけ
+  if (shareOpen) {
+    if (mmsxx.input.wasPressed('Space')) sendShare();
+    else if (mmsxx.input.wasPressed('Escape')) closeShare();
+    return;
+  }
+  // ALT + P でシェアのダイアログを出す。どの画面でも効く
+  // (ALT 付きのキーは打ち込みに入らないので、P が名前や裏技に混ざることはない)
+  if (altDown() && mmsxx.input.wasPressed('KeyP')) {
+    openShare();
+    return;
+  }
   // ALT + M で音を消す / 戻す。どの画面でも効く。
   // 曲は止めずに出口を閉じるだけなので、戻せば続きから聞こえる
   if (altDown() && mmsxx.input.wasPressed('KeyM')) {
@@ -9981,7 +10088,7 @@ mmsxx.run(() => {
     // 記録を出したときは、少し待てばスペースですぐ名前入力へ飛べる
     if (stateTimer > 90 && scoreCountsForRanking() && isHiScore(score) &&
         gameMode() !== 'bossrush' && mmsxx.input.wasPressed('Space')) {
-      enterNameEntry('score');
+      openShare(() => enterNameEntry('score'));
       return;
     }
     // 「月光」を最後まで聞かせてから次へ進む
@@ -9991,7 +10098,9 @@ mmsxx.run(() => {
         if (rushDone && rushTable.qualifies({ frames: rushFrames })) enterNameEntry('rush');
         else enterTitle();
       } else if (scoreCountsForRanking() && isHiScore(score)) {
-        enterNameEntry('score');
+        // 記録を出したときは、名前入力の前にシェアを見せる。
+        // 閉じたら今までどおり名前入力へ進む
+        openShare(() => enterNameEntry('score'));
       } else {
         // ゲームオーバーから戻ったときは CONTINUE が選ばれた状態にする
         enterTitle(0, -1, true);
