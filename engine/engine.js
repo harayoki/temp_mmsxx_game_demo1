@@ -2,6 +2,7 @@
 import { PSGPlayer } from './audio.js';
 import { Input } from './input.js';
 import { ErrorLog } from './errorlog.js';
+import { createRng } from './rng.js';
 
 export { SCREEN_W, SCREEN_H, VIRTUAL_W, VIRTUAL_H };
 export { ErrorLog };
@@ -118,6 +119,21 @@ export class MMSXXEngine {
     // 手元の開発中はエラーで止め、公開版は致命的でなければ続ける
     this.errors = new ErrorLog({ local: MMSXXEngine.isLocal }).install();
     this.input = new Input(() => this.audio.unlock());
+    /**
+     * **種つきの乱数**。同じ種なら、いつでも同じ順番で同じ数が出る。
+     * プレイの再現(操作の記録から作り直す)と、途中の状態の保存に使う。
+     *
+     * 名前ごとに別の流れになるので、**片方が 1 回多く引いても、
+     * もう片方はずれない**。どこまで分けるかはゲームが決める。
+     * 見た目だけのもの(爆発の粒など)は `Math.random()` のままでよい。
+     *
+     * ```js
+     * mmsxx.rng.seed(12345);        // 親の種(記録に残すのはこれだけ)
+     * mmsxx.rng('boss').int(0, 3);  // ボスの流れから 0..3
+     * mmsxx.rng().next();           // 名前を省くと既定の流れ
+     * ```
+     */
+    this.rng = createRng(opts.seed);
     /**
      * 開発版のビルドか。既定は「手元で開いているか」だが、
      * opts.dev を渡せばビルドで固定できる(公開版は false)
