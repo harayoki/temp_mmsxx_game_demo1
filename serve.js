@@ -33,8 +33,9 @@ function saveCapture(dataUrl, name) {
   const kinds = [['data:image/png;base64,', 'png'], ['data:image/gif;base64,', 'gif'],
     ['data:video/webm;base64,', 'webm'], ['data:video/mp4;base64,', 'mp4']];
   const hit = kinds.find(([head]) => dataUrl.startsWith(head))
-    // codecs 付き(video/webm;codecs=vp9,opus)も受ける
-    || (dataUrl.startsWith('data:video/webm;') ? [null, 'webm'] : null);
+    // codecs 付き(video/webm;codecs=vp9,opus / video/mp4;codecs=avc1...)も受ける
+    || (dataUrl.startsWith('data:video/webm;') ? [null, 'webm'] : null)
+    || (dataUrl.startsWith('data:video/mp4;') ? [null, 'mp4'] : null);
   if (comma < 0 || !hit) {
     throw new Error('PNG / GIF / 動画 の data URL ではありません');
   }
@@ -64,8 +65,8 @@ http.createServer((req, res) => {
     req.setEncoding('utf8');
     req.on('data', (c) => {
       body += c;
-      // 画面 1 枚ぶんなので、これより大きいものは受け取らない
-      if (body.length > 4 * 1024 * 1024) { req.destroy(); }
+      // 数十秒の動画も来るので、そこそこの大きさまで受ける
+      if (body.length > 64 * 1024 * 1024) { req.destroy(); }
     });
     req.on('end', () => {
       try {

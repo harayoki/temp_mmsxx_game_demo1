@@ -308,11 +308,13 @@ export class MMSXXEngine {
    *
    * ```js
    * mmsxx.startRecord();                 // 録りはじめ
-   * const blob = await mmsxx.stopRecord();  // 止めて受け取る(video/webm)
+   * const blob = await mmsxx.stopRecord();  // 止めて受け取る(既定は mp4)
    * ```
-   * @param {{sound?:boolean, fps?:number}} [opts]
+   * @param {{sound?:boolean, fps?:number, type?:'mp4'|'webm'}} [opts]
    *   sound = 音も入れるか(既定 true)。**ミュートの手前**から拾うので、
-   *   音を切って遊んでいても動画には入る
+   *   音を切って遊んでいても動画には入る。
+   *   type = 入れもの(既定 'mp4')。**mp4 はどこでも再生できる**が、
+   *   作れない環境もあるので、その場合は webm に落ちる
    * @returns {boolean} 始められたか(使えない環境では false)
    */
   startRecord(opts = {}) {
@@ -331,16 +333,22 @@ export class MMSXXEngine {
         this._recDest = dest;
       } catch (e) { /* 音なしで続ける */ }
     }
-    // 作れる形を上から順に試す(環境によって作れるものが違う)
-    const types = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus',
-      'video/webm', 'video/mp4'];
-    const type = types.find(t => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t));
+    // 作れる形を上から順に試す(環境によって作れるものが違う)。
+    // **mp4 が既定**。どこでも再生できるので、人に渡すならこちら。
+    // 作れない環境(Firefox など)では webm に落ちる
+    const MP4 = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4;codecs=avc1', 'video/mp4'];
+    const WEBM = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+    const types = (opts.type === 'webm') ? WEBM.concat(MP4) : MP4.concat(WEBM);
+    const ok = (t) => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t);
+    const type = types.find(ok);
     let rec;
     try { rec = new MediaRecorder(stream, type ? { mimeType: type } : undefined); }
     catch (e) { return false; }
     const chunks = [];
     rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
     this._rec = { rec, chunks, type: type || 'video/webm' };
+    /** できたものの入れもの('mp4' か 'webm') */
+    this.recordKind = (type || '').startsWith('video/mp4') ? 'mp4' : 'webm';
     rec.start();
     return true;
   }

@@ -3014,6 +3014,8 @@ const scoreCountsForRanking = () => true;
 // (DOM を重ねない方針。録画にそのまま入ってよい)
 const REPLAY_LAYER = 5;        // dbg。ふだんは当たり判定の表示にしか使わない
 const REPLAY_TEXT = 'REPLAY';
+// 録画の入れもの。'mp4' はどこでも再生でき、'webm' は作れる環境が広い
+const REPLAY_MOVIE = 'mp4';
 let replayThen = null;         // 流し終わったあとにやること
 let replayFile = 0;            // 録画したものを保存するときの通し番号
 
@@ -3026,8 +3028,9 @@ function startReplay(then) {
   state = 'replay';
   hud.clear();               // ゲーム中の文字は消す
   mmsxx.hideSprites(true);   // スプライトも 1 枚も出さない
-  // 開発中は、流れているところをそのまま録って capture/ へ残す
-  if (DEV) mmsxx.startRecord();
+  // 開発中は、流れているところをそのまま録って capture/ へ残す。
+  // **mp4 で録る**(どこでも再生できる)。作れない環境では webm に落ちる
+  if (DEV) mmsxx.startRecord({ type: REPLAY_MOVIE });
   return true;
 }
 
