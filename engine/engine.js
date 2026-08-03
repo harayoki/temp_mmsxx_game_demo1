@@ -193,6 +193,49 @@ export class MMSXXEngine {
    */
   capture(opts) { return this.vdp.capture(opts); }
 
+  /**
+   * **直前のコマを溜めておく**。あとから「何秒前の画面」を取り出せる。
+   *
+   * 色番号のまま(1 ドット 1 バイト)持つので、色に直したものより 4 分の 1 で済む。
+   * 264x200 なら 1 コマ 51.6KB。**60fps で 3 秒なら 9MB ほど**。
+   *
+   * ```js
+   * mmsxx.keepFrames(3);            // 直前 3 秒ぶんを持ちつづける
+   * mmsxx.frameAgo(1);              // 1 秒前にいちばん近いコマ(canvas)
+   * mmsxx.frameAgo(1, 2);           // 2 倍に広げて取り出す
+   * mmsxx.frameBackCanvas(0);       // いちばん新しいコマ(再生に使う)
+   * mmsxx.frameCount;               // いま持っているコマ数
+   * mmsxx.keepFrames(0);            // やめて捨てる
+   * ```
+   *
+   * 60fps を落とさないよう、写すのは**色に直す前の 1 回のコピー**だけ。
+   * @param {number} seconds 何秒ぶん持つか
+   */
+  keepFrames(seconds) { this.vdp.keepFrames(seconds); }
+
+  /** いま持っているコマ数 */
+  get frameCount() { return this.vdp.frameCount; }
+
+  /**
+   * **何秒前の画面**を取り出す。持っているなかでいちばん近いコマを返す。
+   * 溜めていない・足りないときは null。
+   * @param {number} secondsAgo 何秒前か
+   * @param {number} [scale=1] 何倍に広げるか(ドットはぼかさない)
+   */
+  frameAgo(secondsAgo, scale = 1) {
+    const back = Math.max(0, Math.round(secondsAgo * 60));
+    const len = this.vdp.frameCount;
+    if (!len) return null;
+    // 足りなければ、持っているなかでいちばん古いものを返す
+    return this.vdp.frameCanvas(Math.min(back, len - 1), scale);
+  }
+
+  /**
+   * 溜めたコマを番号で取り出す(0 = いちばん新しい)。再生に使う。
+   * @param {number} back @param {number} [scale=1]
+   */
+  frameBackCanvas(back, scale = 1) { return this.vdp.frameCanvas(back, scale); }
+
   /** いまの画面を画像ファイルとして保存する(原寸) */
   download(filename = 'screenshot.png', opts) {
     const url = this.vdp.capture(opts);

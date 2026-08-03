@@ -2490,6 +2490,7 @@ function enterTitle(page = 0, focusRank = -1, fromOver = false) {
   paused = false;
   bossPractice = false;   // 練習モードはタイトルへ戻ったら解除
   titleScene = true;      // タイトルは決まった背景にする
+  mmsxx.keepFrames(0);    // 遊んでいないあいだは画面を溜めない(持ちっぱなしにしない)
   clearEntities();
   player.visible = false;
   aux.visible = false;   // 炎とバリアも一緒に消す
@@ -2890,7 +2891,6 @@ function enterPlay(fromContinue = false) {
   coinValue = COIN_BASE;
   // 前のゲームで取っておいたシェアの絵は持ち越さない
   shareShotSaved = null;
-  shareShotRing = [];
   // ドラゴンの炎はやられても消えないが、新しいゲームでは持ち越さない
   dragonFlame = false;
   // モアイの案内は 1 プレイに 1 回ずつ。新しいゲームでは出し直す
@@ -2909,6 +2909,8 @@ function enterPlay(fromContinue = false) {
   // 乱数の種も作り直す。**記録に残すのはこの数だけ**で、
   // 流れ('main' と 'boss')の種はここから作られる
   mmsxx.rng.seed();
+  // 直前の画面を溜めはじめる(シェアの 1 枚と、あとで作るリプレイに使う)
+  mmsxx.keepFrames(SHARE_KEEP_SEC);
   // 始めたときのランキングを覚えておく(ランクインしたか判定する基準)
   rankSnapshot = snapshotRanking();
   stats.startSession({ mode: gameMode() });
@@ -3339,15 +3341,14 @@ let shareBusy = false;      // 送信中(二重に押されるのを止める)
 //   やられて終わるとき … **約 1 秒前**の、まだ自機が無事な画面
 //   全面クリアのとき   … クリアのボーナス集計の画面
 let shareShotSaved = null;
-// やられる前の画面は、遊んでいるあいだ 0.25 秒ごとに撮って 3 枚だけ残す。
-// やられた瞬間の絵では自機がもう当たっているので、いちばん古い 1 枚を使う。
-//   撮る間隔 = 何秒前になるかの**ぶれ幅**、枚数 = どれだけ**さかのぼれるか**。
-//   0.25 秒ごとに 3 枚なら「必ず 0.5 秒以上前」で、ぶれは 0.5〜0.75 秒に収まる。
-// 原寸で撮るのがいちばん安く(実測 0.07 ミリ秒ほど。1 コマの持ち時間は 16.6 ミリ秒)、
-// 毎秒 4 回でもコマ落ちには関わらない。2 倍に広げるのは**見せるときだけ**
-const SHARE_SHOT_EVERY = 15;
-const SHARE_SHOT_KEEP = 3;
-let shareShotRing = [];     // 古い順。[0] が 0.5〜0.75 秒前の 1 枚
+// **直前の画面はエンジンが溜めている**。色番号のまま持つので、
+// 60fps で 3 秒でも 9MB ほどで収まる(1 コマ 51.6KB)。
+// 溜めはじめはゲームを始めるとき。何秒ぶん持つかはゲームが決める。
+//   ・シェアの 1 枚 … 「何秒前をくれ」と頼んで、いちばん近いコマをもらう
+//   ・やられる前の絵 … 自機がまだ無事な **1 秒前**を使う
+//   ・あとで作るリプレイ … 溜まっているコマを頭から流せばよい
+const SHARE_KEEP_SEC = 3;      // 何秒ぶん持つか
+const SHARE_SHOT_AGO = 1;      // やられたとき、何秒前の絵を使うか
 
 /** シェア用に画面を取る。**原寸**でよい。取れなければ null */
 function captureShareShot() {
@@ -3359,21 +3360,12 @@ function captureShareShot() {
   }
 }
 
-/** 0.25 秒ごとの 1 枚を積む。決めた枚数を超えたら古いほうから捨てる */
-function pushShareShot() {
-  const shot = captureShareShot();
-  if (!shot) return;
-  shareShotRing.push(shot);
-  if (shareShotRing.length > SHARE_SHOT_KEEP) shareShotRing.shift();
-}
-
 /**
- * やられて終わるときに見せる絵。
- * 溜まっているうちの**いちばん古い 1 枚**(0.5〜0.75 秒前)。
- * まだ 1 枚も無い(復活してすぐやられた)ときは、今までどおりその場で 1 枚取る
+ * やられて終わるときに見せる絵。**1 秒前**の、まだ自機が無事な画面。
+ * 溜まっていない(始めてすぐやられた)ときは、その場で 1 枚取る
  */
 function deathShareShot() {
-  return shareShotRing[0] || captureShareShot();
+  return mmsxx.frameAgo(SHARE_SHOT_AGO) || captureShareShot();
 }
 
 /** 板に載せる形にする。ドットをぼかさずに 2 倍へ広げる */
@@ -3629,8 +3621,8 @@ function destroyPlayer(cause = 'unknown', noMercy = false) {
   // これが最後の 1 機なら、ここでゲームオーバーが決まる。
   // シェアに載せる絵は、**やられる前**に撮ってあった 1 枚を使う
   if (ships <= 1) shareShotSaved = deathShareShot();
-  // 次の 1 機ぶんは撮り直す(前の機の、爆発や復活中の絵を混ぜない)
-  shareShotRing = [];
+  // 次の 1 機ぶんは溜め直す(前の機の、爆発や復活中の絵を混ぜない)
+  mmsxx.keepFrames(SHARE_KEEP_SEC);
   // 大きな爆発を重ねて、やられたことがはっきり分かるようにする
   spawnBoom(player.x, player.y);
   for (let i = 0; i < 10; i++) {
@@ -6680,7 +6672,6 @@ function updatePlay() {
   playFrame++;
   // やられたときに見せる絵を 0.25 秒ごとに撮っておく。
   // ゲームオーバーの画面(state が 'over')になってからは撮らない
-  if (state === 'play' && (playFrame % SHARE_SHOT_EVERY) === 0) pushShareShot();
   // 撃破タイムは「弾が当たる状態」のあいだだけ数える
   if (bossTimeCounts()) bossFrames++;
   // ボスラッシュの経過時間(表示は 1/10 秒ごとに更新する)

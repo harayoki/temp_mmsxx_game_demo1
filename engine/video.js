@@ -229,6 +229,8 @@ export class VDP {
     // パレットを ABGR(リトルエンディアンの RGBA) 32bit 値に前計算
     this.pal32 = new Uint32Array(16);
     this._buildPal32();
+    // 直前のコマを溜める輪っか(keepFrames で始める)
+    this._keepFrames = 0; this._frames = null; this._frameAt = 0; this._frameLen = 0;
 
     /** 背景色(パレット番号 1..15)。全レイヤーが透明の場所に見える色 */
     this.backdrop = 1;
@@ -725,6 +727,79 @@ export class VDP {
    * 中身は等倍のままなので、描き直しは要らない
    */
   refitCss() { this._applyCssSize(); }
+
+  // ---- 直前のコマを溜める(あとで「何秒前」を取り出す) ----
+  //
+  // **色番号のまま**輪っかに溜める。1 ドット 1 バイトなので、
+  // 264x200 なら 1 コマ 51.6KB。60fps で 3 秒でも 9MB ほどで収まる。
+  // 色に直すのは取り出すときだけ。パレットを切り替えていれば、
+  // **取り出した絵も新しい色**になる。
+
+  /**
+   * 直前のコマを溜めはじめる(0 でやめて捨てる)。
+   * @param {number} seconds 何秒ぶん持つか(60fps で数える)
+   */
+  keepFrames(seconds) {
+    const n = Math.max(0, Math.round(seconds * 60));
+    this._keepFrames = n;
+    this._frames = n ? [] : null;
+    this._frameAt = 0;   // 次に書く場所(輪っか)
+    this._frameLen = 0;  // いま何コマ持っているか
+  }
+
+  /** 1 コマ写す(合成の最後に呼ばれる) */
+  _pushFrame() {
+    const n = this._keepFrames;
+    if (!n) return;
+    const src = this.outIdx;
+    let buf = this._frames[this._frameAt];
+    // 画面の大きさが変わったら作り直す
+    if (!buf || buf.length !== src.length) buf = new Uint8Array(src.length);
+    buf.set(src);
+    this._frames[this._frameAt] = buf;
+    this._frameAt = (this._frameAt + 1) % n;
+    if (this._frameLen < n) this._frameLen++;
+  }
+
+  /** いま持っているコマ数 */
+  get frameCount() { return this._frameLen || 0; }
+
+  /**
+   * 溜めたコマを取り出す。**新しいほうから数える**(0 = いちばん新しい)。
+   * 持っていない番号なら null。
+   * @param {number} back 何コマ前か
+   * @returns {Uint8Array|null} 色番号の並び
+   */
+  frameBack(back) {
+    const len = this._frameLen || 0;
+    if (!len || back < 0 || back >= len) return null;
+    const i = (this._frameAt - 1 - back + this._keepFrames * 2) % this._keepFrames;
+    return this._frames[i] || null;
+  }
+
+  /**
+   * 溜めたコマを canvas にして返す。
+   * @param {number} back 何コマ前か(0 = いちばん新しい)
+   * @param {number} [scale=1] 何倍に広げるか(ドットはぼかさない)
+   */
+  frameCanvas(back, scale = 1) {
+    const idx = this.frameBack(back);
+    if (!idx) return null;
+    const w = this.outWidth, h = this.outHeight;
+    const src = document.createElement('canvas');
+    src.width = w; src.height = h;
+    const im = src.getContext('2d').createImageData(w, h);
+    const px = new Uint32Array(im.data.buffer), pal = this.pal32;
+    for (let i = 0; i < idx.length; i++) px[i] = pal[idx[i]];
+    src.getContext('2d').putImageData(im, 0, 0);
+    if (scale === 1) return src;
+    const out = document.createElement('canvas');
+    out.width = w * scale; out.height = h * scale;
+    const g = out.getContext('2d');
+    g.imageSmoothingEnabled = false;
+    g.drawImage(src, 0, 0, out.width, out.height);
+    return out;
+  }
 
   /** パレットの 32bit 値を作り直す(色合いを切り替えたとき) */
   _buildPal32() {
@@ -1303,6 +1378,10 @@ export class VDP {
     // ボーダーと画面ずらしを付けて、実際に出す面へ写す。
     // どちらも無いときは activeIdx と outIdx が同じものなので、写す手間は要らない
     if (!this._plain || this.adjustX || this.adjustY) this._present(back);
+
+    // 直前のコマを溜めている最中なら、**色に直す前**に写しておく。
+    // 番号のままなら 1 ドット 1 バイトで済むので、色に直したものより 4 分の 1 で持てる
+    if (this._keepFrames > 0) this._pushFrame();
 
     // ここで初めて「番号 -> 色」に直す。画面のドット数ぶんだけで済む
     const out = this.outIdx, dst = this.frame32, pal = this.pal32;
