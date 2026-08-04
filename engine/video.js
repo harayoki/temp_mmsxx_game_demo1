@@ -68,6 +68,10 @@ const snap8 = v => Math.floor(Math.round(v) / 8) * 8;
 const ceil8 = v => Math.ceil(Math.round(v) / 8) * 8;
 
 /** 画面上に置くスプライト。VDP.createSprite() で生成する。 */
+/** 席の取り合いでの強さ。小さいほど先に座る */
+const SPRITE_RANKS = { always: 0, strong: 1, weak: 2, last: 3 };
+const SPRITE_RANK = (s) => (SPRITE_RANKS[s.rank] ?? SPRITE_RANKS.weak);
+
 export class Sprite {
   /** @param {{width:number,height:number,pixels:Uint8Array}} image */
   constructor(image) {
@@ -77,6 +81,20 @@ export class Sprite {
     this.visible = true;
     /** 大きいほど手前に描画される */
     this.priority = 0;
+    /**
+     * **席の取り合いでの強さ**(`spriteLimit` を入れているときだけ効く)。
+     * 描く前後(`priority`)とは**別のもの**。
+     * 「手前に描くが、消えるのは真っ先」といった書きかたができる。
+     *
+     *   'always' … あぶれない。席は取るので、ほかを押しのける
+     *   'strong' … 先に席を取る(混んでも残りやすい)
+     *   'weak'   … 既定
+     *   'last'   … 取り合いになったら譲る。空いていれば出る
+     *
+     * 同じ強さのものどうしは、`spriteRotate` が true ならコマごとに順番が回る
+     * @type {'always'|'strong'|'weak'|'last'}
+     */
+    this.rank = 'weak';
     /** 左右反転 */
     this.flipX = false;
     /** 上下反転 */
@@ -1385,18 +1403,37 @@ export class VDP {
     const n = sprites.length;
     if (!this._rowOk || this._rowOk.length < n * 2) this._rowOk = new Uint32Array(n * 2);
     const ok = this._rowOk;
-    // **数えるのは手前から。** あふれた行は、優先度の低いほうが落ちる。
-    // 並びは奥 -> 手前なので、後ろから見ていく
-    for (let i = n - 1; i >= 0; i--) {
+    // **席を取る順番は、描く順番とは別**に決める(rank)。
+    // 強いものから順に座らせ、同じ強さのものは(指定があれば)コマごとに回す
+    const t = this.frames | 0;
+    const rot = this.spriteRotate && n > 1;
+    const seat = [];
+    for (let i = 0; i < n; i++) seat.push(i);
+    seat.sort((ia, ib) => {
+      const a = sprites[ia], b = sprites[ib];
+      const d = SPRITE_RANK(a) - SPRITE_RANK(b);
+      if (d) return d;
+      if (rot) return (((a._autoPhase | 0) + t) % n) - (((b._autoPhase | 0) + t) % n);
+      return b.priority - a.priority;   // 手前のほうが先に座る
+    });
+    for (const i of seat) {
       ok[i * 2] = 0; ok[i * 2 + 1] = 0;
       const s = sprites[i];
       if (!this._spriteShows(s)) continue;   // 出ていないものは席を取らない
+      // 'always' はあぶれない。ただし**席は取る**ので、ほかを押しのける
+      const sure = s.rank === 'always';
+      // 実機では **2 色スプライトは単色 2 枚重ね**なので、席も 2 つ食う。
+      // ここは雰囲気を採って 1 枚 = 1 席にしてある。合わせたくなったら、
+      // このすぐ下の数えるところを次のように直すだけでよい:
+      //   const seats = (s.image && s.image.colors === 2) ? 2 : 1;
+      //   if (!sure && this._lineUse[y] + seats > this.spriteLimit) continue;
+      //   this._lineUse[y] += seats;
       const h = Math.min(64, this._spriteHeight(s));
       const top = Math.round(s.y);
       for (let r = 0; r < h; r++) {
         const y = top + r;
         if (y < 0 || y >= H) continue;
-        if (this._lineUse[y] >= this.spriteLimit) continue;   // この行はもう埋まった
+        if (!sure && this._lineUse[y] >= this.spriteLimit) continue;   // この行はもう埋まった
         this._lineUse[y]++;
         ok[i * 2 + (r >> 5)] |= (1 << (r & 31));
       }

@@ -639,8 +639,12 @@ let clearTimer = 0;
 const player = mmsxx.sprite(SPRITE_SYMBOLS.player);
 player.priority = 10;
 player.visible = false;
+// **自機だけは絶対に消えない**(1 行に出せる数の取り合いから外す)。
+// 自分の機体が点滅で消えると、避けるどころではなくなるため
+player.rank = 'always';
 // 自機の補助表示。推進炎とバリアは 1 枚のスプライト枠を交互に使って見せる
 // (実機のスプライト数を節約する見せ方)。
+// **バリアと後ろ火は消えてよい**ので、こちらはふつうの扱いのまま
 const aux = mmsxx.sprite(SPRITE_SYMBOLS.flameSmall);
 aux.priority = 11;
 aux.visible = false;
@@ -1577,6 +1581,9 @@ function fireShot() {
     sp.x = player.x + (d.dx || 0);
     sp.y = player.y;
     sp.priority = 5;
+    // 込み合ったときは**まっさきに譲る**。弾は数が多く、
+    // 1 コマ消えても弾道は目で追えるため
+    sp.rank = 'last';
     // 弾ごとに点滅の位相をずらして、まとめて消えないようにする
     bullets.push({ sp, vx: d.vx, vy: d.vy, volley: id, phase: phase++ });
   }
