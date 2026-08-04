@@ -10556,8 +10556,9 @@ const CHAR_PAGES = [
   {
     title: 'SECRET BOSS',   // 本編には出てこない仮ボス
     name: 'Mr. MIJISSOU',
-    secret: 'todoMet',     // コンティニューで出会うまでは ? のまま
-    secretName: true,       // 名前も伏せる(いること自体が秘密なので)
+    // 出会うまでは**ページごと出さない**(? のページも見せない)。
+    // いること自体が秘密なので、伏せた姿を並べると居ることが分かってしまう
+    hideUntil: 'todoMet',
     // ゲーム中と同じ部品でそろえる。
     // 王冠は octoCrown ではなく水色の crownCyan(顔と色がかぶるため)、
     // ほおの赤みと目の中の反射も、本編と同じ位置に置く
@@ -10703,13 +10704,18 @@ function enterCharList() {
   currentBGM = null;
   charBook = new Gallery(mmsxx, {
     hudLayer: 4, artLayer: 3,
-    pages: CHAR_PAGES.map((page, i) => ({
-      title: page.title,
-      bare: page.bare,
-      draw: () => { charPage = i; charCrowd = null; drawCharList(); },
-      update: () => updateCharAnim(),
-      leave: () => { clearCharSprites(); neb.clear(); },
-    })),
+    // hideUntil の付いたページは、印が立つまで一覧に入れない。
+    // 番号(charPage)はもとの並びのままにしておく(絵を描く側がそれで引くため)
+    pages: CHAR_PAGES
+      .map((page, i) => ({ page, i }))
+      .filter(({ page }) => !page.hideUntil || met(page.hideUntil))
+      .map(({ page, i }) => ({
+        title: page.title,
+        bare: page.bare,
+        draw: () => { charPage = i; charCrowd = null; drawCharList(); },
+        update: () => updateCharAnim(),
+        leave: () => { clearCharSprites(); neb.clear(); },
+      })),
     help: String.fromCharCode(0x18, 0x19) + ':PAGE  ESC:EXIT',
     onExit: () => { clearCharSprites(); neb.clear(); enterTitle(); },
   });
