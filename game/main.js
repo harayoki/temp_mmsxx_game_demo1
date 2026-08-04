@@ -58,7 +58,7 @@ const OPT = new URLSearchParams(location.search);
 const URL_OPT = urlOptions(OPT, {
   dev: BUILD.dev,
   devOnly: ['fps'],
-  defaults: { linesprites: 4, maxsprites: 32, rotate: 'stride' },
+  defaults: { linesprites: 4, maxsprites: 32 },
 });
 
 // 裏画面は 256x1024 (横は画面ぴったり、縦に長くとってスクロールさせる)。
@@ -6791,7 +6791,8 @@ function spawnDeathBurst(x, y) {
     for (let i = 0; i < ring.n; i++) {
       // 色は**1 個ごとに送る**。輪ごとに始まりをずらしてある
       const sp = mmsxx.sprite(deathSparkImg[(ring.color + i) % DEATH_COLORS.length]);
-      sp.priority = 21;
+      // **いちばん奥**に置く(敵や弾の裏へ回す)
+      sp.priority = 0;
       // **4 コマに 1 回**だけ出す。4 つの組に分けて、順ぐりに見せる
       sp.blink = DEATH_GROUP;
       sp.blinkPhase = k % DEATH_GROUP;
@@ -6806,7 +6807,7 @@ function spawnDeathBurst(x, y) {
   // でたらめに散る光。輪の内も外もまたいで、ちらちらと居場所を変える
   for (let i = 0; i < DEATH_RAND; i++) {
     const sp = mmsxx.sprite(deathSparkImg[i % DEATH_COLORS.length]);
-    sp.priority = 21;
+    sp.priority = 0;
     sp.blink = DEATH_GROUP;
     sp.blinkPhase = k % DEATH_GROUP;
     sp.x = x; sp.y = y;
@@ -10526,7 +10527,7 @@ const CHAR_PAGES = [
     // **ちらつき見物のページ。** 敵も自機も弾も、ゲーム中と同じ姿で
     // いっぺんに出す。1 行に出せる数の制限や処理落ちを、目で確かめるためのもの。
     // 出す顔ぶれは前のページから拾うので、敵が増えれば勝手に増える
-    title: 'ALL SPRITES',
+    title: 'ALL STAR',
     crowd: true,
   },
 ];
@@ -10692,56 +10693,49 @@ function drawCharList() {
  * ここで見た目を決めれば、そのまま遊びに持っていける
  */
 function drawCrowdPage() {
-  // 図鑑のほかのページに載っている敵を全部集める
+  charCrowd = true;
+  const put = (img, x, y, priority, rank) => {
+    const sp = mmsxx.sprite(img);
+    sp.x = x; sp.y = y; sp.priority = priority;
+    if (rank) sp.rank = rank;
+    charSprites.push(sp);
+    return sp;
+  };
+  // 図鑑のほかのページに載っている敵を全部集める(敵が増えれば勝手に増える)
   const names = [];
   for (const pg of CHAR_PAGES) {
     for (const [name] of (pg.items || [])) {
       if (SPRITE_SYMBOLS[name] && !names.includes(name)) names.push(name);
     }
   }
-  charCrowd = { enemies: [], bullets: [], player: null };
-  // 敵は 6 列で並べ、左右にゆっくり揺らす
-  const COLS = 6, X0 = 20, DX = 38, Y0 = 30, DY = 26;
+  let n = 0;
+  // **上から降りてくる隊列**。左右に振ってゲーム中の並びに近づける
+  const WAVE = [24, 56, 88, 120, 152, 184];
   names.forEach((name, i) => {
-    const sp = mmsxx.sprite(SPRITE_SYMBOLS[name]);
-    sp.x = X0 + (i % COLS) * DX;
-    sp.y = Y0 + Math.floor(i / COLS) * DY;
-    sp.priority = 20;
-    charSprites.push(sp);
-    charCrowd.enemies.push({ sp, x0: sp.x, phase: i * 0.7 });
+    const row = Math.floor(i / 6);
+    const x = WAVE[i % 6] + (row % 2 ? 16 : 0);
+    put(SPRITE_SYMBOLS[name], x, 26 + row * 30, 20);
+    n++;
   });
-  // 弾。**多めに出す**(横に並ぶと、そこから消えていくのが見える)
-  for (let i = 0; i < 24; i++) {
-    const sp = mmsxx.sprite(SPRITE_SYMBOLS[i % 2 ? 'bulletP' : 'bulletE']);
-    sp.x = 8 + (i % 12) * 20;
-    sp.y = 24 + (i % 5) * 30;
-    sp.priority = 5;
-    sp.rank = 'last';          // ゲーム中と同じ。込んだらまっさきに譲る
-    charSprites.push(sp);
-    charCrowd.bullets.push({ sp, vy: (i % 2) ? -2 : 2 });
-  }
-  // 自機。ゲーム中と同じく**消えない**扱いにして、下で左右に動かす
-  const me = mmsxx.sprite(SPRITE_SYMBOLS.player);
-  me.x = 120; me.y = 150; me.priority = 22; me.rank = 'always';
-  charSprites.push(me);
-  charCrowd.player = me;
-  const s1 = 'SPRITES ' + (names.length + 25);
-  hud.print(centerX(s1), 172, s1, 11);
-}
-
-/** ちらつき見物のページを動かす(止まっていると制限の効きが見えない) */
-function updateCrowdPage() {
-  const t = mmsxx.frame;
-  for (const e of charCrowd.enemies) {
-    e.sp.x = e.x0 + Math.sin(t * 0.03 + e.phase) * 10;
-  }
-  for (const b of charCrowd.bullets) {
-    b.sp.y += b.vy;
-    if (b.sp.y < 16) b.sp.y = 176;
-    else if (b.sp.y > 176) b.sp.y = 16;
-  }
-  const me = charCrowd.player;
-  if (me) me.x = 120 + Math.sin(t * 0.02) * 90;
+  // 16t のおもり。ゲーム中と同じく上から落ちてくる
+  put(SPRITE_SYMBOLS.weight16t, 112, 22, 20); n++;
+  // 敵の弾。降りてくる隊列から散らばって落ちる
+  const EB = [[40, 60], [72, 84], [104, 70], [136, 92], [168, 66], [200, 88],
+    [56, 108], [88, 120], [120, 104], [152, 124], [184, 112]];
+  for (const [x, y] of EB) { put(SPRITE_SYMBOLS.bulletE, x, y, 6, 'last'); n++; }
+  // 自機の弾。**5 方向**に開いた形(いちばん混む撃ちかた)
+  const PB = [[120, 96], [120, 116], [120, 136],
+    [96, 104], [104, 124], [144, 104], [136, 124],
+    [80, 116], [160, 116], [88, 92], [152, 92]];
+  for (const [x, y] of PB) { put(SPRITE_SYMBOLS.bulletP, x, y, 5, 'last'); n++; }
+  // 自機と、その下の推進炎。ゲーム中と同じく**自機は消えない**扱い
+  put(SPRITE_SYMBOLS.flameBig, 120, 168, 19); n++;
+  put(SPRITE_SYMBOLS.player, 120, 152, 22, 'always'); n++;
+  // 取り巻きのアイテムも少し置いて、実戦の混みぐあいに近づける
+  put(SPRITE_SYMBOLS.item, 32, 140, 18); n++;
+  put(SPRITE_SYMBOLS.coinItem, 208, 140, 18); n++;
+  // 枚数は左下へ(下のナビの文字と重ならないように)
+  hud.print(8, 166, 'SPRITES ' + n, 11);
 }
 
 function updateCharList() {
@@ -10750,7 +10744,9 @@ function updateCharList() {
 
 /** ページごとの動き(モアイの色変わり・ロケットの色替え・小惑星の明滅) */
 function updateCharAnim() {
-  if (charCrowd) { updateCrowdPage(); return; }
+  // ちらつき見物のページは**動かさない**(止まっていても、
+  // 消える顔ぶれはコマごとに入れ替わるので見える)
+  if (charCrowd) return;
   // モアイのページは、ゲーム中と同じ色変わり(緑 <-> 青)と 1 コマおきの明滅を見せる
   if (charMoai) {
     const holo = (mmsxx.frame & 1) === 0;

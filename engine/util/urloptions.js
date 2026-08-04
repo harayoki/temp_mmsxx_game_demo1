@@ -31,7 +31,9 @@ const TABLE = {
   maxsprites: { num: [0, 256], key: 'spriteMax', def: 0, help: '画面ぜんぶで出せる数(0 = 無制限)' },
   rotate: {
     list: ['step', 'stride', 'random', 'slow', 'off'],
-    key: 'spriteRotate', def: false, help: '消える順の回しかた',
+    // 既定は 'stride'。'step'(1 コマに 1 つずつ)だと、消える場所が
+    // 端から端へ**流れて見える**ため
+    key: 'spriteRotate', def: 'stride', help: '消える順の回しかた',
     // 'off' は「回さない」
     fix: (v) => (v === 'off' ? false : v),
   },
