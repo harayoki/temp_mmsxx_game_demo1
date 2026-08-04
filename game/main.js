@@ -27,6 +27,7 @@ import { gameStop } from './console-stop.js';
 //
 //   ?sprites=4      … 1 行に出せるスプライトの数(0 = 無制限、16 まで。既定 4)
 //   ?maxsprites=32  … 画面ぜんぶで出せる数(0 = 無制限、256 まで。既定 32)
+//   ?rotate=stride  … 消える順の回しかた(step / stride / random / slow / off)
 //   ?palette=rf     … 画面の色合い(tms9918 / toshiba / rf / v9938)
 //
 // 数や名前がおかしいときは、黙って既定のままにする
@@ -43,6 +44,17 @@ const OPT_NUM = (name, def, max) => {
 const SPRITE_LIMIT = OPT_NUM('sprites', 4, 16);
 /** 画面ぜんぶで出せるスプライトの数。実機(MSX)は 32 枚 */
 const SPRITE_MAX = OPT_NUM('maxsprites', 32, 256);
+/**
+ * 消える順の回しかた。既定は 'stride'。
+ * 'step'(1 コマに 1 つずつ)だと、消える場所が端から端へ**流れて見える**ので、
+ * 公平さはそのままで流れだけ消える 'stride' を選んでいる
+ */
+const SPRITE_ROTATE = (() => {
+  const v = OPT.get('rotate');
+  const ok = ['step', 'stride', 'random', 'slow'];
+  if (v === 'off' || v === '0') return false;
+  return ok.includes(v) ? v : 'stride';
+})();
 
 // 裏画面は 256x1024 (横は画面ぴったり、縦に長くとってスクロールさせる)。
 // レイヤーは 5 枚: 遠い星 / 中間の星 / 近い星 / 大きな背景オブジェクト(とボス) / HUD
@@ -62,7 +74,7 @@ const mmsxx = new MMSXXEngine(document.getElementById('screen'), {
   // **画面ぜんぶで 32 枚**まで(実機の MSX と同じ枚数。?maxsprites= で変えられる)。
   // あふれたぶんはまるごと出ないが、順番が回るので消えっぱなしにはならない
   spriteMax: SPRITE_MAX,
-  spriteRotate: true,
+  spriteRotate: SPRITE_ROTATE,
   // 開発版かどうかは**ビルドで決める**(場所では決めない)。
   // これ 1 つで、シーン選択・コンソール関数・画面の保存・
   // 開発用の裏技・BG の検査が まとめて出入りする

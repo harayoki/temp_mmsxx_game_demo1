@@ -134,7 +134,9 @@ export class MMSXXEngine {
     // 実機の「1 行に何枚まで」の再現。既定は無効(0)
     if (opts.spriteLimit) this.vdp.spriteLimit = Math.max(0, opts.spriteLimit | 0);
     if (opts.spriteMax) this.vdp.spriteMax = Math.max(0, opts.spriteMax | 0);
-    if (opts.spriteRotate) this.vdp.spriteRotate = true;
+    if (opts.spriteRotate) {
+      this.vdp.spriteRotate = (typeof opts.spriteRotate === 'string') ? opts.spriteRotate : true;
+    }
     this.audio = new PSGPlayer({
       maxVoices: opts.maxVoices ?? 8,
       maxNoise: opts.maxNoise ?? 1,
@@ -375,10 +377,26 @@ export class MMSXXEngine {
 
   set spriteMax(n) { this.vdp.spriteMax = Math.max(0, n | 0); }
 
-  /** 同じ優先度のものの順番をコマごとに回す(いつも同じものが消えないように) */
+  /**
+   * **同じ強さのものの順番をコマごとに回す**(いつも同じものが消えないように)。
+   * 回しかたを選べる。
+   *
+   *   'step'   … 1 コマに 1 つずつ。公平だが、消える場所が**流れて見える**
+   *   'stride' … 何個か飛ばしてずらす。公平さは同じで、流れて見えない
+   *   'random' … コマごとに散らす。運が悪いと同じものが続けて消える
+   *   'slow'   … 'step' を数コマに 1 回だけ動かす(穏やか)
+   *
+   * `true` は 'step' と同じ。`false` で回さない
+   * @type {boolean|'step'|'stride'|'random'|'slow'}
+   */
   get spriteRotate() { return this.vdp.spriteRotate; }
 
-  set spriteRotate(on) { this.vdp.spriteRotate = !!on; }
+  set spriteRotate(v) { this.vdp.spriteRotate = (typeof v === 'string') ? v : !!v; }
+
+  /** 回しかた 'slow' のとき、何コマに 1 回動かすか(既定 4) */
+  get spriteRotateHold() { return this.vdp.spriteRotateHold; }
+
+  set spriteRotateHold(n) { this.vdp.spriteRotateHold = Math.max(1, n | 0); }
 
   /**
    * **いまの画面を録画しはじめる**。canvas の中身をそのまま録る。

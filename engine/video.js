@@ -68,6 +68,9 @@ const snap8 = v => Math.floor(Math.round(v) / 8) * 8;
 const ceil8 = v => Math.ceil(Math.round(v) / 8) * 8;
 
 /** 画面上に置くスプライト。VDP.createSprite() で生成する。 */
+/** 最大公約数(回しかた 'stride' で、枚数と互いに素な飛ばし幅を選ぶのに使う) */
+function gcd(a, b) { while (b) { const t = a % b; a = b; b = t; } return a; }
+
 /** 席の取り合いでの強さ。小さいほど先に座る */
 const SPRITE_RANKS = { always: 0, strong: 1, weak: 2, last: 3 };
 const SPRITE_RANK = (s) => (SPRITE_RANKS[s.rank] ?? SPRITE_RANKS.weak);
@@ -279,9 +282,23 @@ export class VDP {
      * **同じ優先度のものの順番をコマごとに回す**。
      * 上の制限で消えるとき、いつも同じものが消えると気づかれてしまうので、
      * 順ぐりに入れ替えて「みんなが少しずつちらつく」形にする。
-     * 実機のゲームがやっていた並べ替えと同じ考えかた
+     * 実機のゲームがやっていた並べ替えと同じ考えかた。
+     *
+     * 回しかたは選べる(true は 'step' と同じ):
+     *
+     *   'step'   … 1 コマに 1 つずつずらす。**いちばん公平**だが、
+     *              消える場所が端から端へ**流れて見える**
+     *   'stride' … 1 コマに何個かずつ飛ばしてずらす。公平さは同じままで、
+     *              流れて見えない(飛ばす数は枚数と互いに素なものを選ぶ)
+     *   'random' … コマごとに散らす。流れは消えるが、
+     *              運が悪いと同じものが続けて消える
+     *   'slow'   … 'step' を数コマに 1 回だけ動かす。ちらつきが穏やかになる
+     *
+     * @type {boolean|'step'|'stride'|'random'|'slow'}
      */
     this.spriteRotate = false;
+    /** 'slow' のとき、何コマに 1 回動かすか */
+    this.spriteRotateHold = 4;
     /**
      * **画面ぜんぶで出せるスプライトの数**(0 で無制限)。
      * 実機は置ける枚数そのものが決まっている(MSX は 32 枚)。
@@ -1462,10 +1479,35 @@ export class VDP {
    */
   _spriteOrder(n) {
     if (!this.spriteRotate || n < 2) return (a, b) => a.priority - b.priority;
-    // **枚数で割った余り**で並べる。コマが進むごとに、いちばん先だったものが
-    // 最後へ回る(実機のゲームがやっていた「順ぐりに入れ替える」やりかた)
+    const mode = (this.spriteRotate === true) ? 'step' : this.spriteRotate;
     const t = this.frames | 0;
-    const key = (s) => (((s._autoPhase | 0) + t) % n);
+    let key;
+    if (mode === 'random') {
+      // コマと枚数から作った数で散らす。**同じコマなら毎回同じ**なので、
+      // 1 コマのあいだに順番がぶれることはない
+      key = (s) => {
+        let h = (((s._autoPhase | 0) + 1) * 0x9e3779b1) ^ (t * 0x85ebca6b);
+        h = Math.imul(h ^ (h >>> 15), 0x2545f491);
+        return (h >>> 0) % n;
+      };
+    } else if (mode === 'stride') {
+      // **枚数と互いに素な数**ずつ飛ばす。全員に等しく順番が回るのは
+      // 'step' と同じで、流れて見えるのだけが消える
+      let k = 0;
+      for (const c of [7, 5, 3, 11, 13, 1]) {
+        if (gcd(c % n, n) === 1) { k = c; break; }
+      }
+      const shift = (t * k) % n;
+      key = (s) => (((s._autoPhase | 0) + shift) % n);
+    } else if (mode === 'slow') {
+      const hold = Math.max(1, this.spriteRotateHold | 0);
+      const shift = ((t / hold) | 0) % n;
+      key = (s) => (((s._autoPhase | 0) + shift) % n);
+    } else {
+      // 'step'。**枚数で割った余り**で並べる。コマが進むごとに、
+      // いちばん先だったものが最後へ回る
+      key = (s) => (((s._autoPhase | 0) + t) % n);
+    }
     return (a, b) => (a.priority - b.priority) || (key(a) - key(b));
   }
 
