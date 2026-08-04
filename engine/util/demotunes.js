@@ -281,10 +281,12 @@ const BEAT_BLIP = new Array(8).fill(BEAT_BLIP_A).join(' ');
 // リズムの隙間が埋まって、走るベースが聞こえなくなる。
 // % のところに音名が入る(和音の何番目かで差し替える)
 const ST_REST = 'r1';
+// 小節末の 2 発は次の小節へ食い込む合いの手なので**短いまま**。
+// 置きにいく 3 つは 4 分にして、和音として聞こえる長さを持たせる
 const ST_TAIL = 'r2 r4 r8 %16 %16';   // 小節のおしまいに 16 分 2 発
-const ST_BACK = 'r2 r4 %8 r8';        // 4 拍目の頭に 1 発
-const ST_TWO = 'r2 %8 r8 %8 r8';      // 後半に 2 発
-const ST_HEAD = '%8 r8 r4 r2';        // 小節の頭に 1 発
+const ST_BACK = 'r2 r4 %4';           // 4 拍目に 1 発
+const ST_TWO = 'r2 %4 %4';            // 後半に 2 発
+const ST_HEAD = '%4 r4 r2';           // 小節の頭に 1 発
 const stab = (pattern, note) => pattern.split('%').join(note);
 
 // 1・3・5 小節目は休んで、走るベースを聞かせる
@@ -324,9 +326,11 @@ export function beatTune() {
     `${T} q8 l16 @{noise} @e{percussive} [` + BEAT_NOISE + ']2',
     // 16 分の裏を埋める粒
     `${T} q8 v4 l16 @{pulse12} @e{percussive} o6 [` + BEAT_BLIP + ']2',
-    // ブラスの和音(上 / 中 / 下)。短く切って合いの手にする
-    `${T} q6 v9 l16 @{fmTrumpet} @e{soft} [` + beatStabTrack(BEAT_STAB_VOICES[0]) + ']2',
-    `${T} q6 v8 l16 @{fmTrumpet} @e{soft} [` + beatStabTrack(BEAT_STAB_VOICES[1]) + ']2',
-    `${T} q6 v8 l16 @{fmHorn} @e{soft} [` + beatStabTrack(BEAT_STAB_VOICES[2]) + ']2',
+    // ブラスの和音(上 / 中 / 下)。
+    // **音量は控えめに、長さは少し伸ばす**。短く切ると打楽器に紛れるが、
+    // 伸ばしたぶん大きいままだとリズムより前に出てしまう
+    `${T} q8 v7 l16 @{fmTrumpet} @e{soft} [` + beatStabTrack(BEAT_STAB_VOICES[0]) + ']2',
+    `${T} q8 v6 l16 @{fmTrumpet} @e{soft} [` + beatStabTrack(BEAT_STAB_VOICES[1]) + ']2',
+    `${T} q8 v6 l16 @{fmHorn} @e{soft} [` + beatStabTrack(BEAT_STAB_VOICES[2]) + ']2',
   ];
 }
