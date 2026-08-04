@@ -10715,16 +10715,9 @@ function drawCrowdPage() {
   let n = 0;
   // **置き場所はでたらめに取る。** 手で並べるとどう散らしても目が規則を見つけて
   // しまい、遊んでいる最中の画面に見えないため。
-  // ただし**種は決め打ち**なので、いつ開いても同じ絵になる(見比べに使える)。
+  // **開くたびに違う絵**になる(見た目だけのものなので、種は持たない)。
   // 近づきすぎたら取り直すので、重なってつぶれることはない
-  let seed = 20260804;
-  const rand = () => {
-    seed = (seed + 0x6d2b79f5) >>> 0;
-    let t = seed;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
+  const rand = Math.random;
   const taken = [];
   /** 空いているところを探して置く(near ドットより近いものが無いところ) */
   const scatter = (img, x0, x1, y0, y1, near, priority, rank) => {
