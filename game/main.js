@@ -9807,26 +9807,27 @@ function enterSceneSelect() { enterListMenu('- SCENE SELECT -', sceneList()); }
 // 遊んだあとの数字を並べるだけの画面。項目が多いので縦に送れる。
 // **手元にしか残らない**ことを最後に書いておく(消えても仕方ない、と分かるように)。
 
-const STAT_ROWS = 10;      // ことわりを出しているあいだの行数
-const STAT_ROWS_FULL = 12; // ことわりが消えたあとの行数(その場所まで使う)
+// **ことわりが無いときの形で画面を組む**。ことわりはその上に一時的に重ねるだけで、
+// 消えたあとに空きができないようにする
+const STAT_ROWS = 12;      // 出せる行数
 const STAT_TOP = 28;       // 1 行目の高さ
 const STAT_STEP = 12;      // 行の送り
-const STAT_NOTE_Y = 160;   // ことわりを出す高さ
-const STAT_NOTE_TIME = 240;// 1 枚を出しておく長さ(4 秒)
+const STAT_UP_Y = 18;      // 上へ送れる印
+const STAT_DOWN_Y = 176;   // 下へ送れる印(ことわりの下に置く)
+const STAT_NOTE_Y = 160;   // ことわりを重ねる高さ
+const STAT_NOTE_TIME = 360;// 1 枚を出しておく長さ(6 秒)
 const STAT_NOTE_GAP = 60;  // 次の 1 枚までの間(1 秒)
 // 出しておきたいことわり。**1 枚ずつ順に**出して、終わったら消える。
 // 1 行は 32 文字まで(画面の幅)
 const STAT_NOTES = [
   ['RECORD IS KEPT IN THIS BROWSER.', 'IT IS LOST IF YOU SWITCH.'],
-  ['RECORD IS SAVED WHEN A STAGE IS', 'CLEARED OR THE GAME IS OVER.'],
+  ['SAVING HAPPENS ON STAGE CLEAR', 'AND ON GAME OVER.'],
 ];
 let statTop = 0;
 let statNoteAt = 0;        // いま出しているのは何枚目
 let statNoteTimer = 0;
 let statNoteGap = 0;       // 次の 1 枚までの残り(このあいだは何も出さない)
 
-/** いま出せる行数(ことわりが消えたら、その場所も使う) */
-const statRowCount = () => (statNoteAt < STAT_NOTES.length ? STAT_ROWS : STAT_ROWS_FULL);
 
 /** 3 桁ごとに区切る(桁の多い数は読めないため) */
 function groupNum(n) {
@@ -9914,8 +9915,7 @@ function drawStats() {
   hud.clear();
   const title = '- STATISTICS -';
   hud.print(centerX(title), 8, title, 15);
-  const rows = statRowCount();
-  for (let r = 0; r < rows; r++) {
+  for (let r = 0; r < STAT_ROWS; r++) {
     const row = statRows[statTop + r];
     if (!row) break;
     const y = STAT_TOP + r * STAT_STEP;
@@ -9931,8 +9931,8 @@ function drawStats() {
   // 送れる向きを矢印で見せる
   const up = String.fromCharCode(0x18), down = String.fromCharCode(0x19);
   const x = centerX(up);
-  if (statTop > 0) hud.print(x, STAT_TOP - 12, up, 11);
-  if (statTop + rows < statRows.length) hud.print(x, STAT_TOP + rows * STAT_STEP, down, 11);
+  if (statTop > 0) hud.print(x, STAT_UP_Y, up, 11);
+  if (statTop + STAT_ROWS < statRows.length) hud.print(x, STAT_DOWN_Y, down, 11);
   drawStatNote();
   const help = String.fromCharCode(0x18, 0x19) + ':SCROLL  ESC:EXIT';
   hud.print(centerX(help), 184, help, 10);
@@ -9968,8 +9968,8 @@ function updateStatNote() {
     if (statNoteAt < STAT_NOTES.length) {
       statNoteGap = STAT_NOTE_GAP;
       statNoteTimer = STAT_NOTE_TIME;
-      drawStatNote();                          // 間のあいだは空にする
-    } else drawStats();                        // 全部終わり。行を増やして描き直す
+      drawStats();                             // 間のあいだは隠れていた行を出す
+    } else drawStats();                        // 全部終わり。隠れていた行を出す
     return;
   }
   drawStatNote();
@@ -9979,7 +9979,7 @@ function updateStats() {
   // ことわりは点滅させるので、出ているあいだは毎コマ描き直す
   updateStatNote();
   if (mmsxx.input.wasPressed('Escape')) { enterTitle(); return; }
-  const maxTop = Math.max(0, statRows.length - statRowCount());
+  const maxTop = Math.max(0, statRows.length - STAT_ROWS);
   // 押しっぱなしで送れるようにする(項目が多いので 1 回ずつでは遅い)
   if (mmsxx.input.isDown('ArrowUp') && mmsxx.frame % 4 === 0 && statTop > 0) {
     statTop--; drawStats(); return;
