@@ -7022,6 +7022,10 @@ function fireEnemyBullet(x, y, vx, vy, breakable = false, image = null) {
   // image を渡すと、その絵の弾になる(ドラゴンの炎など)
   const sp = mmsxx.sprite(image || (breakable ? SPRITE_SYMBOLS.bulletRing : SPRITE_SYMBOLS.bulletE));
   sp.x = x; sp.y = y; sp.priority = 6;
+  // **敵の弾は自機の弾より 1 段強い**。避けるための材料なので、
+  // 込み合ったときに真っ先に消えてしまうと理不尽になる
+  // (自機の弾は 'last'、こちらは既定の 'weak')
+  sp.rank = 'weak';
   // リング弾は消えるのではなく、ピンクと薄い赤を 1 コマずつ入れ替えて見せる
   if (breakable && !image) sp.__ringPhase = enemyBullets.length & 1;
   enemyBullets.push({ sp, vx, vy, breakable: breakable && !image });
@@ -10728,7 +10732,8 @@ function drawCrowdPage() {
   // 敵の弾。ばらばらに散らす
   const EB = [[30, 52], [70, 46], [104, 66], [148, 50], [190, 58], [226, 48],
     [46, 88], [92, 116], [134, 84], [172, 112], [210, 104], [58, 146]];
-  for (const [x, y] of EB) { put(SPRITE_SYMBOLS.bulletE, x, y, 6, 'last'); n++; }
+  // 敵の弾はゲーム中と同じく 'weak'(自機の弾より 1 段強い)
+  for (const [x, y] of EB) { put(SPRITE_SYMBOLS.bulletE, x, y, 6, 'weak'); n++; }
   // 自機の弾。**5 方向**に開いた形(いちばん混む撃ちかた)。
   // まっすぐ並べず、撃った時間差のぶんだけ ずらしてある
   const PB = [[120, 96], [122, 118], [118, 138],
