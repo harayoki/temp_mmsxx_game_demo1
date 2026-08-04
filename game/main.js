@@ -506,11 +506,18 @@ const centerX = (text) => (SCREEN_W - text.length * 8) >> 1;
 // ボスラッシュのメニューに出すかの判断に使う。
 // ユーザーごとの情報なので localStorage に置く(消えても遊べる範囲だけを入れる)
 const progress = new SaveGroup('starfable-progress', {
+  // Met は**出てきた時点**、Down は**倒した時点**。
+  // Met は図鑑の姿を出すかどうか、Down はボスラッシュに出すかどうかに使う
+  boss1Met: { type: T.FLAG, label: 'MET BOSS 1' },
   boss1Down: { type: T.FLAG, label: 'BOSS 1 DOWN' },
+  boss2Met: { type: T.FLAG, label: 'MET BOSS 2' },
   boss2Down: { type: T.FLAG, label: 'BOSS 2 DOWN' },
+  boss3Met: { type: T.FLAG, label: 'MET BOSS 3' },
   boss3Down: { type: T.FLAG, label: 'BOSS 3 DOWN' },
+  boss4Met: { type: T.FLAG, label: 'MET BOSS 4' },
   boss4Down: { type: T.FLAG, label: 'BOSS 4 DOWN' },
   todoMet: { type: T.FLAG, label: 'MET Mr. MIJISSOU' },
+  // 倒したかどうか。いまは何も開かないが、記録として残す
   todoDown: { type: T.FLAG, label: 'Mr. MIJISSOU DOWN' },
   // 図鑑の姿と、サウンドテストの VOICE 欄。どちらも「会った(声を聞いた)」で開く。
   // 条件が同じなので分けていない。別々にしたくなったらここに 1 つ足す
@@ -520,12 +527,23 @@ const progress = new SaveGroup('starfable-progress', {
 });
 
 /**
- * 面番号に対応する印。1〜4 面のボスと未実装さんだけが持つ。
+ * 面番号に対応する「倒した」印。1〜4 面のボスと未実装さんだけが持つ。
  * ラスボスは倒しても印を持たない(ボスラッシュに出ないため)
  */
 function rushFlag(stage) {
   if (stage >= 1 && stage <= 4) return 'boss' + stage + 'Down';
   if (stage === RUSH_TODO) return 'todoDown';
+  return null;
+}
+
+/**
+ * 面番号に対応する「出会った」印。図鑑の姿を出すかどうかに使う。
+ * ラスボスは出てくるところが特別なので spawnKingBoss 側で立てる。
+ * 未実装さんも**ここでは立てない**。出会うのは 2 回目のコンティニューだけで、
+ * ボスラッシュやシーン選択で出しても「出会った」ことにはしない
+ */
+function metFlag(stage) {
+  if (stage >= 1 && stage <= 4) return 'boss' + stage + 'Met';
   return null;
 }
 
@@ -2929,7 +2947,7 @@ function startStage() {
   // 2 回目のコンティニュー。面が始まってすぐ、未実装さんが顔を出す
   if (todoGuest) {
     todoGuest = false;
-    markMet('todoMet');    // ボスラッシュで戦えるようになる
+    markMet('todoMet');    // ここが唯一の出会い。図鑑に載り、ボスラッシュにも出る
     beginBossMode();        // ボス戦の下ごしらえ(背景など)だけ borrow する
     spawnTodoBoss();
     boss.guest = true;      // 倒しても面はクリアにならない(客人あつかい)
@@ -6383,6 +6401,9 @@ function beginBossMode() {
 
 function spawnBoss() {
   beginBossMode();
+  // 出てきた時点で図鑑の姿が出るようになる。
+  // どこから出しても(本編・ボスラッシュ・シーン選択)同じ扱い
+  markMet(metFlag(stageNo));
   const kind = bossKind();
   if (kind === 'eyes') {
     // 裏技: いつもどおり 2 体そろった目玉と 1 戦だけ
@@ -9617,8 +9638,8 @@ function sceneList() {
   });
   list.push({ label: 'BIG MOAI', run: () => sceneStart(RUSH_MOAI, true) });
   list.push({ label: 'TWIN EYES', run: () => sceneStart(RUSH_EYES, true) });
-  // 未実装さん。**ここで戦っても印は付かない**(ボスラッシュは開かない)。
-  // 開くのはコンティニューで出会ったときだけ
+  // 未実装さん。**ここで戦っても印は付かない**(図鑑もボスラッシュも開かない)。
+  // 出会うのは 2 回目のコンティニューだけ
   list.push({ label: 'Mr. MIJISSOU', run: () => sceneStart(RUSH_TODO, true) });
   // ボスラッシュの個別選択は、ボスラッシュのメニュー側に移した
   return list;
@@ -9653,7 +9674,11 @@ function enterSceneSelect() { enterListMenu('- SCENE SELECT -', sceneList()); }
 // (触っている途中の状態がそのまま残ると、確かめたい形を作りにくいため)。
 
 /** 触れる印。ボスラッシュの 5 つと、図鑑のラスボス */
-const DEVSET_NAMES = ['boss1Down', 'boss2Down', 'boss3Down', 'boss4Down', 'todoMet', 'kingMet'];
+const DEVSET_NAMES = [
+  'boss1Met', 'boss1Down', 'boss2Met', 'boss2Down',
+  'boss3Met', 'boss3Down', 'boss4Met', 'boss4Down',
+  'todoMet', 'kingMet',
+];
 let devSel = 0;
 /** 画面で触っている途中の値(APPLY するまで保存しない) */
 let devEdit = {};
@@ -9743,7 +9768,7 @@ function rushMenuList() {
     { label: 'BOSS x 4 TIME ATTACK', run: () => sceneRush(0) },
   ];
   // まだ倒していない相手も**行としては出す**。
-  // 選べないことを暗い色と鍵の印で見せて、「倒せば開く」と分からせる
+  // 暗い色と伏せた名前で見せて、「倒せば開く」と分からせる
   let known = 0;
   for (const n of BOSS_RUSH_STAGES) {
     const open = met('boss' + n + 'Down');
@@ -9752,7 +9777,7 @@ function rushMenuList() {
     // 作っている最中に、開けるまで戦えないのでは確かめられない
     list.push(open
       ? { label: 'VS ' + BOSS_NAMES[n - 1], run: () => sceneRush(n) }
-      : { label: 'VS ' + maskName(BOSS_NAMES[n - 1]), locked: !DEV,
+      : { label: 'VS ' + maskName(BOSS_NAMES[n - 1]), closed: true, locked: !DEV,
         run: DEV ? () => sceneRush(n) : undefined });
   }
   // 4 体そろったごほうび。本編には出てこない相手。
@@ -9763,7 +9788,7 @@ function rushMenuList() {
   const metTodo = met('todoMet');
   list.push(metTodo
     ? { label: 'VS Mr. MIJISSOU', run: () => sceneRush(RUSH_TODO) }
-    : { label: 'VS ' + maskName('Mr. MIJISSOU'), locked: !DEV,
+    : { label: 'VS ' + maskName('Mr. MIJISSOU'), closed: true, locked: !DEV,
       run: DEV ? () => sceneRush(RUSH_TODO) : undefined });
   return list;
 }
@@ -9779,10 +9804,12 @@ function drawSceneSelect() {
     const i = sceneTop + r;
     if (i >= scenes.length) break;
     const here = i === sceneSel;
-    const locked = !!scenes[i].locked;
     const mark = here ? String.fromCharCode(0x1b) : ' ';
-    // 選べない行は、カーソルが乗っても色を変えない(押せないので明るくしない)
-    const col = locked ? 12 : (here ? 11 : 14);
+    // 色で見せるのは**開いているかどうか**。まだ開いていない行は、
+    // カーソルが乗っても暗いままにする。
+    // 押せるかどうか(locked)は色に出さない。開発版では、まだ開いていない相手にも
+    // 入れるようにしてあるが、見た目は公開版と同じにしておきたいため
+    const col = scenes[i].closed ? 12 : (here ? 11 : 14);
     hud.print(24, 28 + r * 12, mark + scenes[i].label, col);
   }
   const pos = (sceneSel + 1) + '/' + scenes.length;
@@ -10433,6 +10460,7 @@ const CHAR_PAGES = [
     // ボスはゲーム中と同じように、パーツを組み合わせて見せる
     title: 'BOSS 1',
     name: 'KING OCTOPOT',
+    secret: 'boss1Met',   // 出会うまでは姿を伏せる(名前は先に出す)
     parts: [
       // 頭を先に描いて、あとから壺をかぶせる = 顔が壺にめり込んで見える
       ['bossHead', 104, 64],
@@ -10454,6 +10482,7 @@ const CHAR_PAGES = [
   {
     title: 'BOSS 2',
     name: 'KING FOSSIL',
+    secret: 'boss2Met',
     parts: [
       // 図鑑では、ジャンプ中の伸ばした脚(細いほう)を見せる。
       // **甲羅より先に描く**(あとから描くと、甲羅にめり込んだ付け根まで見えてしまう)。
@@ -10477,6 +10506,7 @@ const CHAR_PAGES = [
   {
     title: 'BOSS 3',
     name: 'KING OARFISH',
+    secret: 'boss3Met',
     parts: [
       ['dragonBody', 148, 122],
       ['dragonBody', 134, 108],
@@ -10491,6 +10521,7 @@ const CHAR_PAGES = [
   {
     title: 'BOSS 4',
     name: 'KING NAUTILUS',
+    secret: 'boss4Met',
     parts: [
       ['nautilus', 104, 64],
       { img: 'octoCrown', x: 118, y: 54, sprite: true },
