@@ -181,7 +181,7 @@ export class PSGPlayer {
       // こうしておくと、音を切って遊んでいた人でも
       // 残した音には ちゃんと鳴っていたものが入る
       this._master = this.ctx.createGain();
-      this._master.gain.value = this._muted ? 0 : 1;
+      this._master.gain.value = this._muted ? 0 : this.volume;
       this._master.connect(this.ctx.destination);
       this._bus = this.ctx.createGain();
       this._bus.gain.value = 1;
@@ -207,9 +207,26 @@ export class PSGPlayer {
       out.gain.cancelScheduledValues(t);
       // ぷつっと切れないよう、ごく短く滑らせる
       out.gain.setValueAtTime(out.gain.value, t);
-      out.gain.linearRampToValueAtTime(this._muted ? 0 : 1, t + 0.05);
+      out.gain.linearRampToValueAtTime(this._muted ? 0 : this.volume, t + 0.05);
     }
     return this._muted;
+  }
+
+  /**
+   * **音の大きさ**(0〜1、既定 1)。曲も効果音もまとめて動く。
+   * 消すのは `mute()` の役目で、こちらは**大きさだけ**を決める。
+   * 溜めるほうは絞らないので、残した音は鳴っていたとおりに残る
+   */
+  get volume() { return this._vol == null ? 1 : this._vol; }
+
+  set volume(v) {
+    this._vol = Math.max(0, Math.min(1, Number(v) || 0));
+    if (this._master && !this._muted) {
+      const t = this.ctx.currentTime;
+      this._master.gain.cancelScheduledValues(t);
+      this._master.gain.setValueAtTime(this._master.gain.value, t);
+      this._master.gain.linearRampToValueAtTime(this._vol, t + 0.05);
+    }
   }
 
   /** いま音を消しているか */

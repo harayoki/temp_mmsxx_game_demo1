@@ -134,6 +134,12 @@ export class MMSXXEngine {
     // 実機の「1 行に何枚まで」の再現。既定は無効(0)
     if (opts.spriteLimit) this.vdp.spriteLimit = Math.max(0, opts.spriteLimit | 0);
     if (opts.spriteMax) this.vdp.spriteMax = Math.max(0, opts.spriteMax | 0);
+    /**
+     * **1 秒あたりのコマ数**(既定 60)。実機に寄せて 50 にしたり、
+     * 動きを見るために落としたりできる。溜めるコマの計算は 60 のままなので、
+     * 大きく変えるとリプレイの秒数がずれる
+     */
+    this.fps = Math.max(1, Math.min(120, opts.fps | 0)) || 60;
     if (opts.spriteRotate) {
       this.vdp.spriteRotate = (typeof opts.spriteRotate === 'string') ? opts.spriteRotate : true;
     }
@@ -769,13 +775,15 @@ export class MMSXXEngine {
   }
 
   /**
-   * メインループを開始する。update は 60fps 固定で呼ばれる。
+   * メインループを開始する。update は毎秒 `fps` 回(既定 60)呼ばれる。
    * @param {(mmsxx: MMSXXEngine) => void} update
    */
   run(update) {
     this._running = true;
     this._update = update;
-    const STEP = 1000 / 60;
+    // 1 コマの長さ。実機に寄せて 50Hz にしたり、動きを見るために
+    // 落としたりできる(既定は 60)
+    const STEP = 1000 / this.fps;
     let last = performance.now();
     let acc = 0;
     const tick = (now) => {

@@ -25,10 +25,21 @@ import { gameStop } from './console-stop.js';
 // ---- URL で変えられる設定 ----
 // **遊ぶ人が触ってよいもの**だけをここに置く(ランキングの宛先などは別)。
 //
-//   ?sprites=4      … 1 行に出せるスプライトの数(0 = 無制限、16 まで。既定 4)
+//   ?linesprites=4  … **1 行**に出せるスプライトの数(0 = 無制限、16 まで。既定 4)
 //   ?maxsprites=32  … 画面ぜんぶで出せる数(0 = 無制限、256 まで。既定 32)
 //   ?rotate=stride  … 消える順の回しかた(step / stride / random / slow / off)
 //   ?palette=rf     … 画面の色合い(tms9918 / toshiba / rf / v9938)
+//   ?scale=3        … 画面の拡大率(1〜8。既定 3)
+//   ?fps=60         … 1 秒あたりのコマ数(1〜120。既定 60。50 で実機の PAL ふう)
+//   ?mute=1         … 音を消した状態で始める
+//   ?volume=70      … 音の大きさ(0〜100。曲も効果音もまとめて動く)
+//   ?mode=hard      … 始めかたを選ぶ(normal / hard / bossrush / staff / sound / chars)
+//
+// **開発版だけ効くもの**(公開版は URL に何を書いても無視する):
+//
+//   ?stage=3        … その面から始める
+//   ?seed=12345     … 乱数の種を決める(同じ出かたをくり返し見られる)
+//   ?invincible=1   … やられない(演出を見るため)
 //
 // 数や名前がおかしいときは、黙って既定のままにする
 // (URL をいじって遊ぶ人が、動かない画面に当たらないように)
@@ -40,8 +51,12 @@ const OPT_NUM = (name, def, max) => {
   if (!Number.isFinite(n) || n < 0 || n > max) return def;
   return Math.round(n);
 };
-/** 1 行に出せるスプライトの数。実機は MSX1 が 4 枚、MSX2 が 8 枚 */
-const SPRITE_LIMIT = OPT_NUM('sprites', 4, 16);
+/** **1 行**に出せるスプライトの数。実機は MSX1 が 4 枚、MSX2 が 8 枚 */
+const SPRITE_LIMIT = OPT_NUM('linesprites', 4, 16);
+/** 画面の拡大率 */
+const SCREEN_SCALE = Math.max(1, OPT_NUM('scale', 3, 8));
+/** 1 秒あたりのコマ数 */
+const SCREEN_FPS = Math.max(1, OPT_NUM('fps', 60, 120));
 /** 画面ぜんぶで出せるスプライトの数。実機(MSX)は 32 枚 */
 const SPRITE_MAX = OPT_NUM('maxsprites', 32, 256);
 /**
@@ -59,7 +74,8 @@ const SPRITE_ROTATE = (() => {
 // 裏画面は 256x1024 (横は画面ぴったり、縦に長くとってスクロールさせる)。
 // レイヤーは 5 枚: 遠い星 / 中間の星 / 近い星 / 大きな背景オブジェクト(とボス) / HUD
 const mmsxx = new MMSXXEngine(document.getElementById('screen'), {
-  scale: 3, virtualWidth: 256, virtualHeight: 1024,
+  scale: SCREEN_SCALE, virtualWidth: 256, virtualHeight: 1024,
+  fps: SCREEN_FPS,
   layers: [{}, {}, {}, {}, {}, {}],
   // 内訳は 曲 6 + 撃つ音の席 2 + 当たった音の席 6 + 残り 6(レーザーなど)。
   // 席の分けかたは下の reserveSE を見ること
@@ -82,6 +98,23 @@ const mmsxx = new MMSXXEngine(document.getElementById('screen'), {
 });
 /** 開発用の機能を出すか。細かい出し分けはこれを見て決める */
 const DEV = mmsxx.dev;
+
+// 音。**大きさは曲も効果音もまとめて**動かす(別々には持たない)
+{
+  const v = OPT.get('volume');
+  if (v != null && v !== '') {
+    const n = Number(v);
+    if (Number.isFinite(n) && n >= 0 && n <= 100) mmsxx.audio.volume = n / 100;
+  }
+  if (OPT.get('mute') === '1') mmsxx.audio.mute(true);
+}
+// **開発版だけ**: 乱数の種を決める。同じ出かたをくり返し見られる
+if (DEV) {
+  const v = OPT.get('seed');
+  if (v != null && v !== '' && Number.isFinite(Number(v))) mmsxx.rng.seed(Number(v));
+}
+/** **開発版だけ**: やられない(演出を見るため) */
+const NO_DAMAGE = DEV && OPT.get('invincible') === '1';
 
 // 画面の色合い。**知らない名前なら黙って既定のまま**にする。
 // 名前はエンジンが持っているので、色合いを増やしてもここは直さなくていい
@@ -4152,6 +4185,7 @@ function criticalHit(cause) {
  */
 function destroyPlayer(cause = 'unknown', noMercy = false) {
   if (respawnDelay > 0 || state !== 'play') return;
+  if (NO_DAMAGE) return;   // ?invincible=1(開発版だけ)
   startShake(26);
   // NORMAL はバリアがあればそれで肩代わり。装備そのものは下げない
   if (isNormal() && barrierHP > 0 && !noMercy) { damagePlayer(cause); return; }
@@ -10753,6 +10787,24 @@ function altDown() {
 // コマ数の表示は**開発版だけ**。DOM に出すので画面写真には写らない
 const fpsMeter = DEV ? new FpsMeter() : null;
 enterTitle();
+// URL で始めかたが指定されていれば、タイトルを飛ばしてそこから始める。
+// **?stage= は開発版だけ**(遊ぶ人に途中の面を渡さない)
+{
+  const want = OPT.get('mode');
+  const at = want ? MODES.findIndex((m) => m.id === want) : -1;
+  const stage = DEV ? OPT_NUM('stage', 0, 9) : 0;
+  if (stage > 0) sceneStart(stage, false);
+  else if (at >= 0) {
+    modeIndex = at;
+    const id = MODES[at].id;
+    if (id === 'staff') enterStaffRoll();
+    else if (id === 'sound') enterSoundTest();
+    else if (id === 'chars') enterCharList();
+    else if (id === 'scene') enterSceneSelect();
+    else if (id === 'bossrush') enterBossRushMenu();
+    else enterPlay();
+  }
+}
 mmsxx.run(() => {
   if (fpsMeter) fpsMeter.tick();
   // 名乗りのあいだは、画面も HUD もいっさい動かさない
