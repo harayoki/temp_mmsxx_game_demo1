@@ -3472,7 +3472,10 @@ function updateReplay() {
 function enterGameOver() {
   // ラスボスに負けたときは、画面を止めて高笑いを聞かせる。
   // (倒したときの名乗りと対になる演出)
-  if (boss && boss.kind === 'king' && boss.dying <= 0 && !bossPractice) {
+  // **裂け目のあいだは鳴らさない**。まだ姿を見せていないのに笑い声だけ
+  // 聞こえるのはおかしいので、シルエットが出てから(pose / man)にする
+  const kingShown = boss && (boss.stage === 'pose' || boss.stage === 'man');
+  if (boss && boss.kind === 'king' && kingShown && boss.dying <= 0 && !bossPractice) {
     mmsxx.audio.stopBGM();
     currentBGM = null;
     mmsxx.audio.stopSE();
