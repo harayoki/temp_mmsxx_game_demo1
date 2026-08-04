@@ -25,6 +25,14 @@
     font-family: monospace;
     font-size: 13px;
   }
+  /* お知らせ。操作の説明より控えめに、日本語と英語を並べて出す */
+  p.notice {
+    color: #6b7288;
+    font-size: 12px;
+    line-height: 1.6;
+    margin: 4px 8px 0;
+    text-align: center;
+  }
   #error {
     display: none;
     max-width: 90vw;
@@ -43,6 +51,10 @@
 <body>
 <canvas id="screen"></canvas>
 <p>ARROWS: MOVE / SPACE: SHOT / ESC: PAUSE / ALT+S: COPY SCREEN / ALT+M: MUTE / ALT+P: SHARE</p>
+<p class="notice">
+  ただいまテスト運用中です。そのため、ランキングの記録は予告なくリセットされることがあります。あらかじめご了承ください。<br>
+  This game is currently under test operation. The ranking records may be reset without notice. Thank you for your understanding.
+</p>
 <pre id="error"></pre>
 <script>
   // 読み込みや実行に失敗したとき、原因を画面に出す(サーバに上げたときの切り分け用)
