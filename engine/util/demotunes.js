@@ -201,3 +201,131 @@ export function toneDemo(w) {
     + 'o3 c8. d16 e8 f8 a4 g8 f8  e4. c8 e8 f8 e8 c8 b2 ',
   ];
 }
+
+
+// ---- リズムの曲(打楽器の使いかたの見本) ----
+// `drumKitDemo()` が「打楽器を 1 つずつ確かめる」ものなのに対して、
+// こちらは**曲として組んだときの見本**。ゲームからも BGM として使える。
+//
+//   mmsxx.audio.defineBGM('beat', beatTune());
+//
+// ここで見せたいのは 2 つ。
+//
+// **ベースは 2 本重ねる。** 波形メモリ(SCC にあたるもの)が 8 分で走り回り、
+// 三角波が根音を伸ばす。走るほうだけだと軽すぎ、伸ばすほうだけだと重い。
+//
+// **FM の打楽器はどれも線が細いので、ほかの音を重ねて厚みを出す。**
+//   ノイズ … 低い音でバスドラの胴、中くらいでスネアの砂、高い音でシンバル
+//   矩形波 … 16 分の裏に小さな粒を置いて、刻みを細かく聞かせる
+// 重ねる音は**それだけ聞くと意味が無いくらい小さく**しておくこと。
+// 前に出ると、打楽器の音色そのものが変わって聞こえてしまう。
+
+// 8 小節の流れ: Dm Dm B- C Dm Dm Gm A
+// 走るベース(8 分)。根音 - 5 度 - 8 度 - 5 度 を軸に、3 度と 7 度で崩す
+const BEAT_BASS = [
+  'o2 d a o3 d o2 a f a d o3 c',
+  'o2 d a o3 d o2 a f a d o3 c',
+  'o2 b- f o3 b- o2 f d f b- a',
+  'o2 c g o3 c o2 g e g c b-',
+  'o2 d a o3 d o2 a f a d o3 c',
+  'o2 d a o3 d o2 a f a d o3 c',
+  'o2 g d g d b- d g f',
+  'o2 a e a e o3 c o2 e a g',
+].join(' ');
+
+// 伸ばすベース。1 小節に 1 つ、根音だけ
+const BEAT_ROOT = [
+  'o2 d1', 'o2 d1', 'o2 b-1', 'o2 c1',
+  'o2 d1', 'o2 d1', 'o2 g1', 'o2 a1',
+].join(' ');
+
+// バスドラ。1 拍目と、2 拍目の裏から食い込む 2 発
+const BEAT_KICK_A = 'c8 r8 r8 c16 r16 c8 r8 r4';
+const BEAT_KICK_B = 'c8 r8 c16 r16 r8 c8 r8 c8 r8';
+const BEAT_KICK = [
+  BEAT_KICK_A, BEAT_KICK_A, BEAT_KICK_A, BEAT_KICK_B,
+  BEAT_KICK_A, BEAT_KICK_A, BEAT_KICK_A, BEAT_KICK_B,
+].join(' ');
+
+// スネアは 2 拍目 4 拍目の表。8 小節目だけ 16 分で追い込む
+const BEAT_SNARE_A = 'r4 c8 r8 r4 c8 r8';
+const BEAT_SNARE_B = 'r4 c8 r8 r4 c16 c16 c16 c16';
+const BEAT_SNARE = [
+  BEAT_SNARE_A, BEAT_SNARE_A, BEAT_SNARE_A, BEAT_SNARE_A,
+  BEAT_SNARE_A, BEAT_SNARE_A, BEAT_SNARE_A, BEAT_SNARE_B,
+].join(' ');
+
+// シンバル(ハイハット)。8 分の刻みを通しで
+const BEAT_HAT_A = 'c8 c8 c8 c8 c8 c8 c8 c8';
+const BEAT_HAT = new Array(8).fill(BEAT_HAT_A).join(' ');
+
+// タム。ふだんは休み、4 小節目と 8 小節目のおしまいでオカズ
+const BEAT_TOM_FILL = 'r2 c16 c16 o3 c16 c16 o4 c8 o3 c8';
+const BEAT_TOM = [
+  'r1', 'r1', 'r1', BEAT_TOM_FILL,
+  'r1', 'r1', 'r1', BEAT_TOM_FILL,
+].join(' ');
+
+// ノイズの重ね。バスドラ(低)・スネア(中)・シンバル(高)と同じ位置に置く
+const BEAT_NOISE_A =
+  'v11o2c16 r16 v3o6c8 v8o5c16 r16 v11o2c16 r16 v11o2c16 r16 v3o6c8 v8o5c16 r16 v3o6c8';
+const BEAT_NOISE = new Array(8).fill(BEAT_NOISE_A).join(' ');
+
+// 矩形波の粒。16 分の**裏だけ**に置く
+const BEAT_BLIP_A = 'r16 c16 r16 c16 r16 c16 r16 c16 r16 c16 r16 c16 r16 c16 r16 c16';
+const BEAT_BLIP = new Array(8).fill(BEAT_BLIP_A).join(' ');
+
+// ブラスの短い和音。**和音は 1 本では鳴らせない**ので、3 音ぶんのトラックを
+// 別々に持ち、同じ位置で同じ長さだけ鳴らす。
+// 入れるのは小節の切れ目や、間が空くところだけ。鳴らしすぎると
+// リズムの隙間が埋まって、走るベースが聞こえなくなる。
+// % のところに音名が入る(和音の何番目かで差し替える)
+const ST_REST = 'r1';
+const ST_TAIL = 'r2 r4 r8 %16 %16';   // 小節のおしまいに 16 分 2 発
+const ST_BACK = 'r2 r4 %8 r8';        // 4 拍目の頭に 1 発
+const ST_TWO = 'r2 %8 r8 %8 r8';      // 後半に 2 発
+const ST_HEAD = '%8 r8 r4 r2';        // 小節の頭に 1 発
+const stab = (pattern, note) => pattern.split('%').join(note);
+
+// 1・3・5 小節目は休んで、走るベースを聞かせる
+const BEAT_STAB_RHYTHM = [ST_REST, ST_TAIL, ST_REST, ST_BACK, ST_REST, ST_TAIL, ST_TWO, ST_HEAD];
+// 和音の積み方(上 / 中 / 下)
+const BEAT_STAB_VOICES = [
+  ['o4 a', 'o4 a', 'o4 f', 'o4 g', 'o4 a', 'o4 a', 'o5 d', 'o5 e'],
+  ['o4 f', 'o4 f', 'o4 d', 'o4 e', 'o4 f', 'o4 f', 'o4 b-', 'o5 c+'],
+  ['o4 d', 'o4 d', 'o3 b-', 'o4 c', 'o4 d', 'o4 d', 'o4 g', 'o4 a'],
+];
+const beatStabTrack = (voice) =>
+  BEAT_STAB_RHYTHM.map((r, i) => stab(r, voice[i])).join(' ');
+
+/**
+ * ベースと FM 打楽器で組んだリズムの曲。8 小節を 2 回。
+ * @returns {string[]} 11 本のトラック
+ */
+export function beatTune() {
+  const T = 't152';
+  return [
+    // 走るベース(波形メモリ = SCC)。
+    // **pluck で頭を立てる**。flat のままだと音が平らに続いて、
+    // 8 分が団子になり「走っている」感じが出ない
+    `${T} q7 v13 l8 @{wtRamp} @e{pluck} @s2 [` + BEAT_BASS + ']2',
+    // 根音を伸ばすベース(三角波)
+    `${T} q8 v10 l1 @{triangle} @e{flat} [` + BEAT_ROOT + ']2',
+    // バスドラ
+    `${T} q8 v13 l16 @{fmDrumKick} @e{percussive} o2 [` + BEAT_KICK + ']2',
+    // スネア
+    `${T} q8 v11 l16 @{fmDrumSnare} @e{percussive} o4 [` + BEAT_SNARE + ']2',
+    // シンバル(刻み)
+    `${T} q8 v6 l16 @{fmDrumCymbal} @e{percussive} o6 [` + BEAT_HAT + ']2',
+    // タム(オカズ)
+    `${T} q8 v10 l16 @{fmDrumTom} @e{percussive} o4 [` + BEAT_TOM + ']2',
+    // 打楽器に重ねるノイズ
+    `${T} q8 l16 @{noise} @e{percussive} [` + BEAT_NOISE + ']2',
+    // 16 分の裏を埋める粒
+    `${T} q8 v4 l16 @{pulse12} @e{percussive} o6 [` + BEAT_BLIP + ']2',
+    // ブラスの和音(上 / 中 / 下)。短く切って合いの手にする
+    `${T} q6 v9 l16 @{fmTrumpet} @e{soft} [` + beatStabTrack(BEAT_STAB_VOICES[0]) + ']2',
+    `${T} q6 v8 l16 @{fmTrumpet} @e{soft} [` + beatStabTrack(BEAT_STAB_VOICES[1]) + ']2',
+    `${T} q6 v8 l16 @{fmHorn} @e{soft} [` + beatStabTrack(BEAT_STAB_VOICES[2]) + ']2',
+  ];
+}

@@ -13,7 +13,7 @@ import { StaffRoll } from '../engine/util/staffroll.js';
 import { Gallery } from '../engine/util/gallery.js';
 import { SoundTest } from '../engine/util/soundtest.js';
 import { FpsMeter } from '../engine/util/fps.js';
-import { demoFor, scaleDemo, drumKitDemo } from '../engine/util/demotunes.js';
+import { demoFor, scaleDemo, drumKitDemo, beatTune } from '../engine/util/demotunes.js';
 import { SaveGroup, T, R } from '../engine/util/savedata.js';
 import { StatsLog } from '../engine/stats.js';
 import { GAME_DATA } from './gamedata.js';
@@ -299,6 +299,8 @@ mmsxx.audio.addWave('wtLead', Array.from({ length: 32 }, (_, i) => {
 for (const [name, mml] of Object.entries(GAME_DATA.bgm)) mmsxx.audio.defineBGM(name, mml);
 // スタッフロールだけは音声ファイル(mp3)を使う。
 // MML と同じように playBGM('staff') で鳴らせる
+// 記録の画面で流すリズム曲。曲そのものはエンジン側(見本を兼ねている)
+mmsxx.audio.defineBGM('beat', beatTune());
 mmsxx.audio.defineBGM('staff', { url: './assets/staff.mp3', gain: 0.5 });
 mmsxx.audio.defineBGM('finalbattle', { url: './assets/final_battle.mp3', gain: 0.6 });
 for (const [name, mml] of Object.entries(GAME_DATA.se)) mmsxx.audio.defineSE(name, mml);
