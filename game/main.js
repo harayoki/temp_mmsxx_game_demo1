@@ -9916,9 +9916,8 @@ function enterStats() {
   for (const sp of helpIconSprites()) sp.visible = false;
   player.visible = false;
   aux.visible = false;
-  mmsxx.audio.stopBGM();
-  currentBGM = null;
   neb.clear();
+  playBGM('beat', true, true);   // 記録を眺めているあいだのリズム
   statRows = statList();
   // 一覧の最後に置いたことわりが何行目から始まるか(重ねているほうを消す目印)
   statNoteRow = statRows.findIndex((r) => r[2] === 13);
@@ -10588,7 +10587,7 @@ function updateStaffRoll() {
 // 曲(ループするもの)は BGM 側、短いジングルは SE 側の先頭にまとめる
 // 未使用曲や場面ごとの曲もここから聴ける
 const SOUND_BGM = ['main', 'power', 'boss', 'lastboss', 'moai', 'todo', 'gameover',
-  'elise', 'fate', 'salut', 'botsu1', 'finalbattle', 'staff'];
+  'elise', 'fate', 'salut', 'beat', 'botsu1', 'finalbattle', 'staff'];
 // ジングルは BGM として登録されているので、鳴らし方が SE と違う。欄も分ける
 const SOUND_JINGLE = ['start', 'unused1', 'fanfare', 'bonus'];
 const SOUND_SE = ['shutter', 'autofire', 'heal', 'scold',
