@@ -32,6 +32,11 @@ const mmsxx = new MMSXXEngine(document.getElementById('screen'), {
   maxVoices: 20,
   // ノイズは種類ごとに席を取っておく(下の reserveSE)。その合計ぶん要る
   maxNoise: 4,
+  // **1 行に出せるスプライトは 8 枚**まで(MSX2 の実機なみ)。
+  // あふれたぶんはその行だけ消える。同じ優先度のものはコマごとに
+  // 順番を回すので、いつも同じものが消えることはない
+  spriteLimit: 8,
+  spriteRotate: true,
   // 開発版かどうかは**ビルドで決める**(場所では決めない)。
   // これ 1 つで、シーン選択・コンソール関数・画面の保存・
   // 開発用の裏技・BG の検査が まとめて出入りする
