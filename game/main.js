@@ -10562,6 +10562,13 @@ const CHAR_PAGES = [
   // { img: 'player', x: 124, y: 144, sprite: true },
   // ],
   // },
+  {
+    // **ちらつき見物のページ。** 敵も自機も弾も、ゲーム中と同じ姿で
+    // いっぺんに出す。1 行に出せる数の制限や処理落ちを、目で確かめるためのもの。
+    // 出す顔ぶれは前のページから拾うので、敵が増えれば勝手に増える
+    title: 'ALL SPRITES',
+    crowd: true,
+  },
 ];
 let charPage = 0;
 let charSprites = [];
@@ -10570,6 +10577,7 @@ let charMoai = null;       // モアイのページ(色変わりと明滅を動�
 let charMoaiShown = true, charMoaiBlue = false;
 let charRocket = [];       // ちらつかせるロケット
 let charRocketAlt = false;
+let charCrowd = null;      // ちらつき見物のページ(動かすものを覚えておく)
 let charFlashPhase = -1;
 
 function clearCharSprites() {
@@ -10596,7 +10604,7 @@ function enterCharList() {
     pages: CHAR_PAGES.map((page, i) => ({
       title: page.title,
       bare: page.bare,
-      draw: () => { charPage = i; drawCharList(); },
+      draw: () => { charPage = i; charCrowd = null; drawCharList(); },
       update: () => updateCharAnim(),
       leave: () => { clearCharSprites(); neb.clear(); },
     })),
@@ -10700,6 +10708,7 @@ function drawCharList() {
   charRocket = (page.big || []).filter(b => b[0] === 'rocket')
     .map(([, , bx, by]) => ({ bx, by }));
   charFlashPhase = -1;
+  if (page.crowd) { drawCrowdPage(); return; }
   // 6 つ並ぶページは、最後の行が下のナビに近づくので 8 ドット上から始める
   let y = (page.items || []).length >= 6 ? 32 : 40;
   for (const [name, label] of (page.items || [])) {
@@ -10712,12 +10721,76 @@ function drawCharList() {
   }
 }
 
+/**
+ * **ちらつき見物のページ**を組み立てる。
+ *
+ * 敵は図鑑のほかのページから拾うので、**顔ぶれは勝手に増える**。
+ * 弾は多めに出す。1 行に出せる数の制限が効くと、
+ * 横に並んだところから順に消えるのが見える。
+ *
+ * 席の強さもゲーム中と同じにしてある(自機は消えない、弾はまっさきに譲る)ので、
+ * ここで見た目を決めれば、そのまま遊びに持っていける
+ */
+function drawCrowdPage() {
+  // 図鑑のほかのページに載っている敵を全部集める
+  const names = [];
+  for (const pg of CHAR_PAGES) {
+    for (const [name] of (pg.items || [])) {
+      if (SPRITE_SYMBOLS[name] && !names.includes(name)) names.push(name);
+    }
+  }
+  charCrowd = { enemies: [], bullets: [], player: null };
+  // 敵は 6 列で並べ、左右にゆっくり揺らす
+  const COLS = 6, X0 = 20, DX = 38, Y0 = 30, DY = 26;
+  names.forEach((name, i) => {
+    const sp = mmsxx.sprite(SPRITE_SYMBOLS[name]);
+    sp.x = X0 + (i % COLS) * DX;
+    sp.y = Y0 + Math.floor(i / COLS) * DY;
+    sp.priority = 20;
+    charSprites.push(sp);
+    charCrowd.enemies.push({ sp, x0: sp.x, phase: i * 0.7 });
+  });
+  // 弾。**多めに出す**(横に並ぶと、そこから消えていくのが見える)
+  for (let i = 0; i < 24; i++) {
+    const sp = mmsxx.sprite(SPRITE_SYMBOLS[i % 2 ? 'bulletP' : 'bulletE']);
+    sp.x = 8 + (i % 12) * 20;
+    sp.y = 24 + (i % 5) * 30;
+    sp.priority = 5;
+    sp.rank = 'last';          // ゲーム中と同じ。込んだらまっさきに譲る
+    charSprites.push(sp);
+    charCrowd.bullets.push({ sp, vy: (i % 2) ? -2 : 2 });
+  }
+  // 自機。ゲーム中と同じく**消えない**扱いにして、下で左右に動かす
+  const me = mmsxx.sprite(SPRITE_SYMBOLS.player);
+  me.x = 120; me.y = 150; me.priority = 22; me.rank = 'always';
+  charSprites.push(me);
+  charCrowd.player = me;
+  const s1 = 'SPRITES ' + (names.length + 25);
+  hud.print(centerX(s1), 172, s1, 11);
+}
+
+/** ちらつき見物のページを動かす(止まっていると制限の効きが見えない) */
+function updateCrowdPage() {
+  const t = mmsxx.frame;
+  for (const e of charCrowd.enemies) {
+    e.sp.x = e.x0 + Math.sin(t * 0.03 + e.phase) * 10;
+  }
+  for (const b of charCrowd.bullets) {
+    b.sp.y += b.vy;
+    if (b.sp.y < 16) b.sp.y = 176;
+    else if (b.sp.y > 176) b.sp.y = 16;
+  }
+  const me = charCrowd.player;
+  if (me) me.x = 120 + Math.sin(t * 0.02) * 90;
+}
+
 function updateCharList() {
   charBook.update();
 }
 
 /** ページごとの動き(モアイの色変わり・ロケットの色替え・小惑星の明滅) */
 function updateCharAnim() {
+  if (charCrowd) { updateCrowdPage(); return; }
   // モアイのページは、ゲーム中と同じ色変わり(緑 <-> 青)と 1 コマおきの明滅を見せる
   if (charMoai) {
     const holo = (mmsxx.frame & 1) === 0;
