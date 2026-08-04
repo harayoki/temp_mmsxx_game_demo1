@@ -140,6 +140,19 @@ export class MMSXXEngine {
      * 大きく変えるとリプレイの秒数がずれる
      */
     this.fps = Math.max(1, Math.min(120, opts.fps | 0)) || 60;
+    /**
+     * **処理落ち**。出しているスプライトがこの数を超えたら、
+     * コマ数を `slowFps` まで落とす(0 で無効)。
+     *
+     * 実機は「1 コマのうちに描き切れないと、次の割り込みまで待たされる」ので、
+     * 画面が混むと**動きがそろって遅くなる**。あれを狙って起こす仕掛け。
+     * 数えているのは BG スプライトも足した数(`vdp.shownSprites`)
+     */
+    this.slowAt = Math.max(0, opts.slowAt | 0);
+    /** 処理落ちしているときのコマ数(既定 30 = 半分) */
+    this.slowFps = Math.max(1, Math.min(120, opts.slowFps | 0)) || 30;
+    /** いま処理落ちしているか(見るだけ) */
+    this.slow = false;
     if (opts.spriteRotate) {
       this.vdp.spriteRotate = (typeof opts.spriteRotate === 'string') ? opts.spriteRotate : true;
     }
@@ -781,13 +794,14 @@ export class MMSXXEngine {
   run(update) {
     this._running = true;
     this._update = update;
-    // 1 コマの長さ。実機に寄せて 50Hz にしたり、動きを見るために
-    // 落としたりできる(既定は 60)
-    const STEP = 1000 / this.fps;
     let last = performance.now();
     let acc = 0;
     const tick = (now) => {
       if (!this._running) return;
+      // 1 コマの長さは**毎回見る**。遊んでいる最中に fps を変えられるうえ、
+      // 混んでいるときは処理落ちさせられる
+      this.slow = this.slowAt > 0 && this.vdp.shownSprites > this.slowAt;
+      const STEP = 1000 / (this.slow ? this.slowFps : this.fps);
       acc += Math.min(now - last, 100); // タブ復帰時の暴走防止
       last = now;
       let steps = 0;

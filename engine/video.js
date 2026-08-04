@@ -308,6 +308,11 @@ export class VDP {
      * 1 行の制限(`spriteLimit`)とは別のもので、両方いっしょに使える
      */
     this.spriteMax = 0;
+    /**
+     * **そのコマに出したスプライトの数**(BG スプライトも足した数)。
+     * 描き終わるたびに数え直す。**処理落ちの目安**に使う
+     */
+    this.shownSprites = 0;
     this._lineUse = null;      // 行ごとに何枚出したか
     this._rowOk = null;        // スプライトごとに「どの行を描いてよいか」
 
@@ -1527,6 +1532,9 @@ export class VDP {
       // (同じ blink のものがいっせいに消えないようにするため)
       const ph = (s.blinkPhase == null ? s._autoPhase : s.blinkPhase) | 0;
       if (bl > 1 && ((this.frames + ph) % bl) >= Math.max(1, s.blinkOn | 0)) return;
+      // ここまで来たものが「そのコマに出したスプライト」。
+      // 行の取り合いで落ちたぶんも、VDP は見にいっているので数に入れる
+      this.shownSprites++;
       // 反転・回転(BG スプライトは 90/270 度は使えない = 絵のルールが崩れるため)
       const rot = bg ? ((s.rotate === 180) ? 180 : 0) : s.rotate;
       // パラパラアニメの指定があれば、いまのコマを選ぶ
@@ -1567,6 +1575,7 @@ export class VDP {
   /** 全レイヤー + 全スプライトを合成して canvas に描画する */
   render() {
     this.frames = (this.frames || 0) + 1;
+    this.shownSprites = 0;
     const profAt = this.profile ? performance.now() : 0;
     // **溜めたコマをそのまま出す**ときは、合成をまるごと飛ばす。
     // レイヤーもスプライトも割り込めないので、ドットが完全に一致する

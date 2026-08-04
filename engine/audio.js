@@ -62,6 +62,12 @@ export class PSGPlayer {
     this.noiseBuffer = null;
     this.maxVoices = opts.maxVoices ?? 8;
     this.maxNoise = opts.maxNoise ?? 1;
+    /**
+     * **同時に鳴らせるセリフの数**(既定 1)。
+     * 重なると聞き取れないのでふだんは 1 つだが、
+     * 何人かが同時にしゃべる場面では増やせる
+     */
+    this.maxTalk = opts.maxTalk ?? 1;
     /** いま BGM が使っている音の数 */
     this.bgmVoices = 0;
     /** SE の管理番号(playSE が返す。stopSE で狙って止めるのに使う) */
@@ -452,8 +458,12 @@ registerProcessor('mmsxx-tap', MmsxxTap);
   playTalk(name, priority = 0, opts = {}) {
     const def = this.talkDefs.get(name);
     if (!def || !this.ctx) return;
-    // セリフは重ねない。前のセリフは止めてから鳴らす(重なると聞き取れない)
-    this.stopTalk();
+    // **同時に鳴らせるセリフの数**(既定 1)。重なると聞き取れないので、
+    // ふだんは 1 つ。何人かが同時にしゃべる場面では増やす。
+    // あふれたぶんは**古いほうから**止める
+    const room = Math.max(1, this.maxTalk | 0) || 1;
+    const talking = this.seVoices.filter((v) => v.talk);
+    for (let i = 0; i <= talking.length - room; i++) this._stopVoice(talking[i]);
     const now = this.ctx.currentTime;
     this._cleanupSE(now);
     if (this.seVoices.some(v => v.exclusive && v.priority > priority)) return;

@@ -31,6 +31,8 @@ import { gameStop } from './console-stop.js';
 //   ?palette=rf     … 画面の色合い(tms9918 / toshiba / rf / v9938)
 //   ?scale=3        … 画面の拡大率(1〜8。既定 3)
 //   ?fps=60         … 1 秒あたりのコマ数(1〜120。既定 60。50 で実機の PAL ふう)
+//   ?slow=24        … スプライトがこの数を超えたら処理落ちさせる(0 = しない)
+//   ?slowfps=30     … 処理落ちしているときのコマ数(既定 30)
 //   ?mute=1         … 音を消した状態で始める
 //   ?volume=70      … 音の大きさ(0〜100。曲も効果音もまとめて動く)
 //   ?mode=hard      … 始めかたを選ぶ(normal / hard / bossrush / staff / sound / chars)
@@ -57,6 +59,13 @@ const SPRITE_LIMIT = OPT_NUM('linesprites', 4, 16);
 const SCREEN_SCALE = Math.max(1, OPT_NUM('scale', 3, 8));
 /** 1 秒あたりのコマ数 */
 const SCREEN_FPS = Math.max(1, OPT_NUM('fps', 60, 120));
+/**
+ * **処理落ち**。出しているスプライトがこの数を超えたらコマ数を落とす。
+ * 実機は混むと動きがそろって遅くなるので、それを狙って起こす。
+ * 既定は 0(しない)。数えるのは BG スプライトも足した数
+ */
+const SLOW_AT = OPT_NUM('slow', 0, 256);
+const SLOW_FPS = Math.max(1, OPT_NUM('slowfps', 30, 120));
 /** 画面ぜんぶで出せるスプライトの数。実機(MSX)は 32 枚 */
 const SPRITE_MAX = OPT_NUM('maxsprites', 32, 256);
 /**
@@ -76,6 +85,8 @@ const SPRITE_ROTATE = (() => {
 const mmsxx = new MMSXXEngine(document.getElementById('screen'), {
   scale: SCREEN_SCALE, virtualWidth: 256, virtualHeight: 1024,
   fps: SCREEN_FPS,
+  slowAt: SLOW_AT,
+  slowFps: SLOW_FPS,
   layers: [{}, {}, {}, {}, {}, {}],
   // 内訳は 曲 6 + 撃つ音の席 2 + 当たった音の席 6 + 残り 6(レーザーなど)。
   // 席の分けかたは下の reserveSE を見ること
