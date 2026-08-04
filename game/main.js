@@ -9809,9 +9809,11 @@ function enterSceneSelect() { enterListMenu('- SCENE SELECT -', sceneList()); }
 
 // **ことわりが無いときの形で画面を組む**。ことわりはその上に一時的に重ねるだけで、
 // 消えたあとに空きができないようにする
-const STAT_ROWS = 13;      // 出せる行数(下まで使いきる)
-const STAT_TOP = 28;       // 1 行目の高さ
-const STAT_STEP = 12;      // 行の送り
+const STAT_ROWS = 18;      // 出せる行数(下まで使いきる)
+const STAT_TOP = 24;       // 1 行目の高さ
+// 行の送り。**8 の倍数にすること**。エンジンの文字は 8 ドット単位に丸められるので、
+// 半端な送りにすると 8 と 16 が交互になって行間が不ぞろいに見える
+const STAT_STEP = 8;
 const STAT_NOTE_Y = 144;   // ことわりを重ねる高さ(4 行ぶん)
 const STAT_NOTE_TIME = 480;// 出しておく長さ(8 秒)
 // 出しておきたいことわり。**2 つ並べて**一度に出し、読むころに消える。
