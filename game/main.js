@@ -3947,31 +3947,23 @@ const SHARE_INTRO =
   "STAR FABLE - a retro-PC style shoot-'em-up made with Claude (Fable 5 + Opus 5)";
 const SHARE_TAGS = '#claude #fable #opus #msx #TMS9918 #shmup #vibecoding';
 
-// 画面ごとの言いかた。**ALT+P はどの画面でも出せる**ので、
-// ゲーム中の言いかたのままだと、図鑑や記録の画面でも面を名乗ってしまう
-const SHARE_WHAT = {
-  title: 'At the title screen',
-  chars: 'Looking through the character gallery',
-  sound: 'Listening to the sound test',
-  stats: 'Checking my play record',
-  staff: 'Watching the staff roll',
-  story: 'Watching the ending',
-  // 開発版だけの画面。中身は言わずにおく
-  scene: 'Playing STAR FABLE',
-  devset: 'Playing STAR FABLE',
-};
+// ゲーム中でないときの言いかた。**ALT+P はどの画面でも出せる**ので、
+// ゲーム中の言いかたのままだと、図鑑や記録の画面でも面を名乗ってしまう。
+// 画面ごとに変えるほどのことでもないので、1 つに決めてある
+const SHARE_ELSEWHERE = 'Playing STAR FABLE';
+/** どこまで進んだかを言ってよい画面(ゲーム中と、そのまま続くところ) */
+const SHARE_INGAME = ['play', 'over', 'entry', 'submitting', 'replay'];
 
 /**
- * シェア文言。**いまの画面と、ハイスコアかどうかで真ん中の 1 行が変わる**。
+ * シェア文言。**ゲーム中かどうかと、ハイスコアかどうかで真ん中の 1 行が変わる**。
  * ブラウザの言葉では切り替えない(英語 1 本にそろえる)。
  * @param {boolean} [hi] ランクインしたときの文言にするか
  */
 function shareTextLines(hi) {
   const mode = shareModeName();
-  // ゲーム中(と、そのまま続くゲームオーバー・名前入力・リプレイ)だけは
-  // どこまで進んだかを言う。ハイスコアのときは面ではなく記録を言う
-  const what = SHARE_WHAT[state]
-    || (hi ? `Played ${mode} and got a high score of ${score} points`
+  // ハイスコアのときは面ではなく記録を言う
+  const what = !SHARE_INGAME.includes(state) ? SHARE_ELSEWHERE
+    : (hi ? `Played ${mode} and got a high score of ${score} points`
       : `Played STAGE ${stageNo} / ${mode}`);
   return [SHARE_INTRO, what, SHARE_TAGS];
 }
