@@ -9677,8 +9677,10 @@ function enterSceneSelect() { enterListMenu('- SCENE SELECT -', sceneList()); }
 const DEVSET_NAMES = [
   'boss1Met', 'boss1Down', 'boss2Met', 'boss2Down',
   'boss3Met', 'boss3Down', 'boss4Met', 'boss4Down',
-  'todoMet', 'kingMet',
+  'todoMet', 'todoDown', 'kingMet', 'kingDown',
 ];
+const DEVSET_TOP = 24;    // 1 行目の高さ
+const DEVSET_STEP = 11;   // 行の送り
 let devSel = 0;
 /** 画面で触っている途中の値(APPLY するまで保存しない) */
 let devEdit = {};
@@ -9703,18 +9705,20 @@ function drawDevSettings() {
   hud.clear();
   const title = '- DEV SETTINGS -';
   hud.print(centerX(title), 8, title, 15);
+  // 印がぜんぶ並ぶよう、行間は文字の高さ + 3 ドットまで詰めてある
   for (let r = 0; r < DEVSET_NAMES.length; r++) {
     const name = DEVSET_NAMES[r];
     const here = r === devSel;
     const mark = here ? String.fromCharCode(0x1b) : ' ';
-    hud.print(24, 28 + r * 12, mark + progress.label(name), here ? 11 : 14);
+    hud.print(24, DEVSET_TOP + r * DEVSET_STEP, mark + progress.label(name), here ? 11 : 14);
     // 変えたところは色を変えて、まだ書き込んでいないことを見せる
     const changed = devEdit[name] !== progress.get(name);
-    hud.print(200, 28 + r * 12, devEdit[name] ? 'ON' : 'OFF', changed ? 10 : (here ? 11 : 14));
+    hud.print(200, DEVSET_TOP + r * DEVSET_STEP,
+      devEdit[name] ? 'ON' : 'OFF', changed ? 10 : (here ? 11 : 14));
   }
   const at = DEVSET_NAMES.length;
   const here = devSel === at;
-  hud.print(24, 28 + at * 12 + 8,
+  hud.print(24, DEVSET_TOP + at * DEVSET_STEP + 5,
     (here ? String.fromCharCode(0x1b) : ' ') + 'APPLY', here ? 11 : 14);
   const help = 'SP:TOGGLE  ESC:EXIT';
   hud.print(centerX(help), 176, help, 10);
