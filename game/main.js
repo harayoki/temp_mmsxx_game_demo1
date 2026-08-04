@@ -14,7 +14,7 @@ import { Gallery } from '../engine/util/gallery.js';
 import { SoundTest } from '../engine/util/soundtest.js';
 import { FpsMeter } from '../engine/util/fps.js';
 import { demoFor, scaleDemo, drumKitDemo } from '../engine/util/demotunes.js';
-import { LocalStorageStore } from '../engine/storage.js';
+import { SaveGroup, T, R } from '../engine/util/savedata.js';
 import { StatsLog } from '../engine/stats.js';
 import { GAME_DATA } from './gamedata.js';
 import { BUILD } from './build.js';
@@ -337,6 +337,8 @@ const MODES = [
 ];
 // 手元の開発中だけ「シーン選択」を足す(公開版では出ない)
 if (DEV) MODES.push({ id: 'scene', name: 'SCENE SELECT' });
+// 進みぐあいの印をその場で変える画面(これも公開版では出ない)
+if (DEV) MODES.push({ id: 'devset', name: 'DEV SETTINGS' });
 let modeIndex = 0;
 const gameMode = () => MODES[modeIndex].id;
 /** NORMAL: 敵の手数を減らし、残機を増やし、即死をなくす(HARD はこれが無い) */
@@ -500,16 +502,40 @@ let specialEndTimer = -1; // 倒したあと、演出を見せてから終わる
 // ---- ゲーム状態 ----
 const centerX = (text) => (SCREEN_W - text.length * 8) >> 1;
 
-// 「もう出会ったか」の記録。図鑑でラスボスを ? のままにするかの判断に使う。
-// ユーザーごとの情報なので localStorage に置く
-const metStore = new LocalStorageStore();
-const MET_KEY = 'starfable-met';
-let metSet = new Set(metStore.load(MET_KEY) || []);
-function markMet(id) {
-  if (metSet.has(id)) return;
-  metSet.add(id);
-  metStore.save(MET_KEY, [...metSet]);
+// 「もう出会ったか」「もう倒したか」の記録。図鑑の ? を外すか、
+// ボスラッシュのメニューに出すかの判断に使う。
+// ユーザーごとの情報なので localStorage に置く(消えても遊べる範囲だけを入れる)
+const progress = new SaveGroup('starfable-progress', {
+  boss1Down: { type: T.FLAG, label: 'BOSS 1 DOWN' },
+  boss2Down: { type: T.FLAG, label: 'BOSS 2 DOWN' },
+  boss3Down: { type: T.FLAG, label: 'BOSS 3 DOWN' },
+  boss4Down: { type: T.FLAG, label: 'BOSS 4 DOWN' },
+  todoMet: { type: T.FLAG, label: 'MET Mr. MIJISSOU' },
+  todoDown: { type: T.FLAG, label: 'Mr. MIJISSOU DOWN' },
+  // 図鑑の姿と、サウンドテストの VOICE 欄。どちらも「会った(声を聞いた)」で開く。
+  // 条件が同じなので分けていない。別々にしたくなったらここに 1 つ足す
+  kingMet: { type: T.FLAG, label: 'MET THE KING' },
+  // 倒したかどうか。いまは何も開かないが、記録として残す
+  kingDown: { type: T.FLAG, label: 'THE KING DOWN' },
+});
+
+/**
+ * 面番号に対応する印。1〜4 面のボスと未実装さんだけが持つ。
+ * ラスボスは倒しても印を持たない(ボスラッシュに出ないため)
+ */
+function rushFlag(stage) {
+  if (stage >= 1 && stage <= 4) return 'boss' + stage + 'Down';
+  if (stage === RUSH_TODO) return 'todoDown';
+  return null;
 }
+
+/** 印を立ててその場で保存する。立つ機会が少ないので、ためずに書いてしまう */
+function markMet(name) {
+  if (name && progress.set(name, true) === R.UPDATED) progress.flush();
+}
+
+/** 印が立っているか */
+const met = (name) => progress.get(name) === true;
 
 let state = 'title'; // 'title' | 'play' | 'over'
 let score = 0;
@@ -2903,7 +2929,7 @@ function startStage() {
   // 2 回目のコンティニュー。面が始まってすぐ、未実装さんが顔を出す
   if (todoGuest) {
     todoGuest = false;
-    markMet('todo');        // ボスラッシュで戦えるようになる
+    markMet('todoMet');    // ボスラッシュで戦えるようになる
     beginBossMode();        // ボス戦の下ごしらえ(背景など)だけ borrow する
     spawnTodoBoss();
     boss.guest = true;      // 倒しても面はクリアにならない(客人あつかい)
@@ -2992,7 +3018,7 @@ function enterPlay(fromContinue = false) {
   // (ここを毎回 0 に戻していたため、いつまでも 1 回目のままだった)
   todoGuest = false;
   if (!fromContinue) continueCount = 0;
-  else if (++continueCount === 2 && !metSet.has('todo')) todoGuest = true;
+  else if (++continueCount === 2 && !met('todoMet')) todoGuest = true;
   // NORMAL とボスラッシュは、各装備を 1 段階ぶん持った状態で始める
   // (ボスラッシュはいきなりボス戦なので、丸腰だと厳しいため)。
   // ボスラッシュのショットだけは 3 段階目(前 2 発 + 後ろ 1 発)から。
@@ -5730,7 +5756,7 @@ function restoreSpace() {
 }
 
 function spawnKingBoss() {
-  markMet('king');   // 図鑑の ? を外す
+  markMet('kingMet');   // 図鑑の ? が外れ、サウンドテストの VOICE 欄も出る
   // シーン選択で「第 2 段階から」を選んでいたら、出たところで切り替える
   const toPhase2 = pendingKingPhase2;
   pendingKingPhase2 = false;
@@ -6951,7 +6977,7 @@ function bossDefeated() {
   // ラスボスは倒れただけ。評価を見せているあいだに、青い裂け目へ逃げ込む
   // 裂け目は**倒した場所**に開く。そこへ本人が吸い込まれていく
   if (wasKing && gameMode() !== 'bossrush') startKingEscape(kingFellX, kingFellY);
-  markMet('down' + stageNo);   // ボスラッシュのメニューに出るようになる
+  markMet(rushFlag(stageNo));   // ボスラッシュのメニューに出るようになる
   leaving = true; // 自機は画面の上へ飛び去っていく
   // 名乗りは倒れる前に流してある(hp が 0 になった瞬間)
 }
@@ -9048,7 +9074,7 @@ function killKingWithRoar() {
   talkName = 'kozorite';
   talkBlast = true;
   talkHold = KING_ROAR_WAIT + TALK_HOLD_FRAMES;
-  markMet('kingdown');           // サウンドテストの TALK 欄が出るようになる
+  markMet('kingDown');           // 倒した記録(いまは何も開かない)
   boss.hp = 0;
   boss.dying = 200;              // しゃがみこみ + 星空へ戻す演出のぶん長め
   boss.deathRoar = true;         // 声のあとに爆発音を鳴らす
@@ -9104,9 +9130,9 @@ mmsxx.expose('mmsxxEnemy', (kind) => {
 /** デバッグ用: モアイをその場に出す */
 /** デバッグ用: 未実装さんに会った印を消す(コンティニューでまた出るようにする) */
 mmsxx.expose('mmsxxForgetTodo', () => {
-  metSet.delete('todo');
-  metSet.delete('down' + RUSH_TODO);
-  metStore.save(MET_KEY, [...metSet]);
+  progress.set('todoMet', false);
+  progress.set('todoDown', false);
+  progress.flush();
   return '未実装さんの印を消しました(次のゲームの 2 回目のコンティニューで出ます)';
 });
 
@@ -9620,6 +9646,82 @@ let sceneTitle = '- SCENE SELECT -';
 
 function enterSceneSelect() { enterListMenu('- SCENE SELECT -', sceneList()); }
 
+// ---- 開発用の設定画面(手元の開発中だけ) ----
+// 進みぐあいの印を、遊ばずに立てたり落としたりする。
+// 開いた状態と閉じた状態の見た目を、その場で見くらべるためのもの。
+// **押した時点では保存しない**。APPLY を選んだときにまとめて書き込む
+// (触っている途中の状態がそのまま残ると、確かめたい形を作りにくいため)。
+
+/** 触れる印。ボスラッシュの 5 つと、図鑑のラスボス */
+const DEVSET_NAMES = ['boss1Down', 'boss2Down', 'boss3Down', 'boss4Down', 'todoMet', 'kingMet'];
+let devSel = 0;
+/** 画面で触っている途中の値(APPLY するまで保存しない) */
+let devEdit = {};
+
+function enterDevSettings() {
+  state = 'devset';
+  setPaused(false);
+  clearEntities();
+  for (const sp of helpIconSprites()) sp.visible = false;
+  player.visible = false;
+  aux.visible = false;
+  mmsxx.audio.stopBGM();
+  currentBGM = null;
+  neb.clear();
+  devEdit = {};
+  for (const name of DEVSET_NAMES) devEdit[name] = progress.get(name);
+  devSel = 0;
+  drawDevSettings();
+}
+
+function drawDevSettings() {
+  hud.clear();
+  const title = '- DEV SETTINGS -';
+  hud.print(centerX(title), 8, title, 15);
+  for (let r = 0; r < DEVSET_NAMES.length; r++) {
+    const name = DEVSET_NAMES[r];
+    const here = r === devSel;
+    const mark = here ? String.fromCharCode(0x1b) : ' ';
+    hud.print(24, 28 + r * 12, mark + progress.label(name), here ? 11 : 14);
+    // 変えたところは色を変えて、まだ書き込んでいないことを見せる
+    const changed = devEdit[name] !== progress.get(name);
+    hud.print(200, 28 + r * 12, devEdit[name] ? 'ON' : 'OFF', changed ? 10 : (here ? 11 : 14));
+  }
+  const at = DEVSET_NAMES.length;
+  const here = devSel === at;
+  hud.print(24, 28 + at * 12 + 8,
+    (here ? String.fromCharCode(0x1b) : ' ') + 'APPLY', here ? 11 : 14);
+  const help = 'SP:TOGGLE  ESC:EXIT';
+  hud.print(centerX(help), 176, help, 10);
+}
+
+/** 画面で触った値を書き込む */
+function applyDevSettings() {
+  for (const name of DEVSET_NAMES) progress.set(name, devEdit[name]);
+  progress.flush();
+}
+
+function updateDevSettings() {
+  if (mmsxx.input.wasPressed('Escape')) { enterTitle(); return; }   // 書かずに戻る
+  const n = DEVSET_NAMES.length + 1;   // 最後の 1 行は APPLY
+  let moved = false;
+  if (mmsxx.input.wasPressed('ArrowUp')) { devSel = (devSel + n - 1) % n; moved = true; }
+  if (mmsxx.input.wasPressed('ArrowDown')) { devSel = (devSel + 1) % n; moved = true; }
+  if (moved) { mmsxx.audio.playSE('item'); drawDevSettings(); }
+  if (mmsxx.input.wasPressed('Space') || mmsxx.input.wasPressed('KeyZ')) {
+    if (devSel === DEVSET_NAMES.length) {
+      applyDevSettings();
+      mmsxx.audio.playSE('item');
+      enterTitle();
+      return;
+    }
+    const name = DEVSET_NAMES[devSel];
+    devEdit[name] = !devEdit[name];
+    mmsxx.audio.playSE('item');
+    drawDevSettings();
+  }
+}
+
 /**
  * ボスラッシュのメニュー。
  * 4 体タイムアタックはいつでも。個別の相手は**倒したことのあるボスだけ**。
@@ -9644,11 +9746,11 @@ function rushMenuList() {
   // 選べないことを暗い色と鍵の印で見せて、「倒せば開く」と分からせる
   let known = 0;
   for (const n of BOSS_RUSH_STAGES) {
-    const met = metSet.has('down' + n);
-    if (met) known++;
+    const open = met('boss' + n + 'Down');
+    if (open) known++;
     // 開発版では、まだ倒していない相手も**選べる**(名前は伏せたまま)。
     // 作っている最中に、開けるまで戦えないのでは確かめられない
-    list.push(met
+    list.push(open
       ? { label: 'VS ' + BOSS_NAMES[n - 1], run: () => sceneRush(n) }
       : { label: 'VS ' + maskName(BOSS_NAMES[n - 1]), locked: !DEV,
         run: DEV ? () => sceneRush(n) : undefined });
@@ -9658,7 +9760,7 @@ function rushMenuList() {
   // 未実装さんは **一度会っていれば** 選べる。
   // 会えるのはコンティニューのときだけなので、開けかたはその 1 とおり
   // (「ラッシュで倒したら」を条件にすると、開くために開いている必要が出てしまう)
-  const metTodo = metSet.has('todo');
+  const metTodo = met('todoMet');
   list.push(metTodo
     ? { label: 'VS Mr. MIJISSOU', run: () => sceneRush(RUSH_TODO) }
     : { label: 'VS ' + maskName('Mr. MIJISSOU'), locked: !DEV,
@@ -10195,7 +10297,7 @@ function enterSoundTest() {
         title: 'TONE', items: SOUND_TONE_LIST,
         play: (name) => { soundBack = 'tone_' + name; mmsxx.audio.playBGM(soundBack, false, true); },
       },
-      ...((DEV || metSet.has('kingdown')) ? [{
+      ...((DEV || met('kingMet')) ? [{
         title: 'VOICE', items: SOUND_TALK,
         // 次のセリフを鳴らすと前のセリフは止まる(エンジン側でそうしてある)
         play: (name) => mmsxx.audio.playTalk(name, 6),
@@ -10405,7 +10507,7 @@ const CHAR_PAGES = [
     // 出会うまでは「THE KING」だけ(名乗りを聞く前に名前が割れないように)
     name: 'THE KING (KOZORITE)',
     secretName: 'THE KING',
-    secret: 'king',
+    secret: 'kingMet',
     // 倒すまでは「?」ではなく**裂け目**を出す。
     // 最初に出会うのはこの姿なので、これだけでも十分に思わせぶりになる
     secretArt: ['kingRift1', 112, 64],
@@ -10419,7 +10521,7 @@ const CHAR_PAGES = [
   {
     title: 'SECRET BOSS',   // 本編には出てこない仮ボス
     name: 'Mr. MIJISSOU',
-    secret: 'todo',         // コンティニューで出会うまでは ? のまま
+    secret: 'todoMet',     // コンティニューで出会うまでは ? のまま
     secretName: true,       // 名前も伏せる(いること自体が秘密なので)
     // ゲーム中と同じ部品でそろえる。
     // 王冠は octoCrown ではなく水色の crownCyan(顔と色がかぶるため)、
@@ -10606,7 +10708,7 @@ function drawCharList() {
   const page = CHAR_PAGES[charPage];
   // まだ出会っていない相手は、名前も姿も見せずに ? だけを出す
   // 名前は先に出してよい。隠すのは姿だけ
-  const hidden = page.secret && !metSet.has(page.secret);
+  const hidden = page.secret && !met(page.secret);
   if (hidden) {
     // 姿の代わりに出すものが決めてあれば、? ではなくそれを出す
     if (page.secretArt) {
@@ -10864,6 +10966,7 @@ enterTitle();
     else if (id === 'sound') enterSoundTest();
     else if (id === 'chars') enterCharList();
     else if (id === 'scene') enterSceneSelect();
+    else if (id === 'devset') enterDevSettings();
     else if (id === 'bossrush') enterBossRushMenu();
     else enterPlay();
   }
@@ -11022,6 +11125,7 @@ mmsxx.run(() => {
       else if (gameMode() === 'sound') enterSoundTest();
       else if (gameMode() === 'chars') enterCharList();
       else if (gameMode() === 'scene') enterSceneSelect();
+      else if (gameMode() === 'devset') enterDevSettings();
       else if (gameMode() === 'bossrush') enterBossRushMenu();
       // **CONTINUE を選んだとき**は、最後に遊んでいた面から始める。
       // (ここを下キー頼りにしていたので、CONTINUE を選んでも 1 面から
@@ -11079,6 +11183,8 @@ mmsxx.run(() => {
     updateStory();
   } else if (state === 'scene') {
     updateSceneSelect();
+  } else if (state === 'devset') {
+    updateDevSettings();
   } else if (state === 'staff') {
     updateStaffRoll();
   } else if (state === 'sound') {
