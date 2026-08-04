@@ -9809,11 +9809,9 @@ function enterSceneSelect() { enterListMenu('- SCENE SELECT -', sceneList()); }
 
 // **ことわりが無いときの形で画面を組む**。ことわりはその上に一時的に重ねるだけで、
 // 消えたあとに空きができないようにする
-const STAT_ROWS = 12;      // 出せる行数
+const STAT_ROWS = 13;      // 出せる行数(下まで使いきる)
 const STAT_TOP = 28;       // 1 行目の高さ
 const STAT_STEP = 12;      // 行の送り
-const STAT_UP_Y = 18;      // 上へ送れる印
-const STAT_DOWN_Y = 176;   // 下へ送れる印(ことわりの下に置く)
 const STAT_NOTE_Y = 160;   // ことわりを重ねる高さ
 const STAT_NOTE_TIME = 360;// 1 枚を出しておく長さ(6 秒)
 const STAT_NOTE_GAP = 60;  // 次の 1 枚までの間(1 秒)
@@ -9856,7 +9854,11 @@ function statList() {
   const g = (name) => record.get(name);
   const rows = [];
   const add = (name, text) => rows.push([record.label(name), text]);
-  const gap = (title) => rows.push([title, null]);
+  // 見出しの前は 1 行あける(かたまりの切れ目を見せる)。先頭だけは空けない
+  const gap = (title) => {
+    if (rows.length) rows.push(['', null]);
+    rows.push([title, null]);
+  };
 
   gap('- PLAY -');
   add('playsNormal', groupNum(g('playsNormal')));
@@ -9928,11 +9930,10 @@ function drawStats() {
     hud.print(24, y, label, 14);
     hud.print(VW - value.length * 8 - 24, y, value, 7);
   }
-  // 送れる向きを矢印で見せる
-  const up = String.fromCharCode(0x18), down = String.fromCharCode(0x19);
-  const x = centerX(up);
-  if (statTop > 0) hud.print(x, STAT_UP_Y, up, 11);
-  if (statTop + STAT_ROWS < statRows.length) hud.print(x, STAT_DOWN_Y, down, 11);
+  // どのあたりを見ているかは、矢印ではなく件数で見せる。
+  // (矢印を置くと、そのぶん行が置けなくなるため)
+  const pos = (statTop + 1) + '/' + statRows.length;
+  hud.print(VW - pos.length * 8 - 8, 8, pos, 14);
   drawStatNote();
   const help = String.fromCharCode(0x18, 0x19) + ':SCROLL  ESC:EXIT';
   hud.print(centerX(help), 184, help, 10);
@@ -9944,9 +9945,10 @@ function drawStats() {
  * 読んでほしいが、ずっと居座らせたくないので、出し終わったら消える
  */
 function drawStatNote() {
-  hud.fill(0, 0, STAT_NOTE_Y, VW, 16);
   const note = STAT_NOTES[statNoteAt];
+  // 出すものが無いときは**帯を消さない**。消すと、そこに出ている行まで消えてしまう
   if (!note || statNoteGap > 0 || statNoteTimer <= 0) return;
+  hud.fill(0, 0, STAT_NOTE_Y, VW, 16);
   const col = Math.floor(mmsxx.frame / 2) % 2 ? 13 : 8;   // ピンク / 赤
   hud.print(centerX(note[0]), STAT_NOTE_Y, note[0], col);
   hud.print(centerX(note[1]), STAT_NOTE_Y + 8, note[1], col);
