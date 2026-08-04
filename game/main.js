@@ -9898,9 +9898,12 @@ function statList() {
   gap('- OTHER -');
   add('shares', groupNum(g('shares')));
 
-  // 一覧の最後にも同じことわりを置く(重ねて出したものは消えてしまうため)
+  // 一覧の最後にも同じことわりを置く(重ねて出したものは消えてしまうため)。
+  // こちらは**2 つとも続けて**並べ、時間で消したりはしない
   rows.push(['', null]);
-  for (const line of STAT_NOTES) rows.push([line, null, 13]);
+  for (const note of STAT_NOTES) {
+    for (const line of note) rows.push([line, null, 13]);
+  }
   return rows;
 }
 let statRows = [];
