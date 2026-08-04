@@ -3730,7 +3730,7 @@ function shareModeName() {
 // タグはそのまま貼ってもらうものなので、日本語のタグも混ぜてよい
 const SHARE_INTRO =
   "STAR FABLE - a retro-PC style shoot-'em-up made with Claude (Fable 5 + Opus 5)";
-const SHARE_TAGS = '#mmsxx #fable #opus #msx #TMS9918 #shmup';
+const SHARE_TAGS = '#claude #fable #opus #msx #TMS9918 #shmup #vibecoding';
 
 /**
  * シェア文言。**ハイスコアのときだけ言うことが変わる**。
