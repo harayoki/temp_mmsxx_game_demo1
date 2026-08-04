@@ -9812,19 +9812,19 @@ function enterSceneSelect() { enterListMenu('- SCENE SELECT -', sceneList()); }
 const STAT_ROWS = 13;      // 出せる行数(下まで使いきる)
 const STAT_TOP = 28;       // 1 行目の高さ
 const STAT_STEP = 12;      // 行の送り
-const STAT_NOTE_Y = 160;   // ことわりを重ねる高さ
-const STAT_NOTE_TIME = 360;// 1 枚を出しておく長さ(6 秒)
-const STAT_NOTE_GAP = 60;  // 次の 1 枚までの間(1 秒)
-// 出しておきたいことわり。**1 枚ずつ順に**出して、終わったら消える。
+const STAT_NOTE_Y = 144;   // ことわりを重ねる高さ(4 行ぶん)
+const STAT_NOTE_TIME = 480;// 出しておく長さ(8 秒)
+// 出しておきたいことわり。**2 つ並べて**一度に出し、読むころに消える。
+// 一覧の最後にも同じものを置いてあるので、あとから読み直せる。
 // 1 行は 32 文字まで(画面の幅)
 const STAT_NOTES = [
-  ['RECORD IS KEPT IN THIS BROWSER.', 'IT IS LOST IF YOU SWITCH.'],
-  ['SAVING HAPPENS ON STAGE CLEAR', 'AND ON GAME OVER.'],
+  'RECORD IS KEPT IN THIS BROWSER.',
+  'IT IS LOST IF YOU SWITCH.',
+  'SAVING HAPPENS ON STAGE CLEAR',
+  'AND ON GAME OVER.',
 ];
 let statTop = 0;
-let statNoteAt = 0;        // いま出しているのは何枚目
 let statNoteTimer = 0;
-let statNoteGap = 0;       // 次の 1 枚までの残り(このあいだは何も出さない)
 
 
 /** 3 桁ごとに区切る(桁の多い数は読めないため) */
@@ -9854,10 +9854,11 @@ function statList() {
   const g = (name) => record.get(name);
   const rows = [];
   const add = (name, text) => rows.push([record.label(name), text]);
-  // 見出しの前は 1 行あける(かたまりの切れ目を見せる)。先頭だけは空けない
+  // 見出しの前後を 1 行あける(かたまりの切れ目を見せる)。先頭の前だけは空けない
   const gap = (title) => {
     if (rows.length) rows.push(['', null]);
     rows.push([title, null]);
+    rows.push(['', null]);
   };
 
   gap('- PLAY -');
@@ -9891,6 +9892,10 @@ function statList() {
 
   gap('- OTHER -');
   add('shares', groupNum(g('shares')));
+
+  // 一覧の最後にも同じことわりを置く(重ねて出したものは消えてしまうため)
+  rows.push(['', null]);
+  for (const line of STAT_NOTES) rows.push([line, null, 13]);
   return rows;
 }
 let statRows = [];
@@ -9907,9 +9912,7 @@ function enterStats() {
   neb.clear();
   statRows = statList();
   statTop = 0;
-  statNoteAt = 0;
   statNoteTimer = STAT_NOTE_TIME;
-  statNoteGap = 0;
   drawStats();
 }
 
@@ -9921,9 +9924,12 @@ function drawStats() {
     const row = statRows[statTop + r];
     if (!row) break;
     const y = STAT_TOP + r * STAT_STEP;
-    const [label, value] = row;
-    if (value === null) {   // 区切りの見出し
-      hud.print(24, y, label, 11);
+    const [label, value, col] = row;
+    if (value === null) {
+      // 色を決めてある行(ことわり)は**画面いっぱいまで届く**ので中央に置く。
+      // 区切りの見出しは、ほかの行と頭をそろえる
+      if (col) hud.print(centerX(label), y, label, col);
+      else hud.print(24, y, label, 11);
       continue;
     }
     // 見出しは灰色、数字は水色。目が数字だけを拾えるように分ける
@@ -9940,41 +9946,23 @@ function drawStats() {
 }
 
 /**
- * ことわり。**赤とピンクを 2 コマずつ**で点滅させ、1 枚 4 秒で次へ送る。
+ * ことわり。**2 つを並べて**一度に出し、赤とピンクを 2 コマずつで点滅させる。
  * 消えるコマを挟むと読みづらいので、**色だけ**を入れ替える。
- * 読んでほしいが、ずっと居座らせたくないので、出し終わったら消える
+ * 一覧の上に重ねるだけなので、消えたあとに空きはできない
  */
 function drawStatNote() {
-  const note = STAT_NOTES[statNoteAt];
   // 出すものが無いときは**帯を消さない**。消すと、そこに出ている行まで消えてしまう
-  if (!note || statNoteGap > 0 || statNoteTimer <= 0) return;
-  hud.fill(0, 0, STAT_NOTE_Y, VW, 16);
+  if (statNoteTimer <= 0) return;
+  hud.fill(0, 0, STAT_NOTE_Y, VW, 32);
   const col = Math.floor(mmsxx.frame / 2) % 2 ? 13 : 8;   // ピンク / 赤
-  hud.print(centerX(note[0]), STAT_NOTE_Y, note[0], col);
-  hud.print(centerX(note[1]), STAT_NOTE_Y + 8, note[1], col);
+  STAT_NOTES.forEach((t, i) => hud.print(centerX(t), STAT_NOTE_Y + i * 8, t, col));
 }
 
-/**
- * ことわりを 1 コマぶん進める。
- * 1 枚出す(4 秒) -> 間をあける(1 秒) -> 次の 1 枚、と送り、
- * 出し終わったら空いた場所まで一覧を伸ばす
- */
+/** ことわりを 1 コマぶん進める。消えたら、隠れていた行を出し直す */
 function updateStatNote() {
-  if (statNoteAt >= STAT_NOTES.length) return;
-  if (statNoteGap > 0) {
-    if (--statNoteGap === 0) drawStatNote();   // 間が明けたら次の 1 枚
-    return;
-  }
-  if (--statNoteTimer <= 0) {
-    statNoteAt++;
-    if (statNoteAt < STAT_NOTES.length) {
-      statNoteGap = STAT_NOTE_GAP;
-      statNoteTimer = STAT_NOTE_TIME;
-      drawStats();                             // 間のあいだは隠れていた行を出す
-    } else drawStats();                        // 全部終わり。隠れていた行を出す
-    return;
-  }
-  drawStatNote();
+  if (statNoteTimer <= 0) return;
+  if (--statNoteTimer <= 0) drawStats();   // 隠れていた行を出し直す
+  else drawStatNote();
 }
 
 function updateStats() {
