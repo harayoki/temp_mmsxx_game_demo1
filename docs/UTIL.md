@@ -350,6 +350,47 @@ new RemoteRankingSource({
 
 ---
 
+## 8. `urloptions.js` — `urlOptions`
+
+**URL で変えられる設定**をまとめて読む部品。画面の大きさ・色合い・スプライトの
+枚数・コマ数・音など、**どのゲームでも意味が同じもの**だけを持ちます。
+
+```js
+import { urlOptions } from '../engine/util/urloptions.js';
+
+const URL = urlOptions(location.search, {
+  dev: BUILD.dev,
+  devOnly: ['fps'],                        // 開発版でだけ効かせる
+  drop: ['scale'],                         // その項目を無かったことにする
+  defaults: { linesprites: 4, maxsprites: 32 },   // 既定値の差し替え
+});
+const mmsxx = new MMSXXEngine(canvas, { ...URL.engine, virtualWidth: 256 });
+URL.apply(mmsxx);   // 色合いと音は、作ったあとに効かせる
+```
+
+読める指定です。
+
+| 指定 | 中身 |
+|---|---|
+| `?scale=3` | 画面の拡大率（1〜8） |
+| `?fps=60` | 1 秒あたりのコマ数（1〜120） |
+| `?linesprites=4` | **1 行**に出せるスプライトの数（0 = 無制限） |
+| `?maxsprites=32` | 画面ぜんぶで出せる数（0 = 無制限） |
+| `?rotate=stride` | 消える順の回しかた（step / stride / random / slow / off） |
+| `?slow=24` | この数を超えたら処理落ち（0 = しない） |
+| `?slowmode=soft` | 落ちかた（hard / soft） |
+| `?slowfps=30` | 処理落ち中のコマ数（hard のとき） |
+| `?palette=rf` | 画面の色合い |
+| `?mute=1` | 音を消して始める |
+| `?volume=70` | 音の大きさ（0〜100） |
+
+**おかしな値や知らない名前は黙って既定に戻します。** URL をいじった人が、
+動かない画面に当たらないようにするためです。
+
+「どの面から始めるか」のような**そのゲームだけの話は持ちません**。
+ゲーム側で `URLSearchParams` を読んでください
+（STAR FABLE は `?mode=` `?stage=` `?seed=` `?invincible=` を自分で読んでいます）。
+
 ## STAR FABLE での使いどころ
 
 | UTIL | 使っているところ |
@@ -359,6 +400,7 @@ new RemoteRankingSource({
 | `Gallery` | CHARACTERS(図鑑) |
 | `SoundTest` | SOUND TEST |
 | `RankingBoard` | ハイスコア・ボスラッシュのタイム（供給元は localStorage） |
+| `urlOptions` | 画面まわりの URL 指定（`?fps=` は開発版だけにしてある） |
 
 `?delay=5` / `?error=0.3` を付けて開くと、通信の遅さと失敗を手元で試せます。
 サーバへ繋ぐ段取りは [RANKING_PLAN.md](RANKING_PLAN.md) にまとめてあります。

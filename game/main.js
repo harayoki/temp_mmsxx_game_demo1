@@ -10713,39 +10713,57 @@ function drawCrowdPage() {
     }
   }
   let n = 0;
-  // **散らばった置きかた**にする。並べると絵として整いすぎて、
-  // ゲーム中の込みぐあいに見えないため。
-  // 手で決めた座標なので、いつ開いても同じ絵になる(見比べに使える)
-  const SPOTS = [
-    [18, 30], [58, 22], [96, 40], [140, 26], [186, 34], [222, 24],
-    [34, 62], [76, 74], [118, 58], [166, 70], [206, 62],
-    [22, 96], [64, 108], [110, 92], [150, 104], [196, 96], [228, 84],
-    [42, 128], [88, 136], [176, 130], [214, 120],
-  ];
-  names.forEach((name, i) => {
-    const [x, y] = SPOTS[i % SPOTS.length];
-    put(SPRITE_SYMBOLS[name], x, y, 20);
+  // **置き場所はでたらめに取る。** 手で並べるとどう散らしても目が規則を見つけて
+  // しまい、遊んでいる最中の画面に見えないため。
+  // ただし**種は決め打ち**なので、いつ開いても同じ絵になる(見比べに使える)。
+  // 近づきすぎたら取り直すので、重なってつぶれることはない
+  let seed = 20260804;
+  const rand = () => {
+    seed = (seed + 0x6d2b79f5) >>> 0;
+    let t = seed;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const taken = [];
+  /** 空いているところを探して置く(near ドットより近いものが無いところ) */
+  const scatter = (img, x0, x1, y0, y1, near, priority, rank) => {
+    let x = 0, y = 0;
+    for (let i = 0; i < 40; i++) {
+      x = Math.round(x0 + rand() * (x1 - x0));
+      y = Math.round(y0 + rand() * (y1 - y0));
+      if (!taken.some((t) => Math.abs(t[0] - x) < near && Math.abs(t[1] - y) < near)) break;
+    }
+    taken.push([x, y]);
+    put(img, x, y, priority, rank);
     n++;
-  });
+  };
+  // 敵。画面のあちこちに散らす(上に寄せない。追ってくる敵は下にもいる)
+  for (const name of names) scatter(SPRITE_SYMBOLS[name], 6, 226, 20, 132, 22, 20);
   // 16t のおもり。ゲーム中と同じく上から落ちてくる
-  put(SPRITE_SYMBOLS.weight16t, 128, 14, 20); n++;
-  // 敵の弾。ばらばらに散らす
-  const EB = [[30, 52], [70, 46], [104, 66], [148, 50], [190, 58], [226, 48],
-    [46, 88], [92, 116], [134, 84], [172, 112], [210, 104], [58, 146]];
-  // 敵の弾はゲーム中と同じく 'weak'(自機の弾より 1 段強い)
-  for (const [x, y] of EB) { put(SPRITE_SYMBOLS.bulletE, x, y, 6, 'weak'); n++; }
+  scatter(SPRITE_SYMBOLS.weight16t, 24, 208, 14, 40, 20, 20);
+  // 敵の弾。**敵とは別に**散らす(重なってよいので近さは見ない)
+  // ゲーム中と同じく 'weak'(自機の弾より 1 段強い)
+  for (let i = 0; i < 12; i++) {
+    const x = Math.round(10 + rand() * 220);
+    const y = Math.round(30 + rand() * 120);
+    put(SPRITE_SYMBOLS.bulletE, x, y, 6, 'weak'); n++;
+  }
   // 自機の弾。**5 方向**に開いた形(いちばん混む撃ちかた)。
-  // まっすぐ並べず、撃った時間差のぶんだけ ずらしてある
-  const PB = [[120, 96], [122, 118], [118, 138],
-    [98, 102], [106, 126], [142, 100], [134, 122],
-    [84, 114], [158, 110], [92, 86], [150, 88]];
-  for (const [x, y] of PB) { put(SPRITE_SYMBOLS.bulletP, x, y, 5, 'last'); n++; }
+  // 弾の間は撃った時間差のぶんだけ空くので、そこにも ゆらぎを入れる
+  for (let i = 0; i < 11; i++) {
+    const lane = (i % 5) - 2;                    // -2..2 の 5 方向
+    const step = Math.floor(i / 5) + 1;          // 何発めか
+    const x = Math.round(120 + lane * (10 + step * 6) + (rand() - 0.5) * 6);
+    const y = Math.round(146 - step * 22 - Math.abs(lane) * 6 + (rand() - 0.5) * 10);
+    put(SPRITE_SYMBOLS.bulletP, x, y, 5, 'last'); n++;
+  }
   // 自機と、その下の推進炎。ゲーム中と同じく**自機は消えない**扱い
   put(SPRITE_SYMBOLS.flameBig, 120, 168, 19); n++;
   put(SPRITE_SYMBOLS.player, 120, 152, 22, 'always'); n++;
   // 取り巻きのアイテムも少し置いて、実戦の混みぐあいに近づける
-  put(SPRITE_SYMBOLS.item, 26, 152, 18); n++;
-  put(SPRITE_SYMBOLS.coinItem, 214, 146, 18); n++;
+  scatter(SPRITE_SYMBOLS.item, 12, 80, 136, 156, 20, 18);
+  scatter(SPRITE_SYMBOLS.coinItem, 170, 230, 130, 156, 20, 18);
   // 枚数は左下へ(下のナビの文字と重ならないように)
   hud.print(8, 166, 'SPRITES ' + n, 11);
 }
