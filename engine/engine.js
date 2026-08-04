@@ -131,6 +131,9 @@ export class MMSXXEngine {
       opts.virtualWidth ?? VIRTUAL_W, opts.virtualHeight ?? VIRTUAL_H,
       opts.layers, opts.screen,
     );
+    // 実機の「1 行に何枚まで」の再現。既定は無効(0)
+    if (opts.spriteLimit) this.vdp.spriteLimit = Math.max(0, opts.spriteLimit | 0);
+    if (opts.spriteRotate) this.vdp.spriteRotate = true;
     this.audio = new PSGPlayer({
       maxVoices: opts.maxVoices ?? 8,
       maxNoise: opts.maxNoise ?? 1,
@@ -332,6 +335,33 @@ export class MMSXXEngine {
    * @param {boolean} on
    */
   hideSprites(on) { this.vdp.spritesHidden = !!on; }
+
+  /**
+   * **1 行に出せるスプライトの数**(0 で無制限、既定は 0)。
+   *
+   * 実機の VDP は 1 走査線に決まった枚数しか出せず、あふれたぶんは
+   * **その行だけ**消える(MSX1 = 4 枚 / MSX2 = 8 枚)。消えるのは優先度の低いほう。
+   *
+   * ```js
+   * mmsxx.spriteLimit = 4;     // MSX1 実機なみ
+   * mmsxx.spriteRotate = true; // 同じ優先度のものはコマごとに順番を回す
+   * ```
+   *
+   * 数えるのは**そのコマに実際に出ているものだけ**。`visible` が false のもの、
+   * `blink` で消えているコマのものは席を取らない。
+   * **BG スプライトは数に入れない**(ちらつかせない)。
+   *
+   * `blink` は狙ってやる点滅演出、こちらは実機の混みぐあいの再現、
+   * という別々のもの。両方いっしょに使ってよい
+   */
+  get spriteLimit() { return this.vdp.spriteLimit; }
+
+  set spriteLimit(n) { this.vdp.spriteLimit = Math.max(0, n | 0); }
+
+  /** 同じ優先度のものの順番をコマごとに回す(いつも同じものが消えないように) */
+  get spriteRotate() { return this.vdp.spriteRotate; }
+
+  set spriteRotate(on) { this.vdp.spriteRotate = !!on; }
 
   /**
    * **いまの画面を録画しはじめる**。canvas の中身をそのまま録る。

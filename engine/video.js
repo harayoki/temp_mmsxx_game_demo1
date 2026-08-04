@@ -244,6 +244,28 @@ export class VDP {
     this._frameHold = false;   // ポーズ中など、溜めるのを止めているあいだ
     this._showFrame = null;    // これが入っていると、合成せずにそれを出す
     this.spritesHidden = false; // true のあいだ、スプライトを 1 枚も描かない
+    /**
+     * **1 行に出せるスプライトの数**(0 で無制限)。
+     * 実機の VDP は 1 走査線に決まった枚数しか出せず、あふれたぶんは
+     * その行だけ消える(MSX1 = 4 枚 / MSX2 = 8 枚)。
+     * 消えるのは**優先度の低いほう**で、単位は「スプライト」ではなく「行」。
+     *
+     * 数えるのは**その コマに実際に出ているものだけ**。`visible` が false のもの、
+     * `blink` で消えているコマのものは席を取らない(実機で画面外へ逃がした
+     * スプライトが席を取らないのと同じ)。
+     * **BG スプライトは数に入れない**(このエンジン独自の仕組みなので、
+     * ちらつかせない)
+     */
+    this.spriteLimit = 0;
+    /**
+     * **同じ優先度のものの順番をコマごとに回す**。
+     * 上の制限で消えるとき、いつも同じものが消えると気づかれてしまうので、
+     * 順ぐりに入れ替えて「みんなが少しずつちらつく」形にする。
+     * 実機のゲームがやっていた並べ替えと同じ考えかた
+     */
+    this.spriteRotate = false;
+    this._lineUse = null;      // 行ごとに何枚出したか
+    this._rowOk = null;        // スプライトごとに「どの行を描いてよいか」
 
     /** 背景色(パレット番号 1..15)。全レイヤーが透明の場所に見える色 */
     this.backdrop = 1;
@@ -1325,13 +1347,83 @@ export class VDP {
   }
 
   /** スプライト列を画面に描く(bg=true なら 8 ドット単位に丸める) */
-  _drawSprites(list, bg) {
-    const sprites = [...list].sort((a, b) => a.priority - b.priority);
-    for (const s of sprites) this._drawSprite(s, bg);
+  /** そのコマに出ているか(見えない / 点滅で消えているコマは出ていない) */
+  _spriteShows(s) {
+    if (!s.visible) return false;
+    const bl = s.blink | 0;
+    if (bl <= 1) return true;
+    const ph = (s.blinkPhase == null ? s._autoPhase : s.blinkPhase) | 0;
+    return ((this.frames + ph) % bl) < Math.max(1, s.blinkOn | 0);
   }
 
-  /** スプライトを 1 枚描く(bg=true なら 8 ドット単位に丸める) */
-  _drawSprite(s, bg) {
+  /** いま出している絵の、画面での高さ(回転と拡大を入れたもの) */
+  _spriteHeight(s) {
+    let img = s.image;
+    if (s.frames && s.frames.length) {
+      const step = Math.max(1, s.frameRate | 0);
+      let n = Math.floor((this.frames + (s.framePhase | 0)) / step);
+      n = s.frameLoop ? (n % s.frames.length) : Math.min(n, s.frames.length - 1);
+      img = s.frames[n] || s.image;
+    }
+    if (!img) return 0;
+    const r = ((s.rotate | 0) % 360 + 360) % 360;
+    const h = (r === 90 || r === 270) ? img.width : img.height;
+    return h * Math.max(1, Math.min(2, s.mag | 0) || 1);
+  }
+
+  _drawSprites(list, bg) {
+    const all = [...list];
+    const sprites = all.sort(this._spriteOrder(all.length));
+    // BG スプライトと、制限を切っているときは今までどおり
+    if (bg || !this.spriteLimit) {
+      for (const s of sprites) this._drawSprite(s, bg);
+      return;
+    }
+    const H = this.height;
+    if (!this._lineUse || this._lineUse.length < H) this._lineUse = new Uint8Array(H);
+    this._lineUse.fill(0);
+    const n = sprites.length;
+    if (!this._rowOk || this._rowOk.length < n * 2) this._rowOk = new Uint32Array(n * 2);
+    const ok = this._rowOk;
+    // **数えるのは手前から。** あふれた行は、優先度の低いほうが落ちる。
+    // 並びは奥 -> 手前なので、後ろから見ていく
+    for (let i = n - 1; i >= 0; i--) {
+      ok[i * 2] = 0; ok[i * 2 + 1] = 0;
+      const s = sprites[i];
+      if (!this._spriteShows(s)) continue;   // 出ていないものは席を取らない
+      const h = Math.min(64, this._spriteHeight(s));
+      const top = Math.round(s.y);
+      for (let r = 0; r < h; r++) {
+        const y = top + r;
+        if (y < 0 || y >= H) continue;
+        if (this._lineUse[y] >= this.spriteLimit) continue;   // この行はもう埋まった
+        this._lineUse[y]++;
+        ok[i * 2 + (r >> 5)] |= (1 << (r & 31));
+      }
+    }
+    // **描くのは奥から**(重なりの前後は今までどおり)
+    for (let i = 0; i < n; i++) this._drawSprite(sprites[i], bg, ok, i * 2);
+  }
+
+  /**
+   * 並べ替えのしかた。優先度が同じものは、`spriteRotate` が true なら
+   * **コマごとに順番を回す**(いつも同じものが消えないように)
+   */
+  _spriteOrder(n) {
+    if (!this.spriteRotate || n < 2) return (a, b) => a.priority - b.priority;
+    // **枚数で割った余り**で並べる。コマが進むごとに、いちばん先だったものが
+    // 最後へ回る(実機のゲームがやっていた「順ぐりに入れ替える」やりかた)
+    const t = this.frames | 0;
+    const key = (s) => (((s._autoPhase | 0) + t) % n);
+    return (a, b) => (a.priority - b.priority) || (key(a) - key(b));
+  }
+
+  /**
+   * スプライトを 1 枚描く(bg=true なら 8 ドット単位に丸める)。
+   * @param {?Uint32Array} [rowOk] 行ごとの「描いてよい」印(1 行制限が入っているとき)
+   * @param {number} [rowAt] rowOk の中のこのスプライトの位置
+   */
+  _drawSprite(s, bg, rowOk, rowAt) {
     const frame = this.activeIdx;
     const W = this.width, H = this.height;
     {
@@ -1364,6 +1456,8 @@ export class VDP {
       const mag = Math.max(1, Math.min(2, s.mag | 0)) || 1;
       const dh = img.height * mag, dw = img.width * mag;
       for (let dy = 0; dy < dh; dy++) {
+        // 1 行に出せる数を超えていた行は、この 1 枚ぶんだけ描かない
+        if (rowOk && dy < 64 && !((rowOk[rowAt + (dy >> 5)] >>> (dy & 31)) & 1)) continue;
         const y = by + dy;
         if (y < 0 || y >= H) continue;
         const srcBase = ((mag === 1) ? dy : (dy / mag) | 0) * img.width;
