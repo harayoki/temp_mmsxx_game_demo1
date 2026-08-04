@@ -149,10 +149,31 @@ export class MMSXXEngine {
      * 数えているのは BG スプライトも足した数(`vdp.shownSprites`)
      */
     this.slowAt = Math.max(0, opts.slowAt | 0);
-    /** 処理落ちしているときのコマ数(既定 30 = 半分) */
+    /** 処理落ちしているときのコマ数(既定 30 = 半分。'hard' のとき使う) */
     this.slowFps = Math.max(1, Math.min(120, opts.slowFps | 0)) || 30;
+    /**
+     * **落ちかた**。
+     *
+     *   'hard' … 超えたとたんに `slowFps` まで落ちる(既定)。
+     *            アーケードの「はっきり半分になる」感じ。
+     *            わざとそうしていた作品も多い
+     *   'soft' … **混みぐあいに応じて、ときどき 1 コマ落とす**。
+     *            少し超えただけなら たまにつっかえる程度で、
+     *            混むほど回数が増えて半分の速さへ近づく。
+     *            MSX の実機で起きていた「微妙に遅くなる」ほうに近い
+     *
+     * @type {'hard'|'soft'}
+     */
+    this.slowMode = (opts.slowMode === 'soft') ? 'soft' : 'hard';
+    /**
+     * 'soft' のときの重さ。**あふれた 1 枚あたり、どれだけ落ちやすくなるか**。
+     * 既定 0.02 なら、50 枚ぶんあふれて はじめて毎コマ落ちる勘定
+     */
+    this.slowSoft = (opts.slowSoft > 0) ? opts.slowSoft : 0.02;
     /** いま処理落ちしているか(見るだけ) */
     this.slow = false;
+    this._slowDebt = 0;   // 'soft' で溜めていく借り
+    this._slowSkip = false;   // 直前のコマを落としたか(続けて落とさないため)
     if (opts.spriteRotate) {
       this.vdp.spriteRotate = (typeof opts.spriteRotate === 'string') ? opts.spriteRotate : true;
     }
@@ -800,10 +821,32 @@ export class MMSXXEngine {
       if (!this._running) return;
       // 1 コマの長さは**毎回見る**。遊んでいる最中に fps を変えられるうえ、
       // 混んでいるときは処理落ちさせられる
-      this.slow = this.slowAt > 0 && this.vdp.shownSprites > this.slowAt;
-      const STEP = 1000 / (this.slow ? this.slowFps : this.fps);
+      const over = this.slowAt > 0 ? (this.vdp.shownSprites - this.slowAt) : 0;
+      this.slow = over > 0;
+      let STEP = 1000 / this.fps;
+      if (over > 0 && this.slowMode !== 'soft') STEP = 1000 / this.slowFps;
       acc += Math.min(now - last, 100); // タブ復帰時の暴走防止
       last = now;
+      if (over > 0 && this.slowMode === 'soft') {
+        // **混みぐあいのぶんだけ借りを溜めて、1 になったら 1 コマ落とす**。
+        // 落とすぶんは**溜めた時間ごと捨てる**(あとで取り返すと、
+        // 詰まっただけで遅くならない)。
+        // 少し超えただけなら たまにつっかえるだけ、混むほど回数が増える。
+        //
+        // **続けて 2 回は落とさない。** 落とし続けると画面が止まってしまうので、
+        // いくら混んでも半分の速さで止まる(いちばん重いときは 'hard' と同じ)
+        this._slowDebt = Math.min(2, this._slowDebt + over * this.slowSoft);
+        if (this._slowDebt >= 1 && !this._slowSkip) {
+          this._slowDebt -= 1;
+          this._slowSkip = true;
+          acc = Math.max(0, acc - STEP);
+        } else {
+          this._slowSkip = false;
+        }
+      } else if (over <= 0) {
+        this._slowDebt = 0;
+        this._slowSkip = false;
+      }
       let steps = 0;
       while (acc >= STEP && steps < 4) {
         // リプレイ中は、ゲームより先に 1 コマ進める

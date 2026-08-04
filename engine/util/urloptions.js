@@ -39,7 +39,11 @@ const TABLE = {
   },
   // 処理落ち
   slow: { num: [0, 256], key: 'slowAt', def: 0, help: 'この数を超えたら処理落ち(0 = しない)' },
-  slowfps: { num: [1, 120], key: 'slowFps', def: 30, help: '処理落ち中のコマ数' },
+  slowfps: { num: [1, 120], key: 'slowFps', def: 30, help: '処理落ち中のコマ数(hard のとき)' },
+  slowmode: {
+    list: ['hard', 'soft'], key: 'slowMode', def: 'hard',
+    help: '落ちかた(hard = すとんと半分 / soft = 混むほど ときどき落ちる)',
+  },
   // 作ったあとに効かせるもの
   palette: {
     text: true, help: '画面の色合い',
