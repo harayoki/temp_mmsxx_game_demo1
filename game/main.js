@@ -334,6 +334,7 @@ const MODES = [
   { id: 'staff', name: 'STAFF ROLL' },
   { id: 'sound', name: 'SOUND TEST' },
   { id: 'chars', name: 'CHARACTERS' },
+  { id: 'stats', name: 'STATISTICS' },
 ];
 // 手元の開発中だけ「シーン選択」を足す(公開版では出ない)
 if (DEV) MODES.push({ id: 'scene', name: 'SCENE SELECT' });
@@ -554,6 +555,96 @@ function markMet(name) {
 
 /** 印が立っているか */
 const met = (name) => progress.get(name) === true;
+
+// ---- 遊んだ記録(STATISTICS の画面に出すもの) ----
+// 進みぐあい(progress)とは保存先を分けてある。「記録だけ消す」ができるように。
+// 数えるのは**本編(NORMAL / HARD)だけ**。ボスラッシュや裏技を混ぜると、
+// 敵の数と面の数が噛み合わなくなる(ボスラッシュのタイムだけは別に持つ)
+const record = new SaveGroup('starfable-record', {
+  playsNormal: { type: T.COUNT, label: 'GAMES  NORMAL' },
+  playsHard: { type: T.COUNT, label: 'GAMES  HARD' },
+  playSeconds: { type: T.COUNT, label: 'TOTAL PLAY TIME' },
+  totalScore: { type: T.COUNT, label: 'TOTAL SCORE' },
+  enemyKills: { type: T.COUNT, label: 'ENEMIES DOWN' },
+  backfireKills: { type: T.COUNT, label: 'BACKFIRE ATTACK' },
+  shots: { type: T.COUNT, label: 'SHOTS FIRED' },
+  // 被弾はバリアや装備で耐えたぶんも数える(やられた数とは別)
+  hits: { type: T.COUNT, label: 'TIMES DAMAGE' },
+  deaths: { type: T.COUNT, label: 'SHIPS LOST' },
+  // 連射の記録。腕前を見せるところなので、アイテムで増えたぶんは数えない
+  maxRapid: { type: T.NUMBER, min: 0, max: 60, digits: 1, label: 'BEST SHOTS/SEC' },
+  maxStreak: { type: T.COUNT, label: 'LONGEST FIRING' },
+  mostShots: { type: T.COUNT, label: 'MOST SHOTS IN A GAME' },
+  boss1S: { type: T.COUNT, label: 'BOSS 1  S RANK' },
+  boss2S: { type: T.COUNT, label: 'BOSS 2  S RANK' },
+  boss3S: { type: T.COUNT, label: 'BOSS 3  S RANK' },
+  boss4S: { type: T.COUNT, label: 'BOSS 4  S RANK' },
+  kingS: { type: T.COUNT, label: 'THE KING S RANK' },
+  hiNormal: { type: T.COUNT, label: 'NORMAL' },
+  hiHard: { type: T.COUNT, label: 'HARD' },
+  // ボスラッシュのタイムはコマ数で持つ。0 は「まだ記録なし」
+  rushBest: { type: T.COUNT, label: 'BOSS RUSH' },
+  shares: { type: T.COUNT, label: 'SNS SHARED' },
+});
+
+/** 記録を数える場面か(本編だけ) */
+const recordOn = () => ['normal', 'hard', 'continue'].includes(gameMode());
+
+// ゲーム中は**ただの変数で数えて**、区切りのいいところで記録へ移す。
+// 弾を撃つたびに保存していては重いため
+const tally = { kills: 0, backfire: 0, shots: 0, hits: 0, deaths: 0, frames: 0 };
+let tallyScore = 0;    // すでに記録へ足した得点(ここから増えたぶんを足す)
+let framesLeft = 0;    // 秒に足りなかったコマ数(次に持ち越す)
+let playShots = 0;     // このプレイで撃った数
+let burning = false;   // いま推進炎で焼いているところか(撃破の数えわけに使う)
+
+/**
+ * 数えていたぶんを記録へ移して保存する。
+ * 呼ぶのは 死んだとき / 面クリア / タイトルへ戻るとき
+ */
+function recordFlush() {
+  record.add('enemyKills', tally.kills);
+  record.add('backfireKills', tally.backfire);
+  record.add('shots', tally.shots);
+  record.add('hits', tally.hits);
+  record.add('deaths', tally.deaths);
+  record.add('totalScore', Math.max(0, score - tallyScore));
+  tallyScore = score;
+  framesLeft += tally.frames;
+  record.add('playSeconds', Math.floor(framesLeft / 60));
+  framesLeft %= 60;
+  tally.kills = tally.backfire = tally.shots = tally.hits = tally.deaths = tally.frames = 0;
+  record.flush();
+}
+
+// ---- 連射の計り方 ----
+// **5 秒のあいだに撃った数**を 5 で割って「秒間の連射数」とする。
+// 窓が埋まるまでは少なめに出るが、少なく出るぶんには害がない。
+// 連射アイテム(RAPID)と ? の自動連射を取ったあとは数えない(腕前ではないため)
+const RAPID_WINDOW = 300;   // 5 秒
+const RAPID_GAP = 24;       // 0.4 秒あけたら「撃ちやめた」ことにする
+let rapidShots = [];        // 直近 5 秒のあいだに撃ったコマ
+let rapidClean = true;      // まだ連射を助けるものを取っていない
+let streakStart = -1;       // 撃ち続けはじめたコマ
+let lastFireFrame = -999;
+
+/** 1 コマぶんの連射の見張り(プレイ中だけ呼ぶ) */
+function updateRapid() {
+  const f = mmsxx.frame;
+  while (rapidShots.length && rapidShots[0] <= f - RAPID_WINDOW) rapidShots.shift();
+  if (rapidClean && rapidShots.length > 1) {
+    record.max('maxRapid', rapidShots.length / (RAPID_WINDOW / 60));
+  }
+  if (f - lastFireFrame > RAPID_GAP) streakStart = -1;
+  else if (streakStart >= 0) record.max('maxStreak', Math.floor((f - streakStart) / 60));
+}
+
+/** ボスラッシュのタイム(短いほうを残す)。0 は記録なし */
+function recordRushTime(frames) {
+  if (record.get('rushBest') === 0) record.set('rushBest', frames);
+  else record.min('rushBest', frames);
+  record.flush();
+}
 
 let state = 'title'; // 'title' | 'play' | 'over'
 let score = 0;
@@ -1683,6 +1774,15 @@ function fireShot() {
   }
   volleys.set(id, dirs.length);
   lastShotFrame = playFrame;
+  if (recordOn()) {
+    tally.shots++;
+    playShots++;
+    const f = mmsxx.frame;
+    rapidShots.push(f);
+    // 間があいていたら、そこから撃ち続けはじめたことにする
+    if (f - lastFireFrame > RAPID_GAP) streakStart = f;
+    lastFireFrame = f;
+  }
   mmsxx.audio.playSE('shot', SE_HIT);
 }
 
@@ -1698,6 +1798,10 @@ let coinChainBest = 0;    // その面で伸ばした $ の最高額
 
 /** 敵を倒す(得点・アイテム・爆発をまとめて処理する) */
 function killEnemy(e) {
+  if (recordOn()) {
+    tally.kills++;
+    if (burning) tally.backfire++;   // 推進炎で焼いたぶん
+  }
   spawnBoom(e.sp.x, e.sp.y);
   mmsxx.audio.playSE('boom', SE_HIT);
   // キューブは取りこぼさず壊し続けると得点が倍々に上がる
@@ -1761,9 +1865,11 @@ function burnEnemiesBehind() {
   // 噴射の当たり判定は炎の見た目より小さめにする。
   // 緑の炎は絵が一回り大きいぶん、判定も広い
   const r = dragonFlame ? 11 : 7;
+  burning = true;   // ここで倒れたぶんは「炎で焼いた」ことにする
   for (const e of [...enemies]) {
     if (Math.abs((e.sp.x + 8) - fx) < r && Math.abs((e.sp.y + 8) - fy) < r) hitEnemy(e, dmg, false);
   }
+  burning = false;
   burnBossBehind(fx, fy, r, dmg);
 }
 
@@ -2635,6 +2741,7 @@ function updateTitleSparks() {
  */
 function enterTitle(page = 0, focusRank = -1, fromOver = false) {
   cancelFlash();   // 光ったまま止まらないように
+  recordFlush();   // 数えていたぶんをここで書き出す
   // 遊んだ面があれば CONTINUE を並びに入れる。
   // ゲームオーバーから戻ったときは、それが選ばれた状態にする
   refreshModes(fromOver);
@@ -3026,6 +3133,16 @@ function enterPlay(fromContinue = false) {
   cancelFlash();
   state = 'play';
   score = 0;
+  // 記録の数え直し。得点は 0 に戻したので、足したことにする位置も戻す
+  tallyScore = 0;
+  playShots = 0;
+  rapidShots = [];
+  rapidClean = true;
+  streakStart = -1;
+  lastFireFrame = -999;
+  if (!fromContinue && recordOn()) {
+    record.add(gameMode() === 'hard' ? 'playsHard' : 'playsNormal', 1);
+  }
   ships = isNormal() ? 5 : 3;
   // 下キーを押しながら始めると、最後に遊んでいた面から続けられる
   // CONTINUE を選んだときは、最後に遊んでいた面から始める
@@ -3679,7 +3796,7 @@ let shareRepeat = 0;        // 左右を押しっぱなしにしたときの送�
 let shareHintEl = null;     // 何コマめかの案内を出すところ
 let shareLeftBtn = null;    // 古いほうへ送る矢印
 let shareRightBtn = null;   // 新しいほうへ送る矢印
-let shareSendBtn = null;    // SHARE のボタン(出したときはここを選んでおく)
+let shareSendBtn = null;    // POST TO X のボタン(出したときはここを選んでおく)
 // 板の中で押せるもの。**左右で選び、SPACE で実行、ESC でとじる**。
 // マウスなら、そのまま押しても同じ(押したものが選ばれた状態になる)
 let shareItems = [];        // 並び順。{ el, run, repeat }
@@ -3895,8 +4012,7 @@ function makeShareEl() {
   // X(旧 Twitter)へ出す口。**まだ繋いでいない**ので、押しても知らせを出すだけ。
   // 絵は**公式の素材が要る**(自分で描いた × 印は「閉じる」に見えてしまう)ので、
   // それが来るまでは文字で置いておく。ほかの SNS もここへ並べる
-  mkBtn('POST TO X', () => { shareStatusEl.textContent = 'X: NOT CONNECTED YET'; });
-  shareSendBtn = mkBtn('SHARE', () => sendShare());
+  shareSendBtn = mkBtn('POST TO X', () => { shareStatusEl.textContent = 'X: NOT CONNECTED YET'; });
   // 動画は録れているときだけ出す(始めてすぐやられると溜まっていない)
   shareMovieBtn = mkBtn('SAVE VIDEO', () => saveShareMovie());
   mkBtn('CLOSE', () => closeShare());
@@ -4071,41 +4187,6 @@ function saveShareMovie() {
   shareStatusEl.textContent = 'VIDEO SAVED';
 }
 
-/**
- * 送信。**SNS へつなぐところはまだ無い**ので、いまは画像をクリップボードへ渡す。
- * 貼れば文言と一緒に投稿できる(道は captureClipboard() と同じ)。
- * 書けたかどうかを板の中で知らせてから、少し待って閉じる。
- */
-function sendShare() {
-  if (shareBusy) return;   // 書き終わるまでは二重に押させない
-  shareBusy = true;
-  mmsxx.audio.playSE('item', SE_EVENT);
-  const done = (msg) => {
-    if (!shareOpen) return;   // 待つあいだに ESC で閉じられていたら何もしない
-    shareStatusEl.textContent = msg;
-    // 読む間をおいてから閉じる(ランクインのときはこのあと名前入力へ進む)
-    setTimeout(() => { shareBusy = false; closeShare(); }, 900);
-  };
-  if (!shareShot || !navigator.clipboard || !window.ClipboardItem) {
-    done('COPY FAILED');
-    return;
-  }
-  try {
-    shareShot.toBlob((blob) => {
-      if (!blob) { done('COPY FAILED'); return; }
-      navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
-        .then(() => done('IMAGE COPIED'))
-        .catch((e) => {
-          mmsxx.errors.log('share: clipboard write failed: ' + e);
-          done('COPY FAILED');
-        });
-    }, 'image/png');
-  } catch (e) {
-    mmsxx.errors.log('share: send failed: ' + e);
-    done('COPY FAILED');
-  }
-}
-
 /** ダイアログを閉じて、元の状態へ戻す */
 function closeShare() {
   if (!shareOpen) return;
@@ -4128,6 +4209,7 @@ function closeShare() {
 /** 被弾: バリアが最優先で身代わり、次にパワーダウン、1way なら爆発して 1 機失う */
 function damagePlayer(cause = 'unknown') {
   startShake(10);
+  if (recordOn()) tally.hits++;   // 耐えたぶんも被弾として数える
   if (barrierHP > 0) {
     barrierHP--;
     invincible = 110;
@@ -6980,6 +7062,10 @@ function bossDefeated() {
   // 弾が当たる状態だったフレーム数だけを数える(演出待ちは含めない)
   const frames = bossFrames;
   const r = bossRank(frames);
+  if (recordOn() && r.rank === 'S') {
+    if (stageNo >= 1 && stageNo <= 4) record.add('boss' + stageNo + 'S', 1);
+    else if (stageNo === LAST_STAGE) record.add('kingS', 1);
+  }
   const gain = r.bonus;
   score += gain;
   statsBoss(frames);
@@ -7373,6 +7459,7 @@ function updateBoss() {
 
 function updatePlay() {
   playFrame++;
+  if (recordOn()) { tally.frames++; updateRapid(); }
   // 撃破タイムは「弾が当たる状態」のあいだだけ数える
   if (bossTimeCounts()) bossFrames++;
   // ボスラッシュの経過時間(表示は 1/10 秒ごとに更新する)
@@ -7942,6 +8029,7 @@ function updatePlay() {
           break;
         case 'rapid':
           maxVolleys = Math.min(MAX_VOLLEY_LIMIT, maxVolleys + 1);
+          rapidClean = false;   // ここから先の連射は腕前ではないので数えない
           showNotice('RAPID FIRE ' + maxVolleys);
           break;
         case 'life':
@@ -9025,6 +9113,8 @@ const STAT_AGGREGATORS = {
 function statsItem(kind) { stats.log('item', { kind }); }
 function statsDeath(cause) {
   stats.log('death', { cause, stage: stageNo, frames: playFrame, shotLevel });
+  if (recordOn()) tally.deaths++;
+  recordFlush();
 }
 function statsBoss(frames) { stats.log('boss', { stage: stageNo, frames }); }
 function statsStageEnd() {
@@ -9034,11 +9124,17 @@ function statsStageEnd() {
     frames: playFrame,
   });
   statStageScore = score;
+  recordFlush();
 }
 let statStageScore = 0;
 
 function statsFinish() {
   stats.endSession({ score, maxStage: stageNo });
+  if (recordOn()) {
+    record.max(gameMode() === 'hard' ? 'hiHard' : 'hiNormal', score);
+    record.max('mostShots', playShots);
+  }
+  recordFlush();
   // 生ログがたまってきたら、集計だけ残して畳む
   if (stats.needsCompact()) stats.compact(STAT_AGGREGATORS);
 }
@@ -9295,6 +9391,7 @@ function advanceBossRush() {
   if (rushIndex >= rushOrder.length) {
     // 1 巡したら終わり。タイムは名前を入れてから記録する
     rushDone = true;
+    recordRushTime(rushFrames);   // 手元のいちばん速いタイム
     const t = 'ALL BOSSES DOWN!  ' + formatTime(rushFrames);
     hud.print(centerX(t), 72, t, 11);
     // タイムが表に載るならゲームオーバー画面を通さず、そのまま名前入力へ。
@@ -9666,6 +9763,173 @@ function enterListMenu(title, items) {
 let sceneTitle = '- SCENE SELECT -';
 
 function enterSceneSelect() { enterListMenu('- SCENE SELECT -', sceneList()); }
+
+// ---- 記録の画面(STATISTICS) ----
+// 遊んだあとの数字を並べるだけの画面。項目が多いので縦に送れる。
+// **手元にしか残らない**ことを最後に書いておく(消えても仕方ない、と分かるように)。
+
+const STAT_ROWS = 10;      // ことわりを出しているあいだの行数
+const STAT_ROWS_FULL = 12; // ことわりが消えたあとの行数(その場所まで使う)
+const STAT_TOP = 28;       // 1 行目の高さ
+const STAT_STEP = 12;      // 行の送り
+const STAT_NOTE_Y = 160;   // ことわりを出す高さ
+const STAT_NOTE_TIME = 240;// 1 枚を出しておく長さ(4 秒)
+// 出しておきたいことわり。**1 枚ずつ順に**出して、終わったら消える。
+// 1 行は 32 文字まで(画面の幅)
+const STAT_NOTES = [
+  ['RECORD IS KEPT IN THIS BROWSER.', 'IT IS LOST IF YOU SWITCH.'],
+  ['RECORD IS SAVED WHEN A STAGE IS', 'CLEARED OR THE GAME IS OVER.'],
+];
+let statTop = 0;
+let statNoteAt = 0;        // いま出しているのは何枚目
+let statNoteTimer = 0;
+
+/** いま出せる行数(ことわりが消えたら、その場所も使う) */
+const statRowCount = () => (statNoteAt < STAT_NOTES.length ? STAT_ROWS : STAT_ROWS_FULL);
+
+/** 3 桁ごとに区切る(桁の多い数は読めないため) */
+function groupNum(n) {
+  const s = String(Math.floor(n));
+  let out = '';
+  for (let i = 0; i < s.length; i++) {
+    if (i > 0 && (s.length - i) % 3 === 0) out += ',';
+    out += s[i];
+  }
+  return out;
+}
+
+/** 秒を H:MM:SS にする */
+function formatSpan(sec) {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor(sec / 60) % 60;
+  const s = Math.floor(sec) % 60;
+  return h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+}
+
+/**
+ * 出す行を組む。['見出し', '値'] の並び。値が null なら見出しだけの区切り行。
+ * 増やしたければここに 1 行足すだけ
+ */
+function statList() {
+  const g = (name) => record.get(name);
+  const rows = [];
+  const add = (name, text) => rows.push([record.label(name), text]);
+  const gap = (title) => rows.push([title, null]);
+
+  gap('- PLAY -');
+  add('playsNormal', groupNum(g('playsNormal')));
+  add('playsHard', groupNum(g('playsHard')));
+  add('playSeconds', formatSpan(g('playSeconds')));
+  add('totalScore', groupNum(g('totalScore')));
+  add('deaths', groupNum(g('deaths')));
+  add('hits', groupNum(g('hits')));
+
+  gap('- SHOTS -');
+  add('enemyKills', groupNum(g('enemyKills')));
+  add('backfireKills', groupNum(g('backfireKills')));
+  add('shots', groupNum(g('shots')));
+  add('mostShots', groupNum(g('mostShots')));
+  add('maxRapid', g('maxRapid').toFixed(1));
+  add('maxStreak', g('maxStreak') + ' SEC');
+  // 通算の平均は、持っている 2 つの数から出せるので記録には持たない
+  const sec = g('playSeconds');
+  rows.push(['AVG SHOTS/SEC', sec > 0 ? (g('shots') / sec).toFixed(1) : '0.0']);
+
+  gap('- BOSS -');
+  for (let n = 1; n <= 4; n++) add('boss' + n + 'S', groupNum(g('boss' + n + 'S')));
+  // ラスボスは、倒したことがある人にだけ出す(いること自体は図鑑で分かる)
+  if (met('kingDown')) add('kingS', groupNum(g('kingS')));
+
+  gap('- LOCAL HIGH SCORE -');
+  add('hiNormal', groupNum(g('hiNormal')));
+  add('hiHard', groupNum(g('hiHard')));
+  add('rushBest', g('rushBest') > 0 ? formatTime(g('rushBest')) : '--:--.--');
+
+  gap('- OTHER -');
+  add('shares', groupNum(g('shares')));
+  return rows;
+}
+let statRows = [];
+
+function enterStats() {
+  state = 'stats';
+  setPaused(false);
+  clearEntities();
+  for (const sp of helpIconSprites()) sp.visible = false;
+  player.visible = false;
+  aux.visible = false;
+  mmsxx.audio.stopBGM();
+  currentBGM = null;
+  neb.clear();
+  statRows = statList();
+  statTop = 0;
+  statNoteAt = 0;
+  statNoteTimer = STAT_NOTE_TIME;
+  drawStats();
+}
+
+function drawStats() {
+  hud.clear();
+  const title = '- STATISTICS -';
+  hud.print(centerX(title), 8, title, 15);
+  const rows = statRowCount();
+  for (let r = 0; r < rows; r++) {
+    const row = statRows[statTop + r];
+    if (!row) break;
+    const y = STAT_TOP + r * STAT_STEP;
+    const [label, value] = row;
+    if (value === null) {   // 区切りの見出し
+      hud.print(24, y, label, 11);
+      continue;
+    }
+    // 見出しは灰色、数字は水色。目が数字だけを拾えるように分ける
+    hud.print(24, y, label, 14);
+    hud.print(VW - value.length * 8 - 24, y, value, 7);
+  }
+  // 送れる向きを矢印で見せる
+  const up = String.fromCharCode(0x18), down = String.fromCharCode(0x19);
+  const x = centerX(up);
+  if (statTop > 0) hud.print(x, STAT_TOP - 12, up, 11);
+  if (statTop + rows < statRows.length) hud.print(x, STAT_TOP + rows * STAT_STEP, down, 11);
+  drawStatNote();
+  const help = String.fromCharCode(0x18, 0x19) + ':SCROLL  ESC:EXIT';
+  hud.print(centerX(help), 184, help, 10);
+}
+
+/**
+ * ことわり。**ピンクと黒を 2 コマずつ**で点滅させ、1 枚 4 秒で次へ送る。
+ * 読んでほしいが、ずっと居座らせたくないので、出し終わったら消える
+ */
+function drawStatNote() {
+  hud.fill(0, 0, STAT_NOTE_Y, VW, 16);
+  const note = STAT_NOTES[statNoteAt];
+  if (!note || statNoteTimer <= 0) return;
+  if (Math.floor(mmsxx.frame / 2) % 2) return;   // 黒(出さない)のコマ
+  hud.print(centerX(note[0]), STAT_NOTE_Y, note[0], 13);
+  hud.print(centerX(note[1]), STAT_NOTE_Y + 8, note[1], 13);
+}
+
+function updateStats() {
+  // ことわりは点滅させるので、出ているあいだは毎コマ描き直す
+  if (statNoteAt < STAT_NOTES.length) {
+    if (--statNoteTimer <= 0) {
+      statNoteAt++;
+      statNoteTimer = STAT_NOTE_TIME;
+      // 全部出し終えたら、空いた場所まで使って描き直す
+      if (statNoteAt >= STAT_NOTES.length) drawStats();
+      else drawStatNote();
+    } else drawStatNote();
+  }
+  if (mmsxx.input.wasPressed('Escape')) { enterTitle(); return; }
+  const maxTop = Math.max(0, statRows.length - statRowCount());
+  // 押しっぱなしで送れるようにする(項目が多いので 1 回ずつでは遅い)
+  if (mmsxx.input.isDown('ArrowUp') && mmsxx.frame % 4 === 0 && statTop > 0) {
+    statTop--; drawStats(); return;
+  }
+  if (mmsxx.input.isDown('ArrowDown') && mmsxx.frame % 4 === 0 && statTop < maxTop) {
+    statTop++; drawStats(); return;
+  }
+}
 
 // ---- 開発用の設定画面(手元の開発中だけ) ----
 // 進みぐあいの印を、遊ばずに立てたり落としたりする。
@@ -11006,6 +11270,7 @@ enterTitle();
     if (id === 'staff') enterStaffRoll();
     else if (id === 'sound') enterSoundTest();
     else if (id === 'chars') enterCharList();
+    else if (id === 'stats') enterStats();
     else if (id === 'scene') enterSceneSelect();
     else if (id === 'devset') enterDevSettings();
     else if (id === 'bossrush') enterBossRushMenu();
@@ -11165,6 +11430,7 @@ mmsxx.run(() => {
       if (gameMode() === 'staff') enterStaffRoll();
       else if (gameMode() === 'sound') enterSoundTest();
       else if (gameMode() === 'chars') enterCharList();
+      else if (gameMode() === 'stats') enterStats();
       else if (gameMode() === 'scene') enterSceneSelect();
       else if (gameMode() === 'devset') enterDevSettings();
       else if (gameMode() === 'bossrush') enterBossRushMenu();
@@ -11232,5 +11498,7 @@ mmsxx.run(() => {
     updateSoundTest();
   } else if (state === 'chars') {
     updateCharList();
+  } else if (state === 'stats') {
+    updateStats();
   }
 });
