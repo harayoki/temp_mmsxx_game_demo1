@@ -10029,10 +10029,11 @@ function drawDevSettings() {
     const here = r === devSel;
     const mark = here ? String.fromCharCode(0x1b) : ' ';
     hud.print(24, DEVSET_TOP + r * DEVSET_STEP, mark + progress.label(name), here ? 11 : 14);
-    // 変えたところは色を変えて、まだ書き込んでいないことを見せる
+    // ON / OFF は水色にして、見出しと見分けやすくする(STATISTICS と同じ)。
+    // 変えたところだけ色を変えて、まだ書き込んでいないことを見せる
     const changed = devEdit[name] !== progress.get(name);
     hud.print(200, DEVSET_TOP + r * DEVSET_STEP,
-      devEdit[name] ? 'ON' : 'OFF', changed ? 10 : (here ? 11 : 14));
+      devEdit[name] ? 'ON' : 'OFF', changed ? 10 : 7);
   }
   const at = DEVSET_NAMES.length;
   const here = devSel === at;
