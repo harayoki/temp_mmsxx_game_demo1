@@ -10026,6 +10026,9 @@ const DEVSET_STEP = 8;
 let devSel = 0;
 /** 画面で触っている途中の値(APPLY するまで保存しない) */
 let devEdit = {};
+/** 消したときなどの知らせ(しばらく出して消える) */
+let devMsg = '';
+let devMsgTimer = 0;
 
 function enterDevSettings() {
   state = 'devset';
@@ -10059,9 +10062,13 @@ function drawDevSettings() {
       devEdit[name] ? 'ON' : 'OFF', changed ? 10 : 7);
   }
   const at = DEVSET_NAMES.length;
-  const here = devSel === at;
-  hud.print(24, DEVSET_TOP + (at + 1) * DEVSET_STEP,
-    (here ? String.fromCharCode(0x1b) : ' ') + 'APPLY', here ? 11 : 14);
+  const mark = (i) => (devSel === i ? String.fromCharCode(0x1b) : ' ');
+  const col = (i) => (devSel === i ? 11 : 14);
+  hud.print(24, DEVSET_TOP + (at + 1) * DEVSET_STEP, mark(at) + 'APPLY', col(at));
+  // 記録の消去。項目ごとに消せてもうれしくないので、まとめて消すだけにする
+  hud.print(24, DEVSET_TOP + (at + 2) * DEVSET_STEP,
+    mark(at + 1) + 'RESET STATISTICS', col(at + 1));
+  if (devMsgTimer > 0) hud.print(24, DEVSET_TOP + (at + 4) * DEVSET_STEP, devMsg, 10);
   const help = 'SP:TOGGLE  ESC:EXIT';
   hud.print(centerX(help), 176, help, 10);
 }
@@ -10073,8 +10080,9 @@ function applyDevSettings() {
 }
 
 function updateDevSettings() {
+  if (devMsgTimer > 0 && --devMsgTimer === 0) drawDevSettings();
   if (mmsxx.input.wasPressed('Escape')) { enterTitle(); return; }   // 書かずに戻る
-  const n = DEVSET_NAMES.length + 1;   // 最後の 1 行は APPLY
+  const n = DEVSET_NAMES.length + 2;   // うしろの 2 行は APPLY と RESET STATISTICS
   let moved = false;
   if (mmsxx.input.wasPressed('ArrowUp')) { devSel = (devSel + n - 1) % n; moved = true; }
   if (mmsxx.input.wasPressed('ArrowDown')) { devSel = (devSel + 1) % n; moved = true; }
@@ -10084,6 +10092,20 @@ function updateDevSettings() {
       applyDevSettings();
       mmsxx.audio.playSE('item');
       enterTitle();
+      return;
+    }
+    if (devSel === DEVSET_NAMES.length + 1) {
+      // 記録をまとめて消す。数えている途中のぶんも捨てる
+      // (残しておくと、消した直後の書き出しでまた増えてしまう)
+      record.resetAll();
+      tally.kills = tally.backfire = tally.shots = tally.hits = tally.deaths = tally.frames = 0;
+      tallyScore = score;
+      framesLeft = 0;
+      playShots = 0;
+      mmsxx.audio.playSE('item');
+      devMsg = 'STATISTICS CLEARED';
+      devMsgTimer = 180;
+      drawDevSettings();
       return;
     }
     const name = DEVSET_NAMES[devSel];
