@@ -9818,18 +9818,17 @@ const STAT_TOP = 24;       // 1 行目の高さ
 // 行の送り。**8 の倍数にすること**。エンジンの文字は 8 ドット単位に丸められるので、
 // 半端な送りにすると 8 と 16 が交互になって行間が不ぞろいに見える
 const STAT_STEP = 8;
-const STAT_NOTE_Y = 144;   // ことわりを重ねる高さ(4 行ぶん)
-const STAT_NOTE_TIME = 480;// 出しておく長さ(8 秒)
-// 出しておきたいことわり。**2 つ並べて**一度に出し、読むころに消える。
+const STAT_NOTE_Y = 160;   // ことわりを重ねる高さ(2 行ぶん)
+const STAT_NOTE_TIME = 360;// 1 枚を出しておく長さ(6 秒)
+// 出しておきたいことわり。**1 枚ずつ順に**出す(空く時間は作らず、すぐ次へ)。
 // 一覧の最後にも同じものを置いてあるので、あとから読み直せる。
 // 1 行は 32 文字まで(画面の幅)
 const STAT_NOTES = [
-  'RECORD IS KEPT IN THIS BROWSER.',
-  'IT IS LOST IF YOU SWITCH.',
-  'SAVING HAPPENS ON STAGE CLEAR',
-  'AND ON GAME OVER.',
+  ['RECORD IS KEPT IN THIS BROWSER.', 'IT IS LOST IF YOU SWITCH.'],
+  ['SAVING HAPPENS ON STAGE CLEAR', 'AND ON GAME OVER.'],
 ];
 let statTop = 0;
+let statNoteAt = 0;        // いま出しているのは何枚目
 let statNoteTimer = 0;
 
 
@@ -9918,6 +9917,7 @@ function enterStats() {
   neb.clear();
   statRows = statList();
   statTop = 0;
+  statNoteAt = 0;
   statNoteTimer = STAT_NOTE_TIME;
   drawStats();
 }
@@ -9957,18 +9957,26 @@ function drawStats() {
  * 一覧の上に重ねるだけなので、消えたあとに空きはできない
  */
 function drawStatNote() {
+  const note = STAT_NOTES[statNoteAt];
   // 出すものが無いときは**帯を消さない**。消すと、そこに出ている行まで消えてしまう
-  if (statNoteTimer <= 0) return;
-  hud.fill(0, 0, STAT_NOTE_Y, VW, 32);
+  if (!note || statNoteTimer <= 0) return;
+  hud.fill(0, 0, STAT_NOTE_Y, VW, 16);
   const col = Math.floor(mmsxx.frame / 2) % 2 ? 13 : 8;   // ピンク / 赤
-  STAT_NOTES.forEach((t, i) => hud.print(centerX(t), STAT_NOTE_Y + i * 8, t, col));
+  note.forEach((t, i) => hud.print(centerX(t), STAT_NOTE_Y + i * 8, t, col));
 }
 
-/** ことわりを 1 コマぶん進める。消えたら、隠れていた行を出し直す */
+/**
+ * ことわりを 1 コマぶん進める。
+ * 1 枚出し終わったら**間を置かずに**次の 1 枚へ移り、
+ * 全部終わったら消して、隠れていた行を出し直す
+ */
 function updateStatNote() {
-  if (statNoteTimer <= 0) return;
-  if (--statNoteTimer <= 0) drawStats();   // 隠れていた行を出し直す
-  else drawStatNote();
+  if (statNoteAt >= STAT_NOTES.length) return;
+  if (--statNoteTimer > 0) { drawStatNote(); return; }
+  statNoteAt++;
+  statNoteTimer = STAT_NOTE_TIME;
+  if (statNoteAt < STAT_NOTES.length) drawStatNote();
+  else drawStats();
 }
 
 function updateStats() {
