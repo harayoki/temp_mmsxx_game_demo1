@@ -578,9 +578,9 @@ const met = (name) => progress.get(name) === true;
 // 数えるのは**本編(NORMAL / HARD)だけ**。ボスラッシュや裏技を混ぜると、
 // 敵の数と面の数が噛み合わなくなる(ボスラッシュのタイムだけは別に持つ)
 const record = new SaveGroup('starfable-record', {
-  playsNormal: { type: T.COUNT, label: 'GAMES  NORMAL' },
-  playsHard: { type: T.COUNT, label: 'GAMES  HARD' },
-  playSeconds: { type: T.COUNT, label: 'TOTAL PLAY TIME' },
+  playsNormal: { type: T.COUNT, label: 'NORMAL' },
+  playsHard: { type: T.COUNT, label: 'HARD' },
+  playSeconds: { type: T.COUNT, label: 'PLAY TIME' },
   totalScore: { type: T.COUNT, label: 'TOTAL SCORE' },
   enemyKills: { type: T.COUNT, label: 'ENEMIES DOWN' },
   backfireKills: { type: T.COUNT, label: 'BACKFIRE ATTACK' },
@@ -9861,7 +9861,7 @@ function statList() {
     rows.push(['', null]);
   };
 
-  gap('- PLAY -');
+  gap('- GAME PLAY -');
   add('playsNormal', groupNum(g('playsNormal')));
   add('playsHard', groupNum(g('playsHard')));
   add('playSeconds', formatSpan(g('playSeconds')));
