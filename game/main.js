@@ -6158,7 +6158,7 @@ function updateKingBoss(b) {
       b.man.image = SPRITE_SYMBOLS.kingMan02;
     } else {
       // いまの技に合わせた姿。構えだけ 2 コマで呼吸させる
-      if (!['kick', 'kickCircle', 'kickWind'].includes(b.act)) b.man.flipX = false;
+      if (!['kick', 'kickCircle', 'kickWind', 'orbit'].includes(b.act)) b.man.flipX = false;
     if (b.act !== 'moon' && b.man.rotate) b.man.rotate = 0;   // 宙返りの回転を戻す
       const pose = kingFightPose(b);
       if (pose.length > 1) {
@@ -6179,6 +6179,7 @@ function updateKingBoss(b) {
 const KING_ACT_GAP = 96;        // 技と技のあいだ
 const KING_PUNCH_WIND = 26;     // ためる時間
 const KING_PUNCH_HOLD = 22;     // 打ったあと戻すまで
+const KING_WAVE_POSE = 14;      // 波動を撃つとき、突き出した姿を見せるコマ数
 const KING_KICK_SPEED = 6.2;    // 波動(2.85)よりはっきり速い
 const KING_MAX_SPEED = 6.4;     // 1 コマで動ける上限(旋回が速くなりすぎないように)
 const KING_KICK_WIND = 42;      // 助走(反対側へ回り込む)の時間
@@ -6357,6 +6358,7 @@ function updateKingFight(b) {
     }
   } else if (b.act === 'orbit') {
     // 一定の距離を保ったまま弧を描いて動き、その間に 3 回撃つ
+    if (b.waveShot > 0) b.waveShot--;   // 突き出した姿を見せている残り
     b.orbA += b.orbV;
     b.orbR += (KING_WAVE_R - b.orbR) * 0.08;
     orbit();
@@ -6366,6 +6368,7 @@ function updateKingFight(b) {
     if (b.actTimer % KING_WAVE_GAP === 0 && b.waveLeft > 0) {
       b.waveLeft--;
       b.wantWave = true;
+      b.waveShot = KING_WAVE_POSE;   // 撃つ瞬間だけ突きの姿にする
     }
     if (--b.actTimer <= 0) { b.act = 'idle'; b.actTimer = KING_ACT_GAP; }
   } else if (b.act === 'kickCircle') {
@@ -6466,6 +6469,12 @@ function kingFightPose(b) {
   }
   if (b.act === 'punch') {
     return b.actTimer > KING_PUNCH_HOLD ? [SPRITE_SYMBOLS.kingMan06] : [SPRITE_SYMBOLS.kingMan06b];
+  }
+  // 波動。回っているあいだは構え、**撃つ瞬間だけ突き出す**。
+  // ここを待機の姿のままにしていたので、棒立ちで撃っているように見えていた
+  if (b.act === 'orbit') {
+    if (b.man) b.man.flipX = (player.x + 8) < b.x + KING_MAN_W / 2;
+    return b.waveShot > 0 ? [SPRITE_SYMBOLS.kingMan06b] : [SPRITE_SYMBOLS.kingMan06];
   }
   return [SPRITE_SYMBOLS.kingMan00, SPRITE_SYMBOLS.kingMan00b];
 }
