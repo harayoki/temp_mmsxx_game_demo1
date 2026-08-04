@@ -1465,7 +1465,10 @@ function clearEntities() {
   for (const b of bullets) mmsxx.removeSprite(b.sp);
   for (const e of enemies) mmsxx.removeSprite(e.sp);
   for (const b of enemyBullets) mmsxx.removeSprite(b.sp);
-  for (const b of booms) mmsxx.removeSprite(b.sp);
+  for (const b of booms) {
+    mmsxx.removeSprite(b.sp);
+    if (b.core) mmsxx.removeSprite(b.core);   // 芯も一緒に片づける
+  }
   for (const it of items) mmsxx.removeSprite(it.sp);
   clearClawMissiles();
   clearEyeballs();
@@ -2218,17 +2221,31 @@ const BOOM_MAP2 = { 15: 9 };    // 明るい赤
 function updateBooms() {
   for (const b of [...booms]) {
     b.age++;
+    // 芯は白から水色へ移して、短く消す(爆発より先に引く)
+    if (b.core) {
+      if (b.age === 4) b.core.image = deathSparks()[1];
+      else if (b.age >= 8) { mmsxx.removeSprite(b.core); b.core = null; }
+    }
     // 絵は白 1 色なので、**コマごとに色を替えて**熱が冷める様子を出す
     if (b.age === 5) { b.sp.image = SPRITE_SYMBOLS.boom1; b.sp.colorMap = BOOM_MAP1; }
     else if (b.age === 10) { b.sp.image = SPRITE_SYMBOLS.boom2; b.sp.colorMap = BOOM_MAP2; }
-    else if (b.age >= 15) { mmsxx.removeSprite(b.sp); booms.splice(booms.indexOf(b), 1); }
+    else if (b.age >= 15) {
+      mmsxx.removeSprite(b.sp);
+      if (b.core) mmsxx.removeSprite(b.core);
+      booms.splice(booms.indexOf(b), 1);
+    }
   }
 }
 
 function spawnBoom(x, y) {
   const sp = mmsxx.sprite(SPRITE_SYMBOLS.boom0);
   sp.x = x; sp.y = y; sp.priority = 20;
-  booms.push({ sp, age: 0 });
+  // 真ん中に**白 -> 水色**の芯を置く。散りかたと同じ光を使うので、
+  // 敵を落としたときと自機が散るときで見た目がつながる
+  const core = mmsxx.sprite(deathSparks()[0]);
+  core.x = x + 4; core.y = y + 4;   // 爆発(16x16)の真ん中へ 8x8 を置く
+  core.priority = 22;
+  booms.push({ sp, core, age: 0 });
 }
 
 // スコアの桁数(見栄えのため上位に 0 を 3 つ足した 10 桁表示)
@@ -6671,15 +6688,18 @@ function clearWeakSparks() {
 // 実機のスプライトのちらつきを、そのまま演出に使っている。
 const DEATH_GROUP = 2;         // 何コマに 1 回出すか(2 = 1 コマ出て 1 コマ消える)
 const DEATH_LIFE = 90;         // 散りきるまでのコマ数(1.5 秒)
-const DEATH_SPIN = 0.035;      // 1 コマあたりに輪が回る角度(ゆっくり)
-const DEATH_REACH = 45;        // 外の輪が広がりきる距離
+// 1 コマあたりに回る角度(度)。**360 を割り切れる数より少し小さく**する。
+// 割り切れると同じ絵が周期で戻ってきて、止まって見えてしまう
+const DEATH_SPIN = (1.9 * Math.PI) / 180;   // 2 度より少し小さい
+const DEATH_REACH = 40;        // 外の輪が広がりきる距離
 // 輪の作り。n = 枚数 / far = 広がる距離の割合 / turn = 回る向きと速さ /
 // off = 置きはじめの角度をずらす量(目盛りの何ぶんか)
 const DEATH_RINGS = [
   // 外の輪。水色から始めて 1 個ごとに色を送る
   { n: 16, far: 1, turn: 1, off: 0, color: 1 },
-  // 内の輪。半目盛りずらして逆回り。色は白から始めるので外と並びが食い違う
-  { n: 8, far: 0.55, turn: -1.4, off: 0.5, color: 0 },
+  // 内の輪。半目盛りずらして逆回り。色は白から始めるので外と並びが食い違う。
+  // 速さは 2.4 度ぶん(2.5 度より少し小さい)
+  { n: 8, far: 0.55, turn: -2.4 / 1.9, off: 0.5, color: 0 },
 ];
 // 光の色。**1 個ごとに順ぐりに替える**。輪ごとに始まりの色をずらすので、
 // 内と外で色の並びも食い違う
@@ -6691,12 +6711,18 @@ const DEATH_HOP = 5;           // 何コマごとに居場所を変えるか
 let deathBits = [];
 let deathSparkImg = null;      // 色ごとの絵(初めて使うときに作る)
 
-/** 自機が散る。中心から光の輪が広がる */
-function spawnDeathBurst(x, y) {
-  clearDeathBurst();
+/** 散る光の絵(色ごと)。初めて呼ばれたときに作って、あとは使い回す */
+function deathSparks() {
   if (!deathSparkImg) {
     deathSparkImg = DEATH_COLORS.map((c) => recolor(SPRITE_SYMBOLS.deathSpark, c));
   }
+  return deathSparkImg;
+}
+
+/** 自機が散る。中心から光の輪が広がる */
+function spawnDeathBurst(x, y) {
+  clearDeathBurst();
+  deathSparks();
   let k = 0;
   for (const ring of DEATH_RINGS) {
     for (let i = 0; i < ring.n; i++) {
