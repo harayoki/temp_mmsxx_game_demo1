@@ -9736,7 +9736,11 @@ function runCheatWord(word) {
 // 公開版ではモード自体が出てこない(BUILD.dev)。
 let sceneSel = 0;
 let sceneTop = 0;
-const SCENE_ROWS = 11;   // 一度に出す行数
+const SCENE_ROWS = 9;    // 一度に出す行数(いちばん下と操作の案内のあいだを空ける)
+const SCENE_TOP_Y = 24;  // 1 行目の高さ
+// 行の送り。**8 の倍数にすること**。文字は 8 ドット単位に丸められるので、
+// 半端な送りにすると 8 と 16 が交互になって行間が不ぞろいに見える
+const SCENE_STEP = 16;
 
 /** 通常モードでゲームを始めてから、指定の面(またはそのボス)へ飛ぶ */
 function sceneStart(stage, boss) {
@@ -10128,7 +10132,7 @@ function drawSceneSelect() {
     // 押せるかどうか(locked)は色に出さない。開発版では、まだ開いていない相手にも
     // 入れるようにしてあるが、見た目は公開版と同じにしておきたいため
     const col = scenes[i].closed ? 12 : (here ? 11 : 14);
-    hud.print(24, 28 + r * 12, mark + scenes[i].label, col);
+    hud.print(24, SCENE_TOP_Y + r * SCENE_STEP, mark + scenes[i].label, col);
   }
   const pos = (sceneSel + 1) + '/' + scenes.length;
   hud.print(VW - pos.length * 8 - 8, 8, pos, 14);
