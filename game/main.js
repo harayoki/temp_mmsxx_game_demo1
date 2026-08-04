@@ -2531,6 +2531,8 @@ function updateGearBlink() {
 // アイテムを取ったときに画面下(ボスのライフゲージと同じ行)へ効果を出す
 let noticeTimer = 0;
 let noticeY = 176;   // いま知らせを出している高さ
+let noticeLines = [];// いま出している文(点滅させるときに描き直す)
+let noticeBlink = 0; // 点滅の色(0 なら点滅しない)
 /**
  * ポーズ中の裏技の知らせ。**必ず 1 行消してから**出す。
  * 続けて打つと前の文字が残って重なって見えていた
@@ -2561,16 +2563,28 @@ function wrapNotice(text, cols = 28) {
   return out.slice(0, 2);
 }
 
-function showNotice(text, frames = 90, y = 176) {
+/**
+ * 画面下の知らせ。
+ * @param {number} [blink] 色を指定すると、その色とピンクで 2 コマずつ点滅する
+ */
+function showNotice(text, frames = 90, y = 176, blink = 0) {
   hud.fill(0, 0, noticeY, VW, 16);   // 前の行を消してから
   noticeY = y;
   hud.fill(0, 0, noticeY, VW, 16);
   // 画面いっぱいまで届く文は 2 行に折り返す
-  const lines = wrapNotice(text);
-  lines.forEach((t, i) => hud.print(centerX(t), noticeY + i * 8, t, 11));
+  noticeLines = wrapNotice(text);
+  noticeBlink = blink;
+  noticeLines.forEach((t, i) => hud.print(centerX(t), noticeY + i * 8, t, blink || 11));
   noticeTimer = frames;
 }
 function updateNotice() {
+  // 点滅させる知らせは毎コマ描き直す。**消えるコマは挟まず**、
+  // 指定の色とピンクを 2 コマずつ入れ替える(消えると読めなくなるため)
+  if (noticeTimer > 0 && noticeBlink) {
+    hud.fill(0, 0, noticeY, VW, 16);
+    const col = Math.floor(mmsxx.frame / 2) % 2 ? 13 : noticeBlink;
+    noticeLines.forEach((t, i) => hud.print(centerX(t), noticeY + i * 8, t, col));
+  }
   if (noticeTimer > 0 && --noticeTimer === 0) hud.fill(0, 0, noticeY, VW, 16);
 }
 
@@ -3215,8 +3229,8 @@ function enterPlay(fromContinue = false) {
   // 面の始まりで HUD を消すので、**そのあと**に出す
   if (mmsxx.audio.muted && !muteTold) {
     muteTold = true;
-    // 1 行に収まる長さにしてある(折り返すと読みにくい)
-    showNotice('SOUND OFF - ALT+M TO PLAY', 180);
+    // 1 行に収まる長さにしてある(折り返すと読みにくい)。赤の点滅で目を引く
+    showNotice('SOUND OFF - ALT+M TO UNMUTE', 180, 176, 8);
   }
 }
 
@@ -9799,6 +9813,7 @@ const STAT_TOP = 28;       // 1 行目の高さ
 const STAT_STEP = 12;      // 行の送り
 const STAT_NOTE_Y = 160;   // ことわりを出す高さ
 const STAT_NOTE_TIME = 240;// 1 枚を出しておく長さ(4 秒)
+const STAT_NOTE_GAP = 60;  // 次の 1 枚までの間(1 秒)
 // 出しておきたいことわり。**1 枚ずつ順に**出して、終わったら消える。
 // 1 行は 32 文字まで(画面の幅)
 const STAT_NOTES = [
@@ -9808,6 +9823,7 @@ const STAT_NOTES = [
 let statTop = 0;
 let statNoteAt = 0;        // いま出しているのは何枚目
 let statNoteTimer = 0;
+let statNoteGap = 0;       // 次の 1 枚までの残り(このあいだは何も出さない)
 
 /** いま出せる行数(ことわりが消えたら、その場所も使う) */
 const statRowCount = () => (statNoteAt < STAT_NOTES.length ? STAT_ROWS : STAT_ROWS_FULL);
@@ -9890,6 +9906,7 @@ function enterStats() {
   statTop = 0;
   statNoteAt = 0;
   statNoteTimer = STAT_NOTE_TIME;
+  statNoteGap = 0;
   drawStats();
 }
 
@@ -9922,29 +9939,45 @@ function drawStats() {
 }
 
 /**
- * ことわり。**ピンクと黒を 2 コマずつ**で点滅させ、1 枚 4 秒で次へ送る。
+ * ことわり。**赤とピンクを 2 コマずつ**で点滅させ、1 枚 4 秒で次へ送る。
+ * 消えるコマを挟むと読みづらいので、**色だけ**を入れ替える。
  * 読んでほしいが、ずっと居座らせたくないので、出し終わったら消える
  */
 function drawStatNote() {
   hud.fill(0, 0, STAT_NOTE_Y, VW, 16);
   const note = STAT_NOTES[statNoteAt];
-  if (!note || statNoteTimer <= 0) return;
-  if (Math.floor(mmsxx.frame / 2) % 2) return;   // 黒(出さない)のコマ
-  hud.print(centerX(note[0]), STAT_NOTE_Y, note[0], 13);
-  hud.print(centerX(note[1]), STAT_NOTE_Y + 8, note[1], 13);
+  if (!note || statNoteGap > 0 || statNoteTimer <= 0) return;
+  const col = Math.floor(mmsxx.frame / 2) % 2 ? 13 : 8;   // ピンク / 赤
+  hud.print(centerX(note[0]), STAT_NOTE_Y, note[0], col);
+  hud.print(centerX(note[1]), STAT_NOTE_Y + 8, note[1], col);
+}
+
+/**
+ * ことわりを 1 コマぶん進める。
+ * 1 枚出す(4 秒) -> 間をあける(1 秒) -> 次の 1 枚、と送り、
+ * 出し終わったら空いた場所まで一覧を伸ばす
+ */
+function updateStatNote() {
+  if (statNoteAt >= STAT_NOTES.length) return;
+  if (statNoteGap > 0) {
+    if (--statNoteGap === 0) drawStatNote();   // 間が明けたら次の 1 枚
+    return;
+  }
+  if (--statNoteTimer <= 0) {
+    statNoteAt++;
+    if (statNoteAt < STAT_NOTES.length) {
+      statNoteGap = STAT_NOTE_GAP;
+      statNoteTimer = STAT_NOTE_TIME;
+      drawStatNote();                          // 間のあいだは空にする
+    } else drawStats();                        // 全部終わり。行を増やして描き直す
+    return;
+  }
+  drawStatNote();
 }
 
 function updateStats() {
   // ことわりは点滅させるので、出ているあいだは毎コマ描き直す
-  if (statNoteAt < STAT_NOTES.length) {
-    if (--statNoteTimer <= 0) {
-      statNoteAt++;
-      statNoteTimer = STAT_NOTE_TIME;
-      // 全部出し終えたら、空いた場所まで使って描き直す
-      if (statNoteAt >= STAT_NOTES.length) drawStats();
-      else drawStatNote();
-    } else drawStatNote();
-  }
+  updateStatNote();
   if (mmsxx.input.wasPressed('Escape')) { enterTitle(); return; }
   const maxTop = Math.max(0, statRows.length - statRowCount());
   // 押しっぱなしで送れるようにする(項目が多いので 1 回ずつでは遅い)
