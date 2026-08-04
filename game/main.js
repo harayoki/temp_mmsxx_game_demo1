@@ -19,6 +19,8 @@ import { StatsLog } from '../engine/stats.js';
 import { GAME_DATA } from './gamedata.js';
 import { BUILD } from './build.js';
 import { installConsoleGuard } from '../engine/util/console-guard.js';
+// URL で変えられる画面まわりの設定(拡大率・色合い・スプライトの枚数・音など)
+import { urlOptions } from '../engine/util/urloptions.js';
 // 開発者ツールで止まったときに見せる、このゲームのぶんの文章
 import { gameStop } from './console-stop.js';
 
@@ -45,63 +47,35 @@ import { gameStop } from './console-stop.js';
 //
 // 数や名前がおかしいときは、黙って既定のままにする
 // (URL をいじって遊ぶ人が、動かない画面に当たらないように)
+// 画面まわりの読み取りは**エンジン側が持っている**(engine/util/urloptions.js)。
+// ここでやるのは、このゲームのぶんの決めごとだけ:
+//
+//   ・**fps は開発版だけ**にする(難しさを下げる道具にされないように)
+//   ・既定値をこのゲームの好みに差し替える
+//     1 行 4 枚(MSX1 なみ) / 画面ぜんぶで 32 枚(MSX なみ) /
+//     回しかたは 'stride'('step' だと消える場所が流れて見えるため)
 const OPT = new URLSearchParams(location.search);
-const OPT_NUM = (name, def, max) => {
-  const v = OPT.get(name);
-  if (v == null || v === '') return def;
-  const n = Number(v);
-  if (!Number.isFinite(n) || n < 0 || n > max) return def;
-  return Math.round(n);
-};
-/** **1 行**に出せるスプライトの数。実機は MSX1 が 4 枚、MSX2 が 8 枚 */
-const SPRITE_LIMIT = OPT_NUM('linesprites', 4, 16);
-/** 画面の拡大率 */
-const SCREEN_SCALE = Math.max(1, OPT_NUM('scale', 3, 8));
-/** 1 秒あたりのコマ数 */
-const SCREEN_FPS = Math.max(1, OPT_NUM('fps', 60, 120));
-/**
- * **処理落ち**。出しているスプライトがこの数を超えたらコマ数を落とす。
- * 実機は混むと動きがそろって遅くなるので、それを狙って起こす。
- * 既定は 0(しない)。数えるのは BG スプライトも足した数
- */
-const SLOW_AT = OPT_NUM('slow', 0, 256);
-const SLOW_FPS = Math.max(1, OPT_NUM('slowfps', 30, 120));
-/** 画面ぜんぶで出せるスプライトの数。実機(MSX)は 32 枚 */
-const SPRITE_MAX = OPT_NUM('maxsprites', 32, 256);
-/**
- * 消える順の回しかた。既定は 'stride'。
- * 'step'(1 コマに 1 つずつ)だと、消える場所が端から端へ**流れて見える**ので、
- * 公平さはそのままで流れだけ消える 'stride' を選んでいる
- */
-const SPRITE_ROTATE = (() => {
-  const v = OPT.get('rotate');
-  const ok = ['step', 'stride', 'random', 'slow'];
-  if (v === 'off' || v === '0') return false;
-  return ok.includes(v) ? v : 'stride';
-})();
+const URL_OPT = urlOptions(OPT, {
+  dev: BUILD.dev,
+  devOnly: ['fps'],
+  defaults: { linesprites: 4, maxsprites: 32, rotate: 'stride' },
+});
 
 // 裏画面は 256x1024 (横は画面ぴったり、縦に長くとってスクロールさせる)。
 // レイヤーは 5 枚: 遠い星 / 中間の星 / 近い星 / 大きな背景オブジェクト(とボス) / HUD
 const mmsxx = new MMSXXEngine(document.getElementById('screen'), {
-  scale: SCREEN_SCALE, virtualWidth: 256, virtualHeight: 1024,
-  fps: SCREEN_FPS,
-  slowAt: SLOW_AT,
-  slowFps: SLOW_FPS,
+  // 画面まわりは URL の指定をそのまま渡す
+  // (拡大率・コマ数・処理落ち・スプライトの枚数・回しかた)。
+  // 1 行 4 枚 / 画面ぜんぶ 32 枚 が既定。席の強さは rank で決めていて、
+  // 自機は消えない / 弾はまっさきに譲る
+  ...URL_OPT.engine,
+  virtualWidth: 256, virtualHeight: 1024,
   layers: [{}, {}, {}, {}, {}, {}],
   // 内訳は 曲 6 + 撃つ音の席 2 + 当たった音の席 6 + 残り 6(レーザーなど)。
   // 席の分けかたは下の reserveSE を見ること
   maxVoices: 20,
   // ノイズは種類ごとに席を取っておく(下の reserveSE)。その合計ぶん要る
   maxNoise: 4,
-  // **1 行に出せるスプライトの数**(既定 4 = MSX1 の実機なみ。?sprites= で変えられる)。
-  // あふれたぶんはその行だけ消える。席の強さは rank で決めていて、
-  // 自機は消えない / 弾はまっさきに譲る。同じ強さのものはコマごとに
-  // 順番を回すので、いつも同じものが消えることはない
-  spriteLimit: SPRITE_LIMIT,
-  // **画面ぜんぶで 32 枚**まで(実機の MSX と同じ枚数。?maxsprites= で変えられる)。
-  // あふれたぶんはまるごと出ないが、順番が回るので消えっぱなしにはならない
-  spriteMax: SPRITE_MAX,
-  spriteRotate: SPRITE_ROTATE,
   // 開発版かどうかは**ビルドで決める**(場所では決めない)。
   // これ 1 つで、シーン選択・コンソール関数・画面の保存・
   // 開発用の裏技・BG の検査が まとめて出入りする
@@ -110,15 +84,8 @@ const mmsxx = new MMSXXEngine(document.getElementById('screen'), {
 /** 開発用の機能を出すか。細かい出し分けはこれを見て決める */
 const DEV = mmsxx.dev;
 
-// 音。**大きさは曲も効果音もまとめて**動かす(別々には持たない)
-{
-  const v = OPT.get('volume');
-  if (v != null && v !== '') {
-    const n = Number(v);
-    if (Number.isFinite(n) && n >= 0 && n <= 100) mmsxx.audio.volume = n / 100;
-  }
-  if (OPT.get('mute') === '1') mmsxx.audio.mute(true);
-}
+// 色合いと音は、エンジンを作ったあとに効かせる(?palette= / ?mute= / ?volume=)
+URL_OPT.apply(mmsxx);
 // **開発版だけ**: 乱数の種を決める。同じ出かたをくり返し見られる
 if (DEV) {
   const v = OPT.get('seed');
@@ -127,13 +94,6 @@ if (DEV) {
 /** **開発版だけ**: やられない(演出を見るため) */
 const NO_DAMAGE = DEV && OPT.get('invincible') === '1';
 
-// 画面の色合い。**知らない名前なら黙って既定のまま**にする。
-// 名前はエンジンが持っているので、色合いを増やしてもここは直さなくていい
-// (裏技の TMS9918 / V9938 でも切り替えられる)
-{
-  const want = OPT.get('palette');
-  if (want && mmsxx.paletteNames.includes(want)) mmsxx.setPalette(want);
-}
 
 // **音の席を種類ごとに取っておく**。
 // 優先度だけで取り合わせると、撃つ音が鳴りつづけているあいだ
@@ -10876,7 +10836,7 @@ enterTitle();
 {
   const want = OPT.get('mode');
   const at = want ? MODES.findIndex((m) => m.id === want) : -1;
-  const stage = DEV ? OPT_NUM('stage', 0, 9) : 0;
+  const stage = DEV ? Math.max(0, Math.min(9, Number(OPT.get('stage')) || 0)) : 0;
   if (stage > 0) sceneStart(stage, false);
   else if (at >= 0) {
     modeIndex = at;
