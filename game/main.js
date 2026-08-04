@@ -9994,7 +9994,8 @@ const DEVSET_NAMES = [
   'todoMet', 'todoDown', 'kingMet', 'kingDown',
 ];
 const DEVSET_TOP = 24;    // 1 行目の高さ
-const DEVSET_STEP = 11;   // 行の送り
+// 行の送り。**8 の倍数にすること**(文字は 8 ドット単位に丸められるため)
+const DEVSET_STEP = 8;
 let devSel = 0;
 /** 画面で触っている途中の値(APPLY するまで保存しない) */
 let devEdit = {};
@@ -10019,7 +10020,6 @@ function drawDevSettings() {
   hud.clear();
   const title = '- DEV SETTINGS -';
   hud.print(centerX(title), 8, title, 15);
-  // 印がぜんぶ並ぶよう、行間は文字の高さ + 3 ドットまで詰めてある
   for (let r = 0; r < DEVSET_NAMES.length; r++) {
     const name = DEVSET_NAMES[r];
     const here = r === devSel;
@@ -10032,7 +10032,7 @@ function drawDevSettings() {
   }
   const at = DEVSET_NAMES.length;
   const here = devSel === at;
-  hud.print(24, DEVSET_TOP + at * DEVSET_STEP + 5,
+  hud.print(24, DEVSET_TOP + (at + 1) * DEVSET_STEP,
     (here ? String.fromCharCode(0x1b) : ' ') + 'APPLY', here ? 11 : 14);
   const help = 'SP:TOGGLE  ESC:EXIT';
   hud.print(centerX(help), 176, help, 10);
