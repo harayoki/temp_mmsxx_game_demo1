@@ -3470,19 +3470,14 @@ function updateReplay() {
 }
 
 function enterGameOver() {
-  // ラスボスに負けたときは、画面を止めて高笑いを聞かせる。
-  // (倒したときの名乗りと対になる演出)
+  // ラスボスに負けたかどうかを覚えておく。**高笑いはリプレイのあと**
+  // (showGameOver)で聞かせる。先に鳴らすと、笑い声のあとに
+  // やられる場面をもう一度見ることになって順番がおかしい。
   // **裂け目のあいだは鳴らさない**。まだ姿を見せていないのに笑い声だけ
   // 聞こえるのはおかしいので、シルエットが出てから(pose / man)にする
   const kingShown = boss && (boss.stage === 'pose' || boss.stage === 'man');
-  if (boss && boss.kind === 'king' && kingShown && boss.dying <= 0 && !bossPractice) {
-    mmsxx.audio.stopBGM();
-    currentBGM = null;
-    mmsxx.audio.stopSE();
-    talkName = 'kingLaugh';
-    talkBlast = false;
-    talkHold = 60 + TALK_HOLD_FRAMES;   // 1 秒おいてから笑い出す
-  }
+  kingWon = !!(boss && boss.kind === 'king' && kingShown
+    && boss.dying <= 0 && !bossPractice);
   // 次にコンティニューできるよう、遊び終わった面を覚えておく。
   // シーンセレクトで飛んだ先で死んだときも、その面から続けられてよい
   // (ボスラッシュはモードそのものに覚え先が無いので、ここには入らない)
@@ -3507,7 +3502,21 @@ function showGameOver() {
   stateTimer = 0;
   player.visible = false;
   aux.visible = false;   // 炎とバリアも一緒に消す
-  playBGM('gameover', false);
+  if (kingWon) {
+    // ラスボスの勝ち。画面を止めて高笑いを聞かせ、そのあいだ相手は
+    // 出てきたときと同じつま先立ちで浮いている。
+    // ゲームオーバーの曲は、笑い終わってから鳴らす
+    kingWon = false;
+    mmsxx.audio.stopBGM();
+    currentBGM = null;
+    mmsxx.audio.stopSE();
+    kingWins(boss);
+    talkName = 'kingLaugh';
+    talkBlast = false;
+    talkHold = 60 + TALK_HOLD_FRAMES;   // 1 秒おいてから笑い出す
+  } else {
+    playBGM('gameover', false);
+  }
   hud.print(centerX('GAME OVER'), 88, 'GAME OVER', 9);
   // ボスラッシュは得点を出していないので、得点まわりの表示はしない
   if (gameMode() === 'bossrush') return;
@@ -5999,7 +6008,37 @@ function clearKing(b) {
   clearKingEscape();
 }
 
+/**
+ * ラスボスの勝ち。自機がやられたので、動きも攻撃もやめさせる。
+ * 姿は**出てきたときと同じつま先立ち**に戻す(構えたままだと、
+ * まだ戦う気でいるように見えてしまう)
+ */
+function kingWins(b) {
+  if (!b || b.kind !== 'king' || b.stage === 'won') return;
+  clearChicks(b);           // ピヨっていたら片づける
+  b.stage = 'won';
+  b.act = 'idle';
+  b.meditate = 0;
+  b.stun = 0;
+  b.wonY = RIFT_CY - KING_MAN_H / 2;
+  b.y = b.wonY;
+  b.x = RIFT_CX - KING_MAN_W / 2;
+  if (b.man) {
+    b.man.frames = [SPRITE_SYMBOLS.kingMan01, SPRITE_SYMBOLS.kingMan01b];
+    b.man.frameRate = 30;
+    b.man.image = SPRITE_SYMBOLS.kingMan01;
+    b.man.blink = 0;        // ちらつきは消す(そこにいる)
+  }
+}
+
 function updateKingBoss(b) {
+  // 自機がやられたあと。**動きも攻撃も止める**。
+  // 出てきたときと同じつま先立ちのまま、ゆっくり上下に浮かべておく
+  if (b.stage === 'won') {
+    b.y = b.wonY + Math.sin(mmsxx.frame / 24) * 3;
+    drawBossBody();
+    return;
+  }
   drawBossBody();
   if (b.stage === 'open') {
     // まだ攻撃してこない。ひびが縦に伸びて、じわじわ口を開けていくのを見せる。
@@ -7052,6 +7091,8 @@ function bossDefeatedSpecial() {
 // ラスボスを倒したあと、画面も HUD も全部止めて名乗りを聞かせる。
 // この値が 0 より大きいあいだ、メインループは何も進めない
 let talkHold = 0;
+/** ラスボスに負けたか(高笑いはリプレイのあとで鳴らす) */
+let kingWon = false;
 // いま止めているあいだにしゃべる中身と、爆発の演出を出すかどうか
 let talkName = 'kozorite';
 let talkBlast = false;
@@ -11408,6 +11449,8 @@ mmsxx.run(() => {
       mmsxx.setAdjust(0, 0);
       mmsxx.audio.playTalk(talkName, 9, { exclusive: true });
     }
+    // 高笑いが終わったら、そこでゲームオーバーの曲を始める
+    if (talkHold === 0 && talkName === 'kingLaugh') playBGM('gameover', false);
     // 声が終わったところで爆発。ここから倒れる演出が動き出す
     if (talkHold === 0 && boss && boss.deathRoar) {
       boss.deathRoar = false;
