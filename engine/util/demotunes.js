@@ -306,9 +306,10 @@ export function beatTune() {
   const T = 't152';
   return [
     // 走るベース(波形メモリ = SCC)。
-    // **pluck で頭を立てる**。flat のままだと音が平らに続いて、
-    // 8 分が団子になり「走っている」感じが出ない
-    `${T} q7 v13 l8 @{wtRamp} @e{pluck} @s2 [` + BEAT_BASS + ']2',
+    // **piano で頭を立てる**。flat だと平らに続いて 8 分が団子になるが、
+    // pluck では 0.12 秒で消えてしまい、8 分(0.2 秒)が鳴り終わる前に落ちる。
+    // piano は落ちきるまで 0.4 秒あるので、頭が立ったまま胴が残る
+    `${T} q7 v13 l8 @{wtRamp} @e{piano} @s2 [` + BEAT_BASS + ']2',
     // 根音を伸ばすベース(三角波)
     `${T} q8 v10 l1 @{triangle} @e{flat} [` + BEAT_ROOT + ']2',
     // バスドラ
