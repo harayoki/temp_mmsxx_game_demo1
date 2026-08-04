@@ -282,6 +282,15 @@ export class VDP {
      * 実機のゲームがやっていた並べ替えと同じ考えかた
      */
     this.spriteRotate = false;
+    /**
+     * **画面ぜんぶで出せるスプライトの数**(0 で無制限)。
+     * 実機は置ける枚数そのものが決まっている(MSX は 32 枚)。
+     * あふれたぶんは**まるごと出ない**が、`spriteRotate` を入れておけば
+     * 出るものが順ぐりに入れ替わるので、消えっぱなしにはならない。
+     *
+     * 1 行の制限(`spriteLimit`)とは別のもので、両方いっしょに使える
+     */
+    this.spriteMax = 0;
     this._lineUse = null;      // 行ごとに何枚出したか
     this._rowOk = null;        // スプライトごとに「どの行を描いてよいか」
 
@@ -1392,8 +1401,8 @@ export class VDP {
   _drawSprites(list, bg) {
     const all = [...list];
     const sprites = all.sort(this._spriteOrder(all.length));
-    // BG スプライトと、制限を切っているときは今までどおり
-    if (bg || !this.spriteLimit) {
+    // BG スプライトと、どちらの制限も切っているときは今までどおり
+    if (bg || (!this.spriteLimit && !this.spriteMax)) {
       for (const s of sprites) this._drawSprite(s, bg);
       return;
     }
@@ -1416,12 +1425,16 @@ export class VDP {
       if (rot) return (((a._autoPhase | 0) + t) % n) - (((b._autoPhase | 0) + t) % n);
       return b.priority - a.priority;   // 手前のほうが先に座る
     });
+    let used = 0;   // 画面ぜんぶで何枚出したか
     for (const i of seat) {
       ok[i * 2] = 0; ok[i * 2 + 1] = 0;
       const s = sprites[i];
       if (!this._spriteShows(s)) continue;   // 出ていないものは席を取らない
       // 'always' はあぶれない。ただし**席は取る**ので、ほかを押しのける
       const sure = s.rank === 'always';
+      // **画面ぜんぶの枚数**からあふれたら、この 1 枚はまるごと出ない
+      if (!sure && this.spriteMax && used >= this.spriteMax) continue;
+      used++;
       // 実機では **2 色スプライトは単色 2 枚重ね**なので、席も 2 つ食う。
       // ここは雰囲気を採って 1 枚 = 1 席にしてある。合わせたくなったら、
       // このすぐ下の数えるところを次のように直すだけでよい:
@@ -1433,7 +1446,8 @@ export class VDP {
       for (let r = 0; r < h; r++) {
         const y = top + r;
         if (y < 0 || y >= H) continue;
-        if (!sure && this._lineUse[y] >= this.spriteLimit) continue;   // この行はもう埋まった
+        // この行はもう埋まった(1 行の制限を切っているときは効かない)
+        if (!sure && this.spriteLimit && this._lineUse[y] >= this.spriteLimit) continue;
         this._lineUse[y]++;
         ok[i * 2 + (r >> 5)] |= (1 << (r & 31));
       }

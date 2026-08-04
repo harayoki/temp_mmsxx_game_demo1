@@ -133,6 +133,7 @@ export class MMSXXEngine {
     );
     // 実機の「1 行に何枚まで」の再現。既定は無効(0)
     if (opts.spriteLimit) this.vdp.spriteLimit = Math.max(0, opts.spriteLimit | 0);
+    if (opts.spriteMax) this.vdp.spriteMax = Math.max(0, opts.spriteMax | 0);
     if (opts.spriteRotate) this.vdp.spriteRotate = true;
     this.audio = new PSGPlayer({
       maxVoices: opts.maxVoices ?? 8,
@@ -357,6 +358,22 @@ export class MMSXXEngine {
   get spriteLimit() { return this.vdp.spriteLimit; }
 
   set spriteLimit(n) { this.vdp.spriteLimit = Math.max(0, n | 0); }
+
+  /**
+   * **画面ぜんぶで出せるスプライトの数**(0 で無制限、既定は 0)。
+   * 実機は置ける枚数そのものが決まっている(MSX は 32 枚)。
+   *
+   * ```js
+   * mmsxx.spriteMax = 32;      // 画面に 32 枚まで
+   * mmsxx.spriteRotate = true; // あふれたぶんは順ぐりに入れ替わる
+   * ```
+   *
+   * あふれたものは**まるごと出ない**(1 行の制限と違い、行単位ではない)。
+   * `rank` が 'always' のものはあぶれない。両方の制限はいっしょに使える
+   */
+  get spriteMax() { return this.vdp.spriteMax; }
+
+  set spriteMax(n) { this.vdp.spriteMax = Math.max(0, n | 0); }
 
   /** 同じ優先度のものの順番をコマごとに回す(いつも同じものが消えないように) */
   get spriteRotate() { return this.vdp.spriteRotate; }

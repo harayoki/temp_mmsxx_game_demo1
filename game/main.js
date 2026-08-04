@@ -22,6 +22,28 @@ import { installConsoleGuard } from '../engine/util/console-guard.js';
 // 開発者ツールで止まったときに見せる、このゲームのぶんの文章
 import { gameStop } from './console-stop.js';
 
+// ---- URL で変えられる設定 ----
+// **遊ぶ人が触ってよいもの**だけをここに置く(ランキングの宛先などは別)。
+//
+//   ?sprites=4      … 1 行に出せるスプライトの数(0 = 無制限、16 まで。既定 4)
+//   ?maxsprites=32  … 画面ぜんぶで出せる数(0 = 無制限、256 まで。既定 32)
+//   ?palette=rf     … 画面の色合い(tms9918 / toshiba / rf / v9938)
+//
+// 数や名前がおかしいときは、黙って既定のままにする
+// (URL をいじって遊ぶ人が、動かない画面に当たらないように)
+const OPT = new URLSearchParams(location.search);
+const OPT_NUM = (name, def, max) => {
+  const v = OPT.get(name);
+  if (v == null || v === '') return def;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0 || n > max) return def;
+  return Math.round(n);
+};
+/** 1 行に出せるスプライトの数。実機は MSX1 が 4 枚、MSX2 が 8 枚 */
+const SPRITE_LIMIT = OPT_NUM('sprites', 4, 16);
+/** 画面ぜんぶで出せるスプライトの数。実機(MSX)は 32 枚 */
+const SPRITE_MAX = OPT_NUM('maxsprites', 32, 256);
+
 // 裏画面は 256x1024 (横は画面ぴったり、縦に長くとってスクロールさせる)。
 // レイヤーは 5 枚: 遠い星 / 中間の星 / 近い星 / 大きな背景オブジェクト(とボス) / HUD
 const mmsxx = new MMSXXEngine(document.getElementById('screen'), {
@@ -32,11 +54,14 @@ const mmsxx = new MMSXXEngine(document.getElementById('screen'), {
   maxVoices: 20,
   // ノイズは種類ごとに席を取っておく(下の reserveSE)。その合計ぶん要る
   maxNoise: 4,
-  // **1 行に出せるスプライトは 4 枚**まで(MSX1 の実機なみ)。
+  // **1 行に出せるスプライトの数**(既定 4 = MSX1 の実機なみ。?sprites= で変えられる)。
   // あふれたぶんはその行だけ消える。席の強さは rank で決めていて、
   // 自機は消えない / 弾はまっさきに譲る。同じ強さのものはコマごとに
   // 順番を回すので、いつも同じものが消えることはない
-  spriteLimit: 4,
+  spriteLimit: SPRITE_LIMIT,
+  // **画面ぜんぶで 32 枚**まで(実機の MSX と同じ枚数。?maxsprites= で変えられる)。
+  // あふれたぶんはまるごと出ないが、順番が回るので消えっぱなしにはならない
+  spriteMax: SPRITE_MAX,
   spriteRotate: true,
   // 開発版かどうかは**ビルドで決める**(場所では決めない)。
   // これ 1 つで、シーン選択・コンソール関数・画面の保存・
@@ -45,6 +70,14 @@ const mmsxx = new MMSXXEngine(document.getElementById('screen'), {
 });
 /** 開発用の機能を出すか。細かい出し分けはこれを見て決める */
 const DEV = mmsxx.dev;
+
+// 画面の色合い。**知らない名前なら黙って既定のまま**にする。
+// 名前はエンジンが持っているので、色合いを増やしてもここは直さなくていい
+// (裏技の TMS9918 / V9938 でも切り替えられる)
+{
+  const want = OPT.get('palette');
+  if (want && mmsxx.paletteNames.includes(want)) mmsxx.setPalette(want);
+}
 
 // **音の席を種類ごとに取っておく**。
 // 優先度だけで取り合わせると、撃つ音が鳴りつづけているあいだ
