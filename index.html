@@ -25,6 +25,19 @@
     font-family: monospace;
     font-size: 13px;
   }
+  /* スマホでの断り。**画面は見せる**が、まだ遊べないことを赤で伝える。
+     ふだんは隠しておき、幅がせまいか指で触る端末のときだけ出す */
+  p.mobile {
+    display: none;
+    color: #ff5555;
+    font-size: 13px;
+    line-height: 1.6;
+    margin: 8px 8px 0;
+    text-align: center;
+  }
+  @media (max-width: 820px), (pointer: coarse) {
+    p.mobile { display: block; }
+  }
   /* お知らせ。操作の説明より控えめに、日本語と英語を並べて出す */
   p.notice {
     color: #6b7288;
@@ -50,6 +63,10 @@
 </head>
 <body>
 <canvas id="screen"></canvas>
+<p class="mobile">
+  申し訳ありません。現在スマートフォンやタブレットには対応していません。画面はご覧いただけますが、遊ぶにはパソコンとキーボードが必要です。<br>
+  Sorry, smartphones and tablets are not supported yet. You can see the screen, but playing requires a PC with a keyboard.
+</p>
 <p>ARROWS: MOVE / SPACE: SHOT / ESC: PAUSE / ALT+S: COPY SCREEN / ALT+M: MUTE / ALT+P: SHARE</p>
 <p class="notice">
   ただいまテスト運用中です。そのため、ランキングの記録は予告なくリセットされることがあります。あらかじめご了承ください。<br>
