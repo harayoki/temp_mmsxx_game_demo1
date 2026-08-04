@@ -9829,6 +9829,7 @@ const STAT_NOTES = [
 ];
 let statTop = 0;
 let statNoteAt = 0;        // いま出しているのは何枚目
+let statNoteRow = -1;      // 一覧のことわりが始まる行
 let statNoteTimer = 0;
 
 
@@ -9919,6 +9920,8 @@ function enterStats() {
   currentBGM = null;
   neb.clear();
   statRows = statList();
+  // 一覧の最後に置いたことわりが何行目から始まるか(重ねているほうを消す目印)
+  statNoteRow = statRows.findIndex((r) => r[2] === 13);
   statTop = 0;
   statNoteAt = 0;
   statNoteTimer = STAT_NOTE_TIME;
@@ -9945,10 +9948,7 @@ function drawStats() {
     hud.print(24, y, label, 14);
     hud.print(VW - value.length * 8 - 24, y, value, 7);
   }
-  // どのあたりを見ているかは、矢印ではなく件数で見せる。
-  // (矢印を置くと、そのぶん行が置けなくなるため)
-  const pos = (statTop + 1) + '/' + statRows.length;
-  hud.print(VW - pos.length * 8 - 8, 8, pos, 14);
+  // 送れることは下の案内(↑↓:SCROLL)で足りるので、右上には何も出さない
   drawStatNote();
   const help = String.fromCharCode(0x18, 0x19) + ':SCROLL  ESC:EXIT';
   hud.print(centerX(help), 184, help, 10);
@@ -9982,6 +9982,17 @@ function updateStatNote() {
   else drawStats();
 }
 
+/**
+ * 送った先に**一覧のことわり**が見えてきたら、重ねているほうは消す。
+ * 同じ文が 2 つ出ていると読みづらいため
+ */
+function dropStatNoteIfListed() {
+  if (statNoteAt >= STAT_NOTES.length) return;
+  if (statNoteRow < 0 || statTop + STAT_ROWS <= statNoteRow) return;
+  statNoteAt = STAT_NOTES.length;
+  statNoteTimer = 0;
+}
+
 function updateStats() {
   // ことわりは点滅させるので、出ているあいだは毎コマ描き直す
   updateStatNote();
@@ -9989,10 +10000,10 @@ function updateStats() {
   const maxTop = Math.max(0, statRows.length - STAT_ROWS);
   // 押しっぱなしで送れるようにする(項目が多いので 1 回ずつでは遅い)
   if (mmsxx.input.isDown('ArrowUp') && mmsxx.frame % 4 === 0 && statTop > 0) {
-    statTop--; drawStats(); return;
+    statTop--; dropStatNoteIfListed(); drawStats(); return;
   }
   if (mmsxx.input.isDown('ArrowDown') && mmsxx.frame % 4 === 0 && statTop < maxTop) {
-    statTop++; drawStats(); return;
+    statTop++; dropStatNoteIfListed(); drawStats(); return;
   }
 }
 
