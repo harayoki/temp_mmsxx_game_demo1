@@ -84,6 +84,23 @@ const mmsxx = new MMSXXEngine(document.getElementById('screen'), {
 /** 開発用の機能を出すか。細かい出し分けはこれを見て決める */
 const DEV = mmsxx.dev;
 
+// ゲームの設定。進みぐあいや遊んだ記録とは別に持つ(消したい単位が違う)
+const settings = new SaveGroup('starfable-settings', {
+  mute: { type: T.FLAG, label: 'MUTE' },
+});
+// 前に音を消したままなら、消した状態で始める。
+// **?mute= は次の行で効く**ので、URL で指定したぶんが優先される
+if (settings.get('mute')) mmsxx.audio.mute(true);
+/** 音を消す / 戻す。覚えておいて、次に開いたときも同じ状態にする */
+function setMute(on) {
+  const off = mmsxx.audio.mute(on);
+  settings.set('mute', off);
+  settings.flush();
+  return off;
+}
+/** 音が消えていることを知らせたか(知らせるのは 1 回だけ) */
+let muteTold = false;
+
 // 色合いと音は、エンジンを作ったあとに効かせる(?palette= / ?mute= / ?volume=)
 URL_OPT.apply(mmsxx);
 // **開発版だけ**: 乱数の種を決める。同じ出かたをくり返し見られる
@@ -3193,6 +3210,14 @@ function enterPlay(fromContinue = false) {
   rushFrames = 0;
   if (gameMode() === 'bossrush') startBossRush();
   else startStage();
+  // 音を消したまま始めた人に、**1 回だけ**知らせる(消えていることに
+  // 気づかないまま遊び続けてしまわないように)。
+  // 面の始まりで HUD を消すので、**そのあと**に出す
+  if (mmsxx.audio.muted && !muteTold) {
+    muteTold = true;
+    // 1 行に収まる長さにしてある(折り返すと読みにくい)
+    showNotice('SOUND OFF - ALT+M TO PLAY', 180);
+  }
 }
 
 // ---- 開発用: SNS シェア用の絵を試すためのキャプチャ ----
@@ -11349,7 +11374,7 @@ mmsxx.run(() => {
   // ALT + M で音を消す / 戻す。どの画面でも効く。
   // 曲は止めずに出口を閉じるだけなので、戻せば続きから聞こえる
   if (altDown() && mmsxx.input.wasPressed('KeyM')) {
-    const off = mmsxx.audio.mute();
+    const off = setMute();
     showNotice(off ? 'SOUND OFF' : 'SOUND ON');
   }
   // ALT + S で、どの画面でもその場を**クリップボードへ**コピーする。
