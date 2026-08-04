@@ -4478,6 +4478,29 @@ const BEAT_BLIP = [
   BEAT_BLIP_A, BEAT_BLIP_A, BEAT_BLIP_A, BEAT_BLIP_A,
 ].join(' ');
 
+// ブラスの短い和音。**和音は 1 本では鳴らせない**ので、3 音ぶんの
+// トラックを別々に持ち、同じ位置で同じ長さだけ鳴らす。
+// 入れるのは小節の切れ目や、間が空くところだけ。鳴らしすぎると
+// リズムの隙間が埋まって、走るベースが聞こえなくなる。
+// % のところに音名が入る(和音の何番目かで差し替える)
+const ST_REST = 'r1';
+const ST_TAIL = 'r2 r4 r8 %16 %16';   // 小節のおしまいに 16 分 2 発
+const ST_BACK = 'r2 r4 %8 r8';        // 4 拍目の頭に 1 発
+const ST_TWO = 'r2 %8 r8 %8 r8';      // 後半に 2 発
+const ST_HEAD = '%8 r8 r4 r2';        // 小節の頭に 1 発
+const stab = (pattern, note) => pattern.split('%').join(note);
+
+// 8 小節ぶんの当てはめ。1・3・5 小節目は休んで、走るベースを聞かせる
+const BEAT_STAB_RHYTHM = [ST_REST, ST_TAIL, ST_REST, ST_BACK, ST_REST, ST_TAIL, ST_TWO, ST_HEAD];
+// 和音の積み方(上 / 中 / 下)。Dm Dm B- C Dm Dm Gm A
+const BEAT_STAB_VOICES = [
+  ['o4 a', 'o4 a', 'o4 f', 'o4 g', 'o4 a', 'o4 a', 'o5 d', 'o5 e'],
+  ['o4 f', 'o4 f', 'o4 d', 'o4 e', 'o4 f', 'o4 f', 'o4 b-', 'o5 c+'],
+  ['o4 d', 'o4 d', 'o3 b-', 'o4 c', 'o4 d', 'o4 d', 'o4 g', 'o4 a'],
+];
+const beatStabTrack = (voice) =>
+  BEAT_STAB_RHYTHM.map((r, i) => stab(r, voice[i])).join(' ');
+
 const BGM_BEAT = [
   // 走るベース(波形メモリ = SCC)
   't152 q7 v12 l8 @{wtRamp} @e{flat} @s2 [' + BEAT_BASS + ']2',
@@ -4495,6 +4518,10 @@ const BGM_BEAT = [
   't152 q8 l16 @{noise} @e{percussive} [' + BEAT_NOISE + ']2',
   // 16 分の裏を埋める粒
   't152 q8 v4 l16 @{pulse12} @e{percussive} o6 [' + BEAT_BLIP + ']2',
+  // ブラスの和音(上 / 中 / 下)。短く切って合いの手にする
+  't152 q6 v9 l16 @{fmTrumpet} @e{soft} [' + beatStabTrack(BEAT_STAB_VOICES[0]) + ']2',
+  't152 q6 v8 l16 @{fmTrumpet} @e{soft} [' + beatStabTrack(BEAT_STAB_VOICES[1]) + ']2',
+  't152 q6 v8 l16 @{fmHorn} @e{soft} [' + beatStabTrack(BEAT_STAB_VOICES[2]) + ']2',
 ];
 
 // ---- 仮ボス「未実装君」専用の曲 ----
