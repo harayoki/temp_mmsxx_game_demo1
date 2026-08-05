@@ -45,7 +45,7 @@ import { RemoteRankingSource } from './engine/util/ranking-remote.js';
 | `lineStep` | 12 | 行間 |
 | `typing` | 0.5 | 1 フレームに出す文字数（0 = 一度に全部） |
 | `gap` | 12 | 場面と場面のあいだの暗転（フレーム） |
-| `skipKeys` | Space / Z / Enter | 押すと先へ進む |
+| `skipKeys` | Space / Enter | 押すと先へ進む |
 | `manual` | false | true にすると**時間では進まない**。押されるまでその場面のまま |
 | `prompt` | — | 「押すと次へ」を伝える 8x8 の絵（下記） |
 | `onEnd` | — | 最後の場面が終わったら呼ばれる |
@@ -103,7 +103,7 @@ ending.start();
 | `speed` | 0.35 | 1 フレームに動くドット数 |
 | `color` / `headingColor` | 15 / 11 | 色 |
 | `top` / `bottom` | 8 / 184 | この範囲の外は描かない |
-| `skipKeys` | Space / Z / ESC | 押すと最後まで飛ばす |
+| `skipKeys` | Space / ESC | 押すと最後まで飛ばす |
 | `onEnd` | — | 流し終わったら呼ばれる |
 
 - `length` … 流れきるまでのフレーム数
@@ -153,8 +153,8 @@ ending.start();
 | `header` | `- SOUND TEST -` | いちばん上の見出し |
 | `help` / `helpY` | 既定の案内 / 180 | 下の案内 |
 | `note()` / `noteY` | — / 168 | 「いま鳴っているもの」を毎フレーム出す |
-| `playKeys` / `stopKeys` / `exitKeys` | Space / Z / ESC | キー |
-| `stop()` | — | 止める処理 |
+| `playKeys` / `exitKeys` | Space / ESC | キー |
+| `stop()` | — | 閉じるときに呼ぶ「止める処理」。止める操作を出したいときは、一覧の項目として並べる |
 | `onExit` | — | 閉じたら呼ばれる |
 
 **列**: `{ title, items: string[], play(name, index), x? }`

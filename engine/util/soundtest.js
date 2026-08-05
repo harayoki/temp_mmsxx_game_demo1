@@ -55,9 +55,9 @@ export class SoundTest {
    *   note?: () => string,  いま鳴っているものなどを出したいとき(毎フレーム呼ぶ)
    *   noteY?: number,       その y(既定 168)
    *   playKeys?: string[],  鳴らすキー(既定 Space)
-   *   stopKeys?: string[],  止めるキー(既定 Z)
    *   exitKeys?: string[],  閉じるキー(既定 Escape)
-   *   stop?: () => void,    止める処理
+   *   stop?: () => void,    止める処理(閉じるときに呼ぶ。
+   *                         止める操作は一覧の項目として並べること)
    *   onExit?: () => void,
    * }} opts
    */
@@ -74,12 +74,11 @@ export class SoundTest {
     this.listX = opts.listX ?? 88;
     this.slotStep = opts.slotStep ?? 136;
     this.header = opts.header ?? '- SOUND TEST -';
-    this.help = opts.help || 'SP:PLAY  Z:STOP  ESC:EXIT';
+    this.help = opts.help || 'SP:PLAY  ESC:EXIT';
     this.helpY = opts.helpY ?? 180;
     this.note = opts.note || null;
     this.noteY = opts.noteY ?? 168;
     this.playKeys = opts.playKeys || ['Space'];
-    this.stopKeys = opts.stopKeys || ['KeyZ'];
     this.exitKeys = opts.exitKeys || ['Escape'];
     this.stop = opts.stop || null;
     this.onExit = opts.onExit || null;
@@ -172,9 +171,6 @@ export class SoundTest {
         list.play(list.items[this.sel[this.col]], this.sel[this.col]);
         moved = true;
       }
-    }
-    for (const k of this.stopKeys) {
-      if (input.wasPressed(k) && this.stop) { this.stop(); moved = true; }
     }
     if (moved) this.draw();
     else this._drawNote();

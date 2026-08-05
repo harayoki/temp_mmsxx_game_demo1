@@ -63,7 +63,7 @@ export class StoryScenes {
     this.typing = opts.typing ?? 0.5;
     this.textWait = opts.textWait ?? 0;
     this.gap = opts.gap ?? 12;
-    this.skipKeys = opts.skipKeys || ['Space', 'KeyZ', 'Enter'];
+    this.skipKeys = opts.skipKeys || ['Space', 'Enter'];
     // true = 時間では進まない。読み終わったら自分で送ってもらう
     this.manual = !!opts.manual;
     // 「押してほしそう」を文字ではなく小さい絵の動きで伝える

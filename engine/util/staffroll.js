@@ -50,7 +50,7 @@ export class StaffRoll {
     this.headingColor = opts.headingColor ?? 11;
     this.top = opts.top ?? 8;
     this.bottom = opts.bottom ?? (SCREEN_H - 8);
-    this.skipKeys = opts.skipKeys || ['Space', 'KeyZ', 'Escape'];
+    this.skipKeys = opts.skipKeys || ['Space', 'Escape'];
     this.onEnd = opts.onEnd || null;
     this.scroll = 0;
     this.done = false;

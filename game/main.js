@@ -1,5 +1,5 @@
 ﻿// サンプル縦スクロールシューティング "STAR RAID"
-// 操作: カーソルキー = 移動, SPACE または Z = ショット
+// 操作: カーソルキー = 移動, SPACE = ショット
 // P アイテムでショットが 1way -> 3way -> 5way。被弾で 1 段階ダウン、1way で被弾すると 1 ミス。
 // ステージ後半は月面上空、最後にタコ型ボス。
 
@@ -2988,8 +2988,6 @@ const RUSH_TODO = 103;   // 仮ボス「未実装君」(6 面がラスボスに�
 // 相手の選択はボスラッシュのメニュー(rushMenuList)で行う
 let rushOne = 0;   // 0 = 4 体タイムアタック / それ以外はその相手だけ
 
-let modeLineCont = false;
-
 function drawModeLine() {
   const y = pushKeyY();
   hud.fill(0, 0, y, VW, 16);
@@ -2999,25 +2997,11 @@ function drawModeLine() {
   hud.print(x + (MODE_LINE.length - 1) * 8, y, ARROW_R, 11);
   const name = MODES[modeIndex].name;
   hud.print(centerX(name), y + 8, name, 14);
-  // 下キーを押しているあいだは「続きから」に変わる(遊んだ面がある場合だけ)
-  if (continueStageNow() > 1 && mmsxx.input.isDown('ArrowDown')) {
-    const c = 'CONTINUE  STAGE ' + continueStageNow();
-    hud.fill(0, 0, y, VW, 8);
-    hud.print(centerX(c), y, c, 11);
-  }
 }
 /** タイトルの点滅(本文はゆっくり、矢印は速く) */
 function updateModeLine() {
   const y = pushKeyY();
   const x = modeLineX();
-  // 下キーを押しているあいだは「続きから」の案内に切り替える
-  const cont = continueStageNow() > 1 && mmsxx.input.isDown('ArrowDown');
-  if (cont !== modeLineCont) {
-    modeLineCont = cont;
-    drawModeLine();
-    return;
-  }
-  if (cont) return;   // 案内を出しているあいだは点滅させない
   if (mmsxx.frame % 32 === 0) hud.print(x + 16, y, PUSH_KEY, 15);
   else if (mmsxx.frame % 32 === 16) hud.fill(0, x + 16, y, PUSH_KEY.length * 8, 8);
   if (mmsxx.frame % 12 === 0) {
@@ -7605,9 +7589,9 @@ function updatePlay() {
       player.visible = true;
     }
     // ショット: 連打すれば即座に(上限まで)撃てる。押しっぱなしはゆっくりした自動連射。
-    if (mmsxx.input.wasPressed('Space') || mmsxx.input.wasPressed('KeyZ')) {
+    if (mmsxx.input.wasPressed('Space')) {
       fireShot();
-    } else if (mmsxx.input.isDown('Space') || mmsxx.input.isDown('KeyZ')) {
+    } else if (mmsxx.input.isDown('Space')) {
       // 押しっぱなしの自動連射。? アイテム / MEIJIN 中は間隔がぐっと短くなる
       const gap = autoFire > 0 ? 6 : AUTO_FIRE_INTERVAL;
       if (playFrame - lastShotFrame >= gap) fireShot();
@@ -7799,7 +7783,7 @@ function updatePlay() {
   // --- ステージクリア進行 ---
   if (clearTimer > 0) {
     // 何かキーを押したら評価表示を飛ばせる
-    if (clearTimer < 900 && (mmsxx.input.wasPressed('Space') || mmsxx.input.wasPressed('KeyZ') ||
+    if (clearTimer < 900 && (mmsxx.input.wasPressed('Space') ||
         mmsxx.input.wasPressed('Enter') || mmsxx.input.wasPressed('Escape'))) {
       clearTimer = 1;
     }
@@ -10146,7 +10130,7 @@ function updateDevSettings() {
   if (mmsxx.input.wasPressed('ArrowUp')) { devSel = (devSel + n - 1) % n; moved = true; }
   if (mmsxx.input.wasPressed('ArrowDown')) { devSel = (devSel + 1) % n; moved = true; }
   if (moved) { mmsxx.audio.playSE('item'); drawDevSettings(); }
-  if (mmsxx.input.wasPressed('Space') || mmsxx.input.wasPressed('KeyZ')) {
+  if (mmsxx.input.wasPressed('Space')) {
     if (devSel === DEVSET_NAMES.length) {
       applyDevSettings();
       mmsxx.audio.playSE('item');
@@ -10252,7 +10236,7 @@ function updateSceneSelect() {
   if (mmsxx.input.wasPressed('ArrowUp')) { sceneSel = (sceneSel + n - 1) % n; moved = true; }
   if (mmsxx.input.wasPressed('ArrowDown')) { sceneSel = (sceneSel + 1) % n; moved = true; }
   if (moved) { mmsxx.audio.playSE('item'); drawSceneSelect(); }
-  if (mmsxx.input.wasPressed('Space') || mmsxx.input.wasPressed('KeyZ')) {
+  if (mmsxx.input.wasPressed('Space')) {
     // まだ開いていない項目は選べない。断る音だけ鳴らす
     if (scenes[sceneSel].locked || !scenes[sceneSel].run) {
       mmsxx.audio.playSE('nobreak', SE_HIT);
@@ -10696,8 +10680,9 @@ const SOUND_TONE_LIST = [...SOUND_TONE, DRUM_KIT];
 // こちらはコンソールから鳴らしたいとき用に置いておくだけ
 mmsxx.audio.defineBGM('scale', scaleDemo(SOUND_TONE));
 // 左が BGM、右が SE。左右キーで列を移り、上下で曲を選ぶ
-// BGM 側の一覧はいちばん上に [ALL](全曲再生)を足して見せる
-const SOUND_BGM_LIST = ['- ALL -', ...SOUND_BGM];
+// BGM 側の一覧はいちばん上に [ALL](全曲再生)と [STOP](止める)を足して見せる。
+// 止めるのは**専用のキーではなく一覧の項目**にしてある(選んで押す道に揃える)
+const SOUND_BGM_LIST = ['- ALL -', '- STOP -', ...SOUND_BGM];
 const soundList = (col) => (col === 0 ? SOUND_BGM_LIST : SOUND_SE);
 
 // 列の並べ方・選択・キーの受け付けはエンジンの任意部品 SoundTest にまかせる。
@@ -10728,8 +10713,10 @@ function enterSoundTest() {
             if (soundAll >= 0) stopSoundAll(); else startSoundAll();
             return;
           }
+          // - STOP - は鳴っているものを全部止める
+          if (i === 1) { stopSoundTest(); return; }
           if (soundAll >= 0) stopSoundAll();
-          soundBack = SOUND_BGM[i - 1];
+          soundBack = SOUND_BGM[i - 2];
           mmsxx.audio.playBGM(soundBack, true, true);
         },
       },
@@ -10761,15 +10748,18 @@ function enterSoundTest() {
     ],
     // 全曲再生のあいだは、いま鳴っている曲名を出す
     note: () => (soundAll >= 0 ? 'ALL: ' + SOUND_BGM[soundAll].toUpperCase() : ''),
-    stop: () => {
-      soundBack = null;
-      if (soundAll >= 0) stopSoundAll();
-      mmsxx.audio.stopBGM();
-      mmsxx.audio.stopSE();
-    },
+    stop: stopSoundTest,
     onExit: () => enterTitle(),
   });
   soundPage.open();
+}
+
+/** サウンドテストで鳴っているものを全部止める(一覧の - STOP - と、閉じるとき) */
+function stopSoundTest() {
+  soundBack = null;
+  if (soundAll >= 0) stopSoundAll();
+  mmsxx.audio.stopBGM();
+  mmsxx.audio.stopSE();
 }
 
 // 全曲再生。1 曲ずつ最低 30 秒ぶん鳴らしてからフェードアウトして次へ進む
@@ -11589,7 +11579,7 @@ mmsxx.run(() => {
       drawModeLine();
     }
     updateModeLine();
-    if (mmsxx.input.wasPressed('Space') || mmsxx.input.wasPressed('KeyZ')) {
+    if (mmsxx.input.wasPressed('Space')) {
       if (gameMode() === 'staff') enterStaffRoll();
       else if (gameMode() === 'sound') enterSoundTest();
       else if (gameMode() === 'chars') enterCharList();
@@ -11597,12 +11587,9 @@ mmsxx.run(() => {
       else if (gameMode() === 'scene') enterSceneSelect();
       else if (gameMode() === 'devset') enterDevSettings();
       else if (gameMode() === 'bossrush') enterBossRushMenu();
-      // **CONTINUE を選んだとき**は、最後に遊んでいた面から始める。
-      // (ここを下キー頼りにしていたので、CONTINUE を選んでも 1 面から
-      //  始まってしまっていた。下キー押しながらの始めかたも残す)
+      // **CONTINUE を選んだとき**は、最後に遊んでいた面から始める
       else {
-        const cont = gameMode() === 'continue'
-          || (mmsxx.input.isDown('ArrowDown') && continueStageNow() > 1);
+        const cont = gameMode() === 'continue';
         enterPlay(cont);
       }
     }
@@ -11619,8 +11606,7 @@ mmsxx.run(() => {
     // 連射したままだと一瞬で飛んでしまうので、2 秒たってから効くようにする
     const skipOK = gameMode() === 'bossrush' || stateTimer > 120;
     if (skipOK &&
-        (mmsxx.input.wasPressed('Space') || mmsxx.input.wasPressed('KeyZ') ||
-         mmsxx.input.wasPressed('Escape'))) {
+        (mmsxx.input.wasPressed('Space') || mmsxx.input.wasPressed('Escape'))) {
       stateTimer = GAMEOVER_WAIT + 1;
     }
     // 記録を出したときは、少し待てばスペースですぐ名前入力へ飛べる
