@@ -25,6 +25,8 @@ import { installConsoleGuard } from '../engine/util/console-guard.js';
 import { urlOptions } from '../engine/util/urloptions.js';
 // どのゲームでも使う絵(音のラッパなど)。**画面と DOM を同じ並びから作る**
 import { ICONS, iconSymbol, iconDataURL } from '../engine/util/icons.js';
+// 絵を画像に書き出す道具(開発用)
+import { exportSymbol, exportSheet, downloadArt } from '../engine/util/artexport.js';
 // 端末の見分け。**エンジンは npm の部品に依存しない**ので、
 // ちゃんと見分けたいゲームが自分で入れて差し替える(ここがその例)
 import { useUAParser, isMobileLike } from '../engine/util/device.js';
@@ -9653,6 +9655,24 @@ mmsxx.expose('mmsxxBossHp', (n) => {
   boss.hp = n;
   drawBossBar();
   return boss.hp;
+});
+
+// ---- 絵の書き出し(開発用) ----
+// 外の道具で見たり直したりするため。V2 で「直した絵を取り込み直す」流れを作る
+//   mmsxxArt('player', 4)          … 1 枚を 4 倍で落とす
+//   mmsxxSheet('sprite', 2, 512)   … スプライトを 2 倍で 512 ドット幅に並べて落とす
+//   mmsxxSheet('bg', 1, 1024)      … BG も同じように
+mmsxx.expose('mmsxxArt', (name, scale = 4) => {
+  const sym = SPRITE_SYMBOLS[name] || BG_SYMBOLS[name];
+  if (!sym) return '知らない名前: ' + name;
+  downloadArt(exportSymbol(mmsxx, sym, { scale }), name + '.png');
+  return name + ' を ' + scale + ' 倍で落としました';
+});
+mmsxx.expose('mmsxxSheet', (kind = 'sprite', scale = 2, width = 512, padding = 2) => {
+  const from = kind === 'bg' ? BG_SYMBOLS : SPRITE_SYMBOLS;
+  const c = exportSheet(mmsxx, from, { scale, width, padding, sort: true });
+  downloadArt(c, kind + '-sheet.png');
+  return `${Object.keys(from).length} 枚を ${c.width}x${c.height} に並べました`;
 });
 
 mmsxx.expose('mmsxxDebug', () => ({
