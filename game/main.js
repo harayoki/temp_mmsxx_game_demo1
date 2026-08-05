@@ -10867,9 +10867,11 @@ const STAFF_LINES = [
   'OPUS5',
   '',
   'MUSIC',
-  // 打ち込みの曲と効果音、mp3 の曲で作り手が違うので分けて書く
-  'MML BGM / SE   OPUS5',
-  'MP3 BGM        SUNO v5.5',
+  // 打ち込みの曲と効果音、mp3 の曲で作り手が違うので分けて書く。
+  // **行は 1 行ずつ真ん中に置かれる**ので、名前の頭をそろえるには
+  // 2 行の長さも同じにする(短いほうは後ろを空白で埋める)
+  'MML BGM / SE    OPUS5    ',
+  'MP3 BGM         SUNO v5.5',
   '',
   'DEBUG STAFF',
   'AHO' + RET,
