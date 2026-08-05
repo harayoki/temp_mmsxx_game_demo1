@@ -23,6 +23,10 @@ import { BUILD } from './build.js';
 import { installConsoleGuard } from '../engine/util/console-guard.js';
 // URL で変えられる画面まわりの設定(拡大率・色合い・スプライトの枚数・音など)
 import { urlOptions } from '../engine/util/urloptions.js';
+// 端末の見分け。**エンジンは npm の部品に依存しない**ので、
+// ちゃんと見分けたいゲームが自分で入れて差し替える(ここがその例)
+import { useUAParser, isMobileLike } from '../engine/util/device.js';
+import Bowser from '../vendor/bowser/bowser.js';
 // 開発者ツールで止まったときに見せる、このゲームのぶんの文章
 import { gameStop } from './console-stop.js';
 
@@ -57,6 +61,13 @@ import { gameStop } from './console-stop.js';
 //     1 行 4 枚(MSX1 なみ) / 画面ぜんぶで 32 枚(MSX なみ) /
 //     回しかたは 'stride'('step' だと消える場所が流れて見えるため)
 const OPT = new URLSearchParams(location.search);
+// 端末の見分けを bowser にまかせる。**分からないときは undefined を返して**、
+// エンジン側の目安(UA の正規表現や pointer: coarse)へ落ちるようにしておく。
+// ?device=mobile / ?device=desktop を付けると、これより先に上書きが効く
+useUAParser(() => {
+  const type = Bowser.parse(navigator.userAgent).platform.type;
+  return type ? type !== 'desktop' : undefined;
+});
 const URL_OPT = urlOptions(OPT, {
   dev: BUILD.dev,
   devOnly: ['fps'],
@@ -98,10 +109,111 @@ function setMute(on) {
   const off = mmsxx.audio.mute(on);
   settings.set('mute', off);
   settings.flush();
+  drawMuteBtn();
   return off;
 }
 /** 音が消えていることを知らせたか(知らせるのは 1 回だけ) */
 let muteTold = false;
+
+// ---- 音のアイコン(16x8 の 2 色。**画面のスプライトと DOM のボタンで同じ絵**) ----
+// **# と + の 2 色**で描いて、画面側は 1 枚のスプライトにまとめている
+// (実機なら 2 枚重ねにあたるが、エンジンが colors: 2 で面倒を見てくれる)。
+// 文字は 8 ドット単位に置かれるので、2 文字ぶん(16 ドット)の空きに重ねる。
+//
+// **絵文字は使わない。** 🔊 は環境ごとに字形が違うので、DOM とスプライトで
+// 別の絵になってしまう。ここの並びから両方を作れば、二度と食い違わない
+const MUTE_ICON_ON = [
+  '......#.........',
+  '.....##.........',
+  '....###..+...+..',
+  '#######..+...+..',
+  '#######..+...+..',
+  '....###..+...+..',
+  '.....##.........',
+  '......#.........',
+];
+const MUTE_ICON_OFF = [
+  '......#.........',
+  '.....##.........',
+  '....###..+...+..',
+  '#######...+.+...',
+  '#######....+....',
+  '....###...+.+...',
+  '.....##..+...+..',
+  '......#.........',
+];
+// スプライトの 2 色。DOM のボタンは**絵文字のまま**にしてある。
+// ドット絵と字形はぴったり同じにはならないが、似ていればよい
+// (絵文字は環境ごとに字形が違うので、そもそも合わせきれない)
+const ICON_BODY = 15;                  // 本体(白)
+const ICON_ON_ACCENT = 11;             // 音が出ているとき(黄)
+const ICON_OFF_ACCENT = 8;             // 消しているとき(赤)
+
+/** 絵の文字並びから、2 色のスプライトを作る */
+function makeIconSymbol(rows, body, accent, name) {
+  const w = rows[0].length, h = rows.length;
+  const pixels = new Uint8Array(w * h);
+  rows.forEach((row, y) => {
+    for (let x = 0; x < w; x++) {
+      const c = row[x];
+      pixels[y * w + x] = c === '#' ? body : c === '+' ? accent : 0;
+    }
+  });
+  return mmsxx.spriteSymbol({ width: w, height: h, pixels }, { name, colors: 2 });
+}
+let muteIconSp = null;
+/** 知らせの中のアイコンを、その桁へ置く。col は文字の何番目か */
+function showMuteIcon(off, text, col) {
+  if (!muteIconSp) {
+    muteIconSp = mmsxx.sprite(makeIconSymbol(MUTE_ICON_ON, ICON_BODY, ICON_ON_ACCENT, 'soundOn'));
+    muteIconSp.priority = 20;
+  }
+  muteIconSp.image = makeIconSymbol(
+    off ? MUTE_ICON_OFF : MUTE_ICON_ON, ICON_BODY,
+    off ? ICON_OFF_ACCENT : ICON_ON_ACCENT, off ? 'soundOff' : 'soundOn');
+  muteIconSp.x = centerX(text) + col * 8;
+  muteIconSp.y = noticeY;   // 文字と同じ行 = 縦の真ん中がそろう
+  muteIconSp.visible = true;
+}
+/** 知らせが消えるときに一緒に消す */
+function hideMuteIcon() { if (muteIconSp) muteIconSp.visible = false; }
+
+/**
+ * 音が消えたままなことを知らせる。戻しかたは端末で言いかたを変える。
+ *   PC     … ALT+M TO UNMUTE(音が出る絵)
+ *   スマホ … TAP(音が消えている絵)TO UNMUTE
+ * アイコンのぶんは空白 2 つで空けておき、そこへスプライトを重ねる
+ */
+function tellMuted() {
+  const mobile = isMobileLike();
+  const text = mobile ? 'TAP    TO UNMUTE' : 'ALT+M TO UNMUTE  ';
+  const col = mobile ? 4 : 15;
+  showNotice(text, 180, 176, 8);
+  showMuteIcon(mobile, text, col);
+}
+
+// ---- 画面の下のボタン(DOM) ----
+// **キャンバスの外に置く**ので、共有の絵にも録画にも写らない。
+// ALT+M はキーボードのある人向けの近道として残し、こちらを正規の入口にする
+const muteBtn = typeof document !== 'undefined' ? document.getElementById('mute') : null;
+/** いまの状態を絵で出す(消えていれば「音なし」の絵にする) */
+function drawMuteBtn() {
+  if (!muteBtn) return;
+  const off = mmsxx.audio.muted;
+  muteBtn.textContent = off ? '\u{1F507}' : '\u{1F50A}';
+  muteBtn.setAttribute('aria-label', off ? 'SOUND OFF' : 'SOUND ON');
+}
+if (muteBtn) {
+  muteBtn.addEventListener('click', () => {
+    // 押したあと焦点が残ると、そのあとの SPACE でまた押されてしまう
+    muteBtn.blur();
+    // **画面には知らせを出さない**。絵が入れ替わるので伝わるうえ、
+    // 知らせは画面の下(y=176)を消してしまい、タイトルの著作権表示などを
+    // 上書きしたまま戻さないため
+    setMute();
+  });
+  drawMuteBtn();
+}
 
 // 色合いと音は、エンジンを作ったあとに効かせる(?palette= / ?mute= / ?volume=)
 URL_OPT.apply(mmsxx);
@@ -2615,7 +2727,10 @@ function updateNotice() {
     const col = Math.floor(mmsxx.frame / 2) % 2 ? 13 : noticeBlink;
     noticeLines.forEach((t, i) => hud.print(centerX(t), noticeY + i * 8, t, col));
   }
-  if (noticeTimer > 0 && --noticeTimer === 0) hud.fill(0, 0, noticeY, VW, 16);
+  if (noticeTimer > 0 && --noticeTimer === 0) {
+    hud.fill(0, 0, noticeY, VW, 16);
+    hideMuteIcon();   // 文と一緒に置いた絵も消す
+  }
 }
 
 // 残り 1 機になったら「ピピピピ」と警告を出す(そのあいだだけ画面下に表示)
@@ -3362,7 +3477,7 @@ function enterPlay(fromContinue = false) {
   if (mmsxx.audio.muted && !muteTold) {
     muteTold = true;
     // 1 行に収まる長さにしてある(折り返すと読みにくい)。赤の点滅で目を引く
-    showNotice('SOUND OFF - ALT+M TO UNMUTE', 180, 176, 8);
+    tellMuted();
   }
 }
 
@@ -3403,7 +3518,7 @@ function captureShare(name) {
 }
 
 /**
- * いまの画面をクリップボードへコピーする(ALT+S / SHIFT+ESC)。
+ * いまの画面をクリップボードへコピーする(ALT+S)。
  * 自動保存(capture/ フォルダ)は DEV のときの別の仕組みで、こちらは
  * **公開版でも使える**。画面には短く知らせを出す。
  */

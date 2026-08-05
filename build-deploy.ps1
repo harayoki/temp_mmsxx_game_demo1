@@ -42,6 +42,11 @@ Copy-Item (Join-Path $root 'index.html') $deploy
 Copy-Item (Join-Path $root 'default-og-image.png') $deploy
 Copy-Item -Recurse (Join-Path $root 'engine') (Join-Path $deploy 'engine')
 Copy-Item -Recurse (Join-Path $root 'game') (Join-Path $deploy 'game')
+# 外から持ってきた部品(bowser など)。node_modules は公開物に入れないので、
+# ブラウザから読むものはここに写してある。無ければ入れない
+if (Test-Path (Join-Path $root 'vendor')) {
+  Copy-Item -Recurse (Join-Path $root 'vendor') (Join-Path $deploy 'vendor')
+}
 # サーバへ繋ぐ実装(公開しない置き場)。無ければ入れない。
 # 入っていない配布物は、ランキングが手元の保存のままになるだけで遊べる
 if (Test-Path (Join-Path $root 'online')) {

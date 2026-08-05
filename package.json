@@ -12,5 +12,8 @@
   },
   "devDependencies": {
     "terser": "^5.49.0"
+  },
+  "dependencies": {
+    "bowser": "^2.14.1"
   }
 }

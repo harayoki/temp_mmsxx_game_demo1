@@ -31,6 +31,32 @@
     font-family: monospace;
     font-size: 13px;
   }
+  /* 画面と道具立てを横に並べる。**縦の余白は使わない**
+     (横向きで遊ぶと縦は余らないが、横は余るため) */
+  #stage {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  /* ボタンは画面の右の余白に縦に積む。増えても下へ伸びるだけ */
+  #tools {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  /* 絵はゲーム側が絵文字で入れる(画面のスプライトとは似せてあるだけ) */
+  #tools button {
+    font-size: 20px;
+    line-height: 1;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    color: #e8e8e8;
+    background: #202020;
+    border: 2px solid #cccccc;
+    cursor: pointer;
+  }
+  #tools button:hover { border-color: #ffe000; }
   /* スマホでの断り。**画面は見せる**が、まだ遊べないことを赤で伝える。
      ふだんは隠しておき、幅がせまいか指で触る端末のときだけ出す */
   p.mobile {
@@ -68,7 +94,16 @@
 </style>
 </head>
 <body>
-<canvas id="screen"></canvas>
+<!-- 画面と、その**横の余白**に置く道具立て。
+     縦は横向きで遊ぶと余らないので、ボタンは左右へ逃がす。
+     **キャンバスの外(DOM)に置く**ので、共有の絵にも録画にも写らない。
+     ここへシェアや X のボタンも足していく -->
+<div id="stage">
+  <canvas id="screen"></canvas>
+  <div id="tools">
+    <button id="mute" type="button" title="SOUND ON / OFF"></button>
+  </div>
+</div>
 <p class="mobile">
   現在スマホ未対応（対応予定）です。ゲームはキーボードで操作します。<br>
   No smartphone support yet (planned). Please play with a keyboard.

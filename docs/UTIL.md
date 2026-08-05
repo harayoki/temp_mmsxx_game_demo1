@@ -411,6 +411,56 @@ URL.apply(mmsxx);   // 色合いと音は、作ったあとに効かせる
 `?delay=5` / `?error=0.3` を付けて開くと、通信の遅さと失敗を手元で試せます。
 サーバへ繋ぐ段取りは [RANKING_PLAN.md](RANKING_PLAN.md) にまとめてあります。
 
+## 9. `device.js` — `isMobileLike` / `useUAParser`
+
+**スマホ・タブレットかどうか**の 1 ビットだけを返す部品。出しかたを変えるためのもので、
+**キーの受け付けを塞ぐためのものではありません**（文字の打ち込みはいつでも素通し）。
+
+```js
+import { isMobileLike } from '../engine/util/device.js';
+if (isMobileLike()) { /* パッドを出す / TAP TO … に替える */ }
+```
+
+| 使いどころ | 条件 |
+|---|---|
+| バーチャルパッドを出す | `isMobileLike()` |
+| ALT のショートカットと、その案内 | `!isMobileLike()` |
+| `SPACE TO …` を `TAP TO …` に | `isMobileLike()` |
+
+**キーボードが付いていてもスマホはスマホ**として扱います。タブレットに繋いだ
+キーボードは名前入力などでそのまま使えるので、塞ぐ必要がありません。
+
+### 判定の順
+
+1. `?device=mobile` / `?device=desktop` の上書き（PC で確かめるために要る）
+2. 差し替えられた判定（`useUAParser`）。`undefined` を返すと次へ落ちる
+3. `navigator.userAgentData.mobile`（Chromium 系だけ）
+4. UA 文字列。iPad は `Macintosh` かつ `maxTouchPoints > 1` で拾う
+5. `(pointer: coarse)` かつ `(any-pointer: fine)` でない
+
+### もっと確かに見分けたいとき
+
+ここの判定は目安です。**エンジンは npm の部品に依存しない**ので、要るゲームだけが
+入れて差し替えます。
+
+```js
+npm i bowser
+
+import Bowser from '../vendor/bowser/bowser.js';
+import { useUAParser } from '../engine/util/device.js';
+
+useUAParser(() => {
+  const type = Bowser.parse(navigator.userAgent).platform.type;
+  return type ? type !== 'desktop' : undefined;   // 分からなければ目安へ
+});
+```
+
+`ua-parser-js` は v2 から AGPLv3 と有償の二択になったので、緩いものを選ぶなら
+`bowser`（MIT）などにしてください。バンドラを通さない配布では、読ませるファイルを
+[vendor/](../vendor/README.md) へ写す手当ても要ります。
+
+---
+
 ## これから作るもの
 
 - **バーチャルパッド** … 同じ考え方で、見た目と配置を差し替えられる形にする（[TODO.md](TODO.md) J-2）
