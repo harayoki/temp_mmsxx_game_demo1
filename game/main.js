@@ -318,6 +318,7 @@ const SPRITE_COLORS = {
   ...Object.fromEntries(Array.from({ length: 16 }, (_, i) => ['kingLine' + i, 1])),
   ...Object.fromEntries(Array.from({ length: 16 }, (_, i) => ['kingLineL' + i, 1])),
   pilotPupil: 1, pilotSmile: 1, pilotWink: 1,
+  markLol: 1, markWww: 1,   // エンディングに置く茶々(白 1 色)
   todoBlush: 2,   // 赤みと影の 2 色
   riftGlow: 2,    // 水色と白の 2 色
 };
@@ -10568,7 +10569,12 @@ function storySpriteSet() {
     // 裂け目の真ん中を補う光。走査線で落ちる明るさをここで足す
     const glow = mmsxx.sprite(SPRITE_SYMBOLS.riftGlow);
     glow.priority = 21;
-    storySprites = { man, ship, jet, eye, wink, smile, pupilL, pupilR, glow };
+    // エンディングの茶々。**走査線は掛けない**(絵から浮かせたいので、
+    // まわりのディザに合わせずに素のドットで出す)
+    const lol = mmsxx.sprite(SPRITE_SYMBOLS.markLol);
+    const www = mmsxx.sprite(SPRITE_SYMBOLS.markWww);
+    lol.priority = www.priority = 23;
+    storySprites = { man, ship, jet, eye, wink, smile, pupilL, pupilR, glow, lol, www };
     for (const sp of Object.values(storySprites)) sp.visible = false;
   }
   return storySprites;
@@ -10642,7 +10648,11 @@ function buildEnding() {
           // 絵と同じ走査線をスプライトにも掛ける。
           // 画面のどの行が消えるかをそろえたいので、置く y の偶奇を足す
           for (const sp of [s.smile, s.pupilL, s.pupilR]) sp.scanline = (sp.y + 1) & 1;
-          return [s.smile, s.pupilL, s.pupilR];
+          // 茶々。**8 ドットの升目に乗せない**位置へ置いて、
+          // あとから書き込んだように浮かせる(走査線も掛けない)
+          s.lol.x = PILOT_X + 13; s.lol.y = 77;    // 左の生きもののそば
+          s.www.x = PILOT_X + 149; s.www.y = 51;   // 女の子の顔の右
+          return [s.smile, s.pupilL, s.pupilR, s.lol, s.www];
         },
       },
       {

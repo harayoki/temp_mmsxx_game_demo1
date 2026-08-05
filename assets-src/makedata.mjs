@@ -4045,6 +4045,47 @@ const DEATH_SPARK_ART = [
 ];
 const deathSpark = fromAscii(DEATH_SPARK_ART, { '#': '#ffffff' });
 
+// エンディングに置く茶々。**1 色の 16x16**。
+// 絵に沿わせず、8 ドットの升目からも外して浮かせる(あとから書き込んだ感じ)
+const MARK_LOL_ART = [
+  '................',
+  '................',
+  '................',
+  '................',
+  '#......##...#...',
+  '#.....#..#..#...',
+  '#.....#..#..#...',
+  '#.....#..#..#...',
+  '#.....#..#..#...',
+  '#.....#..#..#...',
+  '####...##...####',
+  '................',
+  '................',
+  '................',
+  '................',
+  '................',
+];
+const MARK_WWW_ART = [
+  '................',
+  '................',
+  '................',
+  '................',
+  '#...##...##...#.',
+  '#...##...##...#.',
+  '#...##...##...#.',
+  '#.#.##.#.##.#.#.',
+  '#.#.##.#.##.#.#.',
+  '##.####.####.##.',
+  '.#.#..#.#..#.#..',
+  '................',
+  '................',
+  '................',
+  '................',
+  '................',
+];
+const markLol = fromAscii(MARK_LOL_ART, { '#': '#ffffff' });
+const markWww = fromAscii(MARK_WWW_ART, { '#': '#ffffff' });
+
 const spark0 = fromAscii(SPARK_ART[0], { '#': '#ffffff' });
 const spark1 = fromAscii(SPARK_ART[1], { '#': '#ffffff' });
 const spark2 = fromAscii(SPARK_ART[2], { '#': '#ffffff' });
@@ -6154,7 +6195,8 @@ const images = {
   ufoFist: pad16(ufoFist), todoFace, todoBlush, todoGlint,
   gearBlock, gearGem, gearSpark1, gearWeak0, gearWeak1, nautilus, nautilusHurt,
   pilotEye, pilotWink, pilotSmile, pilotPupil, riftGlow,
-  spark0, spark1, spark2, deathSpark, guiNext0: guiNext[0], guiNext1: guiNext[1],
+  spark0, spark1, spark2, deathSpark, markLol, markWww,
+  guiNext0: guiNext[0], guiNext1: guiNext[1],
   guiNext2: guiNext[2], guiNext3: guiNext[3], pilot, pilotBig, pilotTurnBig, whaleStar, birdStar, dragonStar, shipStar,
   dragonSky: dragonSkySmall, dragonItem: pad16(dragonItem),
   endRift0: endRiftGrow[0], endRift1: endRiftGrow[1], endRift2: endRiftGrow[2],
