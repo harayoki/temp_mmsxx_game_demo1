@@ -44,7 +44,8 @@
     flex-direction: column;
     gap: 8px;
   }
-  /* 絵はゲーム側が絵文字で入れる(画面のスプライトとは似せてあるだけ) */
+  /* 絵はゲーム側が入れる。**画面のスプライトと同じドット絵**を 2 倍にしたもので、
+     絵文字ではない(絵文字は環境ごとに字形が違い、画面と食い違うため) */
   #tools button {
     font-size: 20px;
     line-height: 1;
@@ -52,7 +53,9 @@
     height: 40px;
     padding: 0;
     color: #e8e8e8;
-    background: #202020;
+    background: #202020 no-repeat center;
+    background-size: 32px 32px;
+    image-rendering: pixelated;
     border: 2px solid #cccccc;
     cursor: pointer;
   }

@@ -115,36 +115,50 @@ function setMute(on) {
 /** 音が消えていることを知らせたか(知らせるのは 1 回だけ) */
 let muteTold = false;
 
-// ---- 音のアイコン(16x8 の 2 色。**画面のスプライトと DOM のボタンで同じ絵**) ----
-// **# と + の 2 色**で描いて、画面側は 1 枚のスプライトにまとめている
-// (実機なら 2 枚重ねにあたるが、エンジンが colors: 2 で面倒を見てくれる)。
-// 文字は 8 ドット単位に置かれるので、2 文字ぶん(16 ドット)の空きに重ねる。
+// ---- 音のアイコン(16x16 の 2 色。**画面のスプライトと DOM のボタンで同じ絵**) ----
+// **# と + の 2 色**で描いている(実機なら単色 2 枚重ねにあたるが、
+// エンジンが colors: 2 で面倒を見てくれる)。
 //
 // **絵文字は使わない。** 🔊 は環境ごとに字形が違うので、DOM とスプライトで
-// 別の絵になってしまう。ここの並びから両方を作れば、二度と食い違わない
+// 別の絵になってしまう。**この並びから両方を作る**ので、二度と食い違わない。
+// 形は絵文字に寄せてある(左にラッパ、右に音の波 / 消しているときは ×)
 const MUTE_ICON_ON = [
-  '......#.........',
-  '.....##.........',
-  '....###..+...+..',
-  '#######..+...+..',
-  '#######..+...+..',
-  '....###..+...+..',
-  '.....##.........',
-  '......#.........',
+  '................',
+  '................',
+  '................',
+  '.......#....+...',
+  '......##.....+..',
+  '.....###.+....+.',
+  '########..+...+.',
+  '########..+...+.',
+  '########..+...+.',
+  '########..+...+.',
+  '.....###.+....+.',
+  '......##.....+..',
+  '.......#....+...',
+  '................',
+  '................',
+  '................',
 ];
 const MUTE_ICON_OFF = [
-  '......#.........',
-  '.....##.........',
-  '....###..+...+..',
-  '#######...+.+...',
-  '#######....+....',
-  '....###...+.+...',
-  '.....##..+...+..',
-  '......#.........',
+  '................',
+  '................',
+  '................',
+  '.......#........',
+  '......##.+....+.',
+  '.....###..+..+..',
+  '########...++...',
+  '########...++...',
+  '########..+..+..',
+  '########.+....+.',
+  '.....###........',
+  '......##........',
+  '.......#........',
+  '................',
+  '................',
+  '................',
 ];
-// スプライトの 2 色。DOM のボタンは**絵文字のまま**にしてある。
-// ドット絵と字形はぴったり同じにはならないが、似ていればよい
-// (絵文字は環境ごとに字形が違うので、そもそも合わせきれない)
+// 2 色。DOM のボタンも**この番号の色**で描くので、画面と同じ見た目になる
 const ICON_BODY = 15;                  // 本体(白)
 const ICON_ON_ACCENT = 11;             // 音が出ているとき(黄)
 const ICON_OFF_ACCENT = 8;             // 消しているとき(赤)
@@ -172,7 +186,8 @@ function showMuteIcon(off, text, col) {
     off ? MUTE_ICON_OFF : MUTE_ICON_ON, ICON_BODY,
     off ? ICON_OFF_ACCENT : ICON_ON_ACCENT, off ? 'soundOff' : 'soundOn');
   muteIconSp.x = centerX(text) + col * 8;
-  muteIconSp.y = noticeY;   // 文字と同じ行 = 縦の真ん中がそろう
+  // 絵は 16 ドット、文字の行は 8 ドット。**4 ドット上げて**真ん中をそろえる
+  muteIconSp.y = noticeY - 4;
   muteIconSp.visible = true;
 }
 /** 知らせが消えるときに一緒に消す */
@@ -196,11 +211,54 @@ function tellMuted() {
 // **キャンバスの外に置く**ので、共有の絵にも録画にも写らない。
 // ALT+M はキーボードのある人向けの近道として残し、こちらを正規の入口にする
 const muteBtn = typeof document !== 'undefined' ? document.getElementById('mute') : null;
+/**
+ * ボタンの絵を、**画面と同じドット絵から** 2 倍で作る。
+ *
+ * 絵文字をやめた理由は上に書いたとおり(環境ごとに字形が違う)。
+ * 色はエンジンのパレットから引くので、**色合いを切り替えても付いてくる**。
+ * 作ったものは覚えておいて、状態と色合いが同じなら作り直さない
+ */
+const muteIconCache = new Map();
+function muteIconURL(off) {
+  const key = (off ? 'off' : 'on') + '|' + mmsxx.palette;
+  const hit = muteIconCache.get(key);
+  if (hit) return hit;
+  const rows = off ? MUTE_ICON_OFF : MUTE_ICON_ON;
+  const accent = off ? ICON_OFF_ACCENT : ICON_ON_ACCENT;
+  const w = rows[0].length, h = rows.length, k = 2;   // **2 倍**で描く
+  const c = document.createElement('canvas');
+  c.width = w * k; c.height = h * k;
+  const g = c.getContext('2d');
+  // パレットの色(32bit の ABGR)から CSS の色を作る
+  const css = (i) => {
+    const v = mmsxx.vdp.pal32[i] >>> 0;
+    return `rgb(${v & 0xff},${(v >> 8) & 0xff},${(v >> 16) & 0xff})`;
+  };
+  const bodyCss = css(ICON_BODY), accentCss = css(accent);
+  rows.forEach((row, y) => {
+    for (let x = 0; x < w; x++) {
+      const ch = row[x];
+      if (ch !== '#' && ch !== '+') continue;   // 何も無いところは透かす
+      g.fillStyle = (ch === '#') ? bodyCss : accentCss;
+      g.fillRect(x * k, y * k, k, k);
+    }
+  });
+  const url = c.toDataURL('image/png');
+  muteIconCache.set(key, url);
+  return url;
+}
+
 /** いまの状態を絵で出す(消えていれば「音なし」の絵にする) */
 function drawMuteBtn() {
   if (!muteBtn) return;
   const off = mmsxx.audio.muted;
-  muteBtn.textContent = off ? '\u{1F507}' : '\u{1F50A}';
+  try {
+    muteBtn.style.backgroundImage = `url("${muteIconURL(off)}")`;
+    muteBtn.textContent = '';
+  } catch (e) {
+    // 絵が作れない環境では、今までどおり絵文字で出す
+    muteBtn.textContent = off ? '\u{1F507}' : '\u{1F50A}';
+  }
   muteBtn.setAttribute('aria-label', off ? 'SOUND OFF' : 'SOUND ON');
 }
 if (muteBtn) {
@@ -10018,6 +10076,7 @@ function runCheatWord(word) {
       next = at < 0 ? msx1[0] : msx1[(at + 1) % msx1.length];
     }
     mmsxx.setPalette(next);
+    drawMuteBtn();   // ボタンの絵もパレットの色で描いているので、作り直す
     // 名乗りはエンジン側が持っている(色合いを増やしてもここは直さなくていい)
     cheatNotice(mmsxx.paletteLabel());
     mmsxx.audio.playSE('item');
