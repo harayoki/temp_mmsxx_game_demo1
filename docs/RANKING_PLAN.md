@@ -163,7 +163,7 @@ STAR FABLE では URL で切り替えられる（どちらも既定は 0）。
 
 ## サーバ版 — `RemoteRankingSource`
 
-[engine/util/ranking-remote.js](../engine/util/ranking-remote.js)（別ファイル）。
+[online/ranking-remote.js](../online/ranking-remote.js)（別ファイル）。
 **サーバを使わないゲームはこれを読み込まない**ので、`fetch` を含むコードが
 一切入らない。エンジンの任意部品という方針どおり。
 

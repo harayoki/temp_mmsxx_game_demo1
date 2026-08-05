@@ -1,11 +1,17 @@
 // ランキングサーバを供給元にしたもの。RankingBoard に渡して使う。
 //
 //   import { RankingBoard } from './engine/util/ranking-board.js';
-//   import { RemoteRankingSource } from './engine/util/ranking-remote.js';
+//   const { RemoteRankingSource } = await import('./online/ranking-remote.js');
 //
 // **サーバを使わないゲームはこのファイルを読み込まない**。
 // 通信するコードをここだけに閉じ込めてあるので、
 // 手元だけで遊ぶゲームは ranking-board.js だけで足りる。
+//
+// ## なぜ engine/util/ ではなく online/ に置いてあるか
+//
+// `online/` は**公開しない実装をまとめる場所**。→ [online/README.md](README.md)
+// このフォルダごと外した配布物でもゲームが動くよう、
+// 読み込みは動的 import にしてある(game/main.js の makeRemoteRankSource())。
 //
 // ## どのサーバを相手にするか
 //

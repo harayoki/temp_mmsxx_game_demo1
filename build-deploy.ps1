@@ -42,6 +42,11 @@ Copy-Item (Join-Path $root 'index.html') $deploy
 Copy-Item (Join-Path $root 'default-og-image.png') $deploy
 Copy-Item -Recurse (Join-Path $root 'engine') (Join-Path $deploy 'engine')
 Copy-Item -Recurse (Join-Path $root 'game') (Join-Path $deploy 'game')
+# サーバへ繋ぐ実装(公開しない置き場)。無ければ入れない。
+# 入っていない配布物は、ランキングが手元の保存のままになるだけで遊べる
+if (Test-Path (Join-Path $root 'online')) {
+  Copy-Item -Recurse (Join-Path $root 'online') (Join-Path $deploy 'online')
+}
 # 音声ファイル(スタッフロールの mp3 など)
 if (Test-Path (Join-Path $root 'assets')) {
   Copy-Item -Recurse (Join-Path $root 'assets') (Join-Path $deploy 'assets')

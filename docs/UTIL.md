@@ -11,7 +11,8 @@ import { Gallery }     from './engine/util/gallery.js';
 import { SoundTest }   from './engine/util/soundtest.js';
 import { Ranking, byScore, byTime } from './engine/util/ranking.js';
 import { RankingBoard, LocalRankingSource } from './engine/util/ranking-board.js';
-import { RemoteRankingSource } from './engine/util/ranking-remote.js';
+// これだけ engine/util/ ではなく online/ にある(公開しない実装の置き場)
+const { RemoteRankingSource } = await import('./online/ranking-remote.js');
 ```
 
 ## 共通の作法
@@ -311,11 +312,15 @@ LocalRankingSource.defaultErrorRate = 0.3;  // 既定を 3 割にする
 
 ---
 
-## 7. `ranking-remote.js` — `RemoteRankingSource`
+## 7. `online/ranking-remote.js` — `RemoteRankingSource`
 
 `RankingBoard` の供給元をランキングサーバにするもの。
 **`fetch` を含むコードはここだけ**なので、手元だけで遊ぶゲームはこのファイルを
 読み込まずに済みます。
+
+これだけは `engine/util/` ではなく **`online/`** に置いてあります。
+ソースを一般公開するときにフォルダごと外せるようにするためで、
+外した配布物では手元の保存に落ちて遊べます。→ [online/README.md](../online/README.md)
 
 ```js
 new RemoteRankingSource({

@@ -68,6 +68,9 @@ docs/
 game/
   gamedata.js      生成されたゲームデータ (自動生成・編集しない)
   main.js          サンプルシューティング本体
+online/            外へ送る実装だけの置き場(公開しないときは丸ごと外す)
+  ranking-remote.js  ランキングサーバへ記録を送る・取る
+  README.md        何をここへ入れるか・外したときどうなるか
 index.html         エントリHTML
 serve.js           開発用静的サーバ (Cache-Control: no-store)
 build-deploy.ps1   deploy/ と ZIP を作る

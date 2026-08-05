@@ -8,7 +8,8 @@ import { MMSXXEngine, SCREEN_W, SCREEN_H, BITRATE } from '../engine/engine.js';
 // 供給元は手元の localStorage とランキングサーバの 2 つ。RANK_MODE で選ぶ
 // (docs/RANKING_PLAN.md)
 import { RankingBoard, LocalRankingSource, byScore, byTime } from '../engine/util/ranking-board.js';
-import { RemoteRankingSource } from '../engine/util/ranking-remote.js';
+// サーバへ繋ぐ部品は online/ にあり、**読み込むのは繋ぐときだけ**(動的 import)。
+// online/ が無くても手元の保存で遊べる → makeRemoteRankSource() を見ること
 import { StoryScenes } from '../engine/util/story.js';
 import { StaffRoll } from '../engine/util/staffroll.js';
 import { Gallery } from '../engine/util/gallery.js';
@@ -747,9 +748,21 @@ const RANK_MODE = DEV ? (RANK_QUERY.get('rank') === 'dev' ? 'dev' : 'local') : '
  * サーバのランキングに繋ぐ供給元を作る。
  * 表の `key` からサーバ側の宛先を引けるようにして渡す。
  * サーバの URL は部品側が両方とも知っているので、ここでは dev かどうかだけ伝える。
+ *
+ * **通信する部品は `online/` にあり、ここでしか読み込まない**(動的 import)。
+ * `online/` を外した配布物では読み込みに失敗するので、手元の保存に落として遊べるようにする。
+ * こうしておけば、繋ぐ実装を持たない公開用でも、この 1 か所以外は同じコードで通る。
  * @param {boolean} dev 開発用のサーバを使うか(false なら本番)
  */
-function makeRemoteRankSource(dev) {
+async function makeRemoteRankSource(dev) {
+  let RemoteRankingSource;
+  try {
+    ({ RemoteRankingSource } = await import('../online/ranking-remote.js'));
+  } catch (e) {
+    // 繋ぐ部品が入っていない配布物。遊べなくなるよりは手元の保存で続けるほうがよい
+    console.warn('[STAR FABLE] online/ranking-remote.js がありません。手元の保存を使います');
+    return new LocalRankingSource({ delay: RANK_DELAY, errorRate: RANK_ERROR });
+  }
   return new RemoteRankingSource({
     dev,
     browserId,
@@ -763,9 +776,11 @@ function makeRemoteRankSource(dev) {
   });
 }
 
+// 手元の保存だけで済むときは待たない(いままでどおりその場で決まる)。
+// 繋ぐときだけ、部品の読み込みを待ってから表を作る
 const rankSource = RANK_MODE === 'local'
   ? new LocalRankingSource({ delay: RANK_DELAY, errorRate: RANK_ERROR })
-  : makeRemoteRankSource(RANK_MODE === 'dev');
+  : await makeRemoteRankSource(RANK_MODE === 'dev');
 
 // ハイスコア表はエンジン側の仕組みを使う(供給元は差し替えられる)
 const hardTable = new RankingBoard({
@@ -2825,13 +2840,14 @@ const TITLE_RANK_HOLD = 900;
 // タイトル画面は「ロゴ」と「アイテム説明」を交互に見せる
 let titlePage = 0;
 let titleTimer = 0;
-const PUSH_KEY = 'SPACE TO START';
 // 遊びかたの説明。1 面の頭で「STAGE 1」の下に出す(タイトルには出さない)
 const PLAY_HELP = String.fromCharCode(0x18, 0x19, 0x1a, 0x1b) + ':MOVE  SP:SHOT  ESC:PAUSE';
 const PLAY_HELP_Y = 88;
+const PLAY_HELP_COLOR = 7;   // 水色。上の「STAGE 1」(黄)と読み分ける
 // ロゴ以外のページから戻る案内。**開始と同じ SPACE** で戻す。
 // 開始の案内と取り違えないよう、赤にして点滅させる
 const BACK_KEY = 'SPACE TO TITLE';
+const BACK_KEY_Y = 176;
 const BACK_COLOR = 8;   // 赤(送信の失敗などと同じ色)
 const TITLE_PAGES = 5;
 // ゲームモード(上下キーで選ぶ)。あとから増やせるように配列で持つ
@@ -2840,8 +2856,6 @@ const ARROW_U = String.fromCharCode(0x18), ARROW_D = String.fromCharCode(0x19);
 // ページ送りの目印。**どのページでも同じ場所**に出す(画面の左右の端)
 const ARROW_L = String.fromCharCode(0x1a), ARROW_R = String.fromCharCode(0x1b);
 const PAGE_ARROW_Y = 96;
-/** 「PUSH SPACE KEY」の表示行(アイテム一覧のときは下にずらす) */
-const pushKeyY = () => (titlePage === 0 ? 128 : 176);
 
 // アイコンはゲーム中と同じ絵をそのまま並べる
 const ITEM_HELP = [
@@ -3004,11 +3018,20 @@ function drawTitlePage() {
   drawPageArrows();
 }
 
-// 「▲ SPACE TO START ▼」の行。上下キーでモードを選ぶ。
-// 矢印は本文より速く点滅させて「押せる」ことを示す。
-// **ロゴのページにだけ出す**。ほかのページは BACK_KEY の 1 行だけにする
-const MODE_LINE = ARROW_U + ' ' + PUSH_KEY + ' ' + ARROW_D;
-const modeLineX = () => centerX(MODE_LINE);
+// モードの選び場所。**ロゴのページにだけ出す**。上下 5 行ぶん使う。
+//
+//     ▲          … 押せる向きの目印(真ん中)
+//   前のモード    … グレーで 1:1 明滅
+//   いまのモード  … 白
+//   次のモード    … グレーで 1:1 明滅
+//     ▼
+//
+// 前後の名前を出しておくと、モードが何個あるのかが画面から分かる
+const MODE_Y = 136;             // いま選んでいるモードの行
+const MODE_SUB_COLOR = 14;      // 前後の名前(グレー)
+const MODE_CUR_COLOR = 15;      // いま選んでいるもの(白)
+const MODE_TOP = MODE_Y - 16;   // ▲ の行。ここから 5 行ぶんを使う
+const MODE_ROWS = 5;
 // ボスラッシュで指定できる「特別な相手」を指す面番号
 const RUSH_EYES = 101;   // 目玉 2 体
 const RUSH_MOAI = 102;   // 合体モアイ
@@ -3019,14 +3042,26 @@ const RUSH_TODO = 103;   // 仮ボス「未実装君」(6 面がラスボスに�
 let rushOne = 0;   // 0 = 4 体タイムアタック / それ以外はその相手だけ
 
 function drawModeLine() {
-  const y = pushKeyY();
-  hud.fill(0, 0, y, VW, 16);
-  const x = modeLineX();
-  hud.print(x + 16, y, PUSH_KEY, 15);
-  hud.print(x, y, ARROW_U, 11);
-  hud.print(x + (MODE_LINE.length - 1) * 8, y, ARROW_D, 11);
+  hud.fill(0, 0, MODE_TOP, VW, MODE_ROWS * 8);
+  hud.print(centerX(ARROW_U), MODE_TOP, ARROW_U, 11);
+  hud.print(centerX(ARROW_D), MODE_TOP + 32, ARROW_D, 11);
   const name = MODES[modeIndex].name;
-  hud.print(centerX(name), y + 8, name, 14);
+  hud.print(centerX(name), MODE_Y, name, MODE_CUR_COLOR);
+  drawModeNeighbors(true);
+}
+/**
+ * いま選んでいるものの前後のモード名。
+ * @param {boolean} on 出すか消すか(1:1 で明滅させる)
+ */
+function drawModeNeighbors(on) {
+  const n = MODES.length;
+  hud.fill(0, 0, MODE_Y - 8, VW, 8);
+  hud.fill(0, 0, MODE_Y + 8, VW, 8);
+  if (!on) return;
+  const prev = MODES[(modeIndex + n - 1) % n].name;
+  const next = MODES[(modeIndex + 1) % n].name;
+  hud.print(centerX(prev), MODE_Y - 8, prev, MODE_SUB_COLOR);
+  hud.print(centerX(next), MODE_Y + 8, next, MODE_SUB_COLOR);
 }
 /**
  * 左右にページを送れることの目印。**5 ページとも同じ高さ**の左右の端に出す。
@@ -3039,28 +3074,19 @@ function drawPageArrows() {
 
 /** ロゴ以外のページの案内。SPACE でロゴへ戻せることだけを出す */
 function drawBackLine() {
-  const y = pushKeyY();
-  hud.fill(0, 0, y, VW, 16);
-  hud.print(centerX(BACK_KEY), y, BACK_KEY, BACK_COLOR);
+  hud.fill(0, 0, BACK_KEY_Y, VW, 8);
+  hud.print(centerX(BACK_KEY), BACK_KEY_Y, BACK_KEY, BACK_COLOR);
 }
-/** その点滅。ロゴの「SPACE TO START」と同じ間合いで明滅させる */
+/** その点滅。モードの前後の名前と同じ間合いで明滅させる */
 function updateBackLine() {
-  const y = pushKeyY();
   const x = centerX(BACK_KEY);
-  if (mmsxx.frame % 32 === 0) hud.print(x, y, BACK_KEY, BACK_COLOR);
-  else if (mmsxx.frame % 32 === 16) hud.fill(0, x, y, BACK_KEY.length * 8, 8);
+  if (mmsxx.frame % 32 === 0) hud.print(x, BACK_KEY_Y, BACK_KEY, BACK_COLOR);
+  else if (mmsxx.frame % 32 === 16) hud.fill(0, x, BACK_KEY_Y, BACK_KEY.length * 8, 8);
 }
-/** タイトルの点滅(本文はゆっくり、矢印は速く) */
+/** 前後のモード名を 1:1 で明滅させる(選んでいるものと矢印は出したまま) */
 function updateModeLine() {
-  const y = pushKeyY();
-  const x = modeLineX();
-  if (mmsxx.frame % 32 === 0) hud.print(x + 16, y, PUSH_KEY, 15);
-  else if (mmsxx.frame % 32 === 16) hud.fill(0, x + 16, y, PUSH_KEY.length * 8, 8);
-  if (mmsxx.frame % 12 === 0) {
-    const on = (mmsxx.frame / 12) % 2 === 0;
-    hud.print(x, y, on ? ARROW_U : ' ', 11);
-    hud.print(x + (MODE_LINE.length - 1) * 8, y, on ? ARROW_D : ' ', 11);
-  }
+  if (mmsxx.frame % 32 === 0) drawModeNeighbors(true);
+  else if (mmsxx.frame % 32 === 16) drawModeNeighbors(false);
 }
 
 function startStage() {
@@ -3122,7 +3148,7 @@ function startStage() {
     // 操作の説明は**1 面の頭でだけ**、面の名前と一緒に出す。
     // タイトルに置いていたが、遊びかたの話なのでここへ移した
     stageHelpShown = stageNo === 1;
-    if (stageHelpShown) hud.print(centerX(PLAY_HELP), PLAY_HELP_Y, PLAY_HELP, 10);
+    if (stageHelpShown) hud.print(centerX(PLAY_HELP), PLAY_HELP_Y, PLAY_HELP, PLAY_HELP_COLOR);
   }
   // 2 回目のコンティニュー。面が始まってすぐ、未実装さんが顔を出す
   if (todoGuest) {
