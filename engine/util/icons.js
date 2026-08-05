@@ -1,0 +1,121 @@
+// **どのゲームでも使いそうな絵**を、ドットの並びで持っておく部品。
+//
+//   import { ICONS, iconSymbol, iconDataURL } from './engine/util/icons.js';
+//
+//   const sp = mmsxx.sprite(iconSymbol(mmsxx, ICONS.soundOn, { accent: 7 }));
+//   btn.style.backgroundImage = `url("${iconDataURL(mmsxx, ICONS.soundOn, { accent: 7 })}")`;
+//
+// **画面のスプライトと DOM のボタンを、同じ並びから作る**のが狙い。
+// 絵文字(🔊 など)は環境ごとに字形が違うので、画面と DOM で別の絵になってしまう。
+// ここから両方を作れば、二度と食い違わない。
+//
+// 並びは `#`(本体)と `+`(差し色)の 2 色。実機なら単色 2 枚重ねにあたるが、
+// エンジンが `colors: 2` で面倒を見てくれる。
+// 色は使う側が決める(音が出ているときは水色、消しているときは赤、など)。
+
+/** 共通の絵。すべて 16x16 の 2 色 */
+export const ICONS = {
+  // 音あり。左にラッパ、右に音の波
+  soundOn: [
+    '................',
+    '................',
+    '................',
+    '.......#....+...',
+    '......##.....+..',
+    '.....###.+....+.',
+    '########..+...+.',
+    '########..+...+.',
+    '########..+...+.',
+    '########..+...+.',
+    '.....###.+....+.',
+    '......##.....+..',
+    '.......#....+...',
+    '................',
+    '................',
+    '................',
+  ],
+  // 音なし。ラッパに × を重ねる(横に並べない)。重なったところは差し色が勝つ
+  soundOff: [
+    '................',
+    '................',
+    '................',
+    '..+....#...+....',
+    '...+..##..+.....',
+    '....+###.+......',
+    '#####+##+.......',
+    '######++........',
+    '######++........',
+    '#####+##+.......',
+    '....+###.+......',
+    '...+..##..+.....',
+    '..+....#...+....',
+    '................',
+    '................',
+    '................',
+  ],
+};
+
+/**
+ * 並びから**スプライトの絵**を作る。
+ * @param {object} mmsxx エンジン
+ * @param {string[]} rows `#` と `+` の並び
+ * @param {{body?:number, accent?:number, name?:string}} [opts]
+ *   body = 本体の色(既定 15 = 白) / accent = 差し色(既定 11 = 黄)
+ */
+export function iconSymbol(mmsxx, rows, opts = {}) {
+  const body = opts.body ?? 15;
+  const accent = opts.accent ?? 11;
+  const w = rows[0].length, h = rows.length;
+  const pixels = new Uint8Array(w * h);
+  rows.forEach((row, y) => {
+    for (let x = 0; x < w; x++) {
+      const c = row[x];
+      pixels[y * w + x] = c === '#' ? body : c === '+' ? accent : 0;
+    }
+  });
+  return mmsxx.spriteSymbol({ width: w, height: h, pixels },
+    { name: opts.name || 'icon', colors: 2 });
+}
+
+// 作ったものを覚えておく(同じ絵・同じ色・同じ色合いなら作り直さない)
+const urlCache = new Map();
+
+/**
+ * 並びから **DOM に貼れる絵**(PNG の data URL)を作る。
+ *
+ * 色は**エンジンのパレットから引く**ので、色合いを切り替えても付いてくる
+ * (切り替えたあとに呼び直すこと)。何も無いところは透ける。
+ * @param {object} mmsxx エンジン
+ * @param {string[]} rows `#` と `+` の並び
+ * @param {{body?:number, accent?:number, scale?:number, key?:string}} [opts]
+ *   scale = 何倍で描くか(既定 2)。key = 覚えておくときの名前
+ */
+export function iconDataURL(mmsxx, rows, opts = {}) {
+  const body = opts.body ?? 15;
+  const accent = opts.accent ?? 11;
+  const k = Math.max(1, Math.round(opts.scale || 2));
+  const key = [opts.key || rows.join(''), body, accent, k, mmsxx.palette].join('|');
+  const hit = urlCache.get(key);
+  if (hit) return hit;
+  const w = rows[0].length, h = rows.length;
+  const c = document.createElement('canvas');
+  c.width = w * k; c.height = h * k;
+  const g = c.getContext('2d');
+  // パレットの色(32bit の ABGR)から CSS の色を作る
+  const css = (i) => {
+    const v = mmsxx.vdp.pal32[i] >>> 0;
+    return `rgb(${v & 0xff},${(v >> 8) & 0xff},${(v >> 16) & 0xff})`;
+  };
+  const bodyCss = css(body), accentCss = css(accent);
+  rows.forEach((row, y) => {
+    for (let x = 0; x < w; x++) {
+      const ch = row[x];
+      if (ch !== '#' && ch !== '+') continue;   // 何も無いところは透かす
+      g.fillStyle = (ch === '#') ? bodyCss : accentCss;
+      g.fillRect(x * k, y * k, k, k);
+    }
+  });
+  const url = c.toDataURL('image/png');
+  urlCache.set(key, url);
+  return url;
+}

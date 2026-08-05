@@ -23,6 +23,8 @@ import { BUILD } from './build.js';
 import { installConsoleGuard } from '../engine/util/console-guard.js';
 // URL で変えられる画面まわりの設定(拡大率・色合い・スプライトの枚数・音など)
 import { urlOptions } from '../engine/util/urloptions.js';
+// どのゲームでも使う絵(音のラッパなど)。**画面と DOM を同じ並びから作る**
+import { ICONS, iconSymbol, iconDataURL } from '../engine/util/icons.js';
 // 端末の見分け。**エンジンは npm の部品に依存しない**ので、
 // ちゃんと見分けたいゲームが自分で入れて差し替える(ここがその例)
 import { useUAParser, isMobileLike } from '../engine/util/device.js';
@@ -115,78 +117,30 @@ function setMute(on) {
 /** 音が消えていることを知らせたか(知らせるのは 1 回だけ) */
 let muteTold = false;
 
-// ---- 音のアイコン(16x16 の 2 色。**画面のスプライトと DOM のボタンで同じ絵**) ----
-// **# と + の 2 色**で描いている(実機なら単色 2 枚重ねにあたるが、
-// エンジンが colors: 2 で面倒を見てくれる)。
-//
-// **絵文字は使わない。** 🔊 は環境ごとに字形が違うので、DOM とスプライトで
-// 別の絵になってしまう。**この並びから両方を作る**ので、二度と食い違わない。
-// 形は絵文字に寄せてある(左にラッパ、右に音の波 / 消しているときは ×)
-const MUTE_ICON_ON = [
-  '................',
-  '................',
-  '................',
-  '.......#....+...',
-  '......##.....+..',
-  '.....###.+....+.',
-  '########..+...+.',
-  '########..+...+.',
-  '########..+...+.',
-  '########..+...+.',
-  '.....###.+....+.',
-  '......##.....+..',
-  '.......#....+...',
-  '................',
-  '................',
-  '................',
-];
-// 消しているときは、**ラッパの上に × を重ねる**(横に並べない)。
-// 重なったところは × の色(赤)が勝つ
-const MUTE_ICON_OFF = [
-  '................',
-  '................',
-  '................',
-  '..+....#...+....',
-  '...+..##..+.....',
-  '....+###.+......',
-  '#####+##+.......',
-  '######++........',
-  '######++........',
-  '#####+##+.......',
-  '....+###.+......',
-  '...+..##..+.....',
-  '..+....#...+....',
-  '................',
-  '................',
-  '................',
-];
-// 2 色。DOM のボタンも**この番号の色**で描くので、画面と同じ見た目になる
+// ---- 音のアイコン ----
+// **絵はエンジンが持っている**(engine/util/icons.js の ICONS.soundOn / soundOff)。
+// 画面のスプライトも DOM のボタンも同じ並びから作るので、食い違わない。
+// ここで決めるのは**色だけ**
 const ICON_BODY = 15;                  // 本体(白)
 const ICON_ON_ACCENT = 7;              // 音が出ているとき(水色。波紋のぶん)
 const ICON_OFF_ACCENT = 8;             // 消しているとき(赤)
-
-/** 絵の文字並びから、2 色のスプライトを作る */
-function makeIconSymbol(rows, body, accent, name) {
-  const w = rows[0].length, h = rows.length;
-  const pixels = new Uint8Array(w * h);
-  rows.forEach((row, y) => {
-    for (let x = 0; x < w; x++) {
-      const c = row[x];
-      pixels[y * w + x] = c === '#' ? body : c === '+' ? accent : 0;
-    }
-  });
-  return mmsxx.spriteSymbol({ width: w, height: h, pixels }, { name, colors: 2 });
-}
+/** いまの状態の並びと差し色 */
+const muteIconArt = (off) => ({
+  rows: off ? ICONS.soundOff : ICONS.soundOn,
+  accent: off ? ICON_OFF_ACCENT : ICON_ON_ACCENT,
+  key: off ? 'soundOff' : 'soundOn',
+});
 let muteIconSp = null;
 /** 知らせの中のアイコンを、その桁へ置く。col は文字の何番目か */
 function showMuteIcon(off, text, col) {
+  const art = muteIconArt(off);
   if (!muteIconSp) {
-    muteIconSp = mmsxx.sprite(makeIconSymbol(MUTE_ICON_ON, ICON_BODY, ICON_ON_ACCENT, 'soundOn'));
+    muteIconSp = mmsxx.sprite(iconSymbol(mmsxx, art.rows,
+      { body: ICON_BODY, accent: art.accent, name: art.key }));
     muteIconSp.priority = 20;
   }
-  muteIconSp.image = makeIconSymbol(
-    off ? MUTE_ICON_OFF : MUTE_ICON_ON, ICON_BODY,
-    off ? ICON_OFF_ACCENT : ICON_ON_ACCENT, off ? 'soundOff' : 'soundOn');
+  muteIconSp.image = iconSymbol(mmsxx, art.rows,
+    { body: ICON_BODY, accent: art.accent, name: art.key });
   muteIconSp.x = centerX(text) + col * 8;
   // 絵は 16 ドット、文字の行は 8 ドット。**4 ドット上げて**真ん中をそろえる
   muteIconSp.y = noticeY - 4;
@@ -214,48 +168,17 @@ function tellMuted() {
 // ALT+M はキーボードのある人向けの近道として残し、こちらを正規の入口にする
 const muteBtn = typeof document !== 'undefined' ? document.getElementById('mute') : null;
 /**
- * ボタンの絵を、**画面と同じドット絵から** 2 倍で作る。
- *
- * 絵文字をやめた理由は上に書いたとおり(環境ごとに字形が違う)。
- * 色はエンジンのパレットから引くので、**色合いを切り替えても付いてくる**。
- * 作ったものは覚えておいて、状態と色合いが同じなら作り直さない
+ * いまの状態を絵で出す(消えていれば「音なし」の絵にする)。
+ * 絵は**画面のスプライトと同じ並び**から 2 倍で作る(engine/util/icons.js)
  */
-const muteIconCache = new Map();
-function muteIconURL(off) {
-  const key = (off ? 'off' : 'on') + '|' + mmsxx.palette;
-  const hit = muteIconCache.get(key);
-  if (hit) return hit;
-  const rows = off ? MUTE_ICON_OFF : MUTE_ICON_ON;
-  const accent = off ? ICON_OFF_ACCENT : ICON_ON_ACCENT;
-  const w = rows[0].length, h = rows.length, k = 2;   // **2 倍**で描く
-  const c = document.createElement('canvas');
-  c.width = w * k; c.height = h * k;
-  const g = c.getContext('2d');
-  // パレットの色(32bit の ABGR)から CSS の色を作る
-  const css = (i) => {
-    const v = mmsxx.vdp.pal32[i] >>> 0;
-    return `rgb(${v & 0xff},${(v >> 8) & 0xff},${(v >> 16) & 0xff})`;
-  };
-  const bodyCss = css(ICON_BODY), accentCss = css(accent);
-  rows.forEach((row, y) => {
-    for (let x = 0; x < w; x++) {
-      const ch = row[x];
-      if (ch !== '#' && ch !== '+') continue;   // 何も無いところは透かす
-      g.fillStyle = (ch === '#') ? bodyCss : accentCss;
-      g.fillRect(x * k, y * k, k, k);
-    }
-  });
-  const url = c.toDataURL('image/png');
-  muteIconCache.set(key, url);
-  return url;
-}
-
-/** いまの状態を絵で出す(消えていれば「音なし」の絵にする) */
 function drawMuteBtn() {
   if (!muteBtn) return;
   const off = mmsxx.audio.muted;
+  const art = muteIconArt(off);
   try {
-    muteBtn.style.backgroundImage = `url("${muteIconURL(off)}")`;
+    const url = iconDataURL(mmsxx, art.rows,
+      { body: ICON_BODY, accent: art.accent, scale: 2, key: art.key });
+    muteBtn.style.backgroundImage = `url("${url}")`;
     muteBtn.textContent = '';
   } catch (e) {
     // 絵が作れない環境では、今までどおり絵文字で出す
