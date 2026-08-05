@@ -22,7 +22,10 @@ export class StaffRoll {
    * @param {{
    *   lines: string[],          流す行(空文字は 1 行ぶんの空き)
    *   layer?: number,           描くレイヤー(既定 0)
-   *   headings?: Set<string>,   見出しにする行(色を変える)
+   *   headings?: Set<string>|Map<string,number>,
+   *                             見出しにする行(色を変える)。
+   *                             **Map を渡すと行ごとに色を決められる**
+   *                             (いちばん上の大見出しだけ別の色、など)
    *   step?: number,            行間(既定 16)
    *   tightStep?: number,       文が続いている行どうしの行間(既定 step の 3/4)
    *   speed?: number,           1 フレームに動くドット数(既定 0.35)
@@ -113,11 +116,21 @@ export class StaffRoll {
       if (!line) return;
       const y = Math.round(SCREEN_H + off[i] - this.scroll);
       if (y < this.top || y > this.bottom) return;
-      const c = this.headings.has(line) ? this.headingColor : this.color;
+      const c = this._colorOf(line);
       layer.print(centerX(line), y, line, c);
     });
     if (this.scroll > SCREEN_H + this.totalHeight) return this._finish();
     return false;
+  }
+
+  /** その行の色。Map で色が指定されていればそれを使う */
+  _colorOf(line) {
+    if (!this.headings.has(line)) return this.color;
+    if (typeof this.headings.get === 'function') {
+      const v = this.headings.get(line);
+      if (typeof v === 'number') return v;
+    }
+    return this.headingColor;
   }
 
   _finish() {

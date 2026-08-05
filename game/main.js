@@ -10912,7 +10912,14 @@ const STAFF_LINES = [
   'GROWN THE WRONG WAY.',
   '',
   'STILL SCROLLING IN 8 DOT JUMPS,',
-  'BUT IN FOUR LAYERS AT ONCE.',
+  'BUT IN MANY LAYERS AT ONCE.',
+  '',
+  'FIFTEEN COLORS ALL ITS OWN,',
+  'AND SPRITES OF ONE COLOR EACH.',
+  '',
+  'SQUARE, SINE, TRIANGLE WAVES,',
+  'WAVETABLES AND 2-OP FM.',
+  'IT EVEN SPEAKS.',
   '',
   'BUILT WITH HELP FROM CLAUDE AI.',
   '',
@@ -10934,11 +10941,13 @@ const STAFF_LINES = [
   '',
   'THANK YOU FOR PLAYING!',
 ];
-// 役職の見出し(色を変えて出す)
-const STAFF_HEADINGS = new Set([
-  'STAR FABLE STAFF', 'DIRECTOR', 'PROGRAM', 'DESIGN', 'MUSIC', 'DEBUG STAFF',
-  'ART SUPPORT', 'SPECIAL THANKS', 'ABOUT MMSXX ENGINE',
-  'THANK YOU FOR PLAYING!',
+// 役職の見出し(色を変えて出す)。
+// **いちばん上の大見出しだけ赤**にして、役職の見出し(黄)と分ける
+const STAFF_HEADINGS = new Map([
+  ['STAR FABLE STAFF', 8],
+  ...['DIRECTOR', 'PROGRAM', 'DESIGN', 'MUSIC', 'DEBUG STAFF',
+    'ART SUPPORT', 'SPECIAL THANKS', 'ABOUT MMSXX ENGINE',
+    'THANK YOU FOR PLAYING!'].map((k) => [k, true]),
 ]);
 // 流すところはエンジンの任意部品 StaffRoll にまかせる(docs/UTIL.md 参照)
 let staffRoll = null;
