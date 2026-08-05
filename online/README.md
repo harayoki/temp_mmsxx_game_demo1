@@ -23,6 +23,7 @@
 | 実装 | 外したときの動き |
 |---|---|
 | [ranking-remote.js](ranking-remote.js) | ランキングが localStorage のままになる |
+| [turnstile.js](turnstile.js) | ranking-remote.js からしか読まないので、道連れで消える |
 
 繋ぎ目は `game/main.js` の `makeRemoteRankSource()` **1 か所だけ**。
 ここが `await import('../online/ranking-remote.js')` に失敗すると

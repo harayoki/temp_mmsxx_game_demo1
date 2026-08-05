@@ -50,6 +50,16 @@
 // どうしても別の宛先を見たいとき(手元で `wrangler dev` を動かすなど)だけ
 // `baseUrl` を渡すと、そちらが優先される。
 //
+// ## 送信確認(Turnstile)
+//
+// **本番へ記録を送るときだけ**、Cloudflare Turnstile のトークンを 1 枚添える。
+// → [turnstile.js](turnstile.js)
+//
+// - 開発用サーバ(`dev: true`)では**何も読み込まない**。確認を求められないため
+// - 読み込むのは**初めて記録を送るとき**。起動時も、一覧を取るときも通らない
+// - ふだんは画面に何も出ない(怪しいと判断されたときだけ確認の枠が出る)
+// - 失敗は RankingRequestError にそろえる。ゲームは今までどおり「もう一度送るか」を聞ける
+//
 // ## 持っていない口
 //
 // `peek()` … サーバには「同期で出せる値」が無い。
@@ -79,6 +89,16 @@ export const RANKING_SERVERS = {
   prod: 'https://mmsxx-ranking-server.hal3-imai.workers.dev',
 };
 
+/**
+ * 送信確認(Turnstile)の設定。**本番だけ**。
+ * 開発用サーバは確認を求めてこないので、こちらは何も読み込まない。
+ * `siteKey` は公開してよい値(秘密なのはサーバが持つ secret key のほう)
+ */
+export const TURNSTILE_PROD = {
+  siteKey: '0x4AAAAAAEHSKlEHi2GxWD1y',
+  action: 'ranking_submit',
+};
+
 export class RemoteRankingSource {
   /**
    * @param {{
@@ -89,6 +109,7 @@ export class RemoteRankingSource {
    *   playId?: string|(()=>string),     1 回のプレイを見分ける ID
    *   timeoutMs?: number,     これだけ待って返らなければあきらめる(既定 5 秒)
    *   limit?: number,         一度に取る件数の上限(既定 100)
+   *   turnstile?: object|null, 送信確認の設定。既定は本番のときだけ有効。null で明示的に切る
    * }} opts
    */
   constructor(opts) {
@@ -99,6 +120,15 @@ export class RemoteRankingSource {
     this.playId = opts.playId || '';
     this.timeoutMs = opts.timeoutMs ?? 5000;
     this.limit = opts.limit ?? 100;
+    // 送信確認は**本番だけ**。開発用サーバは求めてこないので、
+    // 手元で試している最中に Cloudflare のスクリプトを読みにいかない
+    this.turnstile = opts.turnstile !== undefined
+      ? opts.turnstile
+      : (opts.dev ? null : TURNSTILE_PROD);
+    /** トークンを取る関数。初めて送るときに用意する(起動時には何もしない) */
+    this._getToken = null;
+    /** 送信の順番待ち。枠は 1 つしかないので、確認は 1 件ずつ通す */
+    this._queue = Promise.resolve();
   }
 
   /**
@@ -130,6 +160,41 @@ export class RemoteRankingSource {
    * @returns {Promise<{ rank?: number, runId?: string }>}
    */
   async submit(key, entry) {
+    // 送信確認を使わないとき(開発用サーバ)は、今までどおりそのまま送る。
+    // 使うときは 1 件ずつ通す。確認の枠が 1 つしかなく、同時に 2 つ扱えないため
+    if (!this.turnstile) return this._postRun(key, entry, undefined);
+    const run = this._queue.then(() => this._submitWithTurnstile(key, entry));
+    // 前の送信が失敗しても、次の送信は行える(失敗を鎖の先へ引きずらない)
+    this._queue = run.catch(() => undefined);
+    return run;
+  }
+
+  /** 送信確認のトークンを 1 枚もらってから送る */
+  async _submitWithTurnstile(key, entry) {
+    if (!this._getToken) {
+      // Cloudflare のスクリプトを読むのは**初めて記録を送るとき**。
+      // タイトルで待たせないよう、起動時には触らない
+      const { createTurnstileTokenProvider } = await import('./turnstile.js');
+      this._getToken = createTurnstileTokenProvider(this.turnstile);
+    }
+    let token;
+    try {
+      token = await this._getToken();
+    } catch (e) {
+      // 呼ぶ側(RankingBoard)は RankingRequestError だけを見ればよいようにそろえる。
+      // 失敗すればゲームが「もう一度送るか」を聞くので、そこでやり直せる
+      throw new RankingRequestError(e && e.message || '送信確認に失敗した', { code: e && e.code });
+    }
+    return this._postRun(key, entry, token);
+  }
+
+  /**
+   * 記録を実際に送る。
+   * @param {string} key
+   * @param {object} entry
+   * @param {string|undefined} token 送信確認のトークン(使わないときは undefined)
+   */
+  async _postRun(key, entry, token) {
     const g = this._game(key);
     const body = {
       gameId: g.gameId,
@@ -138,6 +203,8 @@ export class RemoteRankingSource {
       browserId: this._id(this.browserId),
       values: { [g.valueKey]: entry[g.valueKey] },
     };
+    // トークンは使い捨て。送るたびに取り直したものを載せる
+    if (token) body.turnstileToken = token;
     let data;
     try {
       data = await this._request(this.baseUrl + '/api/v1/runs', {
