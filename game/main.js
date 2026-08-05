@@ -1800,6 +1800,9 @@ function clearEntities() {
   // くり返し再生の SE が残っていると、場面が変わっても鳴り続ける。
   // 場を片づけるここで必ず止める(止め忘れの最後の受け皿)
   stopLaserSE();
+  // 知らせと一緒に出しているラッパの絵。**知らせが消える前に場面が変わる**と
+  // (ポーズ中に Q でタイトルへ戻ったときなど)残ってしまうので、ここでも消す
+  hideMuteIcon();
   clearBubble();
   for (const b of bullets) mmsxx.removeSprite(b.sp);
   for (const e of enemies) mmsxx.removeSprite(e.sp);
@@ -2625,22 +2628,27 @@ function drawHUD() {
       hud.print(starX + i * 8, 0, '*', i < stars ? 7 : 14);
     }
   }
-  // 装備の表示は右端に詰めて並べる(1 項目 2 文字ぶん、間の余白なし)
+  // 装備の表示は右端に詰めて並べる(1 項目 2 文字ぶん、間の余白なし)。
+  // **左は絵、右は数**。英字 1 文字だと何のことか分からないので、
+  // 取ったアイテムと同じ形の印にしてある(色はそのまま)
   const gear = [
-    ['power', 'W' + shotLevel, 11],                  // WIDE SHOT
-    ['damage', 'D' + damageLevel, 9],                // POWER SHOT
-    ['speed', 'S' + speedLevel, 3],                  // SPEED
-    ['rapid', 'R' + maxVolleys, 13],                 // RAPID FIRE
-    ['barrier', 'B' + barrierHP, 7],                 // BARRIER
-    ['life', 'x' + Math.max(0, ships - 1), 15],      // 残りストック
+    ['power', 'gearWide', shotLevel, 11],                  // WIDE SHOT
+    ['damage', 'gearPower', damageLevel, 9],               // POWER SHOT
+    ['speed', 'gearSpeed', speedLevel, 3],                 // SPEED
+    ['rapid', 'gearRapid', maxVolleys, 13],                // RAPID FIRE
+    ['barrier', 'gearBarrier', barrierHP, 7],              // BARRIER
+    ['life', 'gearLife', Math.max(0, ships - 1), 15],      // 残りストック
   ];
   // 練習モード(ボスと直接対決)のときは分かるように出す
   if (bossPractice) hud.print(starX, 8, 'PRACTICE', 13);
   let gx = VW - gear.length * 16;
-  for (const [kind, text, color] of gear) {
+  for (const [kind, icon, n, color] of gear) {
     // 取った直後の項目は 1 秒だけ点滅させて、どれが上がったか分かるようにする
     const blink = kind === gearBlinkKind && gearBlinkTimer > 0 && (gearBlinkTimer >> 2) % 2 === 0;
-    hud.print(gx, 0, text, blink ? 15 : color);
+    const c = blink ? 15 : color;
+    // 絵は白 1 色で彫ってあるので、ここで項目の色に置き換える
+    hud.draw(gx, 0, BG_SYMBOLS[icon], true, { colorMap: { 15: c } });
+    hud.print(gx + 8, 0, String(n), c);
     gx += 16;
   }
 }
@@ -7244,7 +7252,7 @@ const DEATH_LIFE = 54;         // 散りきるまでのコマ数(0.9 秒)
 // 1 コマあたりに回る角度(度)。**360 を割り切れる数より少し小さく**する。
 // 割り切れると同じ絵が周期で戻ってきて、止まって見えてしまう
 const DEATH_SPIN = (1.9 * Math.PI) / 180;   // 2 度より少し小さい
-const DEATH_REACH = 40;        // 外の輪が広がりきる距離
+const DEATH_REACH = 32;        // 外の輪が広がりきる距離
 // 輪の作り。n = 枚数 / far = 広がる距離の割合 / turn = 回る向きと速さ /
 // off = 置きはじめの角度をずらす量(目盛りの何ぶんか)
 const DEATH_RINGS = [

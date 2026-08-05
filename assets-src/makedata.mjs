@@ -4103,6 +4103,80 @@ const MARK_W_ART = [
   '................',
   '................',
 ];
+// ---- HUD の装備アイコン(8x8。1 色) ----
+// 英字 1 文字では意味が分かりにくいので、**取ったアイテムと同じ形**の印にする。
+// 白 1 色で彫って、色はゲーム側が項目ごとに置き換える(いまの色をそのまま使う)
+const GEAR_ART = {
+  // ワイドショット: 開いて飛ぶ 2 発(アイテムの絵と同じく交差した形)
+  gearWide: [
+    '........',
+    '.#....#.',
+    '..#..#..',
+    '...##...',
+    '...##...',
+    '..#..#..',
+    '.#....#.',
+    '........',
+  ],
+  // パワーショット: 上向きの太い矢
+  gearPower: [
+    '...##...',
+    '..####..',
+    '.######.',
+    '########',
+    '...##...',
+    '...##...',
+    '...##...',
+    '........',
+  ],
+  // スピードアップ: 二重の山形
+  gearSpeed: [
+    '...##...',
+    '..####..',
+    '.##..##.',
+    '........',
+    '...##...',
+    '..####..',
+    '.##..##.',
+    '........',
+  ],
+  // 連射: 短くなっていく 3 本の線
+  gearRapid: [
+    '........',
+    '.######.',
+    '........',
+    '..####..',
+    '........',
+    '...##...',
+    '........',
+    '........',
+  ],
+  // バリア: **盾**。輪にすると宝珠(*)の印と紛らわしいので形を変えてある
+  gearBarrier: [
+    '.######.',
+    '.######.',
+    '.#....#.',
+    '.#....#.',
+    '..#..#..',
+    '..#..#..',
+    '...##...',
+    '........',
+  ],
+  // 残機: 自機を小さくしたもの
+  gearLife: [
+    '...##...',
+    '..####..',
+    '..####..',
+    '.######.',
+    '#.####.#',
+    '##....##',
+    '........',
+    '........',
+  ],
+};
+const gearIcons = Object.fromEntries(Object.entries(GEAR_ART)
+  .map(([name, rows]) => [name, fromAscii(rows, { '#': '#ffffff' })]));
+
 const markLol = fromAscii(MARK_LOL_ART, { '#': '#ffffff' });
 const markWw = fromAscii(MARK_WW_ART, { '#': '#ffffff' });
 const markW = fromAscii(MARK_W_ART, { '#': '#ffffff' });
@@ -6217,6 +6291,7 @@ const images = {
   gearBlock, gearGem, gearSpark1, gearWeak0, gearWeak1, nautilus, nautilusHurt,
   pilotEye, pilotWink, pilotSmile, pilotPupil, riftGlow,
   spark0, spark1, spark2, deathSpark, markLol, markWw, markW,
+  ...gearIcons,
   guiNext0: guiNext[0], guiNext1: guiNext[1],
   guiNext2: guiNext[2], guiNext3: guiNext[3], pilot, pilotBig, pilotTurnBig, whaleStar, birdStar, dragonStar, shipStar,
   dragonSky: dragonSkySmall, dragonItem: pad16(dragonItem),
