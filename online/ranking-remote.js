@@ -85,8 +85,8 @@ export class RankingRequestError extends Error {
 
 /** ランキングサーバの入口。開発用と本番の 2 つだけ */
 export const RANKING_SERVERS = {
-  dev: 'https://mmsxx-ranking-server-dev.hal3-imai.workers.dev',
-  prod: 'https://mmsxx-ranking-server.hal3-imai.workers.dev',
+  dev: 'https://mmsxx-ranking-server-dev.harayoki.workers.dev',
+  prod: 'https://mmsxx-ranking-server.harayoki.workers.dev',
 };
 
 /**
