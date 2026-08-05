@@ -1001,14 +1001,22 @@ export class VDP {
    * いまの画面を画像として取り出す。
    * 実描画そのものが等倍のオフスクリーンなので、等倍の取り出しがいちばん安い
    * (拡大した canvas から読むと、その倍率ぶんだけピクセルが増える)。
-   * @param {{scale?:number, type?:'dataURL'|'blob'|'canvas', mime?:string}} [opts]
+   * `border` を渡すと、**画面のボーダーとは別の太さ**で切り出せる
+   * (画面は太いまま、渡す絵だけ細く、といったことができる)。
+   * @param {{scale?:number, type?:'dataURL'|'blob'|'canvas', mime?:string,
+   *          border?:number, aspect?:number}} [opts]
+   *   border = 絵のまわりに残すボーダーの太さ(省略すると画面と同じ)
+   *   aspect = 縦横比(16/9 など)。足りないぶんは**黒で埋める**
    * @returns {string|HTMLCanvasElement|Promise<Blob>}
    */
   capture(opts = {}) {
     const scale = Math.max(1, Math.round(opts.scale || 1));
     const mime = opts.mime || 'image/png';
     let src = this.offscreen;
-    if (scale !== 1) {
+    const reframe = (opts.border != null && opts.border !== this.borderX) || opts.aspect;
+    if (reframe) {
+      src = this.reframed(scale, opts.border, opts.aspect);
+    } else if (scale !== 1) {
       const c = document.createElement('canvas');
       c.width = this.outWidth * scale;
       c.height = this.outHeight * scale;
@@ -1029,6 +1037,44 @@ export class VDP {
       return new Promise((resolve) => src.toBlob(resolve, mime));
     }
     return src.toDataURL(mime);
+  }
+
+  /**
+   * **枠を付け替えた板**を 1 枚作って返す。
+   *
+   * 画面のボーダーは太いまま、**渡す絵や動画だけ違う枠**にしたいときに使う。
+   * 中身(描画領域)はそのまま写し、まわりを付け直すだけなので、絵は変わらない。
+   *
+   * @param {number} [scale=1] 何倍に広げるか(1 ドットを四角に置き換える)
+   * @param {number} [border] ボーダーの太さ(省略すると画面と同じ)
+   * @param {number} [aspect] 縦横比(16/9 など)。足りないぶんは**黒で埋める**。
+   *   横に足りなければ左右へ、縦に足りなければ上下へ、均等に足す
+   * @param {HTMLCanvasElement} [into] 使い回す板(毎コマ作らないため)
+   */
+  reframed(scale = 1, border, aspect, into) {
+    const k = Math.max(1, Math.round(scale) || 1);
+    const b = (border == null ? this.borderX : Math.max(0, Math.round(border))) * k;
+    const w = this.width * k, h = this.height * k;
+    let cw = w + b * 2, ch = h + b * 2;
+    if (aspect > 0) {
+      // 足りないほうへ黒を足す(**削らない**。中身が欠けないように)
+      if (cw / ch < aspect) cw = Math.round(ch * aspect);
+      else ch = Math.round(cw / aspect);
+      // 動画にするので偶数にそろえる(奇数だと作れない形式がある)
+      cw += cw & 1; ch += ch & 1;
+    }
+    const c = into || document.createElement('canvas');
+    if (c.width !== cw || c.height !== ch) { c.width = cw; c.height = ch; }
+    const g = c.getContext('2d');
+    g.imageSmoothingEnabled = false;
+    // まわりは黒で塗る(画面のボーダーの色は連れてこない。
+    // 被弾のフラッシュでボーダーまで白くなるが、それは持ち込まない)
+    g.fillStyle = '#000000';
+    g.fillRect(0, 0, cw, ch);
+    // 描画領域だけを切り出して、真ん中へ置く
+    g.drawImage(this.offscreen, this.borderX, this.borderY, this.width, this.height,
+      Math.round((cw - w) / 2), Math.round((ch - h) / 2), w, h);
+    return c;
   }
 
   /**

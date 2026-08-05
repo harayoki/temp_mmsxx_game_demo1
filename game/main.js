@@ -159,10 +159,11 @@ if (!DEV || BUILD.logoTrap) {
     stop: gameStop,
   });
 }
-// 画面のまわりに 4 ドットのボーダーを持たせる。
+// 画面のまわりに 8 ドットのボーダーを持たせる。
 // ここには何も描かれず、背景色で塗られる(実機の描画領域の外の遊び)。
-// 被弾したときは、この余白のぶんだけ画面全体をずらして揺らす
-mmsxx.setBorder(4);
+// 被弾したときは、この余白のぶんだけ画面全体をずらして揺らす。
+// **録画と画面の保存では 4 ドットに詰める**(下の REPLAY_BORDER)
+mmsxx.setBorder(8);
 
 // ---- アセット読み込み(RGBA -> MSX変換はエンジンが自動で行う) ----
 // スプライトは MSX1 実機風に色数を落とす:
@@ -3035,7 +3036,7 @@ function drawTitlePage() {
 //     ▼
 //
 // 前後の名前を出しておくと、モードが何個あるのかが画面から分かる
-const MODE_Y = 136;             // いま選んでいるモードの行
+const MODE_Y = 128;             // いま選んでいるモードの行(1 行ぶん上げてある)
 const MODE_SUB_COLOR = 14;      // 前後の名前(グレー)
 const MODE_CUR_COLOR = 15;      // いま選んでいるもの(白)
 const MODE_TOP = MODE_Y - 16;   // ▲ の行。ここから 5 行ぶんを使う
@@ -3458,6 +3459,12 @@ const REPLAY_MOVIE = 'mp4';
 const REPLAY_SCALE = 2;
 // 録画の重さ。人に渡すものなので high(800kbps)にしてある
 const REPLAY_BITRATE = BITRATE.high;
+// **渡すものの枠**。画面のボーダーは 8 ドットだが、動画と画像は 4 ドットに詰める
+// (画面の遊びをそのまま持ち出すと、絵として間延びするため)。
+// 動画はさらに**黒で余白を足して 16:9** にそろえる。SNS で letterbox の付きかたが
+// 場所ごとに変わるのを避けるためで、**画面には出ない**(遊ぶ人には見えない)
+const SHARE_BORDER = 4;
+const SHARE_ASPECT = '16:9';
 // 後ろに置く間(秒)。最後のコマ(やられた瞬間)で止めて、何が起きたかを残す。
 // **前の間は置かない**。黒い画面の REPLAY がその役をしているので、
 // そのうえ止めると「動画の頭で自機が固まっている」ように見えてしまう
@@ -3554,7 +3561,10 @@ function startReplayPlay() {
   // **ここから録る**。黒い画面は入れず、遊んでいた絵だけの動画にする。
   // 録れたものはシェアのダイアログから落とせる(開発中は capture/ にも残す)。
   // **mp4 で録る**(どこでも再生できる)。作れない環境では webm に落ちる
-  mmsxx.startRecord({ type: REPLAY_MOVIE, scale: REPLAY_SCALE, bitrate: REPLAY_BITRATE });
+  mmsxx.startRecord({
+    type: REPLAY_MOVIE, scale: REPLAY_SCALE, bitrate: REPLAY_BITRATE,
+    border: SHARE_BORDER, aspect: SHARE_ASPECT,
+  });
   // **音の尺に絵を合わせる。** 溜めてある音は SHARE_KEEP_SEC 秒ぶんだが、
   // コマはそれより短いことがある(やられ直後にもう一度やられて、
   // 絵だけ溜め直したときなど)。足りないぶんは**最後のコマで止めたまま**
@@ -4007,7 +4017,8 @@ const SHARE_SHOT_AGO = 1;      // やられたとき、何秒前の絵を使う�
 /** シェア用に画面を取る。**原寸**でよい。取れなければ null */
 function captureShareShot() {
   try {
-    return mmsxx.capture({ type: 'canvas' });
+    // 動画と同じ枠にそろえる(比率は合わせない。静止画は letterbox が要らない)
+    return mmsxx.capture({ type: 'canvas', border: SHARE_BORDER });
   } catch (e) {
     mmsxx.errors.log('share: capture failed: ' + e);
     return null;
@@ -7106,7 +7117,7 @@ function clearWeakSparks() {
 // どの瞬間に見えているのは 6 枚ほどで、残りは消えている。
 // 実機のスプライトのちらつきを、そのまま演出に使っている。
 const DEATH_GROUP = 2;         // 何コマに 1 回出すか(2 = 1 コマ出て 1 コマ消える)
-const DEATH_LIFE = 90;         // 散りきるまでのコマ数(1.5 秒)
+const DEATH_LIFE = 54;         // 散りきるまでのコマ数(0.9 秒)
 // 1 コマあたりに回る角度(度)。**360 を割り切れる数より少し小さく**する。
 // 割り切れると同じ絵が周期で戻ってきて、止まって見えてしまう
 const DEATH_SPIN = (1.9 * Math.PI) / 180;   // 2 度より少し小さい
@@ -7126,7 +7137,7 @@ const DEATH_COLORS = [15, 7, 11];   // 白 / 水色 / 黄
 // 輪だけだと整いすぎるので、**でたらめな場所にも光を散らす**。
 // 同じ絵を使い、居場所を数コマごとに飛ばして ちらちらさせる
 const DEATH_RAND = 8;          // でたらめに散らす数
-const DEATH_HOP = 5;           // 何コマごとに居場所を変えるか
+const DEATH_HOP = 3;           // 何コマごとに居場所を変えるか
 let deathBits = [];
 let deathSparkImg = null;      // 色ごとの絵(初めて使うときに作る)
 

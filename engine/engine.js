@@ -6,6 +6,14 @@ import { createRng } from './rng.js';
 
 export { SCREEN_W, SCREEN_H, VIRTUAL_W, VIRTUAL_H };
 
+/** よく使う縦横比。`startRecord({ aspect: '16:9' })` のように名前で渡せる */
+export const ASPECTS = {
+  '16:9': 16 / 9,
+  '4:3': 4 / 3,
+  '1:1': 1,
+  '9:16': 9 / 16,
+};
+
 /**
  * 録画の重さ(1 秒あたりのビット数)につける名前。
  * `startRecord({ bitrate: BITRATE.low })` のように使う。
@@ -455,6 +463,10 @@ export class MMSXXEngine {
    *   音を切って遊んでいても動画には入る。
    *   type = 入れもの(既定 'mp4')。**mp4 はどこでも再生できる**が、
    *   作れない環境もあるので、その場合は webm に落ちる。
+   *   border = 動画のまわりに残すボーダーの太さ(省略すると画面と同じ)。
+   *   **画面のボーダーとは別に決められる**(画面は太いまま、動画は細く)。
+   *   aspect = 縦横比('16:9' や 16/9)。足りないぶんは**黒で埋める**。
+   *   どちらも画面には出ないので、遊んでいる人には見えない。
    *   scale = 何倍の大きさで録るか(既定 1、8 まで)。
    *   **1 ドットを四角に置き換えるだけ**なので、広げても角が立ったまま残る。
    *   等倍で録るとプレイヤー側が引き伸ばすときに色を混ぜてぼやける。
@@ -470,19 +482,19 @@ export class MMSXXEngine {
     const canvas = this.vdp.canvas;
     if (!canvas || !canvas.captureStream) return false;
     const fps = Math.max(1, Math.min(60, Math.round(opts.fps || 60)));
-    // 大きく録るときは、写し取り用の板を別に用意する。
+    // 大きく録るとき、**画面と違う枠**で録るときは、写し取り用の板を別に持つ。
     // **色を混ぜない**設定で毎コマ写すので、ドットの角が溶けない
     const scale = Math.max(1, Math.min(8, Math.round(opts.scale || 1)));
+    // 枠の付け替え。画面のボーダーは太いまま、動画だけ細く(または比率に合わせて
+    // 黒を足して)録れる。**画面には出ない**ので、遊んでいる人には見えない
+    const border = (opts.border == null) ? null : Math.max(0, Math.round(opts.border));
+    const aspect = ASPECTS[opts.aspect] || (opts.aspect > 0 ? opts.aspect : 0);
+    const reframe = (border != null && border !== this.vdp.borderX) || aspect > 0;
     let from = canvas;
-    if (scale > 1) {
-      const big = document.createElement('canvas');
-      big.width = canvas.width * scale;
-      big.height = canvas.height * scale;
-      const bctx = big.getContext('2d');
-      bctx.imageSmoothingEnabled = false;
-      this._recBig = { canvas: big, ctx: bctx };
-      this._blitRecord();     // 1 コマ目を入れておく(まっさらな板から始めない)
-      from = big;
+    if (scale > 1 || reframe) {
+      this._recBig = { border, aspect, scale, canvas: null, ctx: null };
+      from = this._blitRecord();   // 1 コマ目を入れておく(まっさらな板から始めない)
+      if (!from) { this._recBig = null; return false; }
     }
     let stream;
     try { stream = from.captureStream(fps); }
@@ -559,11 +571,27 @@ export class MMSXXEngine {
   /** いま録画中か */
   get recording() { return !!this._rec; }
 
-  /** 大きくして録っているときに、いまの画面を写し取る(描いた直後に呼ばれる) */
+  /**
+   * 録画用の板へ、いまの画面を写し取る(描いた直後に呼ばれる)。
+   * 枠の付け替えが要らないときは canvas をそのまま広げるだけ
+   */
   _blitRecord() {
     const b = this._recBig;
-    if (!b) return;
+    if (!b) return null;
+    if (b.border != null || b.aspect > 0) {
+      // 枠を付け替える(描画領域だけを切り出して、まわりを塗り直す)
+      b.canvas = this.vdp.reframed(b.scale, b.border, b.aspect, b.canvas);
+      return b.canvas;
+    }
+    if (!b.canvas) {
+      b.canvas = document.createElement('canvas');
+      b.canvas.width = this.vdp.canvas.width * b.scale;
+      b.canvas.height = this.vdp.canvas.height * b.scale;
+      b.ctx = b.canvas.getContext('2d');
+      b.ctx.imageSmoothingEnabled = false;
+    }
     b.ctx.drawImage(this.vdp.canvas, 0, 0, b.canvas.width, b.canvas.height);
+    return b.canvas;
   }
 
   /** 再生を 1 コマ進める(run のなかで呼ばれる) */
