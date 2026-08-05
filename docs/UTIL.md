@@ -407,6 +407,8 @@ URL.apply(mmsxx);   // 色合いと音は、作ったあとに効かせる
 | `SoundTest` | SOUND TEST |
 | `RankingBoard` | ハイスコア・ボスラッシュのタイム（供給元は localStorage） |
 | `urlOptions` | 画面まわりの URL 指定（`?fps=` は開発版だけにしてある） |
+| `ICONS` | 音のラッパ（画面のスプライトと DOM のボタンを同じ並びから作る） |
+| `artexport` | 絵の書き出し（開発版のコンソールから `mmsxxArt` / `mmsxxSheet`） |
 
 `?delay=5` / `?error=0.3` を付けて開くと、通信の遅さと失敗を手元で試せます。
 サーバへ繋ぐ段取りは [RANKING_PLAN.md](RANKING_PLAN.md) にまとめてあります。
@@ -460,6 +462,52 @@ useUAParser(() => {
 [vendor/](../vendor/README.md) へ写す手当ても要ります。
 
 ---
+
+## 10. `icons.js` — `ICONS` / `iconSymbol` / `iconDataURL`
+
+**どのゲームでも使いそうな絵**を、ドットの並びで持っておく部品。
+いまは音のラッパ(`soundOn` / `soundOff`、16x16 の 2 色)が入っている。
+
+```js
+import { ICONS, iconSymbol, iconDataURL } from '../engine/util/icons.js';
+
+const sp = mmsxx.sprite(iconSymbol(mmsxx, ICONS.soundOn, { accent: 7 }));
+btn.style.backgroundImage = `url("${iconDataURL(mmsxx, ICONS.soundOn, { accent: 7 })}")`;
+```
+
+**画面のスプライトと DOM のボタンを、同じ並びから作る**のが狙い。
+絵文字(🔊 など)は環境ごとに字形が違うので、画面と DOM で別の絵になってしまう。
+
+- 並びは `#`(本体)と `+`(差し色)の 2 色。**色は使う側が決める**
+- `iconDataURL` は**パレットの色で描く**ので、色合いを切り替えたら呼び直せば付いてくる
+- 作ったものは覚えておいて、同じ絵・同じ色・同じ色合いなら作り直さない
+
+## 11. `artexport.js` — `exportSymbol` / `exportSheet` / `downloadArt`
+
+**絵を画像として書き出す**開発用の道具。外の道具で見たり直したり、
+素材の一覧を作って抜けを確かめたりするため。
+
+```js
+import { exportSymbol, exportSheet, downloadArt } from '../engine/util/artexport.js';
+
+downloadArt(exportSymbol(mmsxx, SPRITE_SYMBOLS.player, { scale: 4 }), 'player.png');
+downloadArt(exportSheet(mmsxx, SPRITE_SYMBOLS, { scale: 2, width: 512, padding: 4 }), 'sheet.png');
+```
+
+- 倍率は整数倍(ドットはぼかさない)
+- まとめて並べるときは**いちばん大きい絵に合わせた升目**に置く。幅と余白を決められる
+- 色は**画面と同じパレット**から引く。透明(色番号 0)は透けたまま残る
+- 出てくるのは canvas。**保存はしない**(呼んだ側が落とすなり送るなり決める)
+
+STAR FABLE では開発版のコンソールから呼べる。
+
+```js
+mmsxxArt('player', 4)           // 1 枚を 4 倍で
+mmsxxSheet('sprite', 2, 512)    // スプライトを 2 倍で 512 ドット幅に並べて
+mmsxxSheet('bg', 1, 1024)       // BG も同じように
+```
+
+索引(JSON)を添えて読み戻せるようにするのは V2([TODO.md](TODO.md) の L)。
 
 ## これから作るもの
 
