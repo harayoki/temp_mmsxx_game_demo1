@@ -10674,7 +10674,9 @@ function buildEnding() {
         // パイロットはこの子であり、遊んでいる本人でもある。呼びかけない
         text: ['STAR FABLE, SIGNING OFF.', 'UNTIL THE NEXT FLIGHT.'],
         textColor: 11,
-        onEnter: () => { mmsxx.backdrop = 1; },
+        // この子が出たところで、コンソールに ひとこと(ふざけた注釈)。
+        // 画面には出さない。開いている人にだけ届くおまけ
+        onEnter: () => { mmsxx.backdrop = 1; tellPortraitJoke(); },
         // 中間色は 1 ライン おきのディザ。目印の色を実際の色へ置き換えて描く
         duo: { image: BG_SYMBOLS.pilot, maps: GAME_DATA.duo.pilot, x: PILOT_X, y: 0 },
         draw: (m, art) => { art.draw(PILOT_X, 0, BG_SYMBOLS.pilot, true,
@@ -10778,6 +10780,22 @@ function enterStory(build, bgm, onDone) {
 }
 
 /** @param {function} [onDone] 見終わったあとに呼ぶもの(既定はタイトルへ戻る) */
+/**
+ * エンディングでこの子が出たときの、コンソールへのひとこと。
+ * **画面には出さない**(遊ぶ人の目に入るのはゲームの絵だけにする)。
+ * 1 回の読み込みにつき 1 度だけ
+ */
+let portraitJokeTold = false;
+function tellPortraitJoke() {
+  if (portraitJokeTold) return;
+  portraitJokeTold = true;
+  console.log(
+    `%cDrawn in homage to T&E SOFT / STAR ARTHUR LEGEND. (a lie)\n`
+    + `%cBehold the craft of Claude the painter, master of the humble shape.`,
+    'color:#ffe000;font-weight:bold', 'color:#7ce8ff',
+  );
+}
+
 function enterEnding(onDone) { enterStory(buildEnding, 'salut', onDone); }
 
 // ちらちらしながら現れる場面の進み具合(0 = 出はじめ)
