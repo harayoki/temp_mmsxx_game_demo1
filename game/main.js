@@ -2826,8 +2826,20 @@ const TITLE_RANK_HOLD = 900;
 let titlePage = 0;
 let titleTimer = 0;
 const PUSH_KEY = 'SPACE TO START';
-// ゲームモード(左右キーで選ぶ)。あとから増やせるように配列で持つ
+// 遊びかたの説明。1 面の頭で「STAGE 1」の下に出す(タイトルには出さない)
+const PLAY_HELP = String.fromCharCode(0x18, 0x19, 0x1a, 0x1b) + ':MOVE  SP:SHOT  ESC:PAUSE';
+const PLAY_HELP_Y = 88;
+// ロゴ以外のページから戻る案内。**開始と同じ SPACE** で戻す。
+// 開始の案内と取り違えないよう、赤にして点滅させる
+const BACK_KEY = 'SPACE TO TITLE';
+const BACK_COLOR = 8;   // 赤(送信の失敗などと同じ色)
+const TITLE_PAGES = 5;
+// ゲームモード(上下キーで選ぶ)。あとから増やせるように配列で持つ
+// 左右はページ送り(カルーセル)に使うので、モード選びは上下にしてある
+const ARROW_U = String.fromCharCode(0x18), ARROW_D = String.fromCharCode(0x19);
+// ページ送りの目印。**どのページでも同じ場所**に出す(画面の左右の端)
 const ARROW_L = String.fromCharCode(0x1a), ARROW_R = String.fromCharCode(0x1b);
+const PAGE_ARROW_Y = 96;
 /** 「PUSH SPACE KEY」の表示行(アイテム一覧のときは下にずらす) */
 const pushKeyY = () => (titlePage === 0 ? 128 : 176);
 
@@ -2896,6 +2908,7 @@ function drawHiScoreList() {
   }
   if (tbl.entries.length === 0) drawNoRecords();
   drawHiArrows(tbl.entries.length);
+  drawPageArrows();   // 一覧を描き直すと消えるので、ここでも出し直す
 }
 
 /**
@@ -2920,7 +2933,9 @@ function drawHiArrows(total) {
   if (hiTop + HISCORE_ROWS < total) hud.print(x, yDown, down, 11);
 }
 
-let hiManual = false;   // 上下キーを触ったかどうか(いまは表示には使っていない)
+// 上下キーを触ったかどうか。触っているあいだは画面の自動送りを止める
+// (一覧をたどっている / モードを選んでいる最中に流れていかないように)
+let titleManual = false;
 
 /**
  * タイトルのハイスコア画面を 1 フレーム進める。
@@ -2931,13 +2946,13 @@ let hiManual = false;   // 上下キーを触ったかどうか(いまは表示�
 function updateHiScoreList() {
   const maxTop = Math.max(0, listTable().entries.length - HISCORE_ROWS);
   if (mmsxx.input.isDown('ArrowUp') && mmsxx.frame % 4 === 0) {
-    hiManual = true;
+    titleManual = true;
     hiTop = Math.max(0, hiTop - 1);
     drawHiScoreList();
     return;
   }
   if (mmsxx.input.isDown('ArrowDown') && mmsxx.frame % 4 === 0) {
-    hiManual = true;
+    titleManual = true;
     hiTop = Math.min(maxTop, hiTop + 1);
     drawHiScoreList();
   }
@@ -2945,7 +2960,9 @@ function updateHiScoreList() {
 
 function drawTitlePage() {
   hud.clear();
-  if (titlePage >= 2) { hiTop = 0; rushTop = 0; hiManual = false; }
+  // ページが変わったら、手で触った印は落とす(また自動で流れはじめる)
+  titleManual = false;
+  if (titlePage >= 2) { hiTop = 0; rushTop = 0; }
   for (const sp of helpIconSprites()) sp.visible = false;
   if (titlePage === 0) {
     // ロゴも BG として描く(スプライトで補助しない = 横8ドット2色の制約に従う)
@@ -2960,8 +2977,8 @@ function drawTitlePage() {
     // エンジンの版はその下に(ロゴから 2 行ぶん下)
     const ver = 'MMSXX ENGINE V' + MMSXXEngine.version;
     hud.print(centerX(ver), logoY + BG_SYMBOLS.logo.height + 16, ver, 14);
-    const help = String.fromCharCode(0x18, 0x19, 0x1a, 0x1b) + ':MOVE  SP:SHOT  ESC:PAUSE';
-    hud.print(centerX(help), 158, help, 10);
+    // 操作の説明はここには出さない。**遊びかたの話なので 1 面の頭で出す**
+    // (PLAY_HELP / startStage を参照)
     // 著作権表示はいちばん下に
     const copy = '© 2026 HARAYOKI';
     hud.print(centerX(copy), 176, copy, 6);
@@ -2981,12 +2998,16 @@ function drawTitlePage() {
   } else {
     drawRushList();
   }
-  drawModeLine();
+  // モードを選べるのはロゴのページだけ。ほかは戻りかたを出すだけにする
+  if (titlePage === 0) drawModeLine();
+  else drawBackLine();
+  drawPageArrows();
 }
 
-// 「◀ SPACE TO START ▶」の行。左右キーでモードを選ぶ。
+// 「▲ SPACE TO START ▼」の行。上下キーでモードを選ぶ。
 // 矢印は本文より速く点滅させて「押せる」ことを示す。
-const MODE_LINE = ARROW_L + ' ' + PUSH_KEY + ' ' + ARROW_R;
+// **ロゴのページにだけ出す**。ほかのページは BACK_KEY の 1 行だけにする
+const MODE_LINE = ARROW_U + ' ' + PUSH_KEY + ' ' + ARROW_D;
 const modeLineX = () => centerX(MODE_LINE);
 // ボスラッシュで指定できる「特別な相手」を指す面番号
 const RUSH_EYES = 101;   // 目玉 2 体
@@ -3002,10 +3023,32 @@ function drawModeLine() {
   hud.fill(0, 0, y, VW, 16);
   const x = modeLineX();
   hud.print(x + 16, y, PUSH_KEY, 15);
-  hud.print(x, y, ARROW_L, 11);
-  hud.print(x + (MODE_LINE.length - 1) * 8, y, ARROW_R, 11);
+  hud.print(x, y, ARROW_U, 11);
+  hud.print(x + (MODE_LINE.length - 1) * 8, y, ARROW_D, 11);
   const name = MODES[modeIndex].name;
   hud.print(centerX(name), y + 8, name, 14);
+}
+/**
+ * 左右にページを送れることの目印。**5 ページとも同じ高さ**の左右の端に出す。
+ * (端は絵にも一覧にも使っていないので、どのページでも重ならない)
+ */
+function drawPageArrows() {
+  hud.print(0, PAGE_ARROW_Y, ARROW_L, 11);
+  hud.print(VW - 8, PAGE_ARROW_Y, ARROW_R, 11);
+}
+
+/** ロゴ以外のページの案内。SPACE でロゴへ戻せることだけを出す */
+function drawBackLine() {
+  const y = pushKeyY();
+  hud.fill(0, 0, y, VW, 16);
+  hud.print(centerX(BACK_KEY), y, BACK_KEY, BACK_COLOR);
+}
+/** その点滅。ロゴの「SPACE TO START」と同じ間合いで明滅させる */
+function updateBackLine() {
+  const y = pushKeyY();
+  const x = centerX(BACK_KEY);
+  if (mmsxx.frame % 32 === 0) hud.print(x, y, BACK_KEY, BACK_COLOR);
+  else if (mmsxx.frame % 32 === 16) hud.fill(0, x, y, BACK_KEY.length * 8, 8);
 }
 /** タイトルの点滅(本文はゆっくり、矢印は速く) */
 function updateModeLine() {
@@ -3015,8 +3058,8 @@ function updateModeLine() {
   else if (mmsxx.frame % 32 === 16) hud.fill(0, x + 16, y, PUSH_KEY.length * 8, 8);
   if (mmsxx.frame % 12 === 0) {
     const on = (mmsxx.frame / 12) % 2 === 0;
-    hud.print(x, y, on ? ARROW_L : ' ', 11);
-    hud.print(x + (MODE_LINE.length - 1) * 8, y, on ? ARROW_R : ' ', 11);
+    hud.print(x, y, on ? ARROW_U : ' ', 11);
+    hud.print(x + (MODE_LINE.length - 1) * 8, y, on ? ARROW_D : ' ', 11);
   }
 }
 
@@ -3076,6 +3119,10 @@ function startStage() {
     const label = stageNo === LAST_STAGE ? 'FINAL STAGE'
       : stageNo < LAST_STAGE ? 'STAGE ' + stageNo : '';
     if (label) hud.print(centerX(label), 72, label, 11);
+    // 操作の説明は**1 面の頭でだけ**、面の名前と一緒に出す。
+    // タイトルに置いていたが、遊びかたの話なのでここへ移した
+    stageHelpShown = stageNo === 1;
+    if (stageHelpShown) hud.print(centerX(PLAY_HELP), PLAY_HELP_Y, PLAY_HELP, 10);
   }
   // 2 回目のコンティニュー。面が始まってすぐ、未実装さんが顔を出す
   if (todoGuest) {
@@ -3090,9 +3137,13 @@ function startStage() {
 
 // 面の始めに出す「STAGE n」の残り時間
 let stageNoticeTimer = 0;
+// 一緒に操作の説明を出したか(消すときに要る)
+let stageHelpShown = false;
 function updateStageNotice() {
   if (stageNoticeTimer <= 0) return;
-  if (--stageNoticeTimer === 0) hud.fill(0, 0, 72, VW, 8);
+  if (--stageNoticeTimer > 0) return;
+  hud.fill(0, 0, 72, VW, 8);
+  if (stageHelpShown) { hud.fill(0, 0, PLAY_HELP_Y, VW, 8); stageHelpShown = false; }
 }
 
 /**
@@ -3752,7 +3803,7 @@ function drawSubmitAsk() {
   hud.print(centerX(s1), 64, s1, 8);
   const s2 = 'SEND AGAIN?';
   hud.print(centerX(s2), 84, s2, 15);
-  const s3 = 'ENTER:RETRY   ESC:NO';
+  const s3 = 'SP:RETRY   ESC:NO';
   hud.print(centerX(s3), 104, s3, 10);
 }
 
@@ -3760,7 +3811,7 @@ function drawSubmitAsk() {
 function updateSubmitting() {
   // 「もう一度送るか」を聞いているあいだ
   if (submitAsk) {
-    if (mmsxx.input.wasPressed('Enter')) {
+    if (mmsxx.input.wasPressed('Space')) {
       mmsxx.audio.playSE('item');
       sendSubmit();          // 送り直す。失敗すればまたここへ戻ってくる
       return;
@@ -7793,7 +7844,7 @@ function updatePlay() {
   if (clearTimer > 0) {
     // 何かキーを押したら評価表示を飛ばせる
     if (clearTimer < 900 && (mmsxx.input.wasPressed('Space') ||
-        mmsxx.input.wasPressed('Enter') || mmsxx.input.wasPressed('Escape'))) {
+        mmsxx.input.wasPressed('Escape'))) {
       clearTimer = 1;
     }
     clearTimer--;
@@ -9319,7 +9370,7 @@ mmsxx.expose('mmsxxCrabPhase2', () => {
 mmsxx.expose('mmsxxContinue', (n) => {
   continueStages.normal = n || 1;
   refreshModes();
-  if (state === 'title') drawModeLine();
+  if (state === 'title' && titlePage === 0) drawModeLine();
   return { ...continueStages, modes: MODES.map(m => m.id) };
 });
 
@@ -9542,6 +9593,7 @@ function drawRushList() {
   }
   if (rushTable.entries.length === 0) drawNoRecords();
   drawRushArrows();
+  drawPageArrows();   // 一覧を描き直すと消えるので、ここでも出し直す
 }
 function drawRushArrows() {
   const up = String.fromCharCode(0x18), down = String.fromCharCode(0x19);
@@ -9555,10 +9607,10 @@ function drawRushArrows() {
 function updateRushList() {
   const maxTop = Math.max(0, rushTable.entries.length - HISCORE_ROWS);
   if (mmsxx.input.isDown('ArrowUp') && mmsxx.frame % 4 === 0) {
-    hiManual = true; rushTop = Math.max(0, rushTop - 1); drawRushList(); return;
+    titleManual = true; rushTop = Math.max(0, rushTop - 1); drawRushList(); return;
   }
   if (mmsxx.input.isDown('ArrowDown') && mmsxx.frame % 4 === 0) {
-    hiManual = true; rushTop = Math.min(maxTop, rushTop + 1); drawRushList(); return;
+    titleManual = true; rushTop = Math.min(maxTop, rushTop + 1); drawRushList(); return;
   }
 }
 
@@ -9672,6 +9724,18 @@ function drawCheatInput() {
 
 /** 打ち込まれた語を判定して効果を出す */
 function runCheatWord(word) {
+  // タイトルへ戻る。ほかの語と違い**ちょうど 'Q' のときだけ**効かせる。
+  // (endsWith にすると 'AAAAQ' のような打ち間違いでも終わってしまう。
+  //  遊びを捨てる操作なので、案内に出したとおりの打ち方だけを通す)
+  if (word === 'Q') {
+    setPaused(false);
+    statsFinish();
+    // ポーズから抜けて終わった場合は、**コンティニューできない**。
+    // (やられていないのに、同じ面から何度でも始められてしまうため)
+    if (continueStages[continueKey()] !== undefined) continueStages[continueKey()] = 1;
+    enterTitle();
+    return;
+  }
   // オート連射のコマンド(MEIJIN / TAKAHASHI / TOSHIYUKI)。
   // **打たれた名前ごとに 1 回だけ**効く
   const autoCode = AUTO_CODES.find(c => word.endsWith(c));
@@ -11140,7 +11204,7 @@ function enterCharList() {
         update: () => updateCharAnim(),
         leave: () => { clearCharSprites(); neb.clear(); },
       })),
-    help: String.fromCharCode(0x18, 0x19) + ':PAGE  ESC:EXIT',
+    help: String.fromCharCode(0x1a, 0x1b) + ':PAGE  SP:NEXT  ESC:EXIT',
     onExit: () => { clearCharSprites(); neb.clear(); enterTitle(); },
   });
   charBook.open(0);
@@ -11371,7 +11435,9 @@ function updateCharAnim() {
 }
 
 const PAUSE_TEXT = 'PAUSE';
-const PAUSE_HINT = 'ESC:RESUME Q:RESET';
+// タイトルへ戻るのは**打ち込みの側**に置いてある。キー 1 つで戻せると、
+// 打ち込みの途中で Q を打っただけで終わってしまうため(Q が使えない字になる)
+const PAUSE_HINT = 'ESC:RESUME  TYPE Q' + RET + ' TO TITLE';
 const PAUSE_HINT2 = 'CODE + RETURN';
 function togglePause() {
   setPaused(!paused);
@@ -11528,16 +11594,6 @@ mmsxx.run(() => {
       togglePause();
       return;
     }
-    // ポーズ中に Q でタイトルへ戻す
-    if (mmsxx.input.wasPressed('KeyQ')) {
-      setPaused(false);
-      statsFinish();
-      // ポーズから抜けて終わった場合は、**コンティニューできない**。
-      // (やられていないのに、同じ面から何度でも始められてしまうため)
-      if (continueStages[continueKey()] !== undefined) continueStages[continueKey()] = 1;
-      enterTitle();
-      return;
-    }
     checkCheatCode();
     return;
   }
@@ -11572,34 +11628,51 @@ mmsxx.run(() => {
     // ハイスコア画面は自動スクロールを見せるぶん長めに出す
     // 一覧を手で動かしているあいだは切り替えない
     const isList = titlePage >= 2;
-    const pageLen = isList ? (hiManual ? 1e9 : 1350) : 720;
+    const pageLen = isList ? (titleManual ? 1e9 : 1350) : 720;
     if (titlePage === 2 || titlePage === 3) updateHiScoreList();
     else if (titlePage === 4) updateRushList();
-    // ESC を押すと次の画面へすぐ切り替わる
-    const skip = mmsxx.input.wasPressed('Escape');
-    if (skip || ++titleTimer > pageLen) {
-      titleTimer = 0; titlePage = (titlePage + 1) % 5; drawTitlePage();
+    // 左右キーでページを送る(押さなくても順に流れていく)
+    let turn = 0;
+    if (mmsxx.input.wasPressed('ArrowRight')) turn = 1;
+    else if (mmsxx.input.wasPressed('ArrowLeft')) turn = -1;
+    if (turn || ++titleTimer > pageLen) {
+      titleTimer = 0;
+      titlePage = (titlePage + (turn || 1) + TITLE_PAGES) % TITLE_PAGES;
+      drawTitlePage();
     }
-    // 左右キーでゲームモードを選ぶ
-    if (mmsxx.input.wasPressed('ArrowLeft') || mmsxx.input.wasPressed('ArrowRight')) {
-      const d = mmsxx.input.wasPressed('ArrowRight') ? 1 : -1;
-      modeIndex = (modeIndex + d + MODES.length) % MODES.length;
-      mmsxx.audio.playSE('item');
-      drawModeLine();
-    }
-    updateModeLine();
-    if (mmsxx.input.wasPressed('Space')) {
-      if (gameMode() === 'staff') enterStaffRoll();
-      else if (gameMode() === 'sound') enterSoundTest();
-      else if (gameMode() === 'chars') enterCharList();
-      else if (gameMode() === 'stats') enterStats();
-      else if (gameMode() === 'scene') enterSceneSelect();
-      else if (gameMode() === 'devset') enterDevSettings();
-      else if (gameMode() === 'bossrush') enterBossRushMenu();
-      // **CONTINUE を選んだとき**は、最後に遊んでいた面から始める
-      else {
-        const cont = gameMode() === 'continue';
-        enterPlay(cont);
+    if (titlePage === 0) {
+      // ロゴのページだけ、上下キーでゲームモードを選ぶ。
+      // (一覧のページでは上下がスクロールなので、そちらとぶつからない)
+      if (mmsxx.input.wasPressed('ArrowUp') || mmsxx.input.wasPressed('ArrowDown')) {
+        const d = mmsxx.input.wasPressed('ArrowDown') ? 1 : -1;
+        modeIndex = (modeIndex + d + MODES.length) % MODES.length;
+        titleManual = true;   // 選んでいるあいだは次の画面へ流さない
+        mmsxx.audio.playSE('item');
+        drawModeLine();
+      }
+      updateModeLine();
+      if (mmsxx.input.wasPressed('Space')) {
+        if (gameMode() === 'staff') enterStaffRoll();
+        else if (gameMode() === 'sound') enterSoundTest();
+        else if (gameMode() === 'chars') enterCharList();
+        else if (gameMode() === 'stats') enterStats();
+        else if (gameMode() === 'scene') enterSceneSelect();
+        else if (gameMode() === 'devset') enterDevSettings();
+        else if (gameMode() === 'bossrush') enterBossRushMenu();
+        // **CONTINUE を選んだとき**は、最後に遊んでいた面から始める
+        else {
+          const cont = gameMode() === 'continue';
+          enterPlay(cont);
+        }
+      }
+    } else {
+      updateBackLine();
+      // ロゴ以外のページでは、SPACE はロゴへ戻すことにあてる
+      // (モードを選べるのはロゴのページだけなので、開始とはぶつからない)
+      if (mmsxx.input.wasPressed('Space')) {
+        titleTimer = 0;
+        titlePage = 0;
+        drawTitlePage();
       }
     }
   } else if (state === 'play') {

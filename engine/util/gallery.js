@@ -1,4 +1,4 @@
-// 図鑑(グラフィック一覧)。1 ページに 1 枚ずつ見せて、上下でめくる。
+// 図鑑(グラフィック一覧)。1 ページに 1 枚ずつ見せて、左右でめくる。
 // 見出しと「何ページ中の何ページ目か」も出す。
 // エンジン本体からは切り離した任意の部品。
 //
@@ -119,8 +119,11 @@ export class Gallery {
         return true;
       }
     }
-    if (this.mmsxx.input.wasPressed('ArrowDown') || this.mmsxx.input.wasPressed('ArrowRight')) this.turn(1);
-    else if (this.mmsxx.input.wasPressed('ArrowUp') || this.mmsxx.input.wasPressed('ArrowLeft')) this.turn(-1);
+    // ページ送りは**左右だけ**。上下は一覧のスクロールに取っておく
+    // (どの画面でも「上下 = スクロール / 左右 = ページ送り」で揃える)。
+    // SPACE は**先へ進むだけ**。戻るのは左キーにまかせる
+    if (this.mmsxx.input.wasPressed('ArrowRight') || this.mmsxx.input.wasPressed('Space')) this.turn(1);
+    else if (this.mmsxx.input.wasPressed('ArrowLeft')) this.turn(-1);
     const page = this.pages[this.index];
     if (page && page.update) page.update(this.mmsxx);
     return false;
