@@ -360,7 +360,7 @@ SPRITE_SYMBOLS.starW = recolor(SPRITE_SYMBOLS.star, 15);     // ★の点滅用
 const ORB_COLORS = [8, 9, 11, 3, 7, 5, 13];   // 赤 橙 黄 緑 水 青 紫
 const ORB_IMAGES = ORB_COLORS.map((c) => recolor(SPRITE_SYMBOLS.star, c));
 /** いまの色。i をずらすと、並んだものが順ぐりに光る */
-const orbColor = (i = 0) => ORB_COLORS[(((mmsxx.frame >> 2) + i) % ORB_COLORS.length)];
+const orbColor = (i = 0) => ORB_COLORS[(((mmsxx.frame >> 1) + i) % ORB_COLORS.length)];
 SPRITE_SYMBOLS.asteroidHiWarn = recolor(SPRITE_SYMBOLS.asteroidHi, 11);  // 被弾時のハイライト(黄)
 SPRITE_SYMBOLS.bulletRingCyan = recolor(SPRITE_SYMBOLS.bulletRing, 7);   // リング弾の色替え(水色)
 SPRITE_SYMBOLS.crownCyan = recolor(SPRITE_SYMBOLS.octoCrown, 7);        // 未実装君の王冠(顔と色がかぶらないよう水色)
@@ -8342,7 +8342,7 @@ function updatePlay() {
       it.sp.colorMap = (mmsxx.frame & 2) ? CANDY_SWAP : null;
     } else if (it.kind === 'star') {
       // 宝珠は白と点滅させず、**七色に回す**
-      it.sp.image = ORB_IMAGES[(mmsxx.frame >> 2) % ORB_IMAGES.length];
+      it.sp.image = ORB_IMAGES[(mmsxx.frame >> 1) % ORB_IMAGES.length];
     } else {
       it.sp.image = (mmsxx.frame & 1) ? ITEM_IMG[look] : ITEM_IMG_W[look];
     }
@@ -9293,7 +9293,7 @@ function updatePlay() {
   updateNotice();
   updateGearBlink();
   // 宝珠の七色は HUD に描いているので、少しずつ描き直す
-  if ((mmsxx.frame & 3) === 0) drawOrbMarks();
+  if ((mmsxx.frame & 1) === 0) drawOrbMarks();
   updateLastShipWarning();
   drawBossBar();
 }
