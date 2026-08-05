@@ -364,8 +364,9 @@ if (DEV) MODES.push({ id: 'devset', name: 'DEV SETTINGS' });
 let modeIndex = 0;
 const gameMode = () => MODES[modeIndex].id;
 /** NORMAL: 敵の手数を減らし、残機を増やし、即死をなくす(HARD はこれが無い) */
-// CONTINUE は NORMAL の続きなので、遊び方も NORMAL と同じ扱いにする
-const isNormal = () => ['normal', 'continue'].includes(MODES[modeIndex].id);
+// CONTINUE は**続けている難易度**で決まる(HARD の続きなら HARD の遊び方)。
+// ボスラッシュやそれ以外のモードは、いままでどおり NORMAL 扱いにしない
+const isNormal = () => continueKey() === 'normal';
 
 // 全 5 ステージ。1〜4 面が各ボス、5 面がラスボス「THE KING(ざ・きんぐ)」。
 // 5 面は雑魚も宝珠も出さず、木星を見せてからそのままラスボス戦に入る。
@@ -546,6 +547,8 @@ const progress = new SaveGroup('starfable-progress', {
   kingMet: { type: T.FLAG, label: 'MET THE KING' },
   // 倒したかどうか。いまは何も開かないが、記録として残す
   kingDown: { type: T.FLAG, label: 'THE KING DOWN' },
+  // 最後に遊んだ難易度。次に開いたときも、そちらが選ばれた状態にする
+  lastPlayed: { type: T.ENUM, values: ['normal', 'hard'], init: 'normal', label: 'LAST PLAYED' },
 });
 
 /**
@@ -829,7 +832,7 @@ function refreshRankings() {
 }
 
 /** いま遊んでいるモードのランキング表 */
-const scoreTable = () => (gameMode() === 'hard' ? hardTable : normalTable);
+const scoreTable = () => (hardNow() ? hardTable : normalTable);
 /**
  * 表に載るかどうか。
  * **0 点は載せない**。表がまだ 100 件たまっていないと何点でも載ってしまうので、
@@ -2840,6 +2843,11 @@ const TITLE_RANK_HOLD = 900;
 // タイトル画面は「ロゴ」と「アイテム説明」を交互に見せる
 let titlePage = 0;
 let titleTimer = 0;
+// HARD で遊んでいるときだけ、面の名前のすぐ下に添える。
+// CONTINUE は HARD の続きにもなるので、**どちらで遊んでいるかを画面で示す**
+const HARD_LABEL = 'HARD MODE';
+const HARD_LABEL_Y = 80;
+const HARD_LABEL_COLOR = 9;   // 明るい赤。面の名前(黄)と読み分ける
 // 遊びかたの説明。1 面の頭で「STAGE 1」の下に出す(タイトルには出さない)
 const PLAY_HELP = String.fromCharCode(0x18, 0x19, 0x1a, 0x1b) + ':MOVE  SP:SHOT  ESC:PAUSE';
 const PLAY_HELP_Y = 88;
@@ -3032,6 +3040,9 @@ const MODE_SUB_COLOR = 14;      // 前後の名前(グレー)
 const MODE_CUR_COLOR = 15;      // いま選んでいるもの(白)
 const MODE_TOP = MODE_Y - 16;   // ▲ の行。ここから 5 行ぶんを使う
 const MODE_ROWS = 5;
+// その下に置く「押しかた」。▼ のすぐ下
+const MODE_PUSH = 'SPACE TO SELECT';
+const MODE_PUSH_Y = MODE_Y + 24;
 // ボスラッシュで指定できる「特別な相手」を指す面番号
 const RUSH_EYES = 101;   // 目玉 2 体
 const RUSH_MOAI = 102;   // 合体モアイ
@@ -3048,6 +3059,8 @@ function drawModeLine() {
   const name = MODES[modeIndex].name;
   hud.print(centerX(name), MODE_Y, name, MODE_CUR_COLOR);
   drawModeNeighbors(true);
+  hud.fill(0, 0, MODE_PUSH_Y, VW, 8);
+  hud.print(centerX(MODE_PUSH), MODE_PUSH_Y, MODE_PUSH, 11);
 }
 /**
  * いま選んでいるものの前後のモード名。
@@ -3083,10 +3096,13 @@ function updateBackLine() {
   if (mmsxx.frame % 32 === 0) hud.print(x, BACK_KEY_Y, BACK_KEY, BACK_COLOR);
   else if (mmsxx.frame % 32 === 16) hud.fill(0, x, BACK_KEY_Y, BACK_KEY.length * 8, 8);
 }
-/** 前後のモード名を 1:1 で明滅させる(選んでいるものと矢印は出したまま) */
+/**
+ * 前後のモード名を明滅させる(選んでいるものと矢印は出したまま)。
+ * **1 コマごとに入れ替える**(1:1)。実機のちらつきに近い速さで、
+ * 「いま選んでいるもの」との差がはっきり出る
+ */
 function updateModeLine() {
-  if (mmsxx.frame % 32 === 0) drawModeNeighbors(true);
-  else if (mmsxx.frame % 32 === 16) drawModeNeighbors(false);
+  drawModeNeighbors(mmsxx.frame % 2 === 0);
 }
 
 function startStage() {
@@ -3145,6 +3161,10 @@ function startStage() {
     const label = stageNo === LAST_STAGE ? 'FINAL STAGE'
       : stageNo < LAST_STAGE ? 'STAGE ' + stageNo : '';
     if (label) hud.print(centerX(label), 72, label, 11);
+    // HARD で遊んでいるあいだは、面の名前の下にそう出す。
+    // CONTINUE は HARD の続きにもなるので、見ただけで分かるようにしておく
+    stageHardShown = !!label && hardNow();
+    if (stageHardShown) hud.print(centerX(HARD_LABEL), HARD_LABEL_Y, HARD_LABEL, HARD_LABEL_COLOR);
     // 操作の説明は**1 面の頭でだけ**、面の名前と一緒に出す。
     // タイトルに置いていたが、遊びかたの話なのでここへ移した
     stageHelpShown = stageNo === 1;
@@ -3163,12 +3183,14 @@ function startStage() {
 
 // 面の始めに出す「STAGE n」の残り時間
 let stageNoticeTimer = 0;
-// 一緒に操作の説明を出したか(消すときに要る)
+// 一緒に操作の説明 / HARD の断りを出したか(消すときに要る)
 let stageHelpShown = false;
+let stageHardShown = false;
 function updateStageNotice() {
   if (stageNoticeTimer <= 0) return;
   if (--stageNoticeTimer > 0) return;
   hud.fill(0, 0, 72, VW, 8);
+  if (stageHardShown) { hud.fill(0, 0, HARD_LABEL_Y, VW, 8); stageHardShown = false; }
   if (stageHelpShown) { hud.fill(0, 0, PLAY_HELP_Y, VW, 8); stageHelpShown = false; }
 }
 
@@ -3192,15 +3214,26 @@ function applyStartGear() {
 /**
  * コンティニュー用に覚えておく面。
  * 遊び終わった(死んだ)ときの面を残し、クリアしたら 1 へ戻す。
- * タイトルで**下キーを押しながら決定**すると、そこから始められる。
+ * タイトルの CONTINUE を選ぶと、そこから始められる。
  * **難度ごとに別々に覚える**(NORMAL の続きで HARD が始まったりしないように)。
  */
 const continueStages = { normal: 1, hard: 1 };
-/** いまのモードを、コンティニューの覚え先の名前に読み替える(CONTINUE は NORMAL) */
-function continueKey() {
-  return gameMode() === 'continue' ? 'normal' : gameMode();
+// 最後に遊んだ難易度('normal' か 'hard')。**保存に残す**ので、開き直しても覚えている。
+// タイトルの既定の選択と、CONTINUE がどちらの続きなのかの両方に使う
+function lastPlayed() { return progress.get('lastPlayed') || 'normal'; }
+function setLastPlayed(id) {
+  if (progress.set('lastPlayed', id) === R.UPDATED) progress.flush();
 }
-/** いまのモードのコンティニュー先。CONTINUE は NORMAL の続き */
+/**
+ * いまのモードを、コンティニューの覚え先の名前に読み替える。
+ * CONTINUE は**最後に遊んだ難易度の続き**。HARD で終わったなら HARD が続く
+ */
+function continueKey() {
+  return gameMode() === 'continue' ? lastPlayed() : gameMode();
+}
+/** いまの遊びが HARD かどうか。CONTINUE のときは続けている難易度で決まる */
+function hardNow() { return continueKey() === 'hard'; }
+/** いまのモードのコンティニュー先 */
 function continueStageNow() {
   return continueStages[continueKey()] || 1;
 }
@@ -3212,11 +3245,33 @@ function continueStageNow() {
  * ゲームオーバーからタイトルへ戻ったときは、ここが選ばれた状態にする。
  */
 function refreshModes(select = false) {
+  // CONTINUE を出し入れすると並びがずれるので、**いま選んでいる id を覚えておく**。
+  // (番号のままだと、抜けてきたモードとは別のところが選ばれてしまう)
+  const keep = MODES[modeIndex] && MODES[modeIndex].id;
+  // CONTINUE は**最後に遊んだ難易度**の続き。その難易度が 2 面以上まで
+  // 進んでいるときだけ並びに入れる。どちらの続きなのかは名前に出す
+  // (HARD の続きなのに NORMAL の 1 面から始まってしまうのを防ぐ)
   const at = MODES.findIndex(m => m.id === 'continue');
-  const want = continueStages.normal > 1 || continueStages.hard > 1;
-  if (want && at < 0) MODES.splice(1, 0, { id: 'continue', name: 'CONTINUE' });
+  const want = continueStages[lastPlayed()] > 1;
+  const label = 'CONTINUE(' + (lastPlayed() === 'hard' ? 'HARD' : 'NORM') + ')';
+  if (want && at < 0) MODES.splice(1, 0, { id: 'continue', name: label });
+  else if (want && at >= 0) MODES[at].name = label;   // 難易度が変わったら書き換える
   else if (!want && at >= 0) MODES.splice(at, 1);
-  if (select) modeIndex = Math.max(0, MODES.findIndex(m => m.id === 'continue'));
+  // 選ばれた状態にするもの:
+  //   ゲームオーバーのあと … CONTINUE
+  //   モードから抜けたあと … そのモード(サウンドテストなど)
+  //   それ以外            … 最後に遊んだ難易度
+  //
+  // 難易度どうし(NORMAL / HARD)は入れ替えてよいものとして扱う。
+  // 選んでいたのが難易度なら、**最後に遊んだほう**で上書きする。
+  // (起動した直後もここを通る。並びの先頭は NORMAL だが、
+  //  前回 HARD で遊んでいれば HARD が選ばれた状態になる)
+  const isLevel = (id) => id === 'normal' || id === 'hard';
+  const wantId = select ? 'continue'
+    : (keep && !isLevel(keep)) ? keep
+    : lastPlayed();
+  const found = MODES.findIndex(m => m.id === wantId);
+  modeIndex = found >= 0 ? found : 0;
   modeIndex = Math.max(0, Math.min(modeIndex, MODES.length - 1));
 }
 
@@ -3234,6 +3289,11 @@ const CANDY_SWAP = { 9: 7, 7: 9 };
 
 function enterPlay(fromContinue = false) {
   cancelFlash();
+  // タイトルへ戻ったときに、この難易度を選んだ状態にする。
+  // **難易度のあるモードのときだけ**書き換える(ボスラッシュなどでは触らない)。
+  // CONTINUE は続けている難易度そのものなので、書いても値は変わらない
+  const level = continueKey();
+  if (level === 'normal' || level === 'hard') setLastPlayed(level);
   state = 'play';
   score = 0;
   // 記録の数え直し。得点は 0 に戻したので、足したことにする位置も戻す
@@ -3244,10 +3304,9 @@ function enterPlay(fromContinue = false) {
   streakStart = -1;
   lastFireFrame = -999;
   if (!fromContinue && recordOn()) {
-    record.add(gameMode() === 'hard' ? 'playsHard' : 'playsNormal', 1);
+    record.add(hardNow() ? 'playsHard' : 'playsNormal', 1);
   }
   ships = isNormal() ? 5 : 3;
-  // 下キーを押しながら始めると、最後に遊んでいた面から続けられる
   // CONTINUE を選んだときは、最後に遊んでいた面から始める
   stageNo = fromContinue ? continueStageNow() : 1;
   // **2 回目のコンティニュー**のときだけ、未実装さんが先に顔を出す。
@@ -3656,7 +3715,7 @@ function entryRankLine() {
   if (rank < 0) return '';
   // どのランキングに載るのかも一緒に見せる。
   // ふつうのゲームは名前を付けずに順位だけ出す(NORMAL とは名乗らない)
-  const where = rush ? 'BOSS RUSH  ' : (gameMode() === 'hard' ? 'HARD  ' : '');
+  const where = rush ? 'BOSS RUSH  ' : (hardNow() ? 'HARD  ' : '');
   return where + ordinal(rank + 1) + ' PLACE';
 }
 
@@ -3780,7 +3839,7 @@ function startSubmit() {
   submitBoard = rush ? rushTable : scoreTable();
   submitEntry = rush ? { name, frames: rushFrames } : { name, score };
   // 進む先は、ボスラッシュはタイムの表、それ以外は NORMAL / HARD それぞれの表
-  submitPage = rush ? 4 : (gameMode() === 'hard' ? 3 : 2);
+  submitPage = rush ? 4 : (hardNow() ? 3 : 2);
   submitRank = -1;
   submitWaitKey = false;
   state = 'submitting';
@@ -9301,7 +9360,7 @@ let statStageScore = 0;
 function statsFinish() {
   stats.endSession({ score, maxStage: stageNo });
   if (recordOn()) {
-    record.max(gameMode() === 'hard' ? 'hiHard' : 'hiNormal', score);
+    record.max(hardNow() ? 'hiHard' : 'hiNormal', score);
     record.max('mostShots', playShots);
   }
   recordFlush();
