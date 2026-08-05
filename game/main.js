@@ -3083,13 +3083,13 @@ let titleManual = false;
  */
 function updateHiScoreList() {
   const maxTop = Math.max(0, listTable().entries.length - HISCORE_ROWS);
-  if (mmsxx.input.isDown('ArrowUp') && mmsxx.frame % 4 === 0) {
+  if (mmsxx.input.repeat('ArrowUp')) {
     titleManual = true;
     hiTop = Math.max(0, hiTop - 1);
     drawHiScoreList();
     return;
   }
-  if (mmsxx.input.isDown('ArrowDown') && mmsxx.frame % 4 === 0) {
+  if (mmsxx.input.repeat('ArrowDown')) {
     titleManual = true;
     hiTop = Math.min(maxTop, hiTop + 1);
     drawHiScoreList();
@@ -4327,6 +4327,9 @@ function makeShareEl() {
   // 絵は**公式の素材が要る**(自分で描いた × 印は「閉じる」に見えてしまう)ので、
   // それが来るまでは文字で置いておく。ほかの SNS もここへ並べる
   shareSendBtn = mkBtn('POST TO X', () => { shareStatusEl.textContent = 'X: NOT CONNECTED YET'; });
+  // いま板に載っている 1 枚を手元へ落とす。**ALT+S(クリップボード)の代わり**に、
+  // キーボードの無い端末でも絵を持ち出せるようにするためのもの
+  mkBtn('SAVE IMAGE', () => saveShareImage());
   // 動画は録れているときだけ出す(始めてすぐやられると溜まっていない)
   shareMovieBtn = mkBtn('SAVE VIDEO', () => saveShareMovie());
   mkBtn('CLOSE', () => closeShare());
@@ -4490,6 +4493,25 @@ function updateShareMovieBtn() {
  * **URL は押されたときに作って、すぐ捨てる**(持ち続けると中身が消えない)。
  * SNS へ上げるところは通信の作業で足す。ここは渡し口だけ
  */
+/**
+ * いま板に載っている 1 枚を手元へ落とす。
+ * **URL は押されたときに作って、すぐ捨てる**(持ち続けると中身が消えない)。
+ * 出すのは板に見えているものそのままなので、コマを選び直せば選んだコマが落ちる
+ */
+function saveShareImage() {
+  if (!shareShot) { shareStatusEl.textContent = 'NO IMAGE'; return; }
+  shareShot.toBlob((blob) => {
+    if (!blob) { shareStatusEl.textContent = 'COULD NOT SAVE'; return; }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `starfable-${Date.now()}.png`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    shareStatusEl.textContent = 'IMAGE SAVED';
+  }, 'image/png');
+}
+
 function saveShareMovie() {
   if (!shareMovie) return;
   const url = URL.createObjectURL(shareMovie);
@@ -9817,10 +9839,10 @@ function drawRushArrows() {
 }
 function updateRushList() {
   const maxTop = Math.max(0, rushTable.entries.length - HISCORE_ROWS);
-  if (mmsxx.input.isDown('ArrowUp') && mmsxx.frame % 4 === 0) {
+  if (mmsxx.input.repeat('ArrowUp')) {
     titleManual = true; rushTop = Math.max(0, rushTop - 1); drawRushList(); return;
   }
-  if (mmsxx.input.isDown('ArrowDown') && mmsxx.frame % 4 === 0) {
+  if (mmsxx.input.repeat('ArrowDown')) {
     titleManual = true; rushTop = Math.min(maxTop, rushTop + 1); drawRushList(); return;
   }
 }
@@ -10327,10 +10349,10 @@ function updateStats() {
   if (mmsxx.input.wasPressed('Escape')) { enterTitle(); return; }
   const maxTop = Math.max(0, statRows.length - STAT_ROWS);
   // 押しっぱなしで送れるようにする(項目が多いので 1 回ずつでは遅い)
-  if (mmsxx.input.isDown('ArrowUp') && mmsxx.frame % 4 === 0 && statTop > 0) {
+  if (mmsxx.input.repeat('ArrowUp') && statTop > 0) {
     statTop--; dropStatNoteIfListed(); drawStats(); return;
   }
-  if (mmsxx.input.isDown('ArrowDown') && mmsxx.frame % 4 === 0 && statTop < maxTop) {
+  if (mmsxx.input.repeat('ArrowDown') && statTop < maxTop) {
     statTop++; dropStatNoteIfListed(); drawStats(); return;
   }
 }
@@ -11854,8 +11876,10 @@ mmsxx.run(() => {
     if (titlePage === 0) {
       // ロゴのページだけ、上下キーでゲームモードを選ぶ。
       // (一覧のページでは上下がスクロールなので、そちらとぶつからない)
-      if (mmsxx.input.wasPressed('ArrowUp') || mmsxx.input.wasPressed('ArrowDown')) {
-        const d = mmsxx.input.wasPressed('ArrowDown') ? 1 : -1;
+      // 一覧と同じく**押しっぱなしで送れる**(モードは 7〜9 個あるため)
+      const d = mmsxx.input.repeat('ArrowDown') ? 1
+        : mmsxx.input.repeat('ArrowUp') ? -1 : 0;
+      if (d) {
         modeIndex = (modeIndex + d + MODES.length) % MODES.length;
         titleManual = true;   // 選んでいるあいだは次の画面へ流さない
         mmsxx.audio.playSE('item');

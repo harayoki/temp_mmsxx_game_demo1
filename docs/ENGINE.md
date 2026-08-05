@@ -264,12 +264,34 @@ mmsxx.audio.defineTalk('boss', 'タオサレハセン', { pitch: 92, bits: 4, gr
 // ---- 入力 ----
 mmsxx.input.isDown('ArrowLeft');       // KeyboardEvent.code で指定
 mmsxx.input.wasPressed('Space');       // このフレームで押されたか
+mmsxx.input.repeat('ArrowDown');       // 一覧の行送り(押した瞬間 1 回 → 待ち → 連続)
+mmsxx.input.heldFrames('ArrowDown');   // 押しているコマ数(押していなければ -1)
+mmsxx.input.press('Space');            // 押されたことにする(タッチから流し込む用)
+mmsxx.input.release('Space');          // 離されたことにする
 
 // ---- メインループ ----
 mmsxx.run((m) => { /* 60fps で呼ばれる */ });
 mmsxx.stop();
 mmsxx.step(n);                         // デバッグ用に n フレーム手動で進める
 ```
+
+## 入力の読みかたは 3 つ
+
+| 読みかた | いつ true | 使うところ |
+|---|---|---|
+| `isDown(code)` | 押しているあいだずっと | 自機の移動 |
+| `wasPressed(code)` | 押した瞬間の 1 コマだけ | 決定・ページ送り |
+| `repeat(code, delay, gap)` | 押した瞬間に 1 回 → `delay` 待ち → `gap` おきに | 一覧の行送り |
+
+`repeat` は**押している長さから歩数を出す**ので、呼ぶ側が数を覚える必要がありません。
+同じキーを別々の場所から聞いても干渉しません。既定は `delay = 20`（約 0.33 秒）/
+`gap = 4`（毎秒 15 歩）。
+
+初動を待たせるのは**1 行だけ動かせるようにする**ためです。待ちが無いと、
+ちょっと押しただけで数行飛んでしまいます。
+
+タッチのフリックを「N コマ押しっぱなし」として `press()` / `release()` で流し込めば、
+画面側は何も変えずに勢いのぶんスクロールします（[SMARTPHONE.md](SMARTPHONE.md)）。
 
 ## 直前の画面を溜める
 
