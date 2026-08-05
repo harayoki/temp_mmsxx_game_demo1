@@ -38,6 +38,8 @@ if ($Local) {
 if (Test-Path $deploy) { Remove-Item -Recurse -Force $deploy }
 New-Item -ItemType Directory -Force $deploy | Out-Null
 Copy-Item (Join-Path $root 'index.html') $deploy
+# SNS に貼られたときの画像。**一番上に置く**(index.html と同じ高さ)
+Copy-Item (Join-Path $root 'default-og-image.png') $deploy
 Copy-Item -Recurse (Join-Path $root 'engine') (Join-Path $deploy 'engine')
 Copy-Item -Recurse (Join-Path $root 'game') (Join-Path $deploy 'game')
 # 音声ファイル(スタッフロールの mp3 など)
