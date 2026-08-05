@@ -10870,8 +10870,8 @@ const STAFF_LINES = [
   // 打ち込みの曲と効果音、mp3 の曲で作り手が違うので分けて書く。
   // **行は 1 行ずつ真ん中に置かれる**ので、名前の頭をそろえるには
   // 2 行の長さも同じにする(短いほうは後ろを空白で埋める)
-  'MML BGM / SE    OPUS5    ',
-  'MP3 BGM         SUNO v5.5',
+  'MML BGM/SE  OPUS5    ',
+  'MP3 BGM     SUNO v5.5',
   '',
   'DEBUG STAFF',
   'AHO' + RET,
@@ -10944,10 +10944,10 @@ const STAFF_LINES = [
 // 役職の見出し(色を変えて出す)。
 // **いちばん上の大見出しだけ赤**にして、役職の見出し(黄)と分ける
 const STAFF_HEADINGS = new Map([
-  ['STAR FABLE STAFF', 8],
+  ['STAR FABLE STAFF', 8],          // いちばん上の大見出しは赤
+  ['THANK YOU FOR PLAYING!', 7],    // 締めの一言は水色
   ...['DIRECTOR', 'PROGRAM', 'DESIGN', 'MUSIC', 'DEBUG STAFF',
-    'ART SUPPORT', 'SPECIAL THANKS', 'ABOUT MMSXX ENGINE',
-    'THANK YOU FOR PLAYING!'].map((k) => [k, true]),
+    'ART SUPPORT', 'SPECIAL THANKS', 'ABOUT MMSXX ENGINE'].map((k) => [k, true]),
 ]);
 // 流すところはエンジンの任意部品 StaffRoll にまかせる(docs/UTIL.md 参照)
 let staffRoll = null;
