@@ -4065,18 +4065,38 @@ const MARK_LOL_ART = [
   '................',
   '................',
 ];
-const MARK_WWW_ART = [
+// W は 3 つ並べたいが、**1 ドットずつ空ける**と 16 に入らない。
+// 2 枚のスプライトに分けて、W W + W で並べる
+const MARK_WW_ART = [
   '................',
   '................',
   '................',
   '................',
-  '#...##...##...#.',
-  '#...##...##...#.',
-  '#...##...##...#.',
-  '#.#.##.#.##.#.#.',
-  '#.#.##.#.##.#.#.',
-  '##.####.####.##.',
-  '.#.#..#.#..#.#..',
+  '#...#.#...#.....',
+  '#...#.#...#.....',
+  '#...#.#...#.....',
+  '#.#.#.#.#.#.....',
+  '#.#.#.#.#.#.....',
+  '##.##.##.##.....',
+  '.#.#..#.#.......',
+  '................',
+  '................',
+  '................',
+  '................',
+  '................',
+];
+const MARK_W_ART = [
+  '................',
+  '................',
+  '................',
+  '................',
+  '#...#...........',
+  '#...#...........',
+  '#...#...........',
+  '#.#.#...........',
+  '#.#.#...........',
+  '##.##...........',
+  '.#.#............',
   '................',
   '................',
   '................',
@@ -4084,7 +4104,8 @@ const MARK_WWW_ART = [
   '................',
 ];
 const markLol = fromAscii(MARK_LOL_ART, { '#': '#ffffff' });
-const markWww = fromAscii(MARK_WWW_ART, { '#': '#ffffff' });
+const markWw = fromAscii(MARK_WW_ART, { '#': '#ffffff' });
+const markW = fromAscii(MARK_W_ART, { '#': '#ffffff' });
 
 const spark0 = fromAscii(SPARK_ART[0], { '#': '#ffffff' });
 const spark1 = fromAscii(SPARK_ART[1], { '#': '#ffffff' });
@@ -6195,7 +6216,7 @@ const images = {
   ufoFist: pad16(ufoFist), todoFace, todoBlush, todoGlint,
   gearBlock, gearGem, gearSpark1, gearWeak0, gearWeak1, nautilus, nautilusHurt,
   pilotEye, pilotWink, pilotSmile, pilotPupil, riftGlow,
-  spark0, spark1, spark2, deathSpark, markLol, markWww,
+  spark0, spark1, spark2, deathSpark, markLol, markWw, markW,
   guiNext0: guiNext[0], guiNext1: guiNext[1],
   guiNext2: guiNext[2], guiNext3: guiNext[3], pilot, pilotBig, pilotTurnBig, whaleStar, birdStar, dragonStar, shipStar,
   dragonSky: dragonSkySmall, dragonItem: pad16(dragonItem),

@@ -318,7 +318,7 @@ const SPRITE_COLORS = {
   ...Object.fromEntries(Array.from({ length: 16 }, (_, i) => ['kingLine' + i, 1])),
   ...Object.fromEntries(Array.from({ length: 16 }, (_, i) => ['kingLineL' + i, 1])),
   pilotPupil: 1, pilotSmile: 1, pilotWink: 1,
-  markLol: 1, markWww: 1,   // エンディングに置く茶々(白 1 色)
+  markLol: 1, markWw: 1, markW: 1,   // エンディングに置く茶々(白 1 色)
   todoBlush: 2,   // 赤みと影の 2 色
   riftGlow: 2,    // 水色と白の 2 色
 };
@@ -10572,9 +10572,11 @@ function storySpriteSet() {
     // エンディングの茶々。**走査線は掛けない**(絵から浮かせたいので、
     // まわりのディザに合わせずに素のドットで出す)
     const lol = mmsxx.sprite(SPRITE_SYMBOLS.markLol);
-    const www = mmsxx.sprite(SPRITE_SYMBOLS.markWww);
-    lol.priority = www.priority = 23;
-    storySprites = { man, ship, jet, eye, wink, smile, pupilL, pupilR, glow, lol, www };
+    // W は 1 ドットずつ空けると 16 に入らないので、**2 枚に分けて**並べる
+    const ww = mmsxx.sprite(SPRITE_SYMBOLS.markWw);
+    const w3 = mmsxx.sprite(SPRITE_SYMBOLS.markW);
+    lol.priority = ww.priority = w3.priority = 23;
+    storySprites = { man, ship, jet, eye, wink, smile, pupilL, pupilR, glow, lol, ww, w3 };
     for (const sp of Object.values(storySprites)) sp.visible = false;
   }
   return storySprites;
@@ -10651,8 +10653,12 @@ function buildEnding() {
           // 茶々。**8 ドットの升目に乗せない**位置へ置いて、
           // あとから書き込んだように浮かせる(走査線も掛けない)
           s.lol.x = PILOT_X + 13; s.lol.y = 77;    // 左の生きもののそば
-          s.www.x = PILOT_X + 149; s.www.y = 51;   // 女の子の顔の右
-          return [s.smile, s.pupilL, s.pupilR, s.lol, s.www];
+          // WWW は 2 枚に分けて、1 ドット空けて並べる。
+          // **目と同じ行に並べない**(1 行に出せる数の取り合いで欠けるため)
+          // ので、目より下へ置く。手にかぶってよい
+          s.ww.x = PILOT_X + 147; s.ww.y = 66;
+          s.w3.x = PILOT_X + 159; s.w3.y = 66;
+          return [s.smile, s.pupilL, s.pupilR, s.lol, s.ww, s.w3];
         },
       },
       {
