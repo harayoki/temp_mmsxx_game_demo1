@@ -355,6 +355,12 @@ SPRITE_SYMBOLS.itemW = recolor(SPRITE_SYMBOLS.item, 15);   // アイテム点滅
 SPRITE_SYMBOLS.bulletB = recolor(SPRITE_SYMBOLS.bulletE, 8); // 赤い弾 = 撃ち落とせるボスの弾
 SPRITE_SYMBOLS.cubeItem = recolor(SPRITE_SYMBOLS.cube, 3);   // 緑のキューブ = アイテム入り
 SPRITE_SYMBOLS.starW = recolor(SPRITE_SYMBOLS.star, 15);     // ★の点滅用
+// **宝珠は七色に光る。** ほかのアイテムより特別なものなので、
+// 白との点滅ではなく色が回る形にする(HUD の取得ぶんも同じ色で回る)
+const ORB_COLORS = [8, 9, 11, 3, 7, 5, 13];   // 赤 橙 黄 緑 水 青 紫
+const ORB_IMAGES = ORB_COLORS.map((c) => recolor(SPRITE_SYMBOLS.star, c));
+/** いまの色。i をずらすと、並んだものが順ぐりに光る */
+const orbColor = (i = 0) => ORB_COLORS[(((mmsxx.frame >> 2) + i) % ORB_COLORS.length)];
 SPRITE_SYMBOLS.asteroidHiWarn = recolor(SPRITE_SYMBOLS.asteroidHi, 11);  // 被弾時のハイライト(黄)
 SPRITE_SYMBOLS.bulletRingCyan = recolor(SPRITE_SYMBOLS.bulletRing, 7);   // リング弾の色替え(水色)
 SPRITE_SYMBOLS.crownCyan = recolor(SPRITE_SYMBOLS.octoCrown, 7);        // 未実装君の王冠(顔と色がかぶらないよう水色)
@@ -2622,12 +2628,7 @@ function drawHUD() {
   }
   // 集めた宝珠(取ったぶんだけ点灯する)。
   // ボスラッシュは宝珠を集めないので出さない
-  const starX = SCORE_DIGITS * 8 + 8;  // スコアとの間を 1 文字ぶん空ける
-  if (gameMode() !== 'bossrush') {
-    for (let i = 0; i < starsNeeded(); i++) {
-      hud.print(starX + i * 8, 0, '*', i < stars ? 7 : 14);
-    }
-  }
+  drawOrbMarks();
   // 装備の表示は右端に詰めて並べる(1 項目 2 文字ぶん、間の余白なし)。
   // **左は絵、右は数**。英字 1 文字だと何のことか分からないので、
   // 取ったアイテムと同じ形の印にしてある(色はそのまま)
@@ -2650,6 +2651,20 @@ function drawHUD() {
     hud.draw(gx, 0, BG_SYMBOLS[icon], true, { colorMap: { 15: c } });
     hud.print(gx + 8, 0, String(n), c);
     gx += 16;
+  }
+}
+
+/**
+ * 集めた宝珠の印。**取ったぶんは七色に光る**(1 つずつ色をずらして回す)。
+ * ボスラッシュは宝珠を集めないので出さない
+ */
+function drawOrbMarks() {
+  if (gameMode() === 'bossrush') return;
+  const starX = SCORE_DIGITS * 8 + 8;  // スコアとの間を 1 文字ぶん空ける
+  const n = starsNeeded();
+  hud.fill(0, starX, 0, n * 8, 8);
+  for (let i = 0; i < n; i++) {
+    hud.print(starX + i * 8, 0, '*', i < stars ? orbColor(i) : 14);
   }
 }
 
@@ -8325,6 +8340,9 @@ function updatePlay() {
       // ピンクと水色が交互に入れ替わって、包み紙がきらきらして見える
       it.sp.image = ITEM_IMG[look];
       it.sp.colorMap = (mmsxx.frame & 2) ? CANDY_SWAP : null;
+    } else if (it.kind === 'star') {
+      // 宝珠は白と点滅させず、**七色に回す**
+      it.sp.image = ORB_IMAGES[(mmsxx.frame >> 2) % ORB_IMAGES.length];
     } else {
       it.sp.image = (mmsxx.frame & 1) ? ITEM_IMG[look] : ITEM_IMG_W[look];
     }
@@ -9274,6 +9292,8 @@ function updatePlay() {
   updateFlash();
   updateNotice();
   updateGearBlink();
+  // 宝珠の七色は HUD に描いているので、少しずつ描き直す
+  if ((mmsxx.frame & 3) === 0) drawOrbMarks();
   updateLastShipWarning();
   drawBossBar();
 }
@@ -10847,7 +10867,9 @@ const STAFF_LINES = [
   'OPUS5',
   '',
   'MUSIC',
-  'OPUS5 / SUNO',
+  // 打ち込みの曲と効果音、mp3 の曲で作り手が違うので分けて書く
+  'MML BGM / SE   OPUS5',
+  'MP3 BGM        SUNO v5.5',
   '',
   'DEBUG STAFF',
   'AHO' + RET,
