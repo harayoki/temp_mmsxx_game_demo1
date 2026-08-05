@@ -22,7 +22,7 @@
 // その `key` からサーバ側の宛先を引けるようにしておく。
 //
 //   new RemoteRankingSource({
-//     baseUrl: 'https://ranking.example.com',
+//     dev: true,                         // 開発用サーバか本番サーバか
 //     browserId: () => getBrowserId(),   // 値でも関数でもよい
 //     playId: () => currentPlayId,       // 送るたびに今の値を聞く
 //     games: {
@@ -36,6 +36,13 @@
 //
 // `browserId` と `playId` は**ゲームが持つもの**なので、値か、値を返す関数を渡す。
 // 関数にしておくと「1 プレイごとに作り直す playId」をそのまま渡せる。
+//
+// ## サーバの URL はここが知っている
+//
+// 宛先はこの部品が両方とも持っていて、`dev` で選ぶ。**ゲームには持たせない**。
+// 引っ越したときに直す場所を 1 か所にしておくため。
+// どうしても別の宛先を見たいとき(手元で `wrangler dev` を動かすなど)だけ
+// `baseUrl` を渡すと、そちらが優先される。
 //
 // ## 持っていない口
 //
@@ -60,10 +67,17 @@ export class RankingRequestError extends Error {
   }
 }
 
+/** ランキングサーバの入口。開発用と本番の 2 つだけ */
+export const RANKING_SERVERS = {
+  dev: 'https://mmsxx-ranking-server-dev.hal3-imai.workers.dev',
+  prod: 'https://mmsxx-ranking-server.hal3-imai.workers.dev',
+};
+
 export class RemoteRankingSource {
   /**
    * @param {{
-   *   baseUrl: string,        サーバの入口(末尾の / は付けても付けなくてよい)
+   *   dev?: boolean,          開発用サーバを使うか(false なら本番)
+   *   baseUrl?: string,       宛先を直に指定したいときだけ(末尾の / は付けても付けなくてよい)
    *   games: Object<string, { gameId: string, rankingKey: string, valueKey: string }>,
    *   browserId?: string|(()=>string),  この端末を見分ける ID
    *   playId?: string|(()=>string),     1 回のプレイを見分ける ID
@@ -72,7 +86,8 @@ export class RemoteRankingSource {
    * }} opts
    */
   constructor(opts) {
-    this.baseUrl = String(opts.baseUrl || '').replace(/\/+$/, '');
+    const url = opts.baseUrl || (opts.dev ? RANKING_SERVERS.dev : RANKING_SERVERS.prod);
+    this.baseUrl = String(url).replace(/\/+$/, '');
     this.games = opts.games || {};
     this.browserId = opts.browserId || '';
     this.playId = opts.playId || '';

@@ -5,9 +5,10 @@
 
 import { MMSXXEngine, SCREEN_W, SCREEN_H, BITRATE } from '../engine/engine.js';
 // ランキングは「読み出しは同期のまま、背後で取り直す」形の表を使う。
-// いまの供給元は localStorage。サーバができたら source を差し替えるだけで移れる
+// 供給元は手元の localStorage とランキングサーバの 2 つ。RANK_MODE で選ぶ
 // (docs/RANKING_PLAN.md)
 import { RankingBoard, LocalRankingSource, byScore, byTime } from '../engine/util/ranking-board.js';
+import { RemoteRankingSource } from '../engine/util/ranking-remote.js';
 import { StoryScenes } from '../engine/util/story.js';
 import { StaffRoll } from '../engine/util/staffroll.js';
 import { Gallery } from '../engine/util/gallery.js';
@@ -676,7 +677,7 @@ const HISCORE_ROWS = 7;              // 一度に表示する人数(画面に収
 // 繋がらないうちは空の表になり、NO RECORDS YET と出る
 
 // ---- ランキングサーバへ送るときの見分け ID ----
-// まだ送っていないが、繋ぐときに要るので先に用意しておく(送らなくても害は無い)。
+// サーバはどちらも UUID の形しか受け取らない(形が違うと INVALID_SUBMISSION)。
 
 /** UUID を作る(randomUUID が無い環境のための控えつき) */
 function newUuid() {
@@ -713,8 +714,8 @@ const browserId = getBrowserId();
  */
 let playId = newUuid();
 
-// ランキングの供給元。いまは手元の localStorage。
-// サーバがまだ無いので、通信の様子を手元で試せるようにしてある(仮の設定)。
+// ランキングの供給元。ふだんは手元の localStorage。
+// サーバへ繋がなくても通信の様子を試せるようにしてある。
 //
 //   ?delay=5     … 取得・登録に 5 秒かかることにする
 //   ?error=0.3   … 3 割の見込みで失敗することにする(?error=1 で必ず失敗)
@@ -744,14 +745,22 @@ const RANK_MODE = DEV ? (RANK_QUERY.get('rank') === 'dev' ? 'dev' : 'local') : '
 
 /**
  * サーバのランキングに繋ぐ供給元を作る。
- * **通信する部品はまだ無い**ので、いまは手元の保存に落として動かしつづける。
- * できあがったら、この中で `new RemoteRankingSource({ dev })` を返すだけでよい。
+ * 表の `key` からサーバ側の宛先を引けるようにして渡す。
+ * サーバの URL は部品側が両方とも知っているので、ここでは dev かどうかだけ伝える。
  * @param {boolean} dev 開発用のサーバを使うか(false なら本番)
  */
 function makeRemoteRankSource(dev) {
-  console.warn('[STAR FABLE] ランキングサーバの口はまだありません。'
-    + '手元の保存を使います (' + (dev ? 'dev' : 'prod') + ')');
-  return new LocalRankingSource({ delay: RANK_DELAY, errorRate: RANK_ERROR });
+  return new RemoteRankingSource({
+    dev,
+    browserId,
+    // playId は 1 プレイごとに作り直すので、送るたびに今の値を聞いてもらう
+    playId: () => playId,
+    games: {
+      'starfable-hiscores-easy': { gameId: 'star-fable-normal', rankingKey: 'high-score', valueKey: 'score' },
+      'starfable-hiscores': { gameId: 'star-fable-hard', rankingKey: 'high-score', valueKey: 'score' },
+      'starfable-rushtimes': { gameId: 'star-fable-rush', rankingKey: 'fastest', valueKey: 'frames' },
+    },
+  });
 }
 
 const rankSource = RANK_MODE === 'local'
