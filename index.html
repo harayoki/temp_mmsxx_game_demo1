@@ -66,6 +66,7 @@
   @media (max-width: 820px), (pointer: coarse) {
     p.mobile { display: block; }
   }
+  p.notice a { color: #8fa2d8; }
   p.notice {
     color: #6b7288;
     font-size: 12px;
@@ -103,6 +104,10 @@
 <p class="notice">
   テスト運用中です。ランキングの記録は予告なくリセットされることがあります。<br>
   This game is under test operation. The ranking records may be reset without notice.
+</p>
+<!-- Turnstile を目に見えない形で使うときは、ここから追補を参照する決まり(公式の要件) -->
+<p class="notice">
+  <a href="https://www.cloudflare.com/application-services/terms/supplemental-terms/#turnstile-privacy-addendum" target="_blank" rel="noopener">Turnstile Privacy Addendum</a>
 </p>
 <pre id="error"></pre>
 <script>
