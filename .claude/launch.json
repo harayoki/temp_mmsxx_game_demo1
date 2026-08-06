@@ -9,6 +9,12 @@
       "autoPort": true
     },
     {
+      "name": "msx-engine-sns",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["serve.js"],
+      "port": 5173
+    },
+    {
       "name": "msx-engine-deploy",
       "runtimeExecutable": "node",
       "runtimeArgs": ["serve.js"],

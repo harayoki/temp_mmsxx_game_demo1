@@ -4363,10 +4363,10 @@ function makeShareEl() {
     row.appendChild(b);
     return b;
   };
-  // X(旧 Twitter)へ出す口。**まだ繋いでいない**ので、押しても知らせを出すだけ。
+  // X(旧 Twitter)へ出す口。絵と値を投稿サーバへ送り、下書きを開く。
   // 絵は**公式の素材が要る**(自分で描いた × 印は「閉じる」に見えてしまう)ので、
   // それが来るまでは文字で置いておく。ほかの SNS もここへ並べる
-  shareSendBtn = mkBtn('POST TO X', () => { shareStatusEl.textContent = 'X: NOT CONNECTED YET'; });
+  shareSendBtn = mkBtn('POST TO X', () => postShareToX());
   // いま板に載っている 1 枚を手元へ落とす。**ALT+S(クリップボード)の代わり**に、
   // キーボードの無い端末でも絵を持ち出せるようにするためのもの
   mkBtn('SAVE IMAGE', () => saveShareImage());
@@ -4549,6 +4549,109 @@ function saveShareImage() {
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 10000);
     shareStatusEl.textContent = 'IMAGE SAVED';
+  }, 'image/png');
+}
+
+// ---- X へ投稿する ----
+// 画像と**値だけ**を投稿サーバへ送り、**文言はサーバが作る**(こちらで組み立てない)。
+// 送る口は online/ にあるので、そこを外した配布物では黙って「繋がっていない」と出す。
+//   何を送るか … 記録を登録し終えたあとは high-score、それ以外は playing
+//   画像      … いま板に載っている 1 枚(528x400 の PNG。十数 KB で、上限 1MB に収まる)
+const SNS_ENDPOINT = 'https://mmsxx-sns-sharing-server.harayoki.workers.dev';
+const SNS_GAME_ID = 'star-fable';
+// サーバが返す失敗の合図を、板に出す短い英語にする
+const SNS_MESSAGES = {
+  TURNSTILE_REQUIRED: 'CHECK FAILED - RELOAD THE PAGE',
+  TURNSTILE_INVALID: 'CHECK FAILED - TRY AGAIN',
+  TURNSTILE_UNAVAILABLE: 'CHECK SERVICE IS DOWN - TRY LATER',
+  TURNSTILE_CLIENT_ERROR: 'CHECK FAILED - TRY AGAIN',
+  TURNSTILE_CLIENT_TIMEOUT: 'CHECK TIMED OUT - TRY AGAIN',
+  RATE_LIMITED: 'TOO MANY POSTS - PLEASE WAIT A WHILE',
+  ORIGIN_NOT_ALLOWED: 'CANNOT POST FROM HERE',
+  PAYLOAD_TOO_LARGE: 'IMAGE TOO LARGE',
+  INVALID_METADATA: 'BAD DATA - PLEASE REPORT THIS',
+  NETWORK_ERROR: 'NETWORK ERROR - CHECK YOUR CONNECTION',
+};
+let snsClient = null;        // 投稿の口(1 回だけ作る)
+let snsClientTried = false;  // 作ろうとしたか(無い配布物で何度も試さない)
+
+/** 投稿の口を用意する。online/ を外した配布物では null が返る */
+async function getSnsClient() {
+  if (snsClient || snsClientTried) return snsClient;
+  snsClientTried = true;
+  try {
+    const { createShareClient } = await import('../online/sns-share-client.js');
+    // 手元(DEV)は Turnstile を通さない。本番だけ必須
+    snsClient = createShareClient({ endpoint: SNS_ENDPOINT, turnstile: !DEV });
+  } catch (e) {
+    mmsxx.errors.log('sns: client not available: ' + e);
+  }
+  return snsClient;
+}
+
+/**
+ * 送る中身を決める。
+ * **記録を登録し終えたあと**は high-score、遊んでいる最中などは playing。
+ * 値はサーバの決まり(名前 5 文字 / 得点 9 桁 / 順位 1..100 / モード 9 文字)に丸める。
+ * playing は値を 1 つも入れてはいけない(定義外の名前は 400 になる)
+ */
+function snsShareMetadata() {
+  const rec = (state !== 'play' && entryTarget === 'score' && submitRank >= 0 && submitEntry)
+    ? submitEntry : null;
+  if (!rec) {
+    return { gameId: SNS_GAME_ID, templateKey: 'playing', destinationPath: '/', values: {} };
+  }
+  return {
+    gameId: SNS_GAME_ID,
+    templateKey: 'high-score',
+    destinationPath: '/',
+    values: {
+      playerName: String(rec.name || 'NONAME').slice(0, NAME_MAX),
+      score: Math.max(0, Math.min(999999999, Math.round(rec.score || 0))),
+      rank: Math.max(1, Math.min(HISCORE_MAX, submitRank + 1)),
+      mode: shareModeName().slice(0, 9),
+    },
+  };
+}
+
+/** 投稿しているあいだは板のボタンを押せなくする(二重に送らないため) */
+function setShareBusy(on) {
+  shareBusy = on;
+  for (const it of shareItems) it.el.disabled = on;
+  shareLeftBtn.disabled = shareRightBtn.disabled = on;
+  if (!on) {
+    // 端まで来た矢印と、録れていない動画のボタンは元どおり押せないままにする
+    drawShareShot();
+    updateShareMovieBtn();
+  }
+}
+
+/**
+ * いまの絵と値を投稿サーバへ送り、返ってきた URL で X の下書きを開く。
+ * **文言と行き先はサーバが決めたもの**をそのまま使う
+ */
+function postShareToX() {
+  if (shareBusy) return;
+  if (!shareShot) { shareStatusEl.textContent = 'NO IMAGE'; return; }
+  setShareBusy(true);
+  shareStatusEl.textContent = 'POSTING...';
+  const tell = (msg) => { if (shareOpen) shareStatusEl.textContent = msg; };
+  shareShot.toBlob(async (blob) => {
+    try {
+      if (!blob) { tell('NO IMAGE'); return; }
+      const client = await getSnsClient();
+      if (!client) { tell('X: NOT CONNECTED'); return; }
+      const data = await client.submit({ image: blob, metadata: snsShareMetadata() });
+      window.open('https://x.com/intent/post?text=' + encodeURIComponent(data.postText)
+        + '&url=' + encodeURIComponent(data.shareUrl), '_blank', 'noopener');
+      tell('OPENED X');
+    } catch (e) {
+      const code = e && e.code;
+      tell(SNS_MESSAGES[code] || 'COULD NOT POST');
+      mmsxx.errors.log('sns: post failed: ' + code + ' / ' + (e && e.message));
+    } finally {
+      setShareBusy(false);
+    }
   }, 'image/png');
 }
 
