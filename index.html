@@ -31,21 +31,16 @@
     font-family: monospace;
     font-size: 13px;
   }
-  /* 画面と道具立てを横に並べる。**縦の余白は使わない**
-     (横向きで遊ぶと縦は余らないが、横は余るため) */
   #stage {
     display: flex;
     align-items: center;
     gap: 8px;
   }
-  /* ボタンは画面の右の余白に縦に積む。増えても下へ伸びるだけ */
   #tools {
     display: flex;
     flex-direction: column;
     gap: 8px;
   }
-  /* 絵はゲーム側が入れる。**画面のスプライトと同じドット絵**を 2 倍にしたもので、
-     絵文字ではない(絵文字は環境ごとに字形が違い、画面と食い違うため) */
   #tools button {
     font-size: 20px;
     line-height: 1;
@@ -60,8 +55,6 @@
     cursor: pointer;
   }
   #tools button:hover { border-color: #ffe000; }
-  /* スマホでの断り。**画面は見せる**が、まだ遊べないことを赤で伝える。
-     ふだんは隠しておき、幅がせまいか指で触る端末のときだけ出す */
   p.mobile {
     display: none;
     color: #ff5555;
@@ -73,7 +66,6 @@
   @media (max-width: 820px), (pointer: coarse) {
     p.mobile { display: block; }
   }
-  /* お知らせ。操作の説明より控えめに、日本語と英語を並べて出す */
   p.notice {
     color: #6b7288;
     font-size: 12px;
@@ -97,17 +89,7 @@
 </style>
 </head>
 <body>
-<!-- 画面と、その**横の余白**に置く道具立て。
-     縦は横向きで遊ぶと余らないので、ボタンは左右へ逃がす。
-     **キャンバスの外(DOM)に置く**ので、共有の絵にも録画にも写らない。
-     ここへシェアや X のボタンも足していく -->
 <div id="stage">
-  <!-- 大きさを書いておく。書かないと読み込みが終わるまで canvas の既定(300x150)の
-       小さな四角に見えるため。エンジンが動き出せば上書きされるので、
-       ここは**始まるまでの場所取り**でしかない。
-       数は等倍の画面 1 枚ぶん = 256x192 にボーダー 8 を四方へ足したもの
-       (ボーダーは game/main.js の setBorder(8))。実寸と同じにしてあるので、
-       始まったときに大きさが飛ばない -->
   <canvas id="screen" width="272" height="208"></canvas>
   <div id="tools">
     <button id="mute" type="button" title="SOUND ON / OFF"></button>
@@ -124,7 +106,6 @@
 </p>
 <pre id="error"></pre>
 <script>
-  // 読み込みや実行に失敗したとき、原因を画面に出す(サーバに上げたときの切り分け用)
   function showError(msg) {
     var el = document.getElementById('error');
     el.style.display = 'block';
@@ -145,7 +126,6 @@
   }
 </script>
 <script type="module" src="./game/main.js"></script>
-<!-- デバッグ用: コンソールで mmsxxExportWav('main') と打つと WAV を書き出す -->
 <script type="module" src="./game/wavexport.js"></script>
 </body>
 </html>
