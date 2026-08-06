@@ -287,7 +287,7 @@ await board.submit(entry)  // 登録して、サーバが数えた順位を受�
 
 ### 通信の遅さと失敗を試す
 
-サーバがまだ無いうちに「取れるまでのあいだ何が見えているか」
+サーバへ繋がなくても「取れるまでのあいだ何が見えているか」
 「取れなかったときどうなるか」を確かめられます。
 
 ```js
@@ -324,7 +324,7 @@ LocalRankingSource.defaultErrorRate = 0.3;  // 既定を 3 割にする
 
 ```js
 new RemoteRankingSource({
-  baseUrl: 'https://ranking.example.com',
+  dev: true,                       // 開発用サーバか本番か(URL は部品側が持つ)
   browserId,                       // 値でも関数でもよい
   playId: () => currentPlayId,     // 送るたびに今の値を聞く
   timeoutMs: 5000,
@@ -353,6 +353,26 @@ new RemoteRankingSource({
 - それ以外の失敗はすべて `RankingRequestError`（`status` と `code` を持つ）にそろえます
 - `timeoutMs` を過ぎたらあきらめます。取れなくても遊びは止まらないので短くて構いません
 - `playId` は 1 プレイに 1 つ。送り直しても同じ ID を使えば二重に載りません
+- `playId` / `browserId` は **UUID の形**でなければ受け取ってもらえません
+
+宛先（開発用と本番の URL）は**部品側が両方とも持っていて**、`dev` で選びます。
+引っ越したときに直す場所を 1 か所にするためです。別の宛先を見たいときだけ
+`baseUrl` を渡すと、そちらが優先されます。
+
+### 送信確認（Turnstile）
+
+`turnstile` を渡すと、記録を送る直前に Cloudflare Turnstile のトークンを
+1 枚もらって一緒に送ります。**既定では本番（`dev: false`）のときだけ**有効で、
+開発用サーバへは何も添えません（`turnstile: null` で明示的に切れます）。
+
+→ [online/turnstile.js](../online/turnstile.js)
+
+- Cloudflare のスクリプトを読むのは**初めて記録を送るとき**だけ。
+  起動時にも一覧を取るときにも通りません
+- ふだんは画面に何も出ません（怪しいと判断されたときだけ確認の枠が出ます）
+- トークンは使い捨てなので送るたびに取り直し、枠が 1 つなので送信は 1 件ずつ通します
+- 失敗も `RankingRequestError` にそろえるので、呼ぶ側は場合分けが要りません
+- `siteKey` は公開してよい値です。**secret key はゲームに入れません**
 
 ---
 

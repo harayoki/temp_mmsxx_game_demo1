@@ -2,7 +2,10 @@
 
 [HANDOFF_RANKING.md](HANDOFF_RANKING.md) を受けて、人間から渡された
 「ランキングサーバ仕様書」（Cloudflare Workers + D1）と突き合わせて決めた内容。
-**サーバはまだ無い。この文書の時点では通信は書いていない。**
+
+**繋ぎ終わった。** DEV も本番も動いていて、本番は登録時に Turnstile を通る。
+以下は「なぜそう決めたか」の記録として残してある（決めごとは今もそのまま生きている）。
+いまの姿は [UTIL.md](UTIL.md) と [online/README.md](../online/README.md) を見ること。
 
 ## 前提（いちばん大事なところ）
 
@@ -104,7 +107,8 @@ await board.submit(entry)  // 登録して正しい順位を受け取る
 
 ### 通信の遅さと失敗を手元で試す
 
-サーバがまだ無いので、`LocalRankingSource` に**遅れ**と**失敗**を入れられるようにしてある。
+サーバへ繋がなくても遅さと失敗を試せるよう、`LocalRankingSource` に
+**遅れ**と**失敗**を入れられるようにしてある。
 
 ```js
 new LocalRankingSource({ delay: 5 })        // 取得・登録に 5 秒かかることにする
@@ -137,18 +141,21 @@ STAR FABLE では URL で切り替えられる（どちらも既定は 0）。
 | 3 | `game/main.js` の import と 3 表の生成を差し替え | **はい**（import 1 行で戻せる） |
 | 4 | `enterTitle()` で `refresh()` を投げっぱなしにする＋スクロール位置の丸め | はい |
 | 5 | `roundHiScores()` / `reset()` をローカル専用の扱いへ寄せる | はい |
-| 6 | `RemoteRankingSource` を書く＋`playId` / `browserId` を作る | いいえ（**まだ繋がない**） |
-| 7 | `source` を差し替えて実際に通信する | サーバ完成後 |
+| 6 | `RemoteRankingSource` を書く＋`playId` / `browserId` を作る | いいえ |
+| 7 | `source` を差し替えて実際に通信する | はい |
 | 8 | [UTIL.md](UTIL.md) に口の形を追記 | いいえ |
+| 9 | 通信する実装を `online/` へ隔離する | はい（動的 import 1 か所） |
+| 10 | 本番の登録に Turnstile を足す | いいえ（`online/` の中だけ） |
 
-**8 まで完了。7 はゲーム側だけ先に済ませてある。**
+**全部済み。**
 
 - 名前登録は `add()` → **`await submit()`**。サーバが数えた順位を使う
 - 待たせるあいだの見せかた（`SENDING RECORD` → 結果 → キー待ち）も実装済み
-- 繋ぎ先を **`local` / `dev` / `prod`** から選ぶところまで入っている
+- 繋ぎ先を **`local` / `dev` / `prod`** から選ぶ。既定は `local`
 
-残っているのは**通信する部品そのもの**だけ。できあがったら
-`makeRemoteRankSource()` の中身を 1 行差し替えれば繋がる。
+9 と 10 は当初の計画に無かったぶん。**ソースを一般公開するときに、外へ送る
+コードだけを外せるように**した結果で、繋ぎ目は `makeRemoteRankSource()` の
+1 か所のまま変わっていない。→ [online/README.md](../online/README.md)
 
 ## 3 のときに気をつけること
 
@@ -178,7 +185,7 @@ STAR FABLE では URL で切り替えられる（どちらも既定は 0）。
 
 ```js
 new RemoteRankingSource({
-  baseUrl: 'https://ranking.example.com',
+  dev,                                 // 宛先は部品側が両方とも知っている
   browserId, playId: () => playId,     // 値でも関数でもよい
   games: {
     'starfable-hiscores-easy': { gameId: 'star-fable-normal', rankingKey: 'high-score', valueKey: 'score' },
@@ -196,6 +203,27 @@ new RemoteRankingSource({
 - それ以外の失敗はすべて `RankingRequestError` にそろえる
 - `playId` は 1 プレイに 1 つ。送り直しても同じ ID を使うので二重に載らない
 - `browserId` は `starfable-browser-id` に永続。消されれば別人になるが、それでよい
+- `playId` / `browserId` はどちらも **UUID の形しか受け取ってもらえない**
+  （形が違うと `INVALID_SUBMISSION`）
+
+## 送信確認（Turnstile）— 本番だけ
+
+**本番へ記録を送るときだけ**、Cloudflare Turnstile のトークンを 1 枚添える。
+→ [online/turnstile.js](../online/turnstile.js)
+
+- 開発用サーバは求めてこないので、`dev: true` では**何も読み込まない**
+- Cloudflare のスクリプトを読むのは**初めて記録を送るとき**。起動時にも
+  一覧を取るときにも通らない（遊ぶ前に待たせないため）
+- ふだんは画面に何も出ない（`appearance: 'interaction-only'`）
+- トークンは使い捨て。送るたびに取り直し、枠が 1 つなので送信は 1 件ずつ通す
+- 失敗は `RankingRequestError` にそろえるので、「もう一度送るか」がそのまま効く
+
+`siteKey` は公開してよい値。**秘密なのはサーバが持つ secret key** で、
+ゲームには一切入らない。
+
+**これでなりすましは防げない。** curl やスクリプトからの直接の書き込みは
+止まるが、本物のブラウザで値を書き換える人は止まらない。効いているのは
+レート制限・値の範囲検査・管理 API での削除で、**入ってから消す**が現実解。
 
 ## 7 — 通信する部品への引き渡し
 
