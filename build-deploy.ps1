@@ -72,10 +72,9 @@ if ($LogoTrap) { $trapFlag = 'true' } else { $trapFlag = 'false' }
 # 増えるのは**公開版(web)を作ったときだけ**。手元用(-Local)は今の番号をそのまま使う。
 # 番号は「何を配ったか」を指すものなので、配らないビルドで進めない。
 #
-# **正式公開までは 0 で止めてある。** 出す前の作り直しで番号だけが進んでも
-# 意味がないため。正式公開のときに $FreezeBuildNumber を $false にすれば、
-# そこから数え始める
-$FreezeBuildNumber = $true
+# **公開版を作るたびに 1 つ増やす。** 上げたものが最新かどうかを、
+# タイトルの版で見分けられるようにするため($true にすると 0 で止まる)
+$FreezeBuildNumber = $false
 $numPath = Join-Path $root 'build-number.txt'
 if (Test-Path $numPath) { $buildNo = [int](Get-Content $numPath -Raw).Trim() } else { $buildNo = 0 }
 if ($FreezeBuildNumber) {
