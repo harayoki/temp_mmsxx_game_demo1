@@ -4614,6 +4614,29 @@ function snsShareMetadata() {
   };
 }
 
+// カードの大きさ。SNS が想定しているのは **1200x630**。
+// 画面は 4:3 なのでそのままでは上下が切られる。**整数倍で拡げて真ん中に置き**、
+// 余りは黒で埋める(ドットの角が溶けないよう、拡大はいつも整数倍)
+const CARD_W = 1200, CARD_H = 630;
+
+/** 投稿用の 1 枚を作る。板に見せている絵を 1200x630 の帯の真ん中へ置く */
+function makeShareCardCanvas() {
+  const src = shareBack >= 0 ? mmsxx.frameBackCanvas(shareBack) : shareFixed;
+  if (!src) return null;
+  const scale = Math.max(1, Math.min(
+    Math.floor(CARD_W / src.width), Math.floor(CARD_H / src.height)));
+  const w = src.width * scale, h = src.height * scale;
+  const out = document.createElement('canvas');
+  out.width = CARD_W;
+  out.height = CARD_H;
+  const cx = out.getContext('2d');
+  cx.fillStyle = '#000000';
+  cx.fillRect(0, 0, CARD_W, CARD_H);
+  cx.imageSmoothingEnabled = false;
+  cx.drawImage(src, Math.floor((CARD_W - w) / 2), Math.floor((CARD_H - h) / 2), w, h);
+  return out;
+}
+
 /** 投稿しているあいだは板のボタンを押せなくする(二重に送らないため) */
 function setShareBusy(on) {
   shareBusy = on;
@@ -4632,11 +4655,13 @@ function setShareBusy(on) {
  */
 function postShareToX() {
   if (shareBusy) return;
-  if (!shareShot) { shareStatusEl.textContent = 'NO IMAGE'; return; }
+  // 送るのは板に見せている絵そのものではなく、**カードの形に整えた 1 枚**
+  const card = makeShareCardCanvas();
+  if (!card) { shareStatusEl.textContent = 'NO IMAGE'; return; }
   setShareBusy(true);
   shareStatusEl.textContent = 'POSTING...';
   const tell = (msg) => { if (shareOpen) shareStatusEl.textContent = msg; };
-  shareShot.toBlob(async (blob) => {
+  card.toBlob(async (blob) => {
     try {
       if (!blob) { tell('NO IMAGE'); return; }
       const client = await getSnsClient();
