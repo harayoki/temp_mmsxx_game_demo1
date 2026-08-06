@@ -140,11 +140,17 @@ function transposeMML(mml, semitones) {
       i = j;
       continue;
     }
-    // 命令や記号はそのまま。@ のあとの英字 1 文字も一緒に通す
+    // 命令や記号はそのまま。@ のあとの英字と、**{…} の中身はまるごと**通す。
+    // 中の "e" や "a" を音符と間違えて書き替えると、
+    // @{pulse50} が @{pulso4 f50} に、@e{flat} が @e{f+la+t} に化ける
     if (ch === '@') {
       out += ch;
       i++;
-      if (/[a-z]/.test(mml[i] || '')) out += mml[i++];
+      while (/[a-z]/i.test(mml[i] || '')) out += mml[i++];
+      if (mml[i] === '{') {
+        while (i < mml.length && mml[i] !== '}') out += mml[i++];
+        if (mml[i] === '}') out += mml[i++];
+      }
       continue;
     }
     out += ch;
@@ -2608,6 +2614,53 @@ function makeBoom(seed, radius, colors) {
 // **どれも白 1 色**で作る。色はゲーム側がコマごとに差し替える
 // (単色スプライトなので、絵を色数ぶん持つ必要がない)
 const boom0 = makeBoom(11, 4.5, ['#ffffff']);
+
+// 自機が散るときの**芯**。爆発(boom0)は半径 4.5 ドットしかなく、
+// 真ん中に置いても小さくて見えないので、16x16 いっぱいの光を別に用意する。
+//
+// **2 コマのアニメ**にする。1 コマめは縦横の角が太く斜めが細い星、
+// 2 コマめはそれを 45 度傾けた形(斜めが太く、縦横が細い)。
+// 交互に出すと、光がくるくる回っているように見える。
+// どちらも **真ん中が白・外が水色**(透明を入れて 3 色)
+const DEATH_CORE_ART0 = [
+  '.......++.......',
+  '.......++.......',
+  '......++++......',
+  '.+....++++....+.',
+  '..+..++++++..+..',
+  '...+.######.+...',
+  '..+++######+++..',
+  '+++++######+++++',
+  '+++++######+++++',
+  '..+++######+++..',
+  '...+.######.+...',
+  '..+..++++++..+..',
+  '.+....++++....+.',
+  '......++++......',
+  '.......++.......',
+  '.......++.......',
+];
+const DEATH_CORE_ART1 = [
+  '++............++',
+  '+++..........+++',
+  '.+++...++...+++.',
+  '..+++..++..+++..',
+  '...+++....+++...',
+  '....+##..##+....',
+  '.....######.....',
+  '..++.######.++..',
+  '..++.######.++..',
+  '.....######.....',
+  '....+##..##+....',
+  '...+++....+++...',
+  '..+++..++..+++..',
+  '.+++...++...+++.',
+  '+++..........+++',
+  '++............++',
+];
+const CORE_INK = { '#': '#ffffff', '+': '#65dbef' };   // 白 / 水色(色 7)
+const deathCore0 = fromAscii(DEATH_CORE_ART0, CORE_INK);
+const deathCore1 = fromAscii(DEATH_CORE_ART1, CORE_INK);
 const boom1 = makeBoom(22, 7.0, ['#ffffff']);
 const boom2 = makeBoom(33, 8.0, ['#ffffff']);
 
@@ -4576,22 +4629,104 @@ const BGM_START = [
   't152 q8 v13 @{pulse25} @e{flat} @d10 @s2' +
   ' l16 o5 a8 r a >c8< a8  e8 r e g8 e8' +          // 休符を食う刻み
   ' l16 o4 a b >c d e f g a b >c d e f g a b' +     // 一気に駆け上がる
-  ' l8 o6 c2 r o5 b o6 c4',                         // 決め
+  ' l8 o6 c4 r o5 b o6 c4',                         // 決め(伸ばしは 1 拍で切る)
   // ハモリ(3 度下)
   't152 q8 v9 @{pulse50} @e{flat} @s3' +
   ' l16 o5 e8 r e a8 e8  c8 r c e8 c8' +
   ' l16 o4 f g a b >c d e f g a b >c d e f g' +
-  ' l8 o5 a2 r g a4',
+  ' l8 o5 a4 r g a4',
   // ベース
   't152 q8 v12 @{triangle} @e{flat}' +
   ' l8 o2 a a >a< a  e e >e< e' +
   ' l8 o2 a a >a< a  e e >e< e' +
-  ' l8 o2 a4 r4 o1 a2',
+  ' l8 o2 a4 r4 o1 a4',
   // ドラム
   '@{noise} @e{percussive} t152 l8' +
   ' v13o2c v6o6c v11o4c v6o6c v13o2c v6o6c v11o4c v6o6c' +
   ' v13o2c v6o6c v11o4c v6o6c v13o2c v6o6c v11o4c v6o6c' +
-  ' v13o2c v6o6c v11o4c v6o6c v14o1c2',
+  ' v13o2c v6o6c v11o4c v6o6c v14o1c4',
+];
+
+// ---- 開始ジングルの候補 ----
+// どれも 3 小節・4 トラック(メロディ / ハモリ / ベース / ドラム)で、
+// いまの BGM_START と同じ長さ(約 4.7 秒)に収めてある。
+// 鳴らして選べるよう、MUSIC モードの JINGLE に START1〜4 として並べてある。
+
+// 候補 1: いまのジングルに近いもの。イ短調・刻み -> 駆け上がり -> 決め。
+// 刻みの形と終わりかただけ変えてある(駆け上がりは今のまま)
+const BGM_START1 = [
+  't152 q8 v13 @{pulse25} @e{flat} @d10 @s2' +
+  ' l8 o5 a a e a  >c< b a r' +                     // 刻み(休符を最後に置く)
+  ' l16 o4 a b >c d e f g a b >c d e f g a b' +     // 一気に駆け上がる
+  ' l8 o6 c4 o5 b8 o6 c8 o6 e4',                    // 決めの 5 度は 1 拍で切る
+  't152 q8 v9 @{pulse50} @e{flat} @s3' +
+  ' l8 o5 e e c e  a g e r' +
+  ' l16 o4 f g a b >c d e f g a b >c d e f g' +
+  ' l8 o5 a4 g8 a8 o6 c4',
+  't152 q8 v12 @{triangle} @e{flat}' +
+  ' l8 o2 a a >a< a  e e >e< e' +
+  ' l8 o2 a a >a< a  e e >e< e' +
+  ' l8 o2 a4 r4 o1 a4',
+  '@{noise} @e{percussive} t152 l8' +
+  ' v13o2c v6o6c v11o4c v6o6c v13o2c v6o6c v11o4c v6o6c' +
+  ' v13o2c v6o6c v11o4c v6o6c v13o2c v6o6c v11o4c v6o6c' +
+  ' v13o2c v6o6c v11o4c v6o6c v14o1c4',
+];
+
+// 候補 2: 魔城伝説のような、勇ましい短調。4 度の跳ねと導音(g+)で締める
+const BGM_START2 = [
+  't160 q8 v13 @{pulse25} @e{flat} @d10 @s2' +
+  ' l8 o5 e a >c< a e4 a4' +          // 跳ね上がる主題
+  ' l8 o5 f e d e g+4 b4' +           // 下りてから導音へ
+  ' l8 o6 c4 o5 b4 o5 a4',            // 主音へ決める(伸ばしは 1 拍)
+  't160 q8 v9 @{pulse50} @e{flat} @s3' +
+  ' l8 o5 c e a e c4 e4' +
+  ' l8 o5 d c o4 b o5 c o5 e4 g+4' +
+  ' l8 o5 a4 g+4 e4',
+  't160 q8 v12 @{triangle} @e{flat}' +
+  ' l8 o2 a a a a e e e e' +
+  ' l8 o2 d d d d e e e e' +
+  ' l8 o2 a4 e4 a4',
+  '@{noise} @e{percussive} t160 l8' +
+  ' [v13o2c v6o6c v11o4c v6o6c]5 v14o1c4',
+];
+
+// 候補 3: ファイナルジャスティスのような、明るく忙しない長調。
+// 細かい刻みを挟んで、跳ねる 8 分でつなぐ
+const BGM_START3 = [
+  't168 q8 v13 @{pulse12} @e{flat} @d8 @s2' +
+  ' l16 o5 g g r g >c< g e g  l8 o5 a g e c' +
+  ' l16 o5 f f r f a f d f  l8 o5 g b o6 d o5 b' +
+  ' l8 o6 c4 o5 g4 o6 c4',
+  't168 q8 v9 @{pulse50} @e{flat} @s2' +
+  ' l16 o5 e e r e g e c e  l8 o5 f e c o4 g' +
+  ' l16 o5 d d r d f d o4 b o5 d  l8 o5 e g b g' +
+  ' l8 o5 g4 e4 g4',
+  't168 q8 v12 @{triangle} @e{flat}' +
+  ' l8 o2 c c o3 c o2 c  o2 g g o3 g o2 g' +
+  ' l8 o2 f f o3 f o2 f  o2 g g o3 g o2 g' +
+  ' l8 o2 c4 g4 o1 c4',
+  '@{noise} @e{percussive} t168 l8' +
+  ' [v13o2c v6o6c v11o4c v6o6c]5 v14o1c4',
+];
+
+// 候補 4: スターフォースのような、同じ音を細かく刻んで駆け上がる長調。
+// ドラムも 16 分で詰めて、始まりの勢いを出す
+const BGM_START4 = [
+  't176 q8 v13 @{pulse25} @e{flat} @d8 @s3' +
+  ' l16 o5 c c c c e e e e g g g g  l8 o6 c o5 g' +
+  ' l16 o5 e e e e g g g g o6 c c c c  l8 o6 e c' +
+  ' l8 o6 c4 e4 g4',
+  't176 q8 v9 @{pulse50} @e{flat} @s2' +
+  ' l16 o4 g g g g o5 c c c c o5 e e e e  l8 o5 g e' +
+  ' l16 o5 c c c c e e e e g g g g  l8 o6 c o5 g' +
+  ' l8 o5 g4 o6 c4 e4',
+  't176 q8 v12 @{triangle} @e{flat}' +
+  ' l8 o2 c c c c g g g g' +
+  ' l8 o2 a a a a g g g g' +
+  ' l8 o2 c4 g4 o1 c4',
+  '@{noise} @e{percussive} t176 l16' +
+  ' [v13o2c v5o6c v5o6c v5o6c v11o4c v5o6c v5o6c v5o6c]5 v14o1c4',
 ];
 
 // 1UP のファンファーレ。BGM をいったん黙らせてこれを鳴らす。
@@ -4911,8 +5046,12 @@ const SE = {
   // 太いビームを撃っているあいだの音。**半音高い版**。
   // 細くなる段階で元の高さへ落ちるので、「弱まった」ことが音でも分かる
   // 半音上げると倍音が増えて、同じ音量でも耳につく。5 段下げてつり合いを取る
+  // 波形は**4 声とも pulse50 でそろえる**。長いあいだ transposeMML が
+  // @{...} の中まで書き替えていて、名前が壊れたぶんは既定(pulse50)で鳴っていた。
+  // その音で通っているので、transposeMML を直したあとも同じ音になるようここで固定する
   laserHi: LASER_SE.map((m) => transposeMML(m, 1)
-    .replace(/(?<!@)v(\d+)/g, (_, n) => 'v' + Math.max(1, Number(n) - 5))),
+    .replace(/(?<!@)v(\d+)/g, (_, n) => 'v' + Math.max(1, Number(n) - 5))
+    .replace(/@\{[^}]*\}/g, '@{pulse50}')),
   // ドラゴンの突進。「ゴギャ――――」と叫ぶ
   dragonRoar: ['@{noise} @e{percussive} t120 v15 o2 l32 c c r16 @e{flat} v9 o1 l2 c&c',
                '@{saw} @e{flat} @v7 t120 v15 o3 l32 g > d < b a g f e d @e{flat} l2 o2 c&c',
@@ -6291,7 +6430,7 @@ const images = {
   ufoFist: pad16(ufoFist), todoFace, todoBlush, todoGlint,
   gearBlock, gearGem, gearSpark1, gearWeak0, gearWeak1, nautilus, nautilusHurt,
   pilotEye, pilotWink, pilotSmile, pilotPupil, riftGlow,
-  spark0, spark1, spark2, deathSpark, markLol, markWw, markW,
+  spark0, spark1, spark2, deathSpark, deathCore0, deathCore1, markLol, markWw, markW,
   ...gearIcons,
   guiNext0: guiNext[0], guiNext1: guiNext[1],
   guiNext2: guiNext[2], guiNext3: guiNext[3], pilot, pilotBig, pilotTurnBig, whaleStar, birdStar, dragonStar, shipStar,
@@ -6528,6 +6667,8 @@ const out =
     images: imagesOut,
     bgm: {
       start: BGM_START, fanfare: BGM_BONUS, main: BGM_MAIN,
+      // 開始ジングルの差し替え候補(MUSIC モードで鳴らして選ぶ)
+      start1: BGM_START1, start2: BGM_START2, start3: BGM_START3, start4: BGM_START4,
       // フルパワー時は「幻想即興曲」。前の曲は没曲 1 として残す
       power: BGM_IMPROMPTU, botsu1: BGM_POWER,
       boss: BGM_BOSS, lastboss: BGM_LASTBOSS, moai: BGM_MOAI, todo: BGM_TODO, // 面クリアのマーチ。いまは鳴らしていない(そのうち使う)ので UNUSED1 の名前で置いてある

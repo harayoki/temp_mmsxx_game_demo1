@@ -313,6 +313,8 @@ const SPRITE_COLORS = {
   // 型を分けたときに、宣言もれが見つかったぶん
   powerUp: 1, eyeIris0: 1, gearGem: 1, glower0: 1, spark0: 1, todoGlint: 1,
   deathSpark: 1,   // 自機が散るときの光(白 1 色。色は使う側で替える)
+  deathCore0: 2,   // 自機が散るときの芯(16x16 の 2 コマアニメ。白 + 水色)
+  deathCore1: 2,
   barrierItem: 1, bulletRing: 1, enemyH: 1, enemyI: 1, enemyJ: 1,
   fireBall: 1, fireBall1: 1, fireBall2: 1, fireM0: 1, fireM1: 1, fireS0: 1, fireS1: 1,
   chick0: 1, chick1: 1,   // 気絶のときに頭を回るひよこ
@@ -1814,7 +1816,7 @@ function clearEntities() {
   for (const e of enemies) mmsxx.removeSprite(e.sp);
   for (const b of enemyBullets) mmsxx.removeSprite(b.sp);
   for (const b of booms) {
-    mmsxx.removeSprite(b.sp);
+    if (b.sp) mmsxx.removeSprite(b.sp);
     if (b.core) mmsxx.removeSprite(b.core);   // 芯も一緒に片づける
   }
   for (const it of items) mmsxx.removeSprite(it.sp);
@@ -2583,35 +2585,62 @@ function clearPopups() {
 const BOOM_MAP1 = { 15: 11 };   // 黄
 const BOOM_MAP2 = { 15: 9 };    // 明るい赤
 
+// 芯の見せかた。2 枚の絵を**交互に**出す。ふだんの芯は白 <-> 水色の色替え、
+// 自機の芯は 45 度ちがいの 2 コマアニメ。
+// 出しているコマ数は、ふだんは短く、自機が散るときだけ長い
+const CORE_FLIP = 4;                 // 何コマごとに絵を替えるか
+const CORE_LIFE = 8, CORE_LIFE_LONG = 30;
+let coreBigImg = null;               // 自機ぶんの芯(初めて使うときに作る)
+
+/**
+ * 自機が散るときの芯。8x8 の光だと散る粒と見分けが付かず、爆発の絵(boom0)も
+ * 半径 4.5 ドットで小さいので、**16x16 いっぱいの専用の星形**を使う。
+ * 2 コマは 45 度ちがい(太いところと細いところが逆)なので、
+ * 交互に出すと光が回って見える。色は絵のほうに白 + 水色で入っている
+ */
+function bigCoreImages() {
+  if (!coreBigImg) coreBigImg = [SPRITE_SYMBOLS.deathCore0, SPRITE_SYMBOLS.deathCore1];
+  return coreBigImg;
+}
+
 /** 爆発のコマ送り。ふだんの更新と、名乗り待ちの演出の両方から呼ぶ */
 function updateBooms() {
   for (const b of [...booms]) {
     b.age++;
-    // 芯は白から水色へ移して、短く消す(爆発より先に引く)
+    // 芯は 2 枚を行き来させて、消えるまでちらちらさせる
     if (b.core) {
-      if (b.age === 4) b.core.image = deathSparks()[1];
-      else if (b.age >= 8) { mmsxx.removeSprite(b.core); b.core = null; }
+      if (b.age % CORE_FLIP === 0) {
+        b.core.image = b.coreImgs[(b.age / CORE_FLIP) % 2];
+      }
+      if (b.age >= b.coreLife) { mmsxx.removeSprite(b.core); b.core = null; }
     }
     // 絵は白 1 色なので、**コマごとに色を替えて**熱が冷める様子を出す
     if (b.age === 5) { b.sp.image = SPRITE_SYMBOLS.boom1; b.sp.colorMap = BOOM_MAP1; }
     else if (b.age === 10) { b.sp.image = SPRITE_SYMBOLS.boom2; b.sp.colorMap = BOOM_MAP2; }
-    else if (b.age >= 15) {
-      mmsxx.removeSprite(b.sp);
-      if (b.core) mmsxx.removeSprite(b.core);
-      booms.splice(booms.indexOf(b), 1);
-    }
+    else if (b.age === 15 && b.sp) { mmsxx.removeSprite(b.sp); b.sp = null; }
+    // 芯のほうが長生きすることがあるので、**両方消えてから**片づける
+    if (b.age >= 15 && !b.core) booms.splice(booms.indexOf(b), 1);
   }
 }
 
-function spawnBoom(x, y) {
+/** @param {boolean} bigCore true なら真ん中の芯を長く見せる(自機が散るとき) */
+function spawnBoom(x, y, bigCore = false) {
   const sp = mmsxx.sprite(SPRITE_SYMBOLS.boom0);
   sp.x = x; sp.y = y; sp.priority = 20;
-  // 真ん中に**白 -> 水色**の芯を置く。散りかたと同じ光を使うので、
-  // 敵を落としたときと自機が散るときで見た目がつながる
-  const core = mmsxx.sprite(deathSparks()[0]);
-  core.x = x + 4; core.y = y + 4;   // 爆発(16x16)の真ん中へ 8x8 を置く
-  core.priority = 22;
-  booms.push({ sp, core, age: 0 });
+  // 真ん中に**白と水色**の芯を置く。ふだんは散りかたと同じ 8x8 の光を
+  // 白 <-> 水色で、自機が散るときだけ 16x16 の 2 コマアニメで見せる
+  const imgs = bigCore ? bigCoreImages() : deathSparks();
+  const core = mmsxx.sprite(imgs[0]);
+  if (bigCore) { core.x = x; core.y = y; }
+  else { core.x = x + 4; core.y = y + 4; }   // 爆発(16x16)の真ん中へ 8x8 を置く
+  // 自機のぶんは**いちばん手前**へ出し、席の取り合いでも負けないようにする
+  // (横に 4 枚並ぶと消えてしまい、真ん中の光が見えないことがあった)
+  core.priority = bigCore ? 30 : 22;
+  if (bigCore) core.rank = 'always';
+  booms.push({
+    sp, core, age: 0, coreImgs: imgs,
+    coreLife: bigCore ? CORE_LIFE_LONG : CORE_LIFE,
+  });
 }
 
 // スコアの桁数(見栄えのため上位に 0 を 3 つ足した 10 桁表示)
@@ -3276,8 +3305,10 @@ function startStage() {
     playBGM('boss', true);
   } else {
     // 開始ジングルを鳴らし、鳴り終わってから本編 BGM に切り替える
-    playBGM('start', false, true);
-    // 開始ジングル(約 4.74 秒)のあと、少し間を置いてから本編 BGM に入る
+    // 開始ジングルはモードで替える。NORMAL はいままでの曲、
+    // HARD は決めを長く伸ばした候補 1(同じ曲の作り替え)
+    playBGM(hardNow() ? 'start1' : 'start', false, true);
+    // 開始ジングル(約 4.34 秒)のあと、少し間を置いてから本編 BGM に入る
     jingleTimer = 330;
     // ジングルのあいだ、いま何面かを大きく出す。
     // 裏技でしか出てこない面(本編の面数より大きい)は数字を出さない
@@ -4640,7 +4671,7 @@ function destroyPlayer(cause = 'unknown', noMercy = false) {
   else { mmsxx.keepFrames(SHARE_KEEP_SEC); mmsxx.keepSound(SHARE_KEEP_SEC); }
   // **白い光の渦**で散る。爆発を重ねると止め絵で汚くなるので、
   // 4 枚のスプライトを順ぐりに見せる形にしてある(spawnDeathBurst)
-  spawnBoom(player.x, player.y);          // 最初のひと膨らみだけ残す
+  spawnBoom(player.x, player.y, true);    // 最初のひと膨らみだけ残す(芯は長め)
   spawnDeathBurst(player.x, player.y);
   flashTimer = 5;
   // やられた瞬間に残っていた弾は消す(復活演出中に当たり続けないように)
@@ -7263,11 +7294,16 @@ function clearWeakSparks() {
 // どの瞬間に見えているのは 6 枚ほどで、残りは消えている。
 // 実機のスプライトのちらつきを、そのまま演出に使っている。
 const DEATH_GROUP = 2;         // 何コマに 1 回出すか(2 = 1 コマ出て 1 コマ消える)
-const DEATH_LIFE = 54;         // 散りきるまでのコマ数(0.9 秒)
+const DEATH_LIFE = 81;         // 散りきるまでのコマ数(1.35 秒)
 // 1 コマあたりに回る角度(度)。**360 を割り切れる数より少し小さく**する。
 // 割り切れると同じ絵が周期で戻ってきて、止まって見えてしまう
 const DEATH_SPIN = (1.9 * Math.PI) / 180;   // 2 度より少し小さい
-const DEATH_REACH = 32;        // 外の輪が広がりきる距離
+// **1 粒ごとに回る速さをばらす**倍率の幅。きっちり同じ速さで回すと、
+// ポーズで止めたときに模様に見えてしまう
+const DEATH_SPIN_VAR = 0.45;   // 0.55 ～ 1.45 倍
+// 同じ理由で、**広がりきる距離も 1 粒ごとにばらす**
+const DEATH_FAR_VAR = 0.22;    // 輪の距離の 0.78 ～ 1.22 倍
+const DEATH_REACH = 38;        // 外の輪が広がりきる距離(広がりすぎたので 8 割に)
 // 輪の作り。n = 枚数 / far = 広がる距離の割合 / turn = 回る向きと速さ /
 // off = 置きはじめの角度をずらす量(目盛りの何ぶんか)
 const DEATH_RINGS = [
@@ -7311,7 +7347,10 @@ function spawnDeathBurst(x, y) {
       sp.blinkPhase = k % DEATH_GROUP;
       sp.x = x; sp.y = y;
       deathBits.push({
-        sp, age: 0, x, y, far: ring.far, turn: ring.turn,
+        sp, age: 0, x, y,
+        // 距離と回る速さは**1 粒ずつ散らす**(見た目だけなので Math.random)
+        far: ring.far * (1 + (Math.random() * 2 - 1) * DEATH_FAR_VAR),
+        turn: ring.turn * (1 + (Math.random() * 2 - 1) * DEATH_SPIN_VAR),
         a0: (Math.PI * 2 * (i + ring.off)) / ring.n,
       });
       k++;
@@ -7324,7 +7363,10 @@ function spawnDeathBurst(x, y) {
     sp.blink = DEATH_GROUP;
     sp.blinkPhase = k % DEATH_GROUP;
     sp.x = x; sp.y = y;
-    deathBits.push({ sp, age: 0, x, y, hop: true, a0: 0, far: 1, turn: 0 });
+    deathBits.push({
+      sp, age: 0, x, y, hop: true, a0: 0, turn: 0,
+      far: 1 + (Math.random() * 2 - 1) * DEATH_FAR_VAR,
+    });
     k++;
   }
 }
@@ -7338,9 +7380,10 @@ function updateDeathBurst() {
       continue;
     }
     const t = b.age / DEATH_LIFE;
-    // 外へ出るのは速く、終わりはゆっくり(1 - (1-t)^2)。
-    // 輪はゆっくり回しておくと、止まって見えない
-    const r = DEATH_REACH * b.far * (1 - (1 - t) * (1 - t));
+    // 外へ出るのは**はじめに一気に**、終わりはゆっくり(1 - (1-t)^3)。
+    // 等速に見えないよう、2 乗より強く減速させる
+    const u = 1 - t;
+    const r = DEATH_REACH * b.far * (1 - u * u * u);
     if (b.hop) {
       // でたらめなぶん。数コマごとに、輪のあたりへ飛び先を取り直す
       if ((b.age % DEATH_HOP) === 1) {
@@ -11043,7 +11086,9 @@ function updateStaffRoll() {
 const SOUND_BGM = ['main', 'power', 'boss', 'lastboss', 'moai', 'todo', 'gameover',
   'elise', 'fate', 'salut', 'beat', 'finalbattle', 'staff'];
 // ジングルは BGM として登録されているので、鳴らし方が SE と違う。欄も分ける
-const SOUND_JINGLE = ['start', 'unused1', 'fanfare', 'bonus'];
+// start1〜4 は開始ジングルの差し替え候補(鳴らして選ぶためだけに並べてある)
+const SOUND_JINGLE = ['start', 'start1', 'start2', 'start3', 'start4',
+  'unused1', 'fanfare', 'bonus'];
 const SOUND_SE = ['shutter', 'autofire', 'heal', 'scold',
   'shot', 'boom', 'hit', 'item', 'clink', 'thud', 'ricochet', 'eyeAppear',
   'laser', 'charging', 'rifttear', 'bigboom', 'bossboom', 'powerdown', 'appear', 'warning',
