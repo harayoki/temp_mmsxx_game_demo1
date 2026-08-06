@@ -4567,9 +4567,16 @@ const SNS_MESSAGES = {
   TURNSTILE_CLIENT_ERROR: 'CHECK FAILED - TRY AGAIN',
   TURNSTILE_CLIENT_TIMEOUT: 'CHECK TIMED OUT - TRY AGAIN',
   RATE_LIMITED: 'TOO MANY POSTS - PLEASE WAIT A WHILE',
+  RATE_LIMIT_UNAVAILABLE: 'SHARING IS BUSY - TRY LATER',
   ORIGIN_NOT_ALLOWED: 'CANNOT POST FROM HERE',
   PAYLOAD_TOO_LARGE: 'IMAGE TOO LARGE',
+  IMAGE_TOO_LARGE: 'IMAGE TOO LARGE',
+  UNSUPPORTED_IMAGE_TYPE: 'IMAGE TYPE NOT SUPPORTED',
+  UNSUPPORTED_MEDIA_TYPE: 'IMAGE TYPE NOT SUPPORTED',
+  INVALID_IMAGE: 'IMAGE COULD NOT BE READ',
   INVALID_METADATA: 'BAD DATA - PLEASE REPORT THIS',
+  INVALID_MULTIPART: 'BAD DATA - PLEASE REPORT THIS',
+  INVALID_CONTENT_LENGTH: 'BAD DATA - PLEASE REPORT THIS',
   NETWORK_ERROR: 'NETWORK ERROR - CHECK YOUR CONNECTION',
 };
 let snsClient = null;        // 投稿の口(1 回だけ作る)
@@ -4667,8 +4674,11 @@ function postShareToX() {
       const client = await getSnsClient();
       if (!client) { tell('X: NOT CONNECTED'); return; }
       const data = await client.submit({ image: blob, metadata: snsShareMetadata() });
+      // SNS に流すのは**ゲーム側のページ**(functions/share/[shareId].ts)。
+      // そのルートがまだ無い配布物では、Worker のページに落ちる
+      const page = data.gameShareUrl || data.shareUrl;
       window.open('https://x.com/intent/post?text=' + encodeURIComponent(data.postText)
-        + '&url=' + encodeURIComponent(data.shareUrl), '_blank', 'noopener');
+        + '&url=' + encodeURIComponent(page), '_blank', 'noopener');
       tell('OPENED X');
     } catch (e) {
       const code = e && e.code;

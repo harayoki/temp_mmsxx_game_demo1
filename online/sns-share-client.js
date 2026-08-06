@@ -1,10 +1,6 @@
 /**
  * SNSシェア投稿クライアント（ゲーム側にそのままコピーして使う）
  *
- * **出どころ**: MMSXX_sns_sharing_server の integrations/game-client/sns-share-client.js。
- * こちらでは手を入れない(あちらが直ったら丸ごと入れ替える)。
- * ゲームからの呼び口は game/main.js の getSnsClient() の 1 か所だけ。
- *
  * - 本番のみInvisible Turnstileを通す。DEVはトークンなしで投稿できる。
  * - トークンは使い回さず、POSTの直前に毎回 reset → execute で取り直す。
  * - Turnstileトークンは1回限り・5分で失効するため、投稿処理を直列化する。
@@ -108,9 +104,18 @@ const ERROR_MESSAGES = {
   TURNSTILE_INVALID: "認証に失敗しました。もう一度お試しください。",
   TURNSTILE_UNAVAILABLE: "認証サービスに接続できません。時間をおいて再試行してください。",
   RATE_LIMITED: "投稿が続いています。しばらく待ってから再試行してください。",
+  RATE_LIMIT_UNAVAILABLE: "共有機能が一時的に利用できません。時間をおいて再試行してください。",
   ORIGIN_NOT_ALLOWED: "この環境からは投稿できません。",
+  // 画像まわり。カード画像の生成側を疑う。
   PAYLOAD_TOO_LARGE: "画像サイズが大きすぎます。",
+  IMAGE_TOO_LARGE: "画像サイズが大きすぎます。",
+  UNSUPPORTED_IMAGE_TYPE: "対応していない画像形式です。PNG / JPEG / WebP のみ使えます。",
+  UNSUPPORTED_MEDIA_TYPE: "対応していない画像形式です。PNG / JPEG / WebP のみ使えます。",
+  INVALID_IMAGE: "画像を読み取れませんでした。",
+  // 以下はクライアント実装のバグ。ユーザー操作では直らない。
   INVALID_METADATA: "投稿内容が不正です。",
+  INVALID_MULTIPART: "投稿データを組み立てられませんでした。",
+  INVALID_CONTENT_LENGTH: "投稿データを組み立てられませんでした。",
 };
 
 /**
@@ -159,6 +164,9 @@ export function createShareClient({ endpoint, turnstile: turnstileEnabled, siteK
       const code = result?.error?.code ?? "UNKNOWN_ERROR";
       throw new ShareError(code, ERROR_MESSAGES[code] ?? "共有に失敗しました。");
     }
+    // { shareId, shareUrl, gameShareUrl, imageUrl, destinationUrl, postText, expiresAt }
+    // SNSに流すのは gameShareUrl（ゲーム側が描画するページ）。
+    // そのルートを用意していないうちは shareUrl（Workerのページ）を使う。
     return result.data;
   }
 
