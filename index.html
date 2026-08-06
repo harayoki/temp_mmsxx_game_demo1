@@ -126,8 +126,22 @@
   window.addEventListener('unhandledrejection', function (e) {
     showError('未処理の例外: ' + (e.reason && e.reason.message ? e.reason.message : e.reason));
   });
+  // file:// では ES モジュールが読めない。**どれが読めないのか**まで出す。
+  // module のタグはこの下にあるので、並び終わってから数える
+  function warnFileProtocol() {
+    var list = [].slice.call(document.querySelectorAll('script[type="module"]'))
+      .map(function (s) { return s.getAttribute('src'); })
+      .filter(Boolean);
+    showError('file:// で直接開くと ES モジュールが読み込めません。\n'
+      + '読めないもの: ' + (list.length ? list.join(' / ') : '(module なし)') + '\n'
+      + 'ウェブサーバー経由 (http/https) で開いてください。');
+  }
   if (location.protocol === 'file:') {
-    showError('file:// で直接開くと ES モジュールが読み込めません。\nウェブサーバー経由 (http/https) で開いてください。');
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', warnFileProtocol);
+    } else {
+      warnFileProtocol();
+    }
   }
 </script>
 <script type="module" src="./game/main.js"></script>
