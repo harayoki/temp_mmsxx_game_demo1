@@ -61,12 +61,25 @@ if (Test-Path (Join-Path $root 'assets')) {
 if ($Local) { $buildName = 'local'; $devFlag = 'true' }
 else        { $buildName = 'web';   $devFlag = 'false' }
 if ($LogoTrap) { $trapFlag = 'true' } else { $trapFlag = 'false' }
-# ビルド番号は build-number.txt に持っていて、**ビルドするたびに 1 つ増える**。
-# ゲームの版は v1.00.<ビルド番号> になる
+# ビルド番号は build-number.txt に持っていて、ふだんは**ビルドするたびに 1 つ増える**。
+# ゲームの版は v1.00.<ビルド番号> になる。
+#
+# 増えるのは**公開版(web)を作ったときだけ**。手元用(-Local)は今の番号をそのまま使う。
+# 番号は「何を配ったか」を指すものなので、配らないビルドで進めない。
+#
+# **正式公開までは 0 で止めてある。** 出す前の作り直しで番号だけが進んでも
+# 意味がないため。正式公開のときに $FreezeBuildNumber を $false にすれば、
+# そこから数え始める
+$FreezeBuildNumber = $true
 $numPath = Join-Path $root 'build-number.txt'
 if (Test-Path $numPath) { $buildNo = [int](Get-Content $numPath -Raw).Trim() } else { $buildNo = 0 }
-$buildNo++
-Set-Content -Path $numPath -Value $buildNo -NoNewline -Encoding ascii
+if ($FreezeBuildNumber) {
+  $buildNo = 0
+  Set-Content -Path $numPath -Value $buildNo -NoNewline -Encoding ascii
+} elseif (-not $Local) {
+  $buildNo++
+  Set-Content -Path $numPath -Value $buildNo -NoNewline -Encoding ascii
+}
 $gameVersion = 'v1.00.{0:d2}' -f $buildNo
 # ヒアストリング(@"..."@)は改行コードが LF だけだと PowerShell 5.1 が
 # 解釈に失敗するので、行の配列で組む

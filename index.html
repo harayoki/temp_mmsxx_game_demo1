@@ -102,7 +102,13 @@
      **キャンバスの外(DOM)に置く**ので、共有の絵にも録画にも写らない。
      ここへシェアや X のボタンも足していく -->
 <div id="stage">
-  <canvas id="screen"></canvas>
+  <!-- 大きさを書いておく。書かないと読み込みが終わるまで canvas の既定(300x150)の
+       小さな四角に見えるため。エンジンが動き出せば上書きされるので、
+       ここは**始まるまでの場所取り**でしかない。
+       数は等倍の画面 1 枚ぶん = 256x192 にボーダー 8 を四方へ足したもの
+       (ボーダーは game/main.js の setBorder(8))。実寸と同じにしてあるので、
+       始まったときに大きさが飛ばない -->
+  <canvas id="screen" width="272" height="208"></canvas>
   <div id="tools">
     <button id="mute" type="button" title="SOUND ON / OFF"></button>
   </div>
