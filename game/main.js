@@ -2661,6 +2661,9 @@ function spawnBoom(x, y, bigCore = false) {
 
 // スコアの桁数(見栄えのため上位に 0 を 3 つ足した 10 桁表示)
 const SCORE_DIGITS = 9;   // 表示は 9 桁(HUD を 1 桁ぶん詰めた)
+// 星(宝珠)の並びの左端。スコアとの間を 1 文字ぶん空ける。
+// **HUD の 2 か所から使う**ので、関数の中ではなくここで決めておく
+const STAR_X = SCORE_DIGITS * 8 + 8;
 
 function drawHUD() {
   hud.fill(0, 0, 0, VW, 16);
@@ -2686,7 +2689,7 @@ function drawHUD() {
     ['life', 'gearLife', Math.max(0, ships - 1), 15],      // 残りストック
   ];
   // 練習モード(ボスと直接対決)のときは分かるように出す
-  if (bossPractice) hud.print(starX, 8, 'PRACTICE', 13);
+  if (bossPractice) hud.print(STAR_X, 8, 'PRACTICE', 13);
   let gx = VW - gear.length * 16;
   for (const [kind, icon, n, color] of gear) {
     // 取った直後の項目は 1 秒だけ点滅させて、どれが上がったか分かるようにする
@@ -2705,11 +2708,10 @@ function drawHUD() {
  */
 function drawOrbMarks() {
   if (gameMode() === 'bossrush') return;
-  const starX = SCORE_DIGITS * 8 + 8;  // スコアとの間を 1 文字ぶん空ける
   const n = starsNeeded();
-  hud.fill(0, starX, 0, n * 8, 8);
+  hud.fill(0, STAR_X, 0, n * 8, 8);
   for (let i = 0; i < n; i++) {
-    hud.print(starX + i * 8, 0, '*', i < stars ? orbColor(i) : 14);
+    hud.print(STAR_X + i * 8, 0, '*', i < stars ? orbColor(i) : 14);
   }
 }
 
