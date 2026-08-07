@@ -12308,9 +12308,10 @@ mmsxx.run(() => {
     updateLogoShine();
     // ロゴ画面とアイテム説明画面を交互に見せる
     // ハイスコア画面は自動スクロールを見せるぶん長めに出す
-    // 一覧を手で動かしているあいだは切り替えない
+    // **上下で操作しているあいだは、どの画面でも切り替えない**。
+    // モードを選んでいる途中で一覧へ流れてしまうため
     const isList = titlePage >= 2;
-    const pageLen = isList ? (titleManual ? 1e9 : 1350) : 720;
+    const pageLen = titleManual ? 1e9 : isList ? 1350 : 720;
     if (titlePage === 2 || titlePage === 3) updateHiScoreList();
     else if (titlePage === 4) updateRushList();
     // 左右キーでページを送る(押さなくても順に流れていく)
