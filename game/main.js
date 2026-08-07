@@ -200,6 +200,44 @@ if (muteBtn) {
   drawMuteBtn();
 }
 
+// ---- シェアのボタン ----
+// **ALT+P だけでは気づかれない**ので、音のボタンの下に置く。
+// 絵は音のボタンと同じ作りかた(16 ドットの並びから 2 倍で焼く)。
+// 中身は「箱から矢印が出ていく」形にして、閉じるボタンに見えないようにする
+const SHARE_ICON = [
+  '................',
+  '................',
+  '.......##.......',
+  '......####......',
+  '.....######.....',
+  '.......##.......',
+  '.......##.......',
+  '..++++++++++++..',
+  '..+..........+..',
+  '..+..........+..',
+  '..+..........+..',
+  '..+..........+..',
+  '..++++++++++++..',
+  '................',
+  '................',
+  '................',
+];
+const shareBtnEl = typeof document !== 'undefined' ? document.getElementById('share-btn') : null;
+if (shareBtnEl) {
+  try {
+    const url = iconDataURL(mmsxx, SHARE_ICON,
+      { body: ICON_BODY, accent: 11, scale: 2, key: 'share' });
+    shareBtnEl.style.backgroundImage = `url("${url}")`;
+  } catch (e) {
+    shareBtnEl.textContent = '\u{1F4E4}';   // 絵が作れない環境の控え
+  }
+  shareBtnEl.setAttribute('aria-label', 'SHARE');
+  shareBtnEl.addEventListener('click', () => {
+    shareBtnEl.blur();   // 焦点を残さない(そのあとの SPACE で押し直されるのを防ぐ)
+    openShare();
+  });
+}
+
 // 色合いと音は、エンジンを作ったあとに効かせる(?palette= / ?mute= / ?volume=)
 URL_OPT.apply(mmsxx);
 // **開発版だけ**: 乱数の種を決める。同じ出かたをくり返し見られる
