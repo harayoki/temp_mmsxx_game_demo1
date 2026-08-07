@@ -5914,8 +5914,9 @@ function updateDragonBoss(b) {
   // 眼窩の目。置き場所は動かさず、黒目だけが自機のほうへ寄る
   if (b.eyeL) {
     b.eyeL.visible = b.eyeR.visible = bossVisible;
-    b.eyeL.x = b.sx + 7; b.eyeL.y = b.sy + 13;
-    b.eyeR.x = b.sx + 23; b.eyeR.y = b.sy + 13;
+    // 眼窩の真ん中に合わせる(絵の穴は左 10〜22 / 右 26〜38、目の丸は 4〜11)
+    b.eyeL.x = b.sx + 8; b.eyeL.y = b.sy + 13;
+    b.eyeR.x = b.sx + 24; b.eyeR.y = b.sy + 13;
     lookEye(b.eyeL, b.eyeL.x + 8, b.eyeL.y + 8);
     lookEye(b.eyeR, b.eyeR.x + 8, b.eyeR.y + 8);
   }
