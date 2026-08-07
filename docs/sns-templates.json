@@ -4,7 +4,7 @@
   "templates": {
     "playing": {
       "titleTemplate": "STAR FABLE",
-      "descriptionTemplate": "A retro-PC style shmup made with Claude.",
+      "descriptionTemplate": "An MSX1-style vertical shooter with the graphics, sound and code all made by Claude.",
       "postTextTemplate": "Playing STAR FABLE, a pixel-art shooter built with Fable 5 + Opus 5!\n#MSX #vibecoding",
       "variables": {}
     },
@@ -22,7 +22,7 @@
 
     "playing-ja": {
       "titleTemplate": "STAR FABLE",
-      "descriptionTemplate": "Claude で作ったレトロ PC 風のシューティング。",
+      "descriptionTemplate": "Claude が絵もサウンドもプログラムも全部作った MSX1 風の縦スクロールシューティング。",
       "postTextTemplate": "Fable 5 + Opus 5 で制作したドット絵シューター STAR FABLE をプレイ中！\n#MSX #vibecoding",
       "variables": {}
     },
@@ -40,7 +40,7 @@
 
     "playing-es": {
       "titleTemplate": "STAR FABLE",
-      "descriptionTemplate": "Un matamarcianos de estilo retro hecho con Claude.",
+      "descriptionTemplate": "Un matamarcianos vertical al estilo MSX1: gráficos, sonido y código hechos por Claude.",
       "postTextTemplate": "¡Jugando a STAR FABLE, un matamarcianos en pixel art hecho con Fable 5 + Opus 5!\n#MSX #vibecoding",
       "variables": {}
     },
@@ -58,7 +58,7 @@
 
     "playing-pt": {
       "titleTemplate": "STAR FABLE",
-      "descriptionTemplate": "Um shoot'em up estilo micro retrô feito com Claude.",
+      "descriptionTemplate": "Um shoot'em up vertical no estilo MSX1: gráficos, som e código feitos por Claude.",
       "postTextTemplate": "Jogando STAR FABLE, um shoot'em up em pixel art feito com Fable 5 + Opus 5!\n#MSX #vibecoding",
       "variables": {}
     },
