@@ -2578,7 +2578,9 @@ function spawnPopup(x, y, value) {
   const text = String(value);
   const px = Math.max(0, Math.min(SCREEN_W - text.length * 8, Math.round(x)));
   const py = Math.max(18, Math.min(SCREEN_H - 10, Math.round(y)));
-  hud.print(px, py, text, 11);
+  // 字の下じきは**黒で塗りつぶす**。透明のままだと、点数が 2 つ重なったとき
+  // 古いほうの数字が透けて、両方いっぺんに見えていた
+  hud.print(px, py, text, 11, 1);
   popups.push({ x: px, y: py, w: text.length * 8, life: 45 });
 }
 
