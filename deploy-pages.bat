@@ -22,6 +22,7 @@ set PROJECT=msxpoi1
 
 if /I "%~1"=="dev" goto :dev
 
+set OUTDIR=%~dp0deploy
 echo === 公開版をビルドします
 powershell -ExecutionPolicy Bypass -File "%~dp0build-deploy.ps1" -Obfuscate
 if errorlevel 1 goto :failed
@@ -32,6 +33,7 @@ if errorlevel 1 goto :failed
 goto :done
 
 :dev
+set OUTDIR=%~dp0deploy-local
 echo === 手元用をビルドします
 powershell -ExecutionPolicy Bypass -File "%~dp0build-deploy.ps1" -Local
 if errorlevel 1 goto :failed
@@ -48,7 +50,12 @@ endlocal
 exit /b 1
 
 :done
+rem 何版を上げたのかを最後に出す。
+rem 公開版は難読化で書き方が変わるので、版らしい並びを探して取り出す
+set VER=
+for /f %%v in ('powershell -NoProfile -Command "[regex]::Match((Get-Content -Raw '%OUTDIR%\game\build.js'), 'v[0-9]+\.[0-9]+\.[0-9]+').Value"') do set VER=%%v
 echo.
-echo 上げ終わりました
+echo 上げ終わりました  版: %VER%
 endlocal
+pause
 exit /b 0
