@@ -60,6 +60,28 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
   // 共有カードでないアクセスは、そのまま通常のトップページ。
   if (!shareId || !SHARE_ID.test(shareId) || !gamePage.ok) return gamePage;
 
+  // このFunctionはトップページを横取りするので、カードの差し込みに失敗しても
+  // ゲームまで巻き添えにしてはいけない。カードが出ないだけで済ませる。
+  try {
+    return await withCardTags(context, url, shareId, gamePage);
+  } catch (error) {
+    console.error({ event: "share_card_failed", shareId, error });
+    return gamePage;
+  }
+};
+
+async function withCardTags(
+  context: EventContext<Env, string, unknown>,
+  url: URL,
+  shareId: string,
+  gamePage: Response,
+): Promise<Response> {
+  // バインディング未設定でも例外にせず、素のトップページを返す。
+  if (!context.env.SHARE_SERVICE || !context.env.SHARE_PUBLIC_ORIGIN) {
+    console.error({ event: "share_card_unconfigured" });
+    return gamePage;
+  }
+
   // The hostname is only a placeholder: Service Bindings route this request
   // directly to the Worker, without going through the public Internet.
   const metadataResponse = await context.env.SHARE_SERVICE.fetch(
@@ -87,7 +109,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
   const response = new Response(transformed.body, transformed);
   response.headers.set("cache-control", "public, max-age=300, stale-while-revalidate=86400");
   return response;
-};
+}
 
 class RemoveElement implements HTMLRewriterElementContentHandlers {
   element(element: Element): void {
