@@ -216,6 +216,14 @@ if (shareBtnEl) {
   });
 }
 
+// ---- 開発版の印 ----
+// **画面の中には描かない**。撮った絵や動画に写ってしまうため、
+// キャンバスの外(DOM)に小さく出す。公開版では出ない
+{
+  const el = typeof document !== 'undefined' ? document.getElementById('dev-badge') : null;
+  if (el && BUILD.dev) el.style.display = 'block';
+}
+
 // 色合いと音は、エンジンを作ったあとに効かせる(?palette= / ?mute= / ?volume=)
 URL_OPT.apply(mmsxx);
 // **開発版だけ**: 乱数の種を決める。同じ出かたをくり返し見られる
@@ -486,9 +494,9 @@ const MODES = [
   { id: 'stats', name: 'STATISTICS' },
 ];
 // 手元の開発中だけ「シーン選択」を足す(公開版では出ない)
-if (DEV) MODES.push({ id: 'scene', name: 'SCENE SELECT' });
+if (DEV) MODES.push({ id: 'scene', name: 'SCENE SELECT', dev: true });
 // 進みぐあいの印をその場で変える画面(これも公開版では出ない)
-if (DEV) MODES.push({ id: 'devset', name: 'DEV SETTINGS' });
+if (DEV) MODES.push({ id: 'devset', name: 'DEV SETTINGS', dev: true });
 let modeIndex = 0;
 const gameMode = () => MODES[modeIndex].id;
 /** NORMAL: 敵の手数を減らし、残機を増やし、即死をなくす(HARD はこれが無い) */
@@ -3255,8 +3263,7 @@ function drawTitlePage() {
     // 著作権表示はいちばん下に
     const copy = '© 2026 HARAYOKI';
     hud.print(centerX(copy), 176, copy, 6);
-    // 手元で開いているときだけ、隅に小さく印を出す(公開版には出ない)
-    if (DEV) hud.print(VW - 32, 184, 'DEV', 6);
+    // 開発版の印は**画面の外(DOM)に出す**。動画や写真に写り込まない
   } else if (titlePage === 1) {
     hud.print(centerX('- ITEMS -'), 8, '- ITEMS -', 15);
     const icons = helpIconSprites();
@@ -3303,6 +3310,20 @@ const RUSH_TODO = 103;   // 仮ボス「未実装君」(6 面がラスボスに�
 // 相手の選択はボスラッシュのメニュー(rushMenuList)で行う
 let rushOne = 0;   // 0 = 4 体タイムアタック / それ以外はその相手だけ
 
+/**
+ * 上下で 1 つ進んだ先の並び。
+ *
+ * **本編(GAME START / HARD GAME)を選んでいるあいだは、
+ * 回り込みで開発用の項目へ入らない。** 撮影中にうっかり見せないため。
+ * 消したわけではなく、下へたどっていけば今までどおり出てくる
+ */
+function stepMode(d) {
+  const n = MODES.length;
+  let i = (modeIndex + d + n) % n;
+  if (modeIndex <= 1) while (MODES[i].dev) i = (i + n - 1) % n;
+  return i;
+}
+
 function drawModeLine() {
   hud.fill(0, 0, MODE_TOP, VW, MODE_ROWS * 8);
   hud.print(centerX(ARROW_U), MODE_TOP, ARROW_U, 11);
@@ -3318,12 +3339,12 @@ function drawModeLine() {
  * @param {boolean} on 出すか消すか(1:1 で明滅させる)
  */
 function drawModeNeighbors(on) {
-  const n = MODES.length;
   hud.fill(0, 0, MODE_Y - 8, VW, 8);
   hud.fill(0, 0, MODE_Y + 8, VW, 8);
   if (!on) return;
-  const prev = MODES[(modeIndex + n - 1) % n].name;
-  const next = MODES[(modeIndex + 1) % n].name;
+  // 出す名前は**行き先そのもの**。開発用を飛ばした先が出る
+  const prev = MODES[stepMode(-1)].name;
+  const next = MODES[stepMode(1)].name;
   hud.print(centerX(prev), MODE_Y - 8, prev, MODE_SUB_COLOR);
   hud.print(centerX(next), MODE_Y + 8, next, MODE_SUB_COLOR);
 }
@@ -12367,7 +12388,7 @@ mmsxx.run(() => {
       const d = mmsxx.input.repeat('ArrowDown') ? 1
         : mmsxx.input.repeat('ArrowUp') ? -1 : 0;
       if (d) {
-        modeIndex = (modeIndex + d + MODES.length) % MODES.length;
+        modeIndex = stepMode(d);
         touchTitle();   // 選んでいるあいだは次の画面へ流さない
         mmsxx.audio.playSE('item');
         drawModeLine();
