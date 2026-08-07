@@ -18,6 +18,7 @@ import { FpsMeter } from '../engine/util/fps.js';
 import { demoFor, scaleDemo, drumKitDemo, beatTune } from '../engine/util/demotunes.js';
 import { SaveGroup, T, R } from '../engine/util/savedata.js';
 import { pickLanguage } from '../engine/util/lang.js';
+import { SpriteCombo } from '../engine/util/spritecombo.js';
 import { StatsLog } from '../engine/stats.js';
 import { GAME_DATA } from './gamedata.js';
 import { BUILD } from './build.js';
@@ -988,9 +989,10 @@ let respawnDelay = 0;  // ミス後、復帰するまでの待ちフレーム
 let stateTimer = 0;
 let clearTimer = 0;
 
-const player = mmsxx.sprite(SPRITE_SYMBOLS.player);
-player.priority = 10;
-player.visible = false;
+// 自機は**2 色**。実機なら単色 2 枚重ねなので、**色ごとに分けて置く**。
+// こうすると 1 行に出せる枚数の取り合いでも 2 枚ぶんの席を食い、
+// 実機と同じ混みかたになる(動かすのは 1 つとして扱える)
+const player = new SpriteCombo(mmsxx, SPRITE_SYMBOLS.player, { priority: 10, visible: false });
 // **自機だけは絶対に消えない**(1 行に出せる数の取り合いから外す)。
 // 自分の機体が点滅で消えると、避けるどころではなくなるため
 player.rank = 'always';
@@ -1831,7 +1833,7 @@ function clearEntities() {
   for (const b of enemyBullets) mmsxx.removeSprite(b.sp);
   for (const b of booms) {
     if (b.sp) mmsxx.removeSprite(b.sp);
-    if (b.core) mmsxx.removeSprite(b.core);   // 芯も一緒に片づける
+    if (b.core) b.core.remove();   // 芯も一緒に片づける(色ごとの枚をまとめて)
   }
   for (const it of items) mmsxx.removeSprite(it.sp);
   clearClawMissiles();
@@ -2628,7 +2630,7 @@ function updateBooms() {
       if (b.age % CORE_FLIP === 0) {
         b.core.image = b.coreImgs[(b.age / CORE_FLIP) % 2];
       }
-      if (b.age >= b.coreLife) { mmsxx.removeSprite(b.core); b.core = null; }
+      if (b.age >= b.coreLife) { b.core.remove(); b.core = null; }
     }
     // 絵は白 1 色なので、**コマごとに色を替えて**熱が冷める様子を出す
     if (b.age === 5) { b.sp.image = SPRITE_SYMBOLS.boom1; b.sp.colorMap = BOOM_MAP1; }
@@ -2646,7 +2648,8 @@ function spawnBoom(x, y, bigCore = false) {
   // 真ん中に**白と水色**の芯を置く。ふだんは散りかたと同じ 8x8 の光を
   // 白 <-> 水色で、自機が散るときだけ 16x16 の 2 コマアニメで見せる
   const imgs = bigCore ? bigCoreImages() : deathSparks();
-  const core = mmsxx.sprite(imgs[0]);
+  // 芯も**2 色**。自機と同じように色ごとに分けて置く
+  const core = new SpriteCombo(mmsxx, imgs[0]);
   if (bigCore) { core.x = x; core.y = y; }
   else { core.x = x + 4; core.y = y + 4; }   // 爆発(16x16)の真ん中へ 8x8 を置く
   // 自機のぶんは**いちばん手前**へ出し、席の取り合いでも負けないようにする
