@@ -22,6 +22,7 @@ import { SpriteCombo } from '../engine/util/spritecombo.js';
 import { StatsLog } from '../engine/stats.js';
 import { GAME_DATA } from './gamedata.js';
 import { BUILD } from './build.js';
+import { RawRecorder } from './recorder.js';
 import { installConsoleGuard } from '../engine/util/console-guard.js';
 // URL で変えられる画面まわりの設定(拡大率・色合い・スプライトの枚数・音など)
 import { urlOptions } from '../engine/util/urloptions.js';
@@ -669,10 +670,9 @@ const progress = new SaveGroup('starfable-progress', {
   todoMet: { type: T.FLAG, label: 'MET Mr. MIJISSOU' },
   // 倒したかどうか。いまは何も開かないが、記録として残す
   todoDown: { type: T.FLAG, label: 'Mr. MIJISSOU DOWN' },
-  // 図鑑の姿と、サウンドテストの VOICE 欄。どちらも「会った(声を聞いた)」で開く。
-  // 条件が同じなので分けていない。別々にしたくなったらここに 1 つ足す
+  // 図鑑の姿は「会った」で開く
   kingMet: { type: T.FLAG, label: 'MET THE KING' },
-  // 倒したかどうか。いまは何も開かないが、記録として残す
+  // 倒したかどうか。**サウンドテストの VOICE 欄**はこちらで開く
   kingDown: { type: T.FLAG, label: 'THE KING DOWN' },
   // 最後に遊んだ難易度。次に開いたときも、そちらが選ばれた状態にする
   lastPlayed: { type: T.ENUM, values: ['normal', 'hard'], init: 'normal', label: 'LAST PLAYED' },
@@ -3048,6 +3048,8 @@ function updateLogoShine() {
 function enterTitle(page = 0, focusRank = -1, fromOver = false) {
   cancelFlash();   // 光ったまま止まらないように
   recordFlush();   // 数えていたぶんをここで書き出す
+  // 丸ごと録画は 1 面ぶんを録る道具なので、タイトルへ戻ったら閉じる(止め忘れの保険)
+  if (recorder && recorder.recording) recorder.stop();
   // 遊んだ面があれば CONTINUE を並びに入れる。
   // ゲームオーバーから戻ったときは、それが選ばれた状態にする
   refreshModes(fromOver);
@@ -6550,7 +6552,7 @@ function restoreSpace() {
 }
 
 function spawnKingBoss() {
-  markMet('kingMet');   // 図鑑の ? が外れ、サウンドテストの VOICE 欄も出る
+  markMet('kingMet');   // 図鑑の ? が外れる(VOICE 欄が出るのは倒してから)
   // シーン選択で「第 2 段階から」を選んでいたら、出たところで切り替える
   const toPhase2 = pendingKingPhase2;
   pendingKingPhase2 = false;
@@ -11495,14 +11497,14 @@ function enterSoundTest() {
         play: (name) => mmsxx.audio.playJingle(name),
       },
       // しゃべるもの(TALK)。録音ではなく、鳴らすときに合成している。
-      // 手元の開発中はいつも出す。公開版はラスボスを倒すまで列ごと出さない
-      // (先にセリフを聞かせないため)
+      // **ラスボスを倒すまで列ごと出さない**(先にセリフを聞かせないため)。
+      // 会っただけでは開かない。手元の開発中だけはいつも出す
       {
         // 音色テスト。波形メモリ(wt〜)もここに並ぶ
         title: 'TONE', items: SOUND_TONE_LIST,
         play: (name) => { soundBack = 'tone_' + name; mmsxx.audio.playBGM(soundBack, false, true); },
       },
-      ...((DEV || met('kingMet')) ? [{
+      ...((DEV || met('kingDown')) ? [{
         title: 'VOICE', items: SOUND_TALK,
         // 次のセリフを鳴らすと前のセリフは止まる(エンジン側でそうしてある)
         play: (name) => mmsxx.audio.playTalk(name, 6),
@@ -12171,6 +12173,21 @@ function altDown() {
 // ---- メインループ ----
 // コマ数の表示は**開発版だけ**。DOM に出すので画面写真には写らない
 const fpsMeter = DEV ? new FpsMeter() : null;
+// 丸ごと録画(ALT+R)も**開発版だけ**。目印の REC も DOM に出すので写らない
+const recorder = DEV ? new RawRecorder(mmsxx) : null;
+if (recorder) {
+  // **ここで直に受ける。** フォルダを選ぶ窓は「人が押した流れ」からしか
+  // 開けないので、ほかの ALT+ ショートカットのようにゲームループから
+  // 読む作り(altDown + wasPressed)では弾かれてしまう
+  window.addEventListener('keydown', (e) => {
+    if (!e.altKey || e.code !== 'KeyR' || e.repeat) return;
+    e.preventDefault();
+    recorder.toggle();
+  });
+  // 閉じ忘れの保険。ファイルは閉じるまで完成しないので、
+  // 読み込み直すとそこまでのぶんが読めなくなる
+  window.addEventListener('pagehide', () => { if (recorder.recording) recorder.stop(); });
+}
 enterTitle();
 // URL で始めかたが指定されていれば、タイトルを飛ばしてそこから始める。
 // **?stage= は開発版だけ**(遊ぶ人に途中の面を渡さない)
