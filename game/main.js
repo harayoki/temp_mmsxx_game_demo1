@@ -9605,7 +9605,10 @@ function updatePlay() {
         const top = boss.sy + BOSS_H;
         if (px > lx - 2 && px < lx + LASER_W + 2 &&
             py > top && py < top + (boss.laserLen || 0)) {
-          destroyPlayer('BOSS LASER');
+          // **バリアでも肩代わりできない**(第 2 引数)。
+          // 渡していなかったので、NORMAL でバリアを持っていると
+          // ただの被弾になり、よけなくても抜けられていた
+          destroyPlayer('BOSS LASER', true);
           return;
         }
       }
