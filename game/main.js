@@ -336,6 +336,11 @@ const SPRITE_COLORS = {
   // ラスボスのレーザー線(16 方向)。長い版は 5 面ではるか前方から飛んでくる
   ...Object.fromEntries(Array.from({ length: 16 }, (_, i) => ['kingLine' + i, 1])),
   ...Object.fromEntries(Array.from({ length: 16 }, (_, i) => ['kingLineL' + i, 1])),
+  // ボスの目の**向きちがい**(16 方向を 5 枚 + 反転でまかなう)。
+  // ここに載せないと BG の絵として読まれ、スプライトの側から見つからないので、
+  // いつも真ん中を見ている絵に落ちてしまう
+  ...Object.fromEntries(['20', '21', '11', '12', '02'].flatMap(
+    (k) => [['bossEye' + k, 1], ['bossEye2_' + k, 1]])),
   pilotPupil: 1, pilotSmile: 1, pilotWink: 1,
   markLol: 1, markWw: 1, markW: 1,   // エンディングに置く茶々(白 1 色)
   todoBlush: 2,   // 赤みと影の 2 色
@@ -5914,9 +5919,10 @@ function updateDragonBoss(b) {
   // 眼窩の目。置き場所は動かさず、黒目だけが自機のほうへ寄る
   if (b.eyeL) {
     b.eyeL.visible = b.eyeR.visible = bossVisible;
-    // 眼窩の真ん中に合わせる(絵の穴は左 10〜22 / 右 26〜38、目の丸は 4〜11)
-    b.eyeL.x = b.sx + 8; b.eyeL.y = b.sy + 13;
-    b.eyeR.x = b.sx + 24; b.eyeR.y = b.sy + 13;
+    // 眼窩の真ん中に合わせる(絵の穴は左 10〜22 / 右 26〜38、目の丸は 4〜11)。
+    // **lookEye が最後に 1 ドット左上へずらす**ので、そのぶん足してある
+    b.eyeL.x = b.sx + 9; b.eyeL.y = b.sy + 14;
+    b.eyeR.x = b.sx + 25; b.eyeR.y = b.sy + 14;
     lookEye(b.eyeL, b.eyeL.x + 8, b.eyeL.y + 8);
     lookEye(b.eyeR, b.eyeR.x + 8, b.eyeR.y + 8);
   }
