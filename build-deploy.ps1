@@ -56,10 +56,14 @@ if (Test-Path (Join-Path $root 'online')) {
 if (Test-Path (Join-Path $root 'assets')) {
   Copy-Item -Recurse (Join-Path $root 'assets') (Join-Path $deploy 'assets')
 }
-# Cloudflare Pages の Functions。/share/{shareId} のページを作るのに要る。
+# Cloudflare Pages の Functions と、その通り道の指定(_routes.json)。
+# **_routes.json が無いと `/` は静的配信のままで Function を通らない。**
 # **公開版だけ**に入れる(手元では動かないうえ、上げるのは公開のほうだけ)
 if (-not $Local -and (Test-Path (Join-Path $root 'functions'))) {
   Copy-Item -Recurse (Join-Path $root 'functions') (Join-Path $deploy 'functions')
+  if (Test-Path (Join-Path $root '_routes.json')) {
+    Copy-Item (Join-Path $root '_routes.json') $deploy
+  }
 }
 
 # ビルドの種類を書き込む(元のソースには触らない)
