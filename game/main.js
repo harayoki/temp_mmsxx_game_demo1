@@ -2352,6 +2352,11 @@ function spawnCubes() {
 const BOUNCER_INTERVAL = 420;
 // 同時に出ている数の下限(NORMAL / HARD)
 const BOUNCER_LEAST = 3, BOUNCER_LEAST_HARD = 8;
+// **通常モードでは 6 秒ではねるのをやめる**。
+// ずっと画面に居られると逃げ場が減るので、そのまま外へ出ていってもらう
+const BOUNCER_BOUNCE_TIME = 360;
+/** この敵はもう反射せず、画面の外へ向かっているか */
+const bouncerLeaving = (e) => isNormal() && e.age >= BOUNCER_BOUNCE_TIME;
 let bouncerTimer = 0;
 function spawnBouncer() {
   const sp = mmsxx.sprite(SPRITE_SYMBOLS.bouncer);
@@ -8330,7 +8335,8 @@ function updatePlay() {
       // NORMAL でも 3 匹、HARD は 8 匹までは必ずそろえる
       const least = isNormal() ? BOUNCER_LEAST : BOUNCER_LEAST_HARD;
       const want = Math.max(least, Math.min(16, stars * (1 + Math.floor(stageNo / 2))));
-      const now = enemies.reduce((n, e) => n + (e.type === 'E' ? 1 : 0), 0);
+      // 出ていく途中のものは数に入れない(そのぶん次がすぐ出る)
+      const now = enemies.reduce((n, e) => n + (e.type === 'E' && !bouncerLeaving(e) ? 1 : 0), 0);
       if (now >= want) bouncerTimer = BOUNCER_INTERVAL;
       else if (--bouncerTimer <= 0) {
         // 足りないぶんは一度にまとめて出す(1 匹ずつだと間が空きすぎる)
@@ -8467,14 +8473,17 @@ function updatePlay() {
       // キューブ: まっすぐ落ちてくるだけ(自機を追わない・撃ってこない)
       sp.y += e.vy;
     } else if (e.type === 'E') {
-      // 跳ね回る敵: 画面の端で反射する
+      // 跳ね回る敵: 画面の端で反射する。
+      // 通常モードで 6 秒たったら反射をやめ、当たった端をそのまま抜けていく
       sp.x += e.vx; sp.y += e.vy;
-      if (sp.x <= 0) { sp.x = 0; e.vx = Math.abs(e.vx); }
-      if (sp.x >= SCREEN_W - 16) { sp.x = SCREEN_W - 16; e.vx = -Math.abs(e.vx); }
-      // 上は**画面のいちばん上**まで跳ねる(HUD にかぶってよい)。
-      // 手前で折り返していると、上のほうに逃げ場が残って動きが狭く見える
-      if (sp.y <= 0) { sp.y = 0; e.vy = Math.abs(e.vy); }
-      if (sp.y >= SCREEN_H - 16) { sp.y = SCREEN_H - 16; e.vy = -Math.abs(e.vy); }
+      if (!bouncerLeaving(e)) {
+        if (sp.x <= 0) { sp.x = 0; e.vx = Math.abs(e.vx); }
+        if (sp.x >= SCREEN_W - 16) { sp.x = SCREEN_W - 16; e.vx = -Math.abs(e.vx); }
+        // 上は**画面のいちばん上**まで跳ねる(HUD にかぶってよい)。
+        // 手前で折り返していると、上のほうに逃げ場が残って動きが狭く見える
+        if (sp.y <= 0) { sp.y = 0; e.vy = Math.abs(e.vy); }
+        if (sp.y >= SCREEN_H - 16) { sp.y = SCREEN_H - 16; e.vy = -Math.abs(e.vy); }
+      }
     } else if (e.type === 'J') {
       // 止まって待つ -> 桂馬の位置へ **超高速でまっすぐ移動**、をくり返す。
       // 消えて現れるのではなく、線を引くように動くので目で追える
@@ -8606,11 +8615,13 @@ function updatePlay() {
         fireEnemyBullet(sp.x, sp.y + 8, 0, 1.76);
       }
     }
-    // 画面外に去った敵を片付ける(跳ね回る敵 E は画面内に留まるので対象外)。
+    // 画面外に去った敵を片付ける。跳ね回る敵 E は画面内に留まるので対象外だが、
+    // 反射をやめて出ていくものは、外に出たところで片付ける。
     // 追ってくる敵 G はいつまでも居座らないよう寿命を持たせる。
     // 画面外の判定は緩めにする(隊列は画面の外に積まれた状態から入ってくるため)
     const gone = sp.y > SCREEN_H + 20 || sp.y < -90 || sp.x < -200 || sp.x > SCREEN_W + 200;
-    if (e.type !== 'E' && (gone || (e.type === 'G' && e.age > 1200))) {
+    const stays = e.type === 'E' && !bouncerLeaving(e);
+    if (!stays && (gone || (e.type === 'G' && e.age > 1200))) {
       mmsxx.removeSprite(sp);
       enemies.splice(enemies.indexOf(e), 1);
     }
