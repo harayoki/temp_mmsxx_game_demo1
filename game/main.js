@@ -202,36 +202,11 @@ if (muteBtn) {
 
 // ---- シェアのボタン ----
 // **ALT+P だけでは気づかれない**ので、音のボタンの下に置く。
-// 絵は音のボタンと同じ作りかた(16 ドットの並びから 2 倍で焼く)。
-// 中身は「箱から矢印が出ていく」形にして、閉じるボタンに見えないようにする
-const SHARE_ICON = [
-  '................',
-  '................',
-  '.......##.......',
-  '......####......',
-  '.....######.....',
-  '.......##.......',
-  '.......##.......',
-  '..++++++++++++..',
-  '..+..........+..',
-  '..+..........+..',
-  '..+..........+..',
-  '..+..........+..',
-  '..++++++++++++..',
-  '................',
-  '................',
-  '................',
-];
+// ここはゲームの中ではなく**外の世界(SNS)へ出す口**なので、
+// ドット絵ではなく、ふつうのサイトと同じ見た目にしてある。
+// 絵(X の公式マーク)と見た目は index.html 側
 const shareBtnEl = typeof document !== 'undefined' ? document.getElementById('share-btn') : null;
 if (shareBtnEl) {
-  try {
-    const url = iconDataURL(mmsxx, SHARE_ICON,
-      { body: ICON_BODY, accent: 11, scale: 2, key: 'share' });
-    shareBtnEl.style.backgroundImage = `url("${url}")`;
-  } catch (e) {
-    shareBtnEl.textContent = '\u{1F4E4}';   // 絵が作れない環境の控え
-  }
-  shareBtnEl.setAttribute('aria-label', 'SHARE');
   shareBtnEl.addEventListener('click', () => {
     shareBtnEl.blur();   // 焦点を残さない(そのあとの SPACE で押し直されるのを防ぐ)
     openShare();
@@ -4124,7 +4099,14 @@ function updateSubmitting() {
     mmsxx.audio.stopBGM();
     currentBGM = null;
     // 名前を入れ終わったあとも CONTINUE を選んだ状態で戻す
-    enterTitle(submitPage, submitRank, true);
+    const toTitle = () => enterTitle(submitPage, submitRank, true);
+    // **ここでシェアの板を出す。** 名前も順位も決まっているので、
+    // スコアの札(high-score)で投稿できる。見せるのは遊んでいた画面
+    if (submitRank >= 0 && entryTarget === 'score') {
+      openShare(toTitle, { ...savedShareSpec(), hi: true });
+    } else {
+      toTitle();
+    }
     return;
   }
   // 返事が来ていても、最低の時間が過ぎるまでは「送っています」を見せる
@@ -12257,7 +12239,7 @@ mmsxx.run(() => {
     // 記録を出したときは、少し待てばスペースですぐ名前入力へ飛べる
     if (stateTimer > 90 && scoreCountsForRanking() && isHiScore(score) &&
         gameMode() !== 'bossrush' && mmsxx.input.wasPressed('Space')) {
-      openShare(() => enterNameEntry('score'), { ...savedShareSpec(), hi: true });
+      enterNameEntry('score');
       return;
     }
     // 「月光」を最後まで聞かせてから次へ進む
@@ -12267,10 +12249,9 @@ mmsxx.run(() => {
         if (rushDone && rushTable.qualifies({ frames: rushFrames })) enterNameEntry('rush');
         else enterTitle();
       } else if (scoreCountsForRanking() && isHiScore(score)) {
-        // 記録を出したときは、名前入力の前にシェアを見せる。
-        // 見せるのは**遊んでいた画面**(取っておいた 1 枚)。
-        // 閉じたら今までどおり名前入力へ進む
-        openShare(() => enterNameEntry('score'), { ...savedShareSpec(), hi: true });
+        // 記録を出したときは名前入力へ。**シェアは登録し終えたあと**に出す
+        // (名前と順位が決まってからでないと、スコアの札で投稿できない)
+        enterNameEntry('score');
       } else {
         // ゲームオーバーから戻ったときは CONTINUE が選ばれた状態にする
         enterTitle(0, -1, true);

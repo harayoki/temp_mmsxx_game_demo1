@@ -56,6 +56,20 @@
     cursor: pointer;
   }
   #tools button:hover { border-color: #ffe000; }
+  #tools #share-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #ffffff;
+    background: #000000;
+    border: 1px solid #3a3a3a;
+    border-radius: 8px;
+    image-rendering: auto;
+  }
+  #tools #share-btn:hover {
+    background: #1a1a1a;
+    border-color: #888888;
+  }
   p.mobile {
     display: none;
     color: #ff5555;
@@ -95,7 +109,11 @@
   <canvas id="screen" width="272" height="208"></canvas>
   <div id="tools">
     <button id="mute" type="button" title="SOUND ON / OFF"></button>
-    <button id="share-btn" type="button" title="SHARE"></button>
+    <button id="share-btn" type="button" title="Post to X" aria-label="Post to X">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+        <path fill="currentColor" d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+      </svg>
+    </button>
   </div>
 </div>
 <p class="mobile">
