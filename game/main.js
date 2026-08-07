@@ -3600,6 +3600,8 @@ function enterPlay(fromContinue = false) {
   shareShotSaved = null;
   shareBackSaved = -1;
   shareMovie = null;
+  allCleared = false;
+  clearReplayDone = false;
   // ドラゴンの炎はやられても消えないが、新しいゲームでは持ち越さない
   dragonFlame = false;
   // モアイの案内は 1 プレイに 1 回ずつ。新しいゲームでは出し直す
@@ -3893,8 +3895,10 @@ function enterGameOver() {
   kingWon = !!(boss && boss.kind === 'king' && kingShown && boss.dying <= 0);
   // 次にコンティニューできるよう、遊び終わった面を覚えておく。
   // シーンセレクトで飛んだ先で死んだときも、その面から続けられてよい
-  // (ボスラッシュはモードそのものに覚え先が無いので、ここには入らない)
-  if (continueStages[continueKey()] !== undefined) {
+  // (ボスラッシュはモードそのものに覚え先が無いので、ここには入らない)。
+  // **全部クリアして終わったときは覚えない**。クリアした人に
+  // 「5 面から続ける」を出しても意味がない(1 面へ戻したままにする)
+  if (!allCleared && continueStages[continueKey()] !== undefined) {
     continueStages[continueKey()] = stageNo;
   }
   statsStageEnd();
@@ -3904,8 +3908,9 @@ function enterGameOver() {
   }
   statsFinish();
   // 先に直前の 3 秒を流してから、ゲームオーバーの画面へ。
-  // 流せなければ(溜まっていなければ)そのまま進む
-  if (startReplay(showGameOver)) return;
+  // 流せなければ(溜まっていなければ)そのまま進む。
+  // **ラスボスを倒した流れでは、倒したところで見せてある**ので出さない
+  if (!clearReplayDone && startReplay(showGameOver)) return;
   showGameOver();
 }
 
@@ -7777,6 +7782,11 @@ function bossDefeatedSpecial() {
   startStage();
 }
 
+// 全面クリアで終わったか。**クリアしたら続きは残さない**(コンティニューを出さない)。
+// ラスボスを倒したところでリプレイを見せたかどうかも、ここで一緒に覚えておく
+let allCleared = false;
+let clearReplayDone = false;
+
 // ラスボスを倒したあと、画面も HUD も全部止めて名乗りを聞かせる。
 // この値が 0 より大きいあいだ、メインループは何も進めない
 let talkHold = 0;
@@ -7846,21 +7856,38 @@ function bossDefeated() {
   drawHUD();
   drawBossBar();
   mmsxx.audio.playSE('bossboom', SE_HIT);
-  if (gameMode() === 'bossrush') {
-    // ボスラッシュは得点を数えないので、評価は出さずに次のボスへ
-    clearTimer = 120;
-  } else {
-    playBGM('fate', false, true);   // クリア曲は「運命」のメジャー編曲
-    showStageResult(r, frames, gain);
-    clearTimer = 960;
-  }   // 評価はゆっくり見せる(キーでスキップ可)
-  clearFarBeams();   // 道中のレーザーはここで打ち切る(クリア後に飛んでこない)
-  // ラスボスは倒れただけ。評価を見せているあいだに、青い裂け目へ逃げ込む
-  // 裂け目は**倒した場所**に開く。そこへ本人が吸い込まれていく
-  if (wasKing && gameMode() !== 'bossrush') startKingEscape(kingFellX, kingFellY);
-  markMet(rushFlag(stageNo));   // ボスラッシュのメニューに出るようになる
-  leaving = true; // 自機は画面の上へ飛び去っていく
-  // 名乗りは倒れる前に流してある(hp が 0 になった瞬間)
+  // 倒したあとの流れ。**ラスボスのときだけ、先にリプレイを挟む**ので、
+  // ここから先をひとまとめにして、あとから呼べるようにしてある
+  const finish = () => {
+    // リプレイを挟んだときは 'replay' のまま戻ってくる。
+    // クリアの進行(clearTimer)は遊んでいる状態でしか進まないので戻しておく
+    state = 'play';
+    if (gameMode() === 'bossrush') {
+      // ボスラッシュは得点を数えないので、評価は出さずに次のボスへ
+      clearTimer = 120;
+    } else {
+      playBGM('fate', false, true);   // クリア曲は「運命」のメジャー編曲
+      showStageResult(r, frames, gain);
+      clearTimer = 960;
+    }   // 評価はゆっくり見せる(キーでスキップ可)
+    clearFarBeams();   // 道中のレーザーはここで打ち切る(クリア後に飛んでこない)
+    // ラスボスは倒れただけ。評価を見せているあいだに、青い裂け目へ逃げ込む
+    // 裂け目は**倒した場所**に開く。そこへ本人が吸い込まれていく
+    if (wasKing && gameMode() !== 'bossrush') startKingEscape(kingFellX, kingFellY);
+    markMet(rushFlag(stageNo));   // ボスラッシュのメニューに出るようになる
+    leaving = true; // 自機は画面の上へ飛び去っていく
+    // 名乗りは倒れる前に流してある(hp が 0 になった瞬間)
+  };
+  // **ラスボスだけは、倒したその場でリプレイを見せる。**
+  // 順番は 戦い → リプレイ → 集計 → エンディング。ほかの面や、
+  // やられて終わるときとは流れが違う。
+  // ここで溜めを止めるので、このあとの裂け目もエンディングも混ざらない
+  if (wasKing && gameMode() !== 'bossrush') {
+    mmsxx.holdCapture(true);
+    clearReplayDone = true;
+    if (startReplay(finish)) return;   // 溜まっていなければそのまま集計へ
+  }
+  finish();
 }
 
 // ---- ラスボスが逃げていく演出 ----
@@ -8486,8 +8513,10 @@ function updatePlay() {
     if (clearTimer <= 0) {
       if (state === 'play') { // ゲームオーバー後は進行しない
         statsStageEnd();
-        // 練習モードは同じボスをもう一度出す
-        if (bossPractice) startStage();
+        // 練習モードは同じボスをもう一度出す。
+        // **ラスボスだけは練習でもエンディングへ向かう**(そのあとの流れを確かめたい)。
+        // モアイなどの特別な相手(面番号が 100 台)は、今までどおりくり返す
+        if (bossPractice && stageNo !== LAST_STAGE) startStage();
         else if (gameMode() === 'bossrush') advanceBossRush();
         else if (stageNo >= LAST_STAGE) {
           // 全 5 面クリア。エンディングを見せてから、得点を持って登録へ。
@@ -8496,6 +8525,7 @@ function updatePlay() {
           // (ここを gameMode() で引くと 'continue' には覚え先が無く、
           //  クリアしてもタイトルに CONTINUE が残ってしまう)
           if (continueStages[continueKey()] !== undefined) continueStages[continueKey()] = 1;
+          allCleared = true;   // ゲームオーバー側で続きを覚え直さないように
           // **ここで絵と音の溜めを止める。**
           // このあとのエンディングまで溜め続けると、そちらがリプレイに流れ、
           // シェアで選べるコマも物語の画面(ほとんど背景色 = 真っ黒)になる。
