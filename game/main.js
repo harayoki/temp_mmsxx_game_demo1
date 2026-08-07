@@ -22,7 +22,6 @@ import { SpriteCombo } from '../engine/util/spritecombo.js';
 import { StatsLog } from '../engine/stats.js';
 import { GAME_DATA } from './gamedata.js';
 import { BUILD } from './build.js';
-import { RawRecorder } from './recorder.js';
 import { installConsoleGuard } from '../engine/util/console-guard.js';
 // URL で変えられる画面まわりの設定(拡大率・色合い・スプライトの枚数・音など)
 import { urlOptions } from '../engine/util/urloptions.js';
@@ -4832,6 +4831,10 @@ function postShareToX() {
           throw first;
         }
       }
+      // ここまで来たら投稿は**もうできている**(窓が開けたかどうかとは別)。
+      // 統計の SNS SHARED に 1 つ足して、その場で保存しておく
+      record.add('shares', 1);
+      record.flush();
       // SNS に流すのは**ゲーム側のページ**(functions/share/[shareId].ts)。
       // そのルートがまだ無い配布物では、Worker のページに落ちる
       const page = data.gameShareUrl || data.shareUrl;
@@ -12173,20 +12176,26 @@ function altDown() {
 // ---- メインループ ----
 // コマ数の表示は**開発版だけ**。DOM に出すので画面写真には写らない
 const fpsMeter = DEV ? new FpsMeter() : null;
-// 丸ごと録画(ALT+R)も**開発版だけ**。目印の REC も DOM に出すので写らない
-const recorder = DEV ? new RawRecorder(mmsxx) : null;
-if (recorder) {
-  // **ここで直に受ける。** フォルダを選ぶ窓は「人が押した流れ」からしか
-  // 開けないので、ほかの ALT+ ショートカットのようにゲームループから
-  // 読む作り(altDown + wasPressed)では弾かれてしまう
-  window.addEventListener('keydown', (e) => {
-    if (!e.altKey || e.code !== 'KeyR' || e.repeat) return;
-    e.preventDefault();
-    recorder.toggle();
-  });
-  // 閉じ忘れの保険。ファイルは閉じるまで完成しないので、
-  // 読み込み直すとそこまでのぶんが読めなくなる
-  window.addEventListener('pagehide', () => { if (recorder.recording) recorder.stop(); });
+// 丸ごと録画(ALT+R)は **localhost のときだけ**。目印の REC も DOM に出すので写らない。
+// dev:true のまま固めた手元用ビルドを人に渡しても、そちらでは動かない。
+// **読み込むのも localhost のときだけ**にしてある(公開版には 1 バイトも入らない)
+let recorder = null;
+const RECORD_HOST = ['localhost', '127.0.0.1', '::1', '[::1]'].includes(location.hostname);
+if (DEV && RECORD_HOST) {
+  import('./recorder.js').then(({ RawRecorder }) => {
+    recorder = new RawRecorder(mmsxx);
+    // **ここで直に受ける。** フォルダを選ぶ窓は「人が押した流れ」からしか
+    // 開けないので、ほかの ALT+ ショートカットのようにゲームループから
+    // 読む作り(altDown + wasPressed)では弾かれてしまう
+    window.addEventListener('keydown', (e) => {
+      if (!e.altKey || e.code !== 'KeyR' || e.repeat) return;
+      e.preventDefault();
+      recorder.toggle();
+    });
+    // 閉じ忘れの保険。ファイルは閉じるまで完成しないので、
+    // 読み込み直すとそこまでのぶんが読めなくなる
+    window.addEventListener('pagehide', () => { if (recorder.recording) recorder.stop(); });
+  }).catch((e) => mmsxx.errors.log('録画の部品を読めませんでした: ' + e));
 }
 enterTitle();
 // URL で始めかたが指定されていれば、タイトルを飛ばしてそこから始める。
