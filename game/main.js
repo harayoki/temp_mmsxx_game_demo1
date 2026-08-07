@@ -3198,9 +3198,12 @@ function drawHiArrows(total) {
   if (hiTop + HISCORE_ROWS < total) hud.print(x, yDown, down, 11);
 }
 
-// 上下キーを触ったかどうか。触っているあいだは画面の自動送りを止める
-// (一覧をたどっている / モードを選んでいる最中に流れていかないように)
-let titleManual = false;
+/**
+ * 上下キーを触ったときに呼ぶ。**画面の自動送りを数え直す**。
+ * 止めてしまうと、選んでいる途中で手を離した人がそのまま置き去りになるので、
+ * 触るたびに先延ばしにするだけにしてある
+ */
+function touchTitle() { titleTimer = 0; }
 
 /**
  * タイトルのハイスコア画面を 1 フレーム進める。
@@ -3211,13 +3214,13 @@ let titleManual = false;
 function updateHiScoreList() {
   const maxTop = Math.max(0, listTable().entries.length - HISCORE_ROWS);
   if (mmsxx.input.repeat('ArrowUp')) {
-    titleManual = true;
+    touchTitle();
     hiTop = Math.max(0, hiTop - 1);
     drawHiScoreList();
     return;
   }
   if (mmsxx.input.repeat('ArrowDown')) {
-    titleManual = true;
+    touchTitle();
     hiTop = Math.min(maxTop, hiTop + 1);
     drawHiScoreList();
   }
@@ -3225,8 +3228,6 @@ function updateHiScoreList() {
 
 function drawTitlePage() {
   hud.clear();
-  // ページが変わったら、手で触った印は落とす(また自動で流れはじめる)
-  titleManual = false;
   if (titlePage >= 2) { hiTop = 0; rushTop = 0; }
   for (const sp of helpIconSprites()) sp.visible = false;
   if (titlePage === 0) {
@@ -10231,10 +10232,10 @@ function drawRushArrows() {
 function updateRushList() {
   const maxTop = Math.max(0, rushTable.entries.length - HISCORE_ROWS);
   if (mmsxx.input.repeat('ArrowUp')) {
-    titleManual = true; rushTop = Math.max(0, rushTop - 1); drawRushList(); return;
+    touchTitle(); rushTop = Math.max(0, rushTop - 1); drawRushList(); return;
   }
   if (mmsxx.input.repeat('ArrowDown')) {
-    titleManual = true; rushTop = Math.min(maxTop, rushTop + 1); drawRushList(); return;
+    touchTitle(); rushTop = Math.min(maxTop, rushTop + 1); drawRushList(); return;
   }
 }
 
@@ -12308,10 +12309,9 @@ mmsxx.run(() => {
     updateLogoShine();
     // ロゴ画面とアイテム説明画面を交互に見せる
     // ハイスコア画面は自動スクロールを見せるぶん長めに出す
-    // **上下で操作しているあいだは、どの画面でも切り替えない**。
-    // モードを選んでいる途中で一覧へ流れてしまうため
+    // **上下で操作すると数え直す**(touchTitle)。選んでいる途中で流れていかない
     const isList = titlePage >= 2;
-    const pageLen = titleManual ? 1e9 : isList ? 1350 : 720;
+    const pageLen = isList ? 1350 : 720;
     if (titlePage === 2 || titlePage === 3) updateHiScoreList();
     else if (titlePage === 4) updateRushList();
     // 左右キーでページを送る(押さなくても順に流れていく)
@@ -12331,7 +12331,7 @@ mmsxx.run(() => {
         : mmsxx.input.repeat('ArrowUp') ? -1 : 0;
       if (d) {
         modeIndex = (modeIndex + d + MODES.length) % MODES.length;
-        titleManual = true;   // 選んでいるあいだは次の画面へ流さない
+        touchTitle();   // 選んでいるあいだは次の画面へ流さない
         mmsxx.audio.playSE('item');
         drawModeLine();
       }
