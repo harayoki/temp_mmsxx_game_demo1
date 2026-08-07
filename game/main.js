@@ -43,7 +43,7 @@ import { gameStop } from './console-stop.js';
 //   ?maxsprites=32  … 画面ぜんぶで出せる数(0 = 無制限、256 まで。既定 32)
 //   ?rotate=stride  … 消える順の回しかた(step / stride / random / slow / off)
 //   ?palette=rf     … 画面の色合い(tms9918 / toshiba / rf / v9938)
-//   ?scale=3        … 画面の拡大率(1〜8。既定 3)
+//   ?scale=4        … 画面の拡大率(1〜8。既定 4)
 //   ?fps=60         … 1 秒あたりのコマ数(1〜120。既定 60。50 で実機の PAL ふう)
 //   ?slow=24        … スプライトがこの数を超えたら処理落ちさせる(0 = しない)
 //   ?slowfps=30     … 処理落ちしているときのコマ数(既定 30)
@@ -65,7 +65,8 @@ import { gameStop } from './console-stop.js';
 //   ・**fps は開発版だけ**にする(難しさを下げる道具にされないように)
 //   ・既定値をこのゲームの好みに差し替える
 //     1 行 4 枚(MSX1 なみ) / 画面ぜんぶで 32 枚(MSX なみ) /
-//     回しかたは 'stride'('step' だと消える場所が流れて見えるため)
+//     回しかたは 'stride'('step' だと消える場所が流れて見えるため) /
+//     大きさは 4 倍まで(置ける場所が狭ければ、そのぶん小さく収まる)
 const OPT = new URLSearchParams(location.search);
 // 端末の見分けを bowser にまかせる。**分からないときは undefined を返して**、
 // エンジン側の目安(UA の正規表現や pointer: coarse)へ落ちるようにしておく。
@@ -77,7 +78,7 @@ useUAParser(() => {
 const URL_OPT = urlOptions(OPT, {
   dev: BUILD.dev,
   devOnly: ['fps'],
-  defaults: { linesprites: 4, maxsprites: 32 },
+  defaults: { linesprites: 4, maxsprites: 32, scale: 4 },
 });
 
 // 裏画面は 256x1024 (横は画面ぴったり、縦に長くとってスクロールさせる)。
