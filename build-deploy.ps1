@@ -88,7 +88,9 @@ if ($FreezeBuildNumber) {
   $buildNo++
   Set-Content -Path $numPath -Value $buildNo -NoNewline -Encoding ascii
 }
-$gameVersion = 'v1.00.{0:d2}' -f $buildNo
+# 版の頭。**ここを上げたら build-number.txt を -1 にする**と、次のビルドが .00 から始まる
+$GameVersionBase = 'v1.01'
+$gameVersion = '{0}.{1:d2}' -f $GameVersionBase, $buildNo
 # ヒアストリング(@"..."@)は改行コードが LF だけだと PowerShell 5.1 が
 # 解釈に失敗するので、行の配列で組む
 $buildJs = @(

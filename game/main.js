@@ -4667,9 +4667,18 @@ function makeShareCardCanvas() {
 /** 投稿しているあいだは板のボタンを押せなくする(二重に送らないため) */
 function setShareBusy(on) {
   shareBusy = on;
-  for (const it of shareItems) it.el.disabled = on;
+  // **押せないことを目でも分かるようにする。** 送っているあいだに何度も押されると、
+  // 同じ絵が何枚も上がってしまう(頻度制限にも当たる)
+  for (const it of shareItems) {
+    it.el.disabled = on;
+    it.el.style.opacity = on ? '0.4' : '1';
+    it.el.style.cursor = on ? 'progress' : 'pointer';
+  }
   shareLeftBtn.disabled = shareRightBtn.disabled = on;
-  if (!on) {
+  if (on) {
+    shareLeftBtn.style.opacity = shareRightBtn.style.opacity = '0.4';
+    shareLeftBtn.style.cursor = shareRightBtn.style.cursor = 'progress';
+  } else {
     // 端まで来た矢印と、録れていない動画のボタンは元どおり押せないままにする
     drawShareShot();
     updateShareMovieBtn();
