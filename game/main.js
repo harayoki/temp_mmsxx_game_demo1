@@ -10360,6 +10360,13 @@ function runCheatWord(word) {
     enterTitle();
     return;
   }
+  // CLS: ポーズ中の文字(PAUSE / ESC:RESUME... / 打ち込み)を消す。
+  // **画面写真を撮るためのもの**なので、止めたままで何も知らせない
+  // (知らせを出すと、それが写ってしまう)
+  if (word.endsWith('CLS')) {
+    clearPauseText();
+    return;
+  }
   // オート連射のコマンド(MEIJIN / TAKAHASHI / TOSHIYUKI)。
   // **打たれた名前ごとに 1 回だけ**効く
   const autoCode = AUTO_CODES.find(c => word.endsWith(c));
@@ -12112,6 +12119,10 @@ const PAUSE_TEXT = 'PAUSE';
 // 打ち込みの途中で Q を打っただけで終わってしまうため(Q が使えない字になる)
 const PAUSE_HINT = 'ESC:RESUME  TYPE Q' + RET + ' TO TITLE';
 const PAUSE_HINT2 = 'CODE + RETURN';
+/** ポーズ中に出している文字(88〜152 の 5 行)をまとめて消す */
+function clearPauseText() {
+  for (let y = 88; y <= 152; y += 16) hud.fill(0, 0, y, VW, 8);
+}
 function togglePause() {
   setPaused(!paused);
   mmsxx.audio.playSE('pause');
@@ -12123,11 +12134,7 @@ function togglePause() {
     hud.print(centerX(PAUSE_TEXT), 88, PAUSE_TEXT, 15);
     hud.print(centerX(PAUSE_HINT), 104, PAUSE_HINT, 14);
   } else {
-    hud.fill(0, 0, 88, VW, 8);
-    hud.fill(0, 0, 104, VW, 8);
-    hud.fill(0, 0, 120, VW, 8);
-    hud.fill(0, 0, 136, VW, 8);
-    hud.fill(0, 0, 152, VW, 8);
+    clearPauseText();
     konamiPos = 0;
     typed = '';
     typedShow = '';
