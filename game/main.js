@@ -4319,29 +4319,41 @@ function shareModeName() {
 
 // 投稿する文言の決まった部分。**画面に出す文字はすべて英語**。
 // タグはそのまま貼ってもらうものなので、日本語のタグも混ぜてよい
-const SHARE_INTRO =
-  "STAR FABLE - a retro-PC style shoot-'em-up made with Claude (Fable 5 + Opus 5)";
-const SHARE_TAGS = '#claude #fable #opus #msx #TMS9918 #shmup #vibecoding';
-
-// ゲーム中でないときの言いかた。**ALT+P はどの画面でも出せる**ので、
-// ゲーム中の言いかたのままだと、図鑑や記録の画面でも面を名乗ってしまう。
-// 画面ごとに変えるほどのことでもないので、1 つに決めてある
-const SHARE_ELSEWHERE = 'Playing STAR FABLE';
-/** どこまで進んだかを言ってよい画面(ゲーム中と、そのまま続くところ) */
-const SHARE_INGAME = ['play', 'over', 'entry', 'submitting', 'replay'];
+// 板に見せる文言。**投稿されるのはサーバが作った文**なので、ここは下書き。
+// 中身がずれないよう、docs/sns-templates.json の postTextTemplate を写している。
+// **その人の言葉で見せる**(投稿もその言葉の札で送られる)
+const SHARE_TEXTS = {
+  en: {
+    playing: () => 'Playing STAR FABLE, a pixel-art shooter built with Fable 5 + Opus 5!\n#MSX #vibecoding',
+    high: (v) => `New high score in STAR FABLE: ${v.score} points (${v.mode}, rank ${v.rank})!\n`
+      + 'A pixel-art shooter built with Fable 5 + Opus 5\n#MSX #Claude',
+  },
+  ja: {
+    playing: () => 'Fable 5 + Opus 5 で制作したドット絵シューター STAR FABLE をプレイ中！\n#MSX #vibecoding',
+    high: (v) => `STAR FABLE でハイスコア更新！${v.score} 点（${v.mode}・${v.rank} 位）\n`
+      + 'Fable 5 + Opus 5 で制作したドット絵シューター\n#MSX #Claude',
+  },
+  es: {
+    playing: () => '¡Jugando a STAR FABLE, un matamarcianos en pixel art hecho con Fable 5 + Opus 5!\n#MSX #vibecoding',
+    high: (v) => `¡Nuevo récord en STAR FABLE: ${v.score} puntos (${v.mode}, puesto ${v.rank})!\n`
+      + 'Un matamarcianos en pixel art hecho con Fable 5 + Opus 5\n#MSX #Claude',
+  },
+  pt: {
+    playing: () => "Jogando STAR FABLE, um shoot'em up em pixel art feito com Fable 5 + Opus 5!\n#MSX #vibecoding",
+    high: (v) => `Novo recorde em STAR FABLE: ${v.score} pontos (${v.mode}, ${v.rank}º lugar)!\n`
+      + "Um shoot'em up em pixel art feito com Fable 5 + Opus 5\n#MSX #Claude",
+  },
+};
 
 /**
- * シェア文言。**ゲーム中かどうかと、ハイスコアかどうかで真ん中の 1 行が変わる**。
- * ブラウザの言葉では切り替えない(英語 1 本にそろえる)。
- * @param {boolean} [hi] ランクインしたときの文言にするか
+ * 板に見せる文言。**送るときと同じ決めかた**(札と値)から作るので、
+ * 見えているものと投稿されるものがずれない
  */
-function shareTextLines(hi) {
-  const mode = shareModeName();
-  // ハイスコアのときは面ではなく記録を言う
-  const what = !SHARE_INGAME.includes(state) ? SHARE_ELSEWHERE
-    : (hi ? `Played ${mode} and got a high score of ${score} points`
-      : `Played STAGE ${stageNo} / ${mode}`);
-  return [SHARE_INTRO, what, SHARE_TAGS];
+function shareTextLines() {
+  const meta = snsShareMetadata();
+  const t = SHARE_TEXTS[pickLanguage(SNS_LANGS) || 'en'] || SHARE_TEXTS.en;
+  const text = meta.templateKey.startsWith('high-score') ? t.high(meta.values) : t.playing();
+  return text.split('\n');
 }
 
 /** ダイアログの板を作る(1 回だけ) */
@@ -4593,7 +4605,7 @@ function openShare(after, spec) {
   else if (state === 'play' && mmsxx.frameCount) shareBack = 0;   // ALT+P: いまの画面
   else shareFixed = captureShareShot();
   drawShareShot();
-  shareTextEl.textContent = shareTextLines(shareHiScore).join('\n');
+  shareTextEl.textContent = shareTextLines().join('\n');
   shareStatusEl.textContent = '';
   shareBusy = false;
   shareRepeat = 0;
