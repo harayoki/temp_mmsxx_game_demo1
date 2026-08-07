@@ -12,6 +12,9 @@ deploy/
 deploy-local/
 *.zip
 
+# Cloudflare へ上げるときに wrangler が作る作業用フォルダ
+.wrangler/
+
 # ---- 開発中の一時ファイル ----
 # デバッグ用の画面キャプチャ(新しい 10 枚だけ残る仕組み)
 capture/
