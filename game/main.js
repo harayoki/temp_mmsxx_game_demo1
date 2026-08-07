@@ -17,6 +17,7 @@ import { SoundTest } from '../engine/util/soundtest.js';
 import { FpsMeter } from '../engine/util/fps.js';
 import { demoFor, scaleDemo, drumKitDemo, beatTune } from '../engine/util/demotunes.js';
 import { SaveGroup, T, R } from '../engine/util/savedata.js';
+import { pickLanguage } from '../engine/util/lang.js';
 import { StatsLog } from '../engine/stats.js';
 import { GAME_DATA } from './gamedata.js';
 import { BUILD } from './build.js';
@@ -4622,15 +4623,26 @@ async function getSnsClient() {
  * 値はサーバの決まり(名前 5 文字 / 得点 9 桁 / 順位 1..100 / モード 9 文字)に丸める。
  * playing は値を 1 つも入れてはいけない(定義外の名前は 400 になる)
  */
+// 投稿の文言をその人の言葉で出すために、**札の名前に言葉を付ける**。
+// ここに並んでいる言葉だけがサーバに札を持っている(無い言葉は英語のまま)。
+//   例) 日本語で遊んでいる人 … 'high-score-ja'
+const SNS_LANGS = ['ja', 'es', 'pt', 'nl'];
+
+/** 札の名前。その人の言葉があれば後ろに付ける(見分けはエンジンの部品にまかせる) */
+function snsTemplateKey(base) {
+  const lang = pickLanguage(SNS_LANGS);
+  return lang ? base + '-' + lang : base;
+}
+
 function snsShareMetadata() {
   const rec = (state !== 'play' && entryTarget === 'score' && submitRank >= 0 && submitEntry)
     ? submitEntry : null;
   if (!rec) {
-    return { gameId: SNS_GAME_ID, templateKey: 'playing', destinationPath: '/', values: {} };
+    return { gameId: SNS_GAME_ID, templateKey: snsTemplateKey('playing'), destinationPath: '/', values: {} };
   }
   return {
     gameId: SNS_GAME_ID,
-    templateKey: 'high-score',
+    templateKey: snsTemplateKey('high-score'),
     destinationPath: '/',
     values: {
       playerName: String(rec.name || 'NONAME').slice(0, NAME_MAX),
@@ -4708,7 +4720,22 @@ function postShareToX() {
       if (!blob) { tell('NO IMAGE'); return; }
       const client = await getSnsClient();
       if (!client) { tell('X: NOT CONNECTED'); return; }
-      const data = await client.submit({ image: blob, metadata: snsShareMetadata() });
+      const metadata = snsShareMetadata();
+      // **その言葉の札がサーバに無いときは、英語の札で送り直す。**
+      // 札が増えるのを待たずにゲームを出せるようにするための逃げ道
+      let data;
+      try {
+        data = await client.submit({ image: blob, metadata });
+      } catch (first) {
+        const base = metadata.templateKey.replace(/-[a-z]{2}$/, '');
+        if (first && first.code === 'INVALID_METADATA' && base !== metadata.templateKey) {
+          mmsxx.errors.log('sns: no template for ' + metadata.templateKey + ', using ' + base);
+          metadata.templateKey = base;
+          data = await client.submit({ image: blob, metadata });
+        } else {
+          throw first;
+        }
+      }
       // SNS に流すのは**ゲーム側のページ**(functions/share/[shareId].ts)。
       // そのルートがまだ無い配布物では、Worker のページに落ちる
       const page = data.gameShareUrl || data.shareUrl;
