@@ -10362,8 +10362,9 @@ function runCheatWord(word) {
   }
   // CLS: ポーズ中の文字(PAUSE / ESC:RESUME... / 打ち込み)を消す。
   // **画面写真を撮るためのもの**なので、止めたままで何も知らせない
-  // (知らせを出すと、それが写ってしまう)
-  if (word.endsWith('CLS')) {
+  // (知らせを出すと、それが写ってしまう)。
+  // Q と同じく**ちょうど 'CLS' のときだけ**効かせる
+  if (word === 'CLS') {
     clearPauseText();
     return;
   }
