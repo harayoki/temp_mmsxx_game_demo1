@@ -8496,6 +8496,11 @@ function updatePlay() {
           // (ここを gameMode() で引くと 'continue' には覚え先が無く、
           //  クリアしてもタイトルに CONTINUE が残ってしまう)
           if (continueStages[continueKey()] !== undefined) continueStages[continueKey()] = 1;
+          // **ここで絵と音の溜めを止める。**
+          // このあとのエンディングまで溜め続けると、そちらがリプレイに流れ、
+          // シェアで選べるコマも物語の画面(ほとんど背景色 = 真っ黒)になる。
+          // 止めた時点までが最後の絵になり、集計画面までが残る
+          mmsxx.holdCapture(true);
           enterEnding(enterGameOver);
         } else { stageNo++; startStage(); }
       }
