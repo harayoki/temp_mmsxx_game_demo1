@@ -1,0 +1,77 @@
+{
+  "_note": "SNS 共有サーバ (MMSXX_sns_sharing_server) の設定に貼るもの。ゲーム側は値と templateKey しか送らない。言語つきの札が無いときは英語の札で送り直すので、順に足していってよい。",
+  "gameId": "star-fable",
+  "templates": {
+    "playing": {
+      "titleTemplate": "STAR FABLE",
+      "descriptionTemplate": "A retro-PC style shmup made with Claude.",
+      "postTextTemplate": "Playing STAR FABLE, a pixel-art shooter built with Fable 5 + Opus 5!\n#MSX #vibecoding",
+      "variables": {}
+    },
+    "high-score": {
+      "titleTemplate": "{playerName} - {score} points in STAR FABLE",
+      "descriptionTemplate": "Rank {rank} of 100 on {mode}.",
+      "postTextTemplate": "New high score in STAR FABLE: {score} points ({mode}, rank {rank})!\nA pixel-art shooter built with Fable 5 + Opus 5\n#MSX #Claude",
+      "variables": {
+        "playerName": { "type": "string", "required": true, "maxLength": 5 },
+        "score": { "type": "integer", "required": true, "min": 0, "max": 999999999 },
+        "rank": { "type": "integer", "required": true, "min": 1, "max": 100 },
+        "mode": { "type": "string", "required": true, "maxLength": 9 }
+      }
+    },
+
+    "playing-ja": {
+      "titleTemplate": "STAR FABLE",
+      "descriptionTemplate": "Claude で作ったレトロ PC 風のシューティング。",
+      "postTextTemplate": "Fable 5 + Opus 5 で制作したドット絵シューター STAR FABLE をプレイ中！\n#MSX #vibecoding",
+      "variables": {}
+    },
+    "high-score-ja": {
+      "titleTemplate": "{playerName} - {score} 点 / STAR FABLE",
+      "descriptionTemplate": "{mode} で 100 人中 {rank} 位。",
+      "postTextTemplate": "STAR FABLE でハイスコア更新！{score} 点（{mode}・{rank} 位）\nFable 5 + Opus 5 で制作したドット絵シューター\n#MSX #Claude",
+      "variables": {
+        "playerName": { "type": "string", "required": true, "maxLength": 5 },
+        "score": { "type": "integer", "required": true, "min": 0, "max": 999999999 },
+        "rank": { "type": "integer", "required": true, "min": 1, "max": 100 },
+        "mode": { "type": "string", "required": true, "maxLength": 9 }
+      }
+    },
+
+    "playing-es": {
+      "titleTemplate": "STAR FABLE",
+      "descriptionTemplate": "Un matamarcianos de estilo retro hecho con Claude.",
+      "postTextTemplate": "¡Jugando a STAR FABLE, un matamarcianos en pixel art hecho con Fable 5 + Opus 5!\n#MSX #vibecoding",
+      "variables": {}
+    },
+    "high-score-es": {
+      "titleTemplate": "{playerName} - {score} puntos en STAR FABLE",
+      "descriptionTemplate": "Puesto {rank} de 100 en {mode}.",
+      "postTextTemplate": "¡Nuevo récord en STAR FABLE: {score} puntos ({mode}, puesto {rank})!\nUn matamarcianos en pixel art hecho con Fable 5 + Opus 5\n#MSX #Claude",
+      "variables": {
+        "playerName": { "type": "string", "required": true, "maxLength": 5 },
+        "score": { "type": "integer", "required": true, "min": 0, "max": 999999999 },
+        "rank": { "type": "integer", "required": true, "min": 1, "max": 100 },
+        "mode": { "type": "string", "required": true, "maxLength": 9 }
+      }
+    },
+
+    "playing-pt": {
+      "titleTemplate": "STAR FABLE",
+      "descriptionTemplate": "Um shoot'em up estilo micro retrô feito com Claude.",
+      "postTextTemplate": "Jogando STAR FABLE, um shoot'em up em pixel art feito com Fable 5 + Opus 5!\n#MSX #vibecoding",
+      "variables": {}
+    },
+    "high-score-pt": {
+      "titleTemplate": "{playerName} - {score} pontos em STAR FABLE",
+      "descriptionTemplate": "{rank}º de 100 no modo {mode}.",
+      "postTextTemplate": "Novo recorde em STAR FABLE: {score} pontos ({mode}, {rank}º lugar)!\nUm shoot'em up em pixel art feito com Fable 5 + Opus 5\n#MSX #Claude",
+      "variables": {
+        "playerName": { "type": "string", "required": true, "maxLength": 5 },
+        "score": { "type": "integer", "required": true, "min": 0, "max": 999999999 },
+        "rank": { "type": "integer", "required": true, "min": 1, "max": 100 },
+        "mode": { "type": "string", "required": true, "maxLength": 9 }
+      }
+    }
+  }
+}
