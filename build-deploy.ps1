@@ -58,8 +58,8 @@ if (Test-Path (Join-Path $root 'assets')) {
 }
 # Cloudflare Pages の Functions と、その通り道の指定(_routes.json)。
 # **_routes.json が無いと `/` は静的配信のままで Function を通らない。**
-# **公開版だけ**に入れる(手元では動かないうえ、上げるのは公開のほうだけ)
-if (-not $Local -and (Test-Path (Join-Path $root 'functions'))) {
+# 手元用にも入れる。**プレビュー(dev ブランチ)へ上げるときに要る**ため
+if (Test-Path (Join-Path $root 'functions')) {
   Copy-Item -Recurse (Join-Path $root 'functions') (Join-Path $deploy 'functions')
   if (Test-Path (Join-Path $root '_routes.json')) {
     Copy-Item (Join-Path $root '_routes.json') $deploy
