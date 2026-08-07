@@ -2055,6 +2055,9 @@ function burnBossBehind(fx, fy, r, dmg) {   // dmg は中で半分にするこ�
   // **弾とは別の間隔で数える**。弾を当てた直後でも炎は効くし、
   // 炎を当てた直後でも弾は効く(2 つの攻めが打ち消し合わないように)
   if (boss.burnGap > 0) { boss.burnGap--; return; }
+  // **ドラゴンには炎が通らない**。自分が炎を吐く相手なので、
+  // 上から覆いかぶさって焼くだけでは倒せない(口をねらうか小惑星にぶつける)
+  if (boss.kind === 'dragon') return;
   if (boss.kind === 'king' && boss.stage !== 'man' && boss.stage !== 'pose') return;
   if (boss.kind === 'king' && boss.meditate > 0) return;   // 瞑想中は炎も通らない
   // **必ず先に「炎が当たっているか」を見る**。
