@@ -3083,7 +3083,9 @@ const HARD_LABEL_Y = 80;
 const HARD_LABEL_COLOR = 9;   // 明るい赤。面の名前(黄)と読み分ける
 // 遊びかたの説明。1 面の頭で「STAGE 1」の下に出す(タイトルには出さない)
 const PLAY_HELP = String.fromCharCode(0x18, 0x19, 0x1a, 0x1b) + ':MOVE  SP:SHOT  ESC:PAUSE';
-const PLAY_HELP_Y = 88;
+// **ポーズの文字とぶつからない高さ**に置く。ポーズは 88〜152 を使い、
+// 画面下の知らせ(ミュートなど)は 176 から 2 行ぶん。その間の 160 に出す
+const PLAY_HELP_Y = 160;
 const PLAY_HELP_COLOR = 7;   // 水色。上の「STAGE 1」(黄)と読み分ける
 // ロゴ以外のページから戻る案内。**開始と同じ SPACE** で戻す。
 // 開始の案内と取り違えないよう、赤にして点滅させる
