@@ -2962,6 +2962,64 @@ function updateTitleSparks() {
   });
 }
 
+// ---- ロゴを流れるテカリ ----
+// モアイの色変わりと同じ考えかた。**行(ライン)ごと**に色を明るいほうへ
+// ずらした帯を作り、それを上から下へ流す。ときどきしか出さない。
+//
+// 置き換えは 1 ドットずつ、しかも「同じ坂を上がる」向きにしか動かないので、
+// 1 本の横 8 ドットに出てくる色の数は増えない = 横8ドット2色の決まりは保たれる。
+// ロゴの本体はこの 4 色でできている(濃い青 -> 青 -> 水色 -> 白)。
+// 縁取りの黒(1)と影は動かさないので、字の形はそのまま残る
+const LOGO_SHINE_LADDER = [4, 5, 7, 15];
+/** 明るいほうへ n 段ずらす表(色番号 -> 色番号)。ロゴに無い色はそのまま */
+function logoShineTable(n) {
+  const t = new Uint8Array(16);
+  for (let c = 0; c < 16; c++) t[c] = c;
+  LOGO_SHINE_LADDER.forEach((c, i) => {
+    t[c] = LOGO_SHINE_LADDER[Math.min(LOGO_SHINE_LADDER.length - 1, i + n)];
+  });
+  return t;
+}
+// 帯のかたち。真ん中がいちばん明るく、上下の行はひかえめ
+const LOGO_SHINE_BAND = [1, 2, 3, 3, 2, 1].map(logoShineTable);
+const LOGO_SHINE_CYCLE = 300;   // 5 秒に 1 回だけ流す
+const LOGO_SHINE_DELAY = 90;    // そのうち、はじめの 1.5 秒は何もしない
+const LOGO_SHINE_SPEED = 2;     // 1 コマに 2 ドット下がる
+
+let logoShineBuf = null;   // テカリを塗ったロゴの中身(使い回す)
+let logoShineSym = null;   // 上の中身を指す BG の絵
+let logoShineOn = false;   // いまテカリ入りを描いてあるか(戻すときに要る)
+
+function updateLogoShine() {
+  const img = BG_SYMBOLS.logo;
+  const ox = (SCREEN_W - img.width) >> 1, oy = 8;
+  // ロゴが出ているページ(0 枚目)だけ
+  const phase = titlePage === 0
+    ? (Math.max(0, titleTimer) % LOGO_SHINE_CYCLE) - LOGO_SHINE_DELAY : -1;
+  // 帯の上ふち。画面の外から入ってきて、ロゴの下へ抜けていく
+  const top = phase * LOGO_SHINE_SPEED - LOGO_SHINE_BAND.length;
+  if (phase < 0 || top >= img.height) {
+    // 流れ終わったら、もとのロゴに戻す(明るいまま止まらないように)
+    if (logoShineOn && titlePage === 0) hud.draw(ox, oy, img);
+    logoShineOn = false;
+    return;
+  }
+  if (!logoShineBuf) {
+    logoShineBuf = Uint8Array.from(img.pixels);
+    logoShineSym = img.derive(logoShineBuf, 'logo(テカリ)');
+  }
+  logoShineBuf.set(img.pixels);
+  for (let i = 0; i < LOGO_SHINE_BAND.length; i++) {
+    const y = top + i;
+    if (y < 0 || y >= img.height) continue;
+    const table = LOGO_SHINE_BAND[i];
+    const base = y * img.width;
+    for (let x = 0; x < img.width; x++) logoShineBuf[base + x] = table[logoShineBuf[base + x]];
+  }
+  hud.draw(ox, oy, logoShineSym);
+  logoShineOn = true;
+}
+
 /**
  * タイトルへ戻る。
  * @param {number} [page] 出したいタイトル画面(既定はロゴ)
@@ -12204,6 +12262,7 @@ mmsxx.run(() => {
 
   if (state === 'title') {
     updateTitleSparks();
+    updateLogoShine();
     // ロゴ画面とアイテム説明画面を交互に見せる
     // ハイスコア画面は自動スクロールを見せるぶん長めに出す
     // 一覧を手で動かしているあいだは切り替えない
