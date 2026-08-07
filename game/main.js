@@ -10329,7 +10329,7 @@ function drawCheatInput() {
   hud.fill(0, 0, 136, VW, 8);
   if (!typedShow) return;
   const t = typedShow + '-';
-  hud.print(centerX(t), 136, t, 7, 1);
+  hud.print(centerX(t), 136, t, 7);
 }
 
 /** 打ち込まれた語を判定して効果を出す */
@@ -12106,9 +12106,8 @@ function togglePause() {
     // くり返し中の SE(レーザーなど)も一緒に止める。
     // 解除すると、止めてあったものだけが鳴り直す
     mmsxx.audio.pauseSE();
-    // **8 ドットの枠ごと黒で塗る**(下の絵や文字が透けないように)
-    hud.print(centerX(PAUSE_TEXT), 88, PAUSE_TEXT, 15, 1);
-    hud.print(centerX(PAUSE_HINT), 104, PAUSE_HINT, 14, 1);
+    hud.print(centerX(PAUSE_TEXT), 88, PAUSE_TEXT, 15);
+    hud.print(centerX(PAUSE_HINT), 104, PAUSE_HINT, 14);
   } else {
     hud.fill(0, 0, 88, VW, 8);
     hud.fill(0, 0, 104, VW, 8);

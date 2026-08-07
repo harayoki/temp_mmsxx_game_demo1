@@ -1269,10 +1269,11 @@ export class VDP {
    * @param {number} y
    * @param {string} text
    * @param {number} color 文字色 1..15
-   * @param {number} [bg=0] 背景色(0で透明のまま=重ね書き)
+   * @param {number} [bg=1] 背景色。**既定は黒で塗る**(下の絵や文字が透けない)。
+   *   0 を渡したときだけ、文字の形以外は触らない(重ね書き)
    * @param {number} [scale=1] 何倍の大きさで描くか
    */
-  print(layerIndex, x, y, text, color = 15, bg = 0, scale = 1) {
+  print(layerIndex, x, y, text, color = 15, bg = 1, scale = 1) {
     const L = this.layers[layerIndex];
     const layer = L.pixels;
     const k = Math.max(1, Math.round(scale));

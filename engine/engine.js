@@ -74,9 +74,11 @@ class LayerHandle {
   }
   /**
    * 内蔵フォントでテキスト描画 (1文字 8x8)。
-   * scale を渡すと大きく描ける(2 で 16x16 の「16 ドットフォント」)
+   * scale を渡すと大きく描ける(2 で 16x16 の「16 ドットフォント」)。
+   * bg は**既定で黒**。文字のます目ごと塗るので下が透けない。
+   * 重ね書きしたいときだけ bg に 0 を渡す
    */
-  print(x, y, text, color = 15, bg = 0, scale = 1) {
+  print(x, y, text, color = 15, bg = 1, scale = 1) {
     this._vdp.print(this._index, x, y, text, color, bg, scale);
   }
   /** スクロール位置を設定(仮想画面のどこを表示画面の左上にするか) */
