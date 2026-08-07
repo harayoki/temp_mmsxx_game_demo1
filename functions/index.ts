@@ -2,7 +2,7 @@
  * Cloudflare Pages Functions での使い方
  *
  * 1. このファイルをゲームのPagesリポジトリへ、次のパスでコピーする。
- *      functions/share/[shareId].ts
+ *      functions/index.ts
  *
  * 2. Cloudflare DashboardのPagesプロジェクトで、以下を設定して再デプロイする。
  *    - Settings > Bindings > Service binding
@@ -13,14 +13,18 @@
  *        Value: https://mmsxx-sns-sharing-server.harayoki.workers.dev
  *
  * 3. Xなどへ投稿するURLの例：
- *      https://<ゲームのPagesドメイン>/share/shr_xxxxxxxxx
+ *      https://<ゲームのPagesドメイン>/?share=shr_xxxxxxxxx
  *
- * このURLへのアクセス時だけFunctionが動く。共通Workerからカード情報JSONを読み、
- * Pagesにある通常のトップページ（/index.html相当）を取得して、既存のOG/Xメタタグを
- * 共有データ用のタグへ差し替える。本文やゲームのJavaScript・画像などは通常ページの
- * ものをそのまま使うため、カードごとにゲーム本体を複製する必要はない。
+ * カードはトップページのまま配信する。パスが `/` から変わらないので、index.html の
+ * `./game/main.js` のような相対パスはそのまま解決される。`/share/xxx` のようなサブパスに
+ * 置くと相対パスが `/share/game/main.js` を指してしまい、ゲームが起動しない。
  *
- * 通常のトップページ（/）は静的ページのままで、このFunctionは呼び出されない。
+ * `?share=` が付いていないときは、取得したトップページをそのまま返すだけで、
+ * 共通Workerは呼ばない。通常のプレイに影響しない。
+ *
+ * `?share=` が付いているときは、共通Workerからカード情報JSONを読み、index.html の
+ * 既存のOG/Xメタタグを共有データ用のタグへ差し替える。本文やゲームのJavaScript・画像は
+ * 通常ページのものをそのまま使うため、カードごとにゲーム本体を複製する必要はない。
  */
 interface Env {
   /** Service Binding pointing to mmsxx-sns-sharing-server. */
@@ -46,11 +50,15 @@ interface CardEnvelope {
   data: CardMetadata;
 }
 
-export const onRequestGet: PagesFunction<Env, "shareId"> = async (context) => {
-  const shareId = context.params.shareId;
-  if (typeof shareId !== "string" || !/^shr_[A-Za-z0-9_-]+$/.test(shareId)) {
-    return new Response("Share not found", { status: 404 });
-  }
+const SHARE_ID = /^shr_[A-Za-z0-9_-]+$/;
+
+export const onRequestGet: PagesFunction<Env> = async (context) => {
+  const url = new URL(context.request.url);
+  const shareId = url.searchParams.get("share");
+  const gamePage = await context.env.ASSETS.fetch(context.request);
+
+  // 共有カードでないアクセスは、そのまま通常のトップページ。
+  if (!shareId || !SHARE_ID.test(shareId) || !gamePage.ok) return gamePage;
 
   // The hostname is only a placeholder: Service Bindings route this request
   // directly to the Worker, without going through the public Internet.
@@ -59,30 +67,19 @@ export const onRequestGet: PagesFunction<Env, "shareId"> = async (context) => {
       headers: { accept: "application/json" },
     }),
   );
-  if (!metadataResponse.ok) {
-    return new Response("Share not found", {
-      status: metadataResponse.status === 404 ? 404 : 502,
-    });
-  }
+  // 失効・削除済みのIDでもゲームは遊べるべきなので、素のトップページへ落とす。
+  if (!metadataResponse.ok) return gamePage;
 
   const envelope = await metadataResponse.json<CardEnvelope>();
-  const requestUrl = new URL(context.request.url);
-  requestUrl.search = "";
-  requestUrl.hash = "";
-  const canonicalUrl = requestUrl.href;
+  const canonicalUrl = new URL(url.pathname, url);
+  canonicalUrl.searchParams.set("share", shareId);
   const imageUrl = new URL(envelope.data.imagePath, context.env.SHARE_PUBLIC_ORIGIN).href;
 
-  const homeUrl = new URL(context.request.url);
-  homeUrl.pathname = "/";
-  homeUrl.search = "";
-  homeUrl.hash = "";
-  const gamePage = await context.env.ASSETS.fetch(new Request(homeUrl, context.request));
-  if (!gamePage.ok) return gamePage;
-
-  const tags = cardTags(envelope.data, canonicalUrl, imageUrl);
+  const tags = cardTags(envelope.data, canonicalUrl.href, imageUrl);
   const transformed = new HTMLRewriter()
     .on('meta[property^="og:"]', new RemoveElement())
     .on('meta[name^="twitter:"]', new RemoveElement())
+    .on('meta[name="description"]', new RemoveElement())
     .on('link[rel="canonical"]', new RemoveElement())
     .on("head", new AppendToHead(tags))
     .transform(gamePage);
@@ -114,6 +111,7 @@ function cardTags(card: CardMetadata, canonicalUrl: string, imageUrl: string): s
   const imageType = escapeAttribute(card.imageType);
   return [
     `<link rel="canonical" href="${canonical}">`,
+    `<meta name="description" content="${description}">`,
     '<meta name="twitter:card" content="summary_large_image">',
     `<meta name="twitter:title" content="${title}">`,
     `<meta name="twitter:description" content="${description}">`,

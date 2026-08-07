@@ -4665,6 +4665,12 @@ function postShareToX() {
   // 送るのは板に見せている絵そのものではなく、**カードの形に整えた 1 枚**
   const card = makeShareCardCanvas();
   if (!card) { shareStatusEl.textContent = 'NO IMAGE'; return; }
+  // **窓は押されたその場で開ける。** 投稿の返事を待ってから開くと、
+  // 「人が押した流れ」から外れてブラウザに止められる(ポップアップよけ)。
+  // 中身は空のまま開けておき、URL が決まってから入れる。
+  // noopener を渡すと窓の取っ手が返らないので、ここでは付けずに opener を切る
+  const win = window.open('about:blank', '_blank');
+  if (win) win.opener = null;
   setShareBusy(true);
   shareStatusEl.textContent = 'POSTING...';
   const tell = (msg) => { if (shareOpen) shareStatusEl.textContent = msg; };
@@ -4677,10 +4683,17 @@ function postShareToX() {
       // SNS に流すのは**ゲーム側のページ**(functions/share/[shareId].ts)。
       // そのルートがまだ無い配布物では、Worker のページに落ちる
       const page = data.gameShareUrl || data.shareUrl;
-      window.open('https://x.com/intent/post?text=' + encodeURIComponent(data.postText)
-        + '&url=' + encodeURIComponent(page), '_blank', 'noopener');
-      tell('OPENED X');
+      const url = 'https://x.com/intent/post?text=' + encodeURIComponent(data.postText)
+        + '&url=' + encodeURIComponent(page);
+      if (win && !win.closed) {
+        win.location.replace(url);
+        tell('OPENED X');
+      } else {
+        // 窓が開けなかったときは、板から自分で開いてもらう
+        showShareLink(url);
+      }
     } catch (e) {
+      if (win && !win.closed) win.close();   // 空の窓を残さない
       const code = e && e.code;
       tell(SNS_MESSAGES[code] || 'COULD NOT POST');
       mmsxx.errors.log('sns: post failed: ' + code + ' / ' + (e && e.message));
@@ -4688,6 +4701,21 @@ function postShareToX() {
       setShareBusy(false);
     }
   }, 'image/png');
+}
+
+/**
+ * 窓を開けなかったときの逃げ道。**板の中にリンクを出す**。
+ * ポップアップを止める設定でも、これを押せば X へ行ける
+ */
+function showShareLink(url) {
+  shareStatusEl.textContent = '';
+  const a = document.createElement('a');
+  a.href = url;
+  a.target = '_blank';
+  a.rel = 'noopener';
+  a.textContent = 'POPUP BLOCKED - OPEN X HERE';
+  Object.assign(a.style, { color: '#ffe000', textDecoration: 'underline' });
+  shareStatusEl.appendChild(a);
 }
 
 function saveShareMovie() {

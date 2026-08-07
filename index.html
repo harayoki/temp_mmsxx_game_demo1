@@ -4,6 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>STAR FABLE - MSX-like Engine Demo</title>
+<!-- **どの階層で出しても中身は同じ場所から読む。**
+     /share/{shareId} のページはこの index.html をそのまま使って
+     カードの meta だけ差し替えるので、これが無いと ./game/main.js が
+     /share/game/main.js になって読めなくなる -->
+<base href="/">
 <meta name="twitter:card" content="summary_large_image">
 <meta property="og:type" content="website">
 <meta property="og:title" content="STAR FABLE">
