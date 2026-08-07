@@ -10425,8 +10425,9 @@ function runCheatWord(word) {
     }
     return;
   }
-  // ORB: 宝珠を満タンにして、すぐボスへ行けるようにする(手元の開発中だけ)
-  if (word.endsWith('ORB')) {
+  // ORB / ORBMAX: 宝珠を満タンにして、すぐボスへ行けるようにする(手元の開発中だけ)。
+  // **どちらの綴りでも効く**(ORB は endsWith では ORBMAX に当たらないため両方見る)
+  if (word.endsWith('ORBMAX') || word.endsWith('ORB')) {
     if (!DEV) return;
     stars = starsNeeded();
     drawHUD();
