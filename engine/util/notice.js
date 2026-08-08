@@ -31,6 +31,11 @@ const BASE_STYLE = 'display:none;position:absolute;left:0;top:50%;'
   + 'background:#ffffff;color:#111111;font-family:monospace;font-size:14px;'
   + 'line-height:1.8;text-align:center;pointer-events:none';
 
+// ボタンの見た目。**キーボードの無い端末のための入口**なので、指で押せる大きさにする
+const BUTTON_STYLE = 'pointer-events:auto;margin:10px 6px 0;padding:8px 18px;'
+  + 'font:inherit;color:#111111;background:#ffffff;border:2px solid #111111;'
+  + 'border-radius:4px;cursor:pointer';
+
 /**
  * @param {object} mmsxx エンジン(閉じたときに入力を捨てるのに使う)
  * @param {object} opt
@@ -65,13 +70,36 @@ export function createNotice(mmsxx, opt = {}) {
    * 札を出す。**出ているあいだはゲームを止めるのは呼び出し側の仕事**
    * (`if (notice.open) return;` を書く)
    * @param {string} html 中身。改行は <br>
-   * @param {(e: KeyboardEvent) => void} [answer] 閉じたときに、押されたキーを渡す
+   * @param {(e: {code: string}) => void} [answer] 閉じたときに、押されたものを渡す
+   * @param {{label: string, code: string}[]} [buttons]
+   *   置くボタン。**キーボードの無い端末はこれでしか閉じられない**。
+   *   押すと、そのキーが押されたのと同じ返事になる
    */
-  notice.show = (html, answer) => {
+  notice.show = (html, answer, buttons) => {
     if (!el || notice.open) return;
     notice.open = true;
     onKey = answer || null;
     el.innerHTML = html;
+    // ボタンは**文の下の行**にまとめる(文の続きに並ぶと、案内と見分けがつかない)
+    const row = (buttons && buttons.length) ? doc.createElement('div') : null;
+    if (row) { row.style.cssText = 'margin-top:4px'; el.appendChild(row); }
+    for (const b of buttons || []) {
+      const btn = doc.createElement('button');
+      btn.type = 'button';
+      btn.textContent = b.label;
+      btn.style.cssText = BUTTON_STYLE;
+      btn.addEventListener('click', () => {
+        // **押したのは「人が触った」ことなので、ここで音を出せるようにする**。
+        // エンジンが音を解禁するのはキーが押されたときだけで、
+        // キーボードの無い端末はこの道しか通らない
+        if (mmsxx && mmsxx.audio) mmsxx.audio.unlock();
+        // キーで閉じたときと同じ道を通す(返事の中身は呼び出し側が決める)
+        window.removeEventListener('keydown', keyHandler);
+        notice.hide();
+        if (onKey) onKey({ code: b.code });
+      });
+      row.appendChild(btn);
+    }
     const mount = opt.mount;
     if (mount) {
       // 札を重ねられるようにしておく(親が動いていなければ何も変わらない)

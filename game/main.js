@@ -12653,13 +12653,16 @@ const gamepad = createGamepad({
 //   2. **音を出す**。ブラウザはパッドの操作を「人が触った」と数えないので、
 //      キーかクリックが 1 回ないと音が鳴りはじめない
 const PAD_NOTICE_TEXT = {
+  // キーの名前は**ボタンの中に書く**。案内を別の行に出すと、同じことを 2 回言うことになる
   ja: {
-    ok: 'ゲームパッドを認識しました。<br>SPACE：使う　　ESC：使わない',
-    ng: 'ゲームパッドを認識しましたが、対応していない形式です。<br>スペースキーを押してください。',
+    ok: 'ゲームパッドを認識しました。',
+    ng: 'ゲームパッドを認識しましたが、対応していない形式です。',
+    use: '使う（SPACE）', dont: '使わない（ESC）', close: 'とじる（SPACE）',
   },
   en: {
-    ok: 'GAMEPAD DETECTED.<br>SPACE: USE&nbsp;&nbsp;&nbsp;ESC: DO NOT USE',
-    ng: 'GAMEPAD DETECTED, BUT THIS FORMAT IS NOT SUPPORTED.<br>PRESS THE SPACE KEY.',
+    ok: 'GAMEPAD DETECTED.',
+    ng: 'GAMEPAD DETECTED, BUT THIS FORMAT IS NOT SUPPORTED.',
+    use: 'USE (SPACE)', dont: "DON'T USE (ESC)", close: 'CLOSE (SPACE)',
   },
 };
 let padEnabled = false;       // パッドの入力をゲームへ流すか。**スペースで入り、ESC で切れる**
@@ -12688,11 +12691,17 @@ function showPadNotice() {
   //   ESC    … **使わない**。パッドの入力を切ったままにする
   //            (うっかり触れただけの人の逃げ道。ゲームを止めているので逃げ道が要る)
   //   その他  … **使う**。あわせて音も解禁される(エンジンが keydown で unlock する)
+  // ボタンも置く。**キーボードの無い端末は、これでしか答えられない**
+  const buttons = ok
+    ? [{ label: text.use, code: 'Space' }, { label: text.dont, code: 'Escape' }]
+    : [{ label: text.close, code: 'Escape' }];
   padNotice.show(ok ? text.ok : text.ng, (e) => {
     // **また押されたら、もう一度聞く**。断られ続けたときだけ黙る
-    if (e.code === 'Escape') { padEnabled = false; padDeclined++; }
-    else padEnabled = true;
-  });
+    if (e.code === 'Escape') { padEnabled = false; padDeclined++; return; }
+    padEnabled = true;
+    // 使うと答えてもらえた合図。ここで初めて音が出せるようになっている
+    mmsxx.audio.playSE('item', SE_EVENT);
+  }, buttons);
 }
 // **押されるまでパッドは見えない**ので、知らせを出す機会もここになる
 gamepad.onRawPress = () => showPadNotice();
