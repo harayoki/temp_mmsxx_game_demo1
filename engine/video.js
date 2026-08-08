@@ -596,7 +596,7 @@ export class VDP {
    * 16x16 に収まる小さいものは、そのままでよい(調べない)。
    *
    * レイヤーへ描く BG パーツは縛らない。半端な大きさでも、
-   * はみ出したセルは黒で埋められて規則は保たれる(drawToLayer を見ること)。
+   * 作るときに 8 の倍数まで広げて埋められる(bgSymbol を見ること)。
    * @param {*} img @param {string} where @param {'warn'|'throw'|'off'} how
    * @param {number} [unit] そろえたい刻み(既定 8)
    */
@@ -645,12 +645,20 @@ export class VDP {
   /**
    * **BG に使う絵を作る**(ここでしか作れない)。
    *
-   * 15 色へ寄せながら、横 8 ドットごとに 2 色へ均す。
-   * ここを通った絵は決まりを守っているので、描く側では何も調べない。
-   * 大きさは自由だが、8 の倍数でないものは BG スプライトにできない。
+   * 15 色へ寄せながら、横 8 ドットごとに 2 色へ均し、
+   * **そのままキャラクタパターンとして焼き込む**。
+   *   1. 8 の倍数まで広げる(足りないぶんは透明で足す)
+   *   2. 1 ドットでも絵のあるセルは、残った透明を埋め色(既定は黒)にする
+   *
+   * ここを通った絵は**セル単位で完成している**ので、描く側では何もしない。
+   * **重ねて描いても、セルはあとから描いた絵のものに丸ごと入れ替わる**
+   * (実機でキャラクタを書き換えるのと同じ)。透明の残った絵を重ねて
+   * 混ざる、ということが起きない。
    *
    * @param {{data:Uint8ClampedArray|Uint8Array,width:number,height:number}} src RGBA の絵
-   * @param {{name?:string}} [opts]
+   * @param {{name?:string, backdrop?:number}} [opts]
+   *   backdrop = セルを埋める色(既定 1 = 黒)。**調べるときに色を変えると、
+   *   どのセルがどの絵のものか画面で分かる**
    * @returns {BgSymbol}
    */
   bgSymbol(src, opts = {}) {
@@ -660,10 +668,50 @@ export class VDP {
     if (src.pixels instanceof Uint8Array) {
       const sym = new BgSymbol(src.width, src.height, src.pixels, name);
       this._checkBgImage(sym, 'BG シンボル', opts.bgCheck);
-      return sym;
+      return this._bakeBg(sym, opts.backdrop);
     }
     const im = this._cached(src, 'bg', () => convertRGBA(src.data, src.width, src.height));
-    return new BgSymbol(im.width, im.height, im.pixels, name);
+    return this._bakeBg(new BgSymbol(im.width, im.height, im.pixels, name), opts.backdrop);
+  }
+
+  /**
+   * BG の絵にキャラクタパターンを焼き込む(bgSymbol からだけ呼ぶ)。
+   * 8 の倍数まで広げてから、絵のあるセルの透明を埋め色にする。
+   * @param {BgSymbol} sym
+   * @param {number} [backdrop=1] セルを埋める色
+   * @returns {BgSymbol}
+   */
+  _bakeBg(sym, backdrop = 1) {
+    const w = (sym.width + 7) & ~7, h = (sym.height + 7) & ~7;
+    let px = sym.pixels;
+    if (w !== sym.width || h !== sym.height) {
+      // 右と下に透明を足して升目にそろえる。埋めるのは次の段でまとめてやる
+      const wide = new Uint8Array(w * h);
+      for (let y = 0; y < sym.height; y++) {
+        wide.set(px.subarray(y * sym.width, (y + 1) * sym.width), y * w);
+      }
+      px = wide;
+    } else {
+      px = new Uint8Array(px);
+    }
+    for (let cy = 0; cy < h; cy += 8) {
+      for (let cx = 0; cx < w; cx += 8) {
+        let hasPattern = false;
+        for (let iy = cy; iy < cy + 8 && !hasPattern; iy++) {
+          for (let ix = cx; ix < cx + 8; ix++) {
+            if (px[iy * w + ix] >= 2) { hasPattern = true; break; }
+          }
+        }
+        if (!hasPattern) continue;
+        for (let iy = cy; iy < cy + 8; iy++) {
+          for (let ix = cx; ix < cx + 8; ix++) {
+            const i = iy * w + ix;
+            if (px[i] === 0) px[i] = backdrop;
+          }
+        }
+      }
+    }
+    return new BgSymbol(w, h, px, sym.name);
   }
 
   /** 同じ RGBA を同じやり方で二度変換しない(結果を覚えておく) */
@@ -1081,11 +1129,13 @@ export class VDP {
    * レイヤーの仮想画面 (1024x1024) に画像を書き込む。座標はラップする。
    *
    * **絵の大きさは 8 の倍数でなくてよい**(BG スプライトとちがって縛らない)。
-   * ただし実機と同じく「絵のあるセルは不透明」になるので、
-   * **半端なぶんは 8 の倍数まで黒で埋まる**。
-   * 20x12 の絵を置けば、右と下が伸びて 24x16 の黒い升目に収まって見える。
-   * 気にしないなら そのままでよい(規則は保たれる)。
+   * ただし bgSymbol() で作るときに 8 の倍数まで広げて焼き込まれるので、
+   * 20x12 の絵は 24x16 の黒い升目に収まって見える(width/height もその値になる)。
    * ぴったり出したいときだけ、絵を 8 の倍数で作ること。
+   *
+   * **重なったセルは、あとから描いた絵のものに丸ごと入れ替わる。**
+   * 実機でキャラクタを書き換えるのと同じで、1 つのセルを 2 つの絵が
+   * 分け合うことはない。どちらを上にするかは呼ぶ側が描く順で決める。
    * @param {number} layerIndex 0..3
    * @param {number} x
    * @param {number} y
@@ -1112,6 +1162,9 @@ export class VDP {
       const rot = (opts.rotate === 180) ? 180 : 0;
       img = this._transformed(img, !!opts.flipX, !!opts.flipY, rot);
     }
+    // 走査線は行を抜くので、抜いたあとにセルを埋め直す(結果はキャッシュされる)。
+    // 反転・色替えは 1 対 1 なので、ここで変わるのは走査線を入れたときだけ
+    if (opts.scanline != null) img = this._bgCellFilled(img);
     const L = this.layers[layerIndex];
     const layer = L.pixels;
     // BG は 8 ドット単位でしか置けない(実機のキャラクタ単位に合わせる)
@@ -1127,8 +1180,8 @@ export class VDP {
       }
     }
     L.empty = false;
-    this._blackenCells(L, x, y, img.width, img.height);
-    this._enforceRuns(L, x, y, img.width, img.height);
+    // 絵はセル単位で完成しているので、描いたあとに均す処理は要らない。
+    // **重なったセルは、あとから描いた絵のものに丸ごと入れ替わる**
     this._markCells(L, x, y, img.width, img.height, 1);
   }
 

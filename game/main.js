@@ -624,15 +624,17 @@ function drawFarObjects() {
     // タイトルはブラックホールを主役に、ステーションとモアイを添える
     // ブラックホールだけ走査線を入れて、遠くで光っている感じにする
     // (絵はそのまま。抜いた絵はエンジン側で作り置きされる)
+    // **星雲はいちばん先に描く**。重なったセルはあとから描いた絵のものになるので、
+    // 星雲を先に敷いておけば、賑やかしが星雲に食われない
+    for (const [x, y] of [[64, 300], [176, 620], [16, 940], [112, 780]]) {
+      neb.draw(x, y, BG_SYMBOLS.nebula);
+    }
     neb.draw(72, 120, BG_SYMBOLS.blackhole, true, { scanline: 0 });
     neb.draw(64, 660, BG_SYMBOLS.blackhole, true, { scanline: 1 });
     neb.draw(24, 40, BG_SYMBOLS.station);
     neb.draw(168, 560, BG_SYMBOLS.station);
     neb.draw(160, 300, BG_SYMBOLS.moai);
     neb.draw(40, 840, BG_SYMBOLS.moaiFlip);
-    for (const [x, y] of [[64, 300], [176, 620], [16, 940], [112, 780]]) {
-      neb.draw(x, y, BG_SYMBOLS.nebula);
-    }
     return;
   }
   // ボスラッシュは背景の賑やかしを出さない(ボスだけに集中させる)
@@ -642,14 +644,16 @@ function drawFarObjects() {
   const pool = FAR_OBJECTS.filter(o => BG_SYMBOLS[o.img].width <= limit);
   const pick = (pool.length ? pool : FAR_OBJECTS).slice()
     .sort(() => Math.random() - 0.5).slice(0, 3);
+  // **星雲はいちばん先に描く**。重なったセルはあとから描いた絵のものになるので、
+  // 星雲を先に敷いておけば、賑やかしが星雲に食われない。
+  // 星雲はふだん青。4 面だけ赤い星雲にして、ラスボスの面が近いことを見せる
+  const neb2 = stageNo === 4 ? BG_SYMBOLS.nebulaRed : BG_SYMBOLS.nebula;
+  for (const [x, y] of [[64, 300], [176, 620], [16, 940], [112, 780]]) neb.draw(x, y, neb2);
   for (const o of pick) {
     // scanline を持つ賑やかしは 1 ライン おきに抜いて描く
     const opts = o.scanline == null ? undefined : { scanline: o.scanline };
     for (const [x, y] of o.spots) neb.draw(x, y, BG_SYMBOLS[o.img], true, opts);
   }
-  // 星雲はふだん青。4 面だけ赤い星雲にして、ラスボスの面が近いことを見せる
-  const neb2 = stageNo === 4 ? BG_SYMBOLS.nebulaRed : BG_SYMBOLS.nebula;
-  for (const [x, y] of [[64, 300], [176, 620], [16, 940], [112, 780]]) neb.draw(x, y, neb2);
 }
 drawFarObjects();
 

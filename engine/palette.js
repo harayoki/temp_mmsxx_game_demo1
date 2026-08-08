@@ -149,7 +149,7 @@ export function nearestColor(r, g, b) {
  * RGBA(8bit)画像を MSX1 SCREEN2 風の制約付きインデックス画像に変換する。
  * 制約: 横8ドット(x=0起点のブロック)ごとに使える色は2色まで。
  * alpha < 128 のピクセルは色0(透明)。
- * (8x8セル単位の黒不透明化はレイヤー描画時 = VDP.drawToLayer 側で行う)
+ * (8x8セル単位の黒不透明化は絵を作るとき = VDP.bgSymbol 側で焼き込む)
  *
  * @param {Uint8Array|Uint8ClampedArray} data RGBA並びのバイト列
  * @param {number} width
