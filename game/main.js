@@ -3864,9 +3864,14 @@ function startReplayPlay() {
   mmsxx.audio.playSound();
 }
 
-/** 流しているあいだ。SPACE か ESC で飛ばせる */
+/**
+ * 流しているあいだ。飛ばせるのは **ESC だけ**。
+ * SPACE は撃つキーなので、やられた勢いで押しっぱなしになりやすく、
+ * 見えないうちに飛ばされてしまう。**飛ばすと動画も途中で終わる**ので、
+ * うっかり押せるキーからは外してある
+ */
 function updateReplay() {
-  if (mmsxx.input.wasPressed('Space') || mmsxx.input.wasPressed('Escape')) { endReplay(); return; }
+  if (mmsxx.input.wasPressed('Escape')) { endReplay(); return; }
   if (replayPhase === 'boom') {
     // 爆発を最後まで見せる。溜めは止めてあるので、この絵は記録に混ざらない
     updatePlay();
