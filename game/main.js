@@ -2058,7 +2058,7 @@ function burnEnemiesBehind() {
     if (Math.abs((e.sp.x + 8) - fx) < r && Math.abs((e.sp.y + 8) - fy) < r) hitEnemy(e, dmg, false);
   }
   burning = false;
-  burnBossBehind(fx, fy, r, dmg);
+  burnBossBehind(fx, fy, r);
 }
 
 /**
@@ -2066,7 +2066,7 @@ function burnEnemiesBehind() {
  * ただし炎は自機の真下なので、当てるにはボスを追い越して背を向けることになる。
  * ドラゴンのアイテムを取っていれば炎が大きく、当てられる範囲も広い。
  */
-function burnBossBehind(fx, fy, r, dmg) {   // dmg は中で半分にすることがある
+function burnBossBehind(fx, fy, r) {
   if (!boss || boss.dying > 0) return;
   // **弾とは別の間隔で数える**。弾を当てた直後でも炎は効くし、
   // 炎を当てた直後でも弾は効く(2 つの攻めが打ち消し合わないように)
@@ -2091,24 +2091,23 @@ function burnBossBehind(fx, fy, r, dmg) {   // dmg は中で半分にするこ�
     if (fy < boss.y - r || fy > boss.y + KING_MAN_H * 0.38) return;
   } else if (Math.abs(fy - c[1]) > hh + r) return;
   boss.burnGap = BOSS_FLAME_GAP;
-  // ラスボスにだけは、**ふつうの炎は半分しか通らない**。
-  // 七色のドラゴンの炎を取ってから挑むほうが、はっきり速く終わる
-  if (boss.kind === 'king' && !dragonFlame) dmg = dmg / 2;
+  // 七色の炎なら 2 倍。差は bossFlameDamage() が持っている
+  const dmg = bossFlameDamage();
   // 出てくる(つま先立ち)あいだは体力がまだ入っていないので、
   // 焼いたぶんを覚えておいて、構え終わった時に体力から引く
   if (boss.kind === 'king' && boss.stage === 'pose') {
-    // 予約できるのは **3 撃ぶんまで**。
+    // 予約できるのは **5 撃ぶんまで**。
     // 出てくるあいだ焼き続けても、そこで打ち止めにする
     // (構える前に大半を削れてしまうと、第 2 段階が始まらなくなるため)
     if ((boss.preBurnHits || 0) >= KING_PRE_BURN_MAX) return;
     boss.preBurnHits = (boss.preBurnHits || 0) + 1;
-    boss.preBurn = (boss.preBurn || 0) + Math.max(1, Math.round(dmg * BOSS_FLAME_MUL));
+    boss.preBurn = (boss.preBurn || 0) + dmg;
     boss.flash = 4;
     mmsxx.audio.playSE('weak');
     spawnWeakSpark(fx - 8, fy - 8);
     return;
   }
-  boss.hp -= Math.max(1, Math.round(dmg * BOSS_FLAME_MUL));
+  boss.hp -= dmg;
   boss.flash = 4;
   mmsxx.audio.playSE('weak');
   spawnWeakSpark(fx - 8, fy - 8);
@@ -3394,6 +3393,7 @@ function startStage() {
   cubeIndex = 0;
   stars = 0;
   bossIntro = 0;
+  bossCleared = false;
   bigKills = 0;
   coinChainBest = 0;
   dragonSpot = null;    // そらのドラゴンの顔(ラスボスの面でだけ作られる)
@@ -6425,6 +6425,8 @@ function fireKingBeam(angle) {
 // 裂け目が撃つのと同じレーザーの 3 倍長い版。
 // 遠くから来るので、角度はほぼまっすぐ(真下向きから少しだけ振れる)。
 // ボスが出るまでのあいだ、星座を見せ終えたころから飛んでくる
+// ボスを倒したか。倒したあとは道中のレーザーを打ち切る
+let bossCleared = false;
 const FAR_BEAM_AT = 880;           // 星座を見せ終えたころから
 const FAR_BEAM_SPEED = 4.2;
 const FAR_BEAM_GAP = 46;           // 次の 1 本までの間
@@ -6957,6 +6959,7 @@ function kickRate(b) {
  * 2 度動けなくなったあと、または体力が 4 分の 1 を切ったときに入る
  */
 function startKingMeditate(b) {
+  b.shotSince = false;   // また弾で削られるまでは座らない
   b.meditate = KING_MEDITATE_LEN;
   b.meditateCount = (b.meditateCount || 0) + 1;
   // 息を整えるので、ピヨりのたくわえが 1 つ戻る(上限 2)
@@ -6990,8 +6993,10 @@ function updateKingFight(b) {
     if (b.meditate === 0) { b.slowMul = 1; drawBossBar(); }
     return;
   }
-  // 体力が 4 分の 1 を切ったら座って立て直す(1 戦で 4 回まで)
-  if (b.hp / b.max < KING_MEDITATE_HP && b.meditateCount < KING_MEDITATE_MAX) {
+  // 体力が 4 分の 1 を切ったら座って立て直す(1 戦で 4 回まで)。
+  // **弾で削られたときだけ**。炎だけで削っているあいだは座らない
+  // (座られると無敵になるので、焼き続ける攻めが成り立たなくなる)
+  if (b.hp / b.max < KING_MEDITATE_HP && b.meditateCount < KING_MEDITATE_MAX && b.shotSince) {
     startKingMeditate(b);
     return;
   }
@@ -7852,6 +7857,10 @@ function bossDefeated() {
     clearTodoGuest();
     return;
   }
+  // **ここから面のクリア**。道中のレーザーはもう飛ばさず、
+  // 飛んでいる途中のものも消す(倒したあと宇宙へ戻ったところへ来ないように)
+  bossCleared = true;
+  clearFarBeams();
   const wasKing = boss.kind === 'king';
   // 倒れた場所(中心)。片づけたあとの演出で使う
   const kingFellX = boss.x + KING_MAN_W / 2;
@@ -8529,8 +8538,10 @@ function updatePlay() {
     if (!secretSpots && playFrame >= SECRET_AT && dragonGone) makeSecretSpots();
     // 星座を見せ終えたころから、長いレーザーが前方から飛んでくる。
     // クリアの演出に入ったら、もう新しくは飛ばさない
-    if (playFrame >= FAR_BEAM_AT && clearTimer <= 0 && !leaving && bossIntro <= 0 &&
-        --farBeamTimer <= 0) {
+    // **ボスを倒したあとは飛ばさない**。倒してから集計に入るまでの間に
+    // 撃たれると、宇宙へ戻ったところへ飛んでくる
+    if (playFrame >= FAR_BEAM_AT && clearTimer <= 0 && !leaving && !bossCleared &&
+        bossIntro <= 0 && --farBeamTimer <= 0) {
       farBeamTimer = FAR_BEAM_GAP + Math.floor(rndBoss() * 40);
       fireFarBeam();
     }
@@ -9396,6 +9407,8 @@ function updatePlay() {
         const head = (b.sp.y + 8) < boss.y + KING_MAN_H * 0.38;
         // 頭は 2 倍。さらに近いほど効く(上からの倍率は頭の判定と重なるので入れない)
         boss.hp -= Math.max(1, Math.round(BOSS_DMG * (head ? 2 : 1) * bossDamageMul(boss, false)));
+        // **弾で削ったという印**。座って立て直すのは、これがあるときだけ
+        boss.shotSince = true;
         boss.flash = 6;
         // のけぞるポーズと「うっ」。声は連発しないよう、少し間を置く
         if (boss.hurtPose <= 0 && (boss.hurtVoice || 0) <= 0) {
@@ -9805,14 +9818,24 @@ function updatePlay() {
 // 近づくほど効き、上から攻めるとさらに効く。危ないところほど見返りが大きい。
 //   距離: 遠い 1 倍 〜 密着 2 倍
 //   上から: ボスの中心より上にいれば さらに 2 倍(合わせて最大 4 倍)
-//   推進炎(バックファイヤー)はこれとは別に 6 倍。撃たずに焼くのがいちばん効く
+//   推進炎(バックファイヤー)は別ばら。**装備では変わらない固定の量**で、
+//   撃たずに焼くのがいちばん効く
 const BOSS_NEAR_FULL = 40;    // これより近ければ 2 倍
 const BOSS_NEAR_NONE = 140;   // これより遠いと 1 倍
-const BOSS_FLAME_MUL = 6;     // 炎の倍率
-const BOSS_FLAME_GAP = 6;     // 炎で削る間隔(毎コマ削ると強すぎる)
+// 炎でボスに入る量。**弾と違って強化の影響を受けない**。
+// 1 秒あたりの量で決めて、当たる回数で割ったものを 1 回ぶんにする
+// (当たる間隔を変えても、削れる速さは変わらない)
+const BOSS_FLAME_DPS = 150;          // ふつうの推進炎
+const BOSS_FLAME_DPS_DRAGON = 300;   // 七色の炎(そらのドラゴンのアイテム)
+const BOSS_FLAME_HZ = 4;             // 1 秒に当たる回数
+const BOSS_FLAME_GAP = Math.round(60 / BOSS_FLAME_HZ);   // 15 コマに 1 回
+/** 炎 1 回ぶんの量 */
+function bossFlameDamage() {
+  return (dragonFlame ? BOSS_FLAME_DPS_DRAGON : BOSS_FLAME_DPS) / BOSS_FLAME_HZ;
+}
 // ラスボスが出てくるあいだに炎で溜められる数。体力が入る前なので、
 // 当てたぶんは覚えておいて、構え終わったところでまとめて引く
-const KING_PRE_BURN_MAX = 3;
+const KING_PRE_BURN_MAX = 5;
 /** ボス(いま出ているもの)の中心。段階や種類で絵の大きさが違う */
 function bossCenter(b) {
   if (!b) return null;
