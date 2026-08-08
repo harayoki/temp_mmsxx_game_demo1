@@ -90,7 +90,10 @@ if ($FreezeBuildNumber) {
 }
 # 版の頭。**ここを上げたら build-number.txt を -1 にする**と、次のビルドが .00 から始まる
 $GameVersionBase = 'v1.01'
-$gameVersion = '{0}.{1:d2}' -f $GameVersionBase, $buildNo
+# **うしろのビルド番号が付くのは公開版だけ**。
+# 手元用は版の頭だけ(v1.01)にする。どちらも頭は同じ版を名乗る
+if ($Local) { $gameVersion = $GameVersionBase }
+else { $gameVersion = '{0}.{1:d2}' -f $GameVersionBase, $buildNo }
 # ヒアストリング(@"..."@)は改行コードが LF だけだと PowerShell 5.1 が
 # 解釈に失敗するので、行の配列で組む
 $buildJs = @(
