@@ -555,10 +555,10 @@ const JUPITER_X = 104;
 const DRAGON_X = 0;              // ドラゴンは画面幅いっぱい
 
 // ドラゴンが流れ去ってからボスが出るまでの、何もない待ち時間のあいだ、
-// 画面のどこかに**撃てる場所が 2 か所**ある(見た目には何も無い)。
-// 当て続けると「?」が出る。すでに連射中なら出ない。
+// 画面のどこかに**撃てる場所が 1 か所**ある(見た目には何も無い)。
+// 当て続けると「?」が出る。すでに連射中なら、代わりに**輝く $** が出る。
 const SECRET_AT = 1680;        // ドラゴンが流れ去ったころ
-const SECRET_SPOTS = 2;
+const SECRET_SPOTS = 1;
 const SECRET_SIZE = 20;        // 当たる四角の大きさ
 const SECRET_NEED = 8;         // 出るまでに当てる数
 let secretSpots = null;
@@ -2094,11 +2094,12 @@ function burnBossBehind(fx, fy, r, dmg) {   // dmg は中で半分にするこ�
   // 出てくる(つま先立ち)あいだは体力がまだ入っていないので、
   // 焼いたぶんを覚えておいて、構え終わった時に体力から引く
   if (boss.kind === 'king' && boss.stage === 'pose') {
-    // 予約できるのは **1 撃ぶんだけ**。
-    // 出てくるあいだ焼き続けても、貯まるのは最初の 1 回で打ち止めにする
+    // 予約できるのは **3 撃ぶんまで**。
+    // 出てくるあいだ焼き続けても、そこで打ち止めにする
     // (構える前に大半を削れてしまうと、第 2 段階が始まらなくなるため)
-    if (boss.preBurn) return;
-    boss.preBurn = Math.max(1, Math.round(dmg * BOSS_FLAME_MUL));
+    if ((boss.preBurnHits || 0) >= KING_PRE_BURN_MAX) return;
+    boss.preBurnHits = (boss.preBurnHits || 0) + 1;
+    boss.preBurn = (boss.preBurn || 0) + Math.max(1, Math.round(dmg * BOSS_FLAME_MUL));
     boss.flash = 4;
     mmsxx.audio.playSE('weak');
     spawnWeakSpark(fx - 8, fy - 8);
@@ -4957,7 +4958,9 @@ function damagePlayer(cause = 'unknown') {
     barrierHP--;
     invincible = 110;
     mmsxx.audio.playSE('powerdown');
-    showNotice('BARRIER LOST');
+    // **無くなったときだけ知らせる**。2 枚めが 1 枚に減っただけで
+    // 「LOST」と出ると、まだ残っているのに失ったように見える
+    if (barrierHP <= 0) showNotice('BARRIER LOST');
     drawHUD();
     return;
   }
@@ -5085,6 +5088,8 @@ const ITEM_IMG = {
   speed: SPRITE_SYMBOLS.speedUp, rapid: SPRITE_SYMBOLS.rapidUp, life: SPRITE_SYMBOLS.oneUp,
   damage: SPRITE_SYMBOLS.powerUp, barrier: SPRITE_SYMBOLS.barrierItem,
   coin: SPRITE_SYMBOLS.coinItem, auto: SPRITE_SYMBOLS.autoItem,
+  // 「?」から出る輝く $。絵は $ と同じで、色だけ回して光らせる
+  coinmax: SPRITE_SYMBOLS.coinItem,
   // そらのドラゴンの顔からだけ出る。取るとフルパワー(オート連射ではない)
   dragon: SPRITE_SYMBOLS.dragonItem,
   // 未実装さんを見逃すと置いていく飴。取っても何も起きない
@@ -5094,6 +5099,8 @@ const ITEM_IMG = {
 // 点滅用の白バージョン
 const ITEM_IMG_W = {};
 for (const [k, img] of Object.entries(ITEM_IMG)) ITEM_IMG_W[k] = recolor(img, 15);
+// 輝く $ の色。白 → 黄 → 水色と回して、ふつうの $ と見分けられるようにする
+const COINMAX_IMAGES = [15, 11, 7].map((c) => recolor(SPRITE_SYMBOLS.coinItem, c));
 
 /** 絵を n ドットだけ上へずらしたコピーを作る */
 function shiftUp(img, n) {
@@ -7944,7 +7951,7 @@ function startKingEscape(cx, cy) {
 function clearKingEscape() {
   if (!kingEscape) return;
   mmsxx.removeBgSprite(kingEscape.rift);
-  mmsxx.removeSprite(kingEscape.man);
+  if (kingEscape.man) mmsxx.removeSprite(kingEscape.man);
   kingEscape = null;
 }
 function updateKingEscape() {
@@ -7952,16 +7959,28 @@ function updateKingEscape() {
   if (!e) return;
   e.t++;
   const t = e.t / KING_ESCAPE_LEN;
-  // 裂け目: ちらちらしながら開き、最後にまたちらついて閉じる
-  // 裂け目はずっと 1:1 のちらつき(1 コマおきに出る)
-  e.rift.visible = t > 0.05;
-  e.rift.blink = 2; e.rift.blinkOn = 1;
+  // 裂け目: **蛍光灯のように不規則に点滅させて、消さずに残す**。
+  // 消えている 2 コマ : 出ている 1 コマ を基本にして、
+  // その「出ている 1 コマ」もときどき飛ばす(規則的だと機械に見える)。
+  // 見た目だけの話なので、乱数は**ゲームの流れとは別の Math.random**を使う
+  e.rift.blink = 0;
+  e.rift.visible = t > 0.05 && (mmsxx.frame % 3) === 0 && Math.random() > 0.25;
   // 本人: 下から昇ってきて、裂け目の中へ入っていく。
-  // **点滅はさせない**。黒いまま、すっと吸い込まれて消える
-  e.man.visible = t > 0.3 && t < 0.8;
-  const k = Math.min(1, Math.max(0, (t - 0.3) / 0.45));
-  e.man.y = e.y + 40 - k * 56;   // 小数のまま。描くときだけ丸められる
-  if (e.t >= KING_ESCAPE_LEN) clearKingEscape();
+  // **点滅はさせない**。黒いまま、すっと吸い込まれて消える。
+  // 出てくるのは裂け目のすぐ下から。遠くから動いてくると、
+  // 評価の文字の上を横切る時間が長くなって目立ちすぎる
+  if (e.man) {
+    e.man.visible = t > 0.3 && t < 0.8;
+    const k = Math.min(1, Math.max(0, (t - 0.3) / 0.45));
+    e.man.y = e.y + 16 - k * 32;   // 小数のまま。描くときだけ丸められる
+  }
+  // **裂け目は片づけない**。集計を見ているあいだ、ずっと点滅させておく。
+  // 片づけるのは場面が変わるとき(clearEntities)。
+  // 入りきった本人だけ、ここで消す
+  if (e.t >= KING_ESCAPE_LEN && e.man) {
+    mmsxx.removeSprite(e.man);
+    e.man = null;
+  }
 }
 
 // 名乗りの長さ(約 7 秒)ぶん止める。少し余韻を足してある
@@ -8490,7 +8509,8 @@ function updatePlay() {
     // ? の隠し場所は、**ドラゴンの顔が下へ抜けきってから**置く。
     // 星座のすぐそばに置くと、ドラゴンより先に ? が出てしまうことがある
     const dragonGone = !dragonSpot || dragonSpotY() > SCREEN_H;
-    if (!secretSpots && playFrame >= SECRET_AT && dragonGone && autoFire <= 0) makeSecretSpots();
+    // 連射中でも置く(出るものが「?」から輝く $ に変わるだけ)
+    if (!secretSpots && playFrame >= SECRET_AT && dragonGone) makeSecretSpots();
     // 星座を見せ終えたころから、長いレーザーが前方から飛んでくる。
     // クリアの演出に入ったら、もう新しくは飛ばさない
     if (playFrame >= FAR_BEAM_AT && clearTimer <= 0 && !leaving && bossIntro <= 0 &&
@@ -8788,6 +8808,9 @@ function updatePlay() {
       // ピンクと水色が交互に入れ替わって、包み紙がきらきらして見える
       it.sp.image = ITEM_IMG[look];
       it.sp.colorMap = (mmsxx.frame & 2) ? CANDY_SWAP : null;
+    } else if (it.kind === 'coinmax') {
+      // 輝く $。白と点滅させず、**色を回して**光っているように見せる
+      it.sp.image = COINMAX_IMAGES[(mmsxx.frame >> 1) % COINMAX_IMAGES.length];
     } else if (it.kind === 'star') {
       // 宝珠は白と点滅させず、**七色に回す**
       it.sp.image = ORB_IMAGES[(mmsxx.frame >> 1) % ORB_IMAGES.length];
@@ -8802,7 +8825,7 @@ function updatePlay() {
       statsItem(it.kind);
       blinkGear(it.kind); // 対応する HUD の項目をしばらく点滅させる
       // $ の連鎖は「$ を取りそこねる」かミスするまで続く
-      if (it.kind !== 'coin') score += 500;
+      if (it.kind !== 'coin' && it.kind !== 'coinmax') score += 500;
       switch (it.kind) {
         case 'coin': {
           score += coinValue;
@@ -8819,6 +8842,14 @@ function updatePlay() {
           }
           break;
         }
+        case 'coinmax':
+          // 連鎖の打ち止めと同じ点。連鎖そのものは動かさない
+          score += COIN_TOP;
+          spawnPopup(it.sp.x - 8, it.sp.y, COIN_TOP);
+          coinChainBest = Math.max(coinChainBest, COIN_TOP);
+          showNotice('CHAIN MAX!');
+          playJingle('fanfare');
+          break;
         case 'auto':
           autoFire = AUTO_FIRE_TIME;
           showNotice('AUTO FIRE');
@@ -9292,7 +9323,8 @@ function updatePlay() {
         if (sp.hits >= SECRET_NEED) {
           sp.done = true;
           spawnBoom(sp.x + 2, sp.y + 2);
-          if (autoFire <= 0) dropItem(sp.x + 2, sp.y + 4, 'auto');
+          // すでに連射しているなら、代わりに**輝く $**(連鎖の打ち止めと同じ点)
+          dropItem(sp.x + 2, sp.y + 4, autoFire > 0 ? 'coinmax' : 'auto');
           mmsxx.audio.playSE('appear', SE_EVENT);
         }
         break;
@@ -9762,6 +9794,9 @@ const BOSS_NEAR_FULL = 40;    // これより近ければ 2 倍
 const BOSS_NEAR_NONE = 140;   // これより遠いと 1 倍
 const BOSS_FLAME_MUL = 6;     // 炎の倍率
 const BOSS_FLAME_GAP = 6;     // 炎で削る間隔(毎コマ削ると強すぎる)
+// ラスボスが出てくるあいだに炎で溜められる数。体力が入る前なので、
+// 当てたぶんは覚えておいて、構え終わったところでまとめて引く
+const KING_PRE_BURN_MAX = 3;
 /** ボス(いま出ているもの)の中心。段階や種類で絵の大きさが違う */
 function bossCenter(b) {
   if (!b) return null;
