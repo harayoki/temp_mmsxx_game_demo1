@@ -14,14 +14,18 @@ rem 画面に出す文字は英語(コマンドプロンプトの文字コード
 if "%~1"=="" goto usage
 if not exist "%~f1\meta.json" goto notrec
 
+rem 出来上がりの名前に **録画フォルダの名前**を入れる。
+rem いくつも撮ったものを 1 か所に集めても、どれがどれだか分かるように
+for %%I in ("%~f1") do set "RECNAME=%%~nxI"
+
 rem 変換の道具は **このバッチと同じ場所**から探す(%~dp0)。
 rem ショートカットから起動されても、作業フォルダに関係なく動くようにするため。
 rem 渡されたフォルダも %~f1 でフルパスに直しておく
-node "%~dp0tools\rec2mp4.mjs" "%~f1" %2 %3 %4 %5 %6 --scale 3 --out "%~f1\out-plain.mp4"
+node "%~dp0tools\rec2mp4.mjs" "%~f1" %2 %3 %4 %5 %6 --scale 3 --out "%~f1\%RECNAME%-plain.mp4"
 set ERR=%ERRORLEVEL%
 if not "%ERR%"=="0" goto failed
 echo.
-echo Done: %~f1\out-plain.mp4  (816x624, no padding)
+echo Done: %~f1\%RECNAME%-plain.mp4  (816x624, no padding)
 echo You can delete frames.idx.gz and audio.pcm once the mp4 looks right.
 goto end
 
