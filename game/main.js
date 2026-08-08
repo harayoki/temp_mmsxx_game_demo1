@@ -3621,6 +3621,7 @@ function enterPlay(fromContinue = false) {
   // 流れ('main' と 'boss')の種はここから作られる
   mmsxx.rng.seed();
   // 直前の画面と音を溜めはじめる(シェアの 1 枚と、あとで作るリプレイに使う)
+  freezeCapture(false);   // 前のゲームで止めたままにしない
   mmsxx.keepFrames(SHARE_KEEP_SEC);
   mmsxx.keepSound(SHARE_KEEP_SEC);
   // 始めたときのランキングを覚えておく(ランクインしたか判定する基準)
@@ -3772,9 +3773,9 @@ function startReplay(then) {
 /** 流し終わった(または飛ばした)。片づけて次へ進む */
 function endReplay() {
   mmsxx.stopFrames();
-  // stopFrames() は溜めを再開させるので、シェアで選ぶぶんを残すときは止め直す。
+  // stopFrames() は溜めを再開させるので、止めておきたいときは止め直す。
   // 止めないと、このあとのゲームオーバー画面で直前の数秒が消えてしまう
-  if (shareBackSaved >= 0) mmsxx.holdCapture(true);
+  applyCapture();
   mmsxx.hideSprites(false);
   mmsxx.layer(REPLAY_LAYER).clear();
   hud.clear();
@@ -4268,8 +4269,14 @@ let shareBackSaved = -1;    // 溜めてあるコマの位置(何コマ前)。-1
 // 板に出しているコマ。溜めてあるコマを見せているあいだは**左右で選び直せる**。
 // 明滅するスプライトは写らないコマがあるので、1 コマずつ前後させて選べるようにする。
 // 選べるのは**溜まっているコマ全部**(3 秒ぶん)
-let shareBack = -1;         // いま見せているコマ。-1 = 溜め以外の 1 枚
-let shareFixed = null;      // その 1 枚(原寸)
+// 溜めたコマの列に**もう 1 枚だけ足す**ための番号。
+// 集計画面のように「溜めには入っていないが、選ばせたい絵」に使う。
+// 列の並びは [SHARE_EXTRA(集計) 0(倒した瞬間) 1 2 … 古い] の順
+const SHARE_EXTRA = -1;     // 列の端に足した 1 枚
+const SHARE_ONE = -2;       // 列そのものが無い(1 枚だけ見せる)
+let shareBack = SHARE_ONE;  // いま見せているコマ
+let shareFixed = null;      // 列が無いときに見せる 1 枚(原寸)
+let shareExtra = null;      // 列の端に足す 1 枚(原寸)。無ければ null
 let shareRepeat = 0;        // 左右を押しっぱなしにしたときの送り
 let shareHintEl = null;     // 何コマめかの案内を出すところ
 let shareLeftBtn = null;    // 古いほうへ送る矢印
@@ -4332,7 +4339,7 @@ function keepDeathShareShot() {
  * 最初に見せるのはその手前の、まだ自機が無事な絵にする
  */
 function stopDeathCapture() {
-  mmsxx.holdCapture(true);
+  freezeCapture(true);
   if (!mmsxx.frameCount) return;
   // 爆発を見せていたぶんだけ、さらにさかのぼる
   const back = REPLAY_BOOM + SHARE_SHOT_AGO * 60;
@@ -4543,7 +4550,7 @@ function paintShareItem(el, on) {
  */
 function setShareZone(z) {
   // コマを選べないとき(集計画面など)は、いつでも下のボタン
-  shareZone = (z === 'frame' && shareBack >= 0) ? 'frame' : 'buttons';
+  shareZone = (z === 'frame' && shareBack !== SHARE_ONE) ? 'frame' : 'buttons';
   const on = shareZone === 'frame';
   paintShareItem(shareLeftBtn, on);
   paintShareItem(shareRightBtn, on);
@@ -4578,8 +4585,9 @@ function runShareFocus() {
  * 溜めてあるコマなら何秒前かを添える(左右で選べることも書いておく)
  */
 function drawShareShot() {
+  const one = shareBack === SHARE_EXTRA ? shareExtra : shareFixed;
   const src = shareBack >= 0 ? mmsxx.frameBackCanvas(shareBack, 2)
-    : (shareFixed ? enlargeShareShot(shareFixed) : null);
+    : (one ? enlargeShareShot(one) : null);
   shareShot = src;
   if (shareShot) {
     // 大きい画面でも板からはみ出さないようにする。ドットはぼかさない
@@ -4592,16 +4600,18 @@ function drawShareShot() {
     shareShotBox.replaceChildren();
   }
   // 案内と矢印。**画面に出す文字は英語**にそろえる(コメントだけ日本語)
-  const pick = shareBack >= 0;
+  const pick = shareBack >= 0 || shareBack === SHARE_EXTRA;
   shareLeftBtn.style.display = shareRightBtn.style.display = pick ? '' : 'none';
   if (!pick) { shareHintEl.textContent = ''; return; }
   const { lo, hi } = shareWindow();
   setArrowEnabled(shareLeftBtn, shareBack < hi);
   setArrowEnabled(shareRightBtn, shareBack > lo);
   const n = hi - shareBack + 1, of = hi - lo + 1;   // 古いほうから数えた番号
-  shareHintEl.textContent =
-    `FRAME ${n}/${of} - ${(shareBack / 60).toFixed(2)}s BEFORE`
-    + '  (UP-DOWN: SWITCH / LEFT-RIGHT: TIME OR BUTTON / SPACE: RUN)';
+  const keys = '  (UP-DOWN: SWITCH / LEFT-RIGHT: TIME OR BUTTON / SPACE: RUN)';
+  // 足した 1 枚には「何秒前」が無いので、名前で出す
+  shareHintEl.textContent = shareBack === SHARE_EXTRA
+    ? `FRAME ${n}/${of} - RESULT` + keys
+    : `FRAME ${n}/${of} - ${(shareBack / 60).toFixed(2)}s BEFORE` + keys;
 }
 
 /** 端まで来た矢印は押せなくする(押せるかどうかを見た目でも出す) */
@@ -4613,7 +4623,9 @@ function setArrowEnabled(btn, on) {
 
 /** 選べるコマの範囲。**溜まっているぶん全部**から選べる */
 function shareWindow() {
-  return { lo: 0, hi: Math.max(0, mmsxx.frameCount - 1) };   // lo = 新しい端 / hi = 古い端
+  // lo = 新しい端 / hi = 古い端。足した 1 枚は**いちばん新しい側**に置く
+  // (戦いのあとに出る絵なので、時の流れと同じ並びになる)
+  return { lo: shareExtra ? SHARE_EXTRA : 0, hi: Math.max(0, mmsxx.frameCount - 1) };
 }
 
 /**
@@ -4621,7 +4633,7 @@ function shareWindow() {
  * @param {number} d +1 で古いほうへ、-1 で新しいほうへ
  */
 function stepShareShot(d) {
-  if (shareBack < 0) return;   // 溜め以外の 1 枚は選びようがない
+  if (shareBack === SHARE_ONE) return;   // 列が無いときは選びようがない
   const { lo, hi } = shareWindow();
   const next = Math.max(lo, Math.min(hi, shareBack + d));
   if (next === shareBack) return;
@@ -4648,9 +4660,14 @@ function openShare(after, spec) {
   if (sharePaused) togglePause();
   makeShareEl().style.display = 'flex';
   shareFixed = null;
-  shareBack = -1;
-  if (spec && spec.shot) shareFixed = spec.shot;
-  else if (spec && spec.back >= 0) shareBack = Math.min(spec.back, mmsxx.frameCount - 1);
+  shareExtra = null;
+  shareBack = SHARE_ONE;
+  if (spec && spec.shot) {
+    // 取ってある 1 枚(集計画面)。**溜めが残っていれば列の端に足して**、
+    // 戦いの場面も選べるようにする(最初に見せるのは取ってある 1 枚)
+    if (mmsxx.frameCount) { shareExtra = spec.shot; shareBack = SHARE_EXTRA; }
+    else shareFixed = spec.shot;
+  } else if (spec && spec.back >= 0) shareBack = Math.min(spec.back, mmsxx.frameCount - 1);
   else if (state === 'play' && mmsxx.frameCount) shareBack = 0;   // ALT+P: いまの画面
   else shareFixed = captureShareShot();
   drawShareShot();
@@ -4782,7 +4799,8 @@ const CARD_W = 1200, CARD_H = 630;
 
 /** 投稿用の 1 枚を作る。板に見せている絵を 1200x630 の帯の真ん中へ置く */
 function makeShareCardCanvas() {
-  const src = shareBack >= 0 ? mmsxx.frameBackCanvas(shareBack) : shareFixed;
+  const src = shareBack >= 0 ? mmsxx.frameBackCanvas(shareBack)
+    : shareBack === SHARE_EXTRA ? shareExtra : shareFixed;
   if (!src) return null;
   const scale = Math.max(1, Math.min(
     Math.floor(CARD_W / src.width), Math.floor(CARD_H / src.height)));
@@ -4921,9 +4939,10 @@ function closeShare() {
   // 見ていた人が置いていかれる。動かすのはもう一度 ESC を押したとき
   sharePaused = false;
   // 選ぶために止めていた溜めを戻す(ポーズ中はポーズ側が止めたままにする)
-  if (!paused) mmsxx.holdCapture(false);
-  shareBack = -1;
+  applyCapture();
+  shareBack = SHARE_ONE;
   shareFixed = null;
+  shareExtra = null;
   shareHiScore = false;
   const after = shareAfter;
   shareAfter = null;
@@ -7883,7 +7902,7 @@ function bossDefeated() {
   // やられて終わるときとは流れが違う。
   // ここで溜めを止めるので、このあとの裂け目もエンディングも混ざらない
   if (wasKing && gameMode() !== 'bossrush') {
-    mmsxx.holdCapture(true);
+    freezeCapture(true);
     clearReplayDone = true;
     if (startReplay(finish)) return;   // 溜まっていなければそのまま集計へ
   }
@@ -8530,7 +8549,7 @@ function updatePlay() {
           // このあとのエンディングまで溜め続けると、そちらがリプレイに流れ、
           // シェアで選べるコマも物語の画面(ほとんど背景色 = 真っ黒)になる。
           // 止めた時点までが最後の絵になり、集計画面までが残る
-          mmsxx.holdCapture(true);
+          freezeCapture(true);
           enterEnding(enterGameOver);
         } else { stageNo++; startStage(); }
       }
@@ -8826,9 +8845,13 @@ function updatePlay() {
         case 'dragon':
           // そらのドラゴンが力を分けてくれる。
           // 推進炎が緑になって一回り大きくなり、当たり判定も広がる。
-          // これはスピードの段階と関係なく、やられても消えない
-          grantFullPower(null);
+          // これはスピードの段階と関係なく、やられても消えない。
+          // **配るのは炎とバリアだけ**。ショットや速さまで最強にすると、
+          // ここから先が別のゲームになってしまう
           dragonFlame = true;
+          barrierHP = MAX_BARRIER;
+          drawHUD();
+          mmsxx.audio.playSE('item');
           showNotice('DRAGON FLAME!');   // ほかのアイテムと同じ下の行に出す
           // 1UP と同じくらい大きな当たりなので、同じジングルで祝う
           playJingle('fanfare');
@@ -9869,8 +9892,19 @@ let paused = false;
  */
 function setPaused(v) {
   paused = !!v;
-  mmsxx.holdCapture(paused);
+  applyCapture();
 }
+
+// **溜めを止めたままにする印**。
+// ラスボスを倒したあと(リプレイ → 集計 → エンディング)や、やられたあとは、
+// 途中でポーズが解かれても溜め直さない。
+// これが無いと、物語の画面が setPaused(false) を呼ぶたびに溜めが再開して、
+// シェアで選べるコマが「そのあとの画面」に入れ替わってしまう
+let captureFrozen = false;
+/** ポーズと印の両方を見て、溜めるかどうかを決め直す */
+function applyCapture() { mmsxx.holdCapture(paused || captureFrozen); }
+/** 溜めを止める / 止めるのをやめる */
+function freezeCapture(on) { captureFrozen = !!on; applyCapture(); }
 // ---- ポーズ中の隠しコマンド ----
 // ↑↑↓↓←→←→BA と "HYPER" は全パワーアップ(どちらも 1 ゲームに 1 回だけ)。
 // 名前を打ち込むとステージワープ、"AHO"/"BAKA" で自爆する。
@@ -10658,15 +10692,12 @@ let statNoteRow = -1;      // 一覧のことわりが始まる行
 let statNoteTimer = 0;
 
 
-/** 3 桁ごとに区切る(桁の多い数は読めないため) */
-function groupNum(n) {
-  const s = String(Math.floor(n));
-  let out = '';
-  for (let i = 0; i < s.length; i++) {
-    if (i > 0 && (s.length - i) % 3 === 0) out += ',';
-    out += s[i];
-  }
-  return out;
+/**
+ * 統計に出す数。**3 桁ごとの区切りは入れない**。
+ * 画面が狭く、名前と数が同じ行に並ぶので、点の 2〜3 文字が効いてくる
+ */
+function statNum(n) {
+  return String(Math.floor(n));
 }
 
 /** 秒を H:MM:SS にする */
@@ -10693,18 +10724,18 @@ function statList() {
   };
 
   gap('- GAME PLAY -');
-  add('playsNormal', groupNum(g('playsNormal')));
-  add('playsHard', groupNum(g('playsHard')));
+  add('playsNormal', statNum(g('playsNormal')));
+  add('playsHard', statNum(g('playsHard')));
   add('playSeconds', formatSpan(g('playSeconds')));
-  add('totalScore', groupNum(g('totalScore')));
-  add('deaths', groupNum(g('deaths')));
-  add('hits', groupNum(g('hits')));
+  add('totalScore', statNum(g('totalScore')));
+  add('deaths', statNum(g('deaths')));
+  add('hits', statNum(g('hits')));
 
   gap('- SHOTS -');
-  add('enemyKills', groupNum(g('enemyKills')));
-  add('backfireKills', groupNum(g('backfireKills')));
-  add('shots', groupNum(g('shots')));
-  add('mostShots', groupNum(g('mostShots')));
+  add('enemyKills', statNum(g('enemyKills')));
+  add('backfireKills', statNum(g('backfireKills')));
+  add('shots', statNum(g('shots')));
+  add('mostShots', statNum(g('mostShots')));
   add('maxRapid', g('maxRapid').toFixed(1));
   add('maxStreak', g('maxStreak') + ' SEC');
   // 通算の平均は、持っている 2 つの数から出せるので記録には持たない
@@ -10712,17 +10743,17 @@ function statList() {
   rows.push(['AVG SHOTS/SEC', sec > 0 ? (g('shots') / sec).toFixed(1) : '0.0']);
 
   gap('- BOSS -');
-  for (let n = 1; n <= 4; n++) add('boss' + n + 'S', groupNum(g('boss' + n + 'S')));
+  for (let n = 1; n <= 4; n++) add('boss' + n + 'S', statNum(g('boss' + n + 'S')));
   // ラスボスは、倒したことがある人にだけ出す(いること自体は図鑑で分かる)
-  if (met('kingDown')) add('kingS', groupNum(g('kingS')));
+  if (met('kingDown')) add('kingS', statNum(g('kingS')));
 
   gap('- LOCAL HIGH SCORE -');
-  add('hiNormal', groupNum(g('hiNormal')));
-  add('hiHard', groupNum(g('hiHard')));
+  add('hiNormal', statNum(g('hiNormal')));
+  add('hiHard', statNum(g('hiHard')));
   add('rushBest', g('rushBest') > 0 ? formatTime(g('rushBest')) : '--:--.--');
 
   gap('- OTHER -');
-  add('shares', groupNum(g('shares')));
+  add('shares', statNum(g('shares')));
 
   // 一覧の最後にも同じことわりを置く(重ねて出したものは消えてしまうため)。
   // こちらは**2 つとも続けて**並べ、時間で消したりはしない
@@ -12325,7 +12356,7 @@ mmsxx.run(() => {
     // ESC はどこにいても閉じる(CLOSE を押したのと同じ)
     const key = mmsxx.input;
     if (key.wasPressed('Escape')) { closeShare(); return; }
-    if (shareBack >= 0 && (key.wasPressed('ArrowUp') || key.wasPressed('ArrowDown'))) {
+    if (shareBack !== SHARE_ONE && (key.wasPressed('ArrowUp') || key.wasPressed('ArrowDown'))) {
       setShareZone(shareZone === 'frame' ? 'buttons' : 'frame');
     } else if (shareZone === 'frame') {
       // 1 コマずつなので、押しっぱなしのときは少し待ってから送り続ける
