@@ -59,8 +59,15 @@ export function createNotice(mmsxx, opt = {}) {
     open: false,
   };
 
+  // **単独で押しても返事にならないキー。**
+  // Shift や Ctrl は「何かと組み合わせて使う」ものなので、これで札が閉じると
+  // 押した本人は答えたつもりが無い。呼び出し側が「ESC 以外は はい」と
+  // 読み分けている場面では、**触っただけで はい になってしまう**
+  const MODIFIER = /^(Shift|Control|Alt|Meta|CapsLock|NumLock|ScrollLock|ContextMenu)/;
+
   const keyHandler = (e) => {
     if (!notice.open) return;
+    if (MODIFIER.test(e.code || '')) return;
     window.removeEventListener('keydown', keyHandler);
     notice.hide();
     if (onKey) onKey(e);

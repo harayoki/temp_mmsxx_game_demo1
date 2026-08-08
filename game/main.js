@@ -3663,6 +3663,16 @@ function enterPlay(fromContinue = false) {
   // CONTINUE は続けている難易度そのものなので、書いても値は変わらない
   const level = continueKey();
   if (level === 'normal' || level === 'hard') setLastPlayed(level);
+  // **新しく始めたら、続きの記録は捨てる。**
+  // 残しておくと、前に遊んだ難易度の CONTINUE が並びに居座る。
+  // CONTINUE は GAME START の隣に入るうえ、ゲームオーバーの直後は
+  // そこが選ばれた状態なので、**始めたつもりのない難易度の途中**から
+  // 始まってしまう(NORMAL で遊んでいたつもりが HARD の 3 面、など)。
+  // 新しく始めるというのは、そこまでの続きを捨てるということ
+  if (!fromContinue && (level === 'normal' || level === 'hard')) {
+    continueStages.normal = 1;
+    continueStages.hard = 1;
+  }
   state = 'play';
   score = 0;
   // 記録の数え直し。得点は 0 に戻したので、足したことにする位置も戻す
