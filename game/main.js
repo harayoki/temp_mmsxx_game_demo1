@@ -12683,7 +12683,12 @@ const padNotice = createNotice(mmsxx, {
  * **使うと決めたあとは出さない**し、断られ続けたときも出さない
  */
 function showPadNotice() {
-  if (padNotice.open || padEnabled || padDeclined >= PAD_DECLINE_MAX) return;
+  if (padNotice.open || padEnabled || padDeclined >= PAD_DECLINE_MAX) return false;
+  // **タイトル(ランキングの一覧もここ)のときだけ**。
+  // 札はゲームを止めるので、遊んでいる最中に出すと弾の合間だろうが画面が凍る。
+  // リプレイの再生ともかみ合わない(絵はエンジン側で進み、ゲームだけ止まる)。
+  // 遊んでいる途中で繋いだ人は、**次にタイトルへ戻ってボタンを押したときに**気づく
+  if (state !== 'title') return false;
   const ok = gamepad.usable().length > 0;
   // 日本語の環境なら日本語、それ以外は英語
   const text = PAD_NOTICE_TEXT[pickLanguage(['ja'], 'en')];
@@ -12702,6 +12707,7 @@ function showPadNotice() {
     // 使うと答えてもらえた合図。ここで初めて音が出せるようになっている
     mmsxx.audio.playSE('item', SE_EVENT);
   }, buttons);
+  return true;
 }
 // **押されるまでパッドは見えない**ので、知らせを出す機会もここになる
 gamepad.onRawPress = () => showPadNotice();
@@ -12714,7 +12720,9 @@ mmsxx.run(() => {
   // **繋いだのに何も起きない**を放っておかないよう、ここで見つけて知らせる
   // 対応していないパッドは**押しても番号が読めない**ので、「また押されたら
   // もう一度」ができない。ページを開いているあいだ 1 回だけ知らせる
-  if (!padNgShown && gamepad.unsupported().length) { padNgShown = true; showPadNotice(); }
+  // **出せたときだけ**印を立てる。遊んでいる最中は出さないので、
+  // ここで印を立ててしまうと、タイトルへ戻っても二度と知らせられなくなる
+  if (!padNgShown && gamepad.unsupported().length && showPadNotice()) padNgShown = true;
   // 札が出ているあいだは**ゲームを進めない**。
   // 読んでもらう間に敵が寄ってきたり、パッドの入力で画面が変わったりしない
   if (padNotice.open) return;
