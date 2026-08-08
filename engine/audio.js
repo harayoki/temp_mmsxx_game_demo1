@@ -21,11 +21,29 @@ const MASTER_VOL = 0.14;
 // 出せないので、出せる音程が階段になっている。低いところは細かいが、
 // 高いところは段が粗く、狙った高さから外れる = 音痴に聞こえる
 const PSG_CLOCK = 3579545 / 2;
-/** その階段のいちばん近い段へ丸める */
-function psgSnap(freq) {
+/**
+ * その階段のいちばん近い段へ丸める。**音色で段の細かさが変わる**。
+ *
+ * - FM は丸めない。実機の FM は 1 オクターブを 512 段階で刻むので、
+ *   どのオクターブでもほぼ正しい音程が出る
+ * - ノイズは音程を持たないので、そのまま
+ * - **三角波だけは 32 で割る**(ファミコンの三角波と同じ)。同じ高さで比べると
+ *   段は 2 倍**粗い**が、三角波は低音を受け持つので割る数が大きくなり、
+ *   実際に鳴らす音域ではよく合う
+ * - それ以外(矩形波・波形メモリなど)は 16 で割る。
+ *   MSX の PSG / ファミコンの矩形波 / PC エンジン / SCC は、
+ *   割り算の答えがそろっていて**同じ階段**になる
+ *
+ * @param {number} freq もとの高さ
+ * @param {number} wave 音色の番号(WAVEFORMS の位置)
+ */
+function psgSnap(freq, wave) {
   if (!(freq > 0)) return freq;
-  const tp = Math.max(1, Math.min(4095, Math.round(PSG_CLOCK / (16 * freq))));
-  return PSG_CLOCK / (16 * tp);
+  const wf = WAVEFORMS[wave] || WAVEFORMS[2];
+  if (wf.kind === 'fm' || wf.kind === 'noise') return freq;
+  const div = wf.kind === 'triangle' ? 32 : 16;
+  const tp = Math.max(1, Math.min(4095, Math.round(PSG_CLOCK / (div * freq))));
+  return PSG_CLOCK / (div * tp);
 }
 
 /** PSG 風の音量カーブ (0..15 -> ゲイン) */
@@ -80,18 +98,20 @@ export class PSGPlayer {
      */
     this.maxTalk = opts.maxTalk ?? 1;
     /**
-     * **実機の PSG と同じ音程のずれを出すか**(既定 false)。
+     * **実機と同じ音程のずれを出すか**(既定 true)。
      *
-     * 実機は「クロック ÷ 16 ÷ 整数」でしか音を作れないので、
+     * 実機は「クロック ÷ 16(三角波は 32) ÷ 整数」でしか音を作れないので、
      * 出せる高さが階段になっている。低い音はほぼ合うが、**高い音ほど狂う**。
-     * true にすると、その階段に丸めて鳴らす(いわゆる「音痴」な音)。
-     * BGM も SE も、鳴らすものすべてに効く。
+     * その階段に丸めて鳴らすのがこの設定(いわゆる「音痴」な音)。
+     * **FM とノイズには効かない**(実機の FM は音程が正確なため)。
      *
      * ```js
-     * mmsxx.audio.psgTune = true;   // 実機に寄せる
+     * mmsxx.audio.psgTune = false;              // まっすぐな音程にする
+     * mmsxx.audio.psgTune = [true, false, true]; // チャンネルごとに決める
      * ```
+     * @type {boolean|boolean[]}
      */
-    this.psgTune = !!opts.psgTune;
+    this.psgTune = opts.psgTune ?? true;
     /** いま BGM が使っている音の数 */
     this.bgmVoices = 0;
     /** SE の管理番号(playSE が返す。stopSE で狙って止めるのに使う) */
@@ -428,7 +448,12 @@ registerProcessor('mmsxx-tap', MmsxxTap);
       this.bgmDefs.set(name, { kind: 'audio', url: src.url, gain: src.gain ?? 1 });
       return;
     }
-    const tracks = (Array.isArray(src) ? src : [src]).map(compileTrack);
+    // **何番目のチャンネルか**を覚えておく(音程の丸めをチャンネルごとに決めるため)
+    const tracks = (Array.isArray(src) ? src : [src]).map((t, i) => {
+      const track = compileTrack(t);
+      track.ch = i;
+      return track;
+    });
     this.bgmDefs.set(name, tracks);
   }
 
@@ -459,7 +484,11 @@ registerProcessor('mmsxx-tap', MmsxxTap);
 
   /** SE を登録する(書式は BGM と同じ) */
   defineSE(name, mml) {
-    const tracks = (Array.isArray(mml) ? mml : [mml]).map(compileTrack);
+    const tracks = (Array.isArray(mml) ? mml : [mml]).map((t, i) => {
+      const track = compileTrack(t);
+      track.ch = i;
+      return track;
+    });
     this.seDefs.set(name, tracks);
   }
 
@@ -1065,18 +1094,28 @@ registerProcessor('mmsxx-tap', MmsxxTap);
    * 小さめに重ねて、音を太くする。MML の `@o1` / `@o2`。
    * 下へ行くほど弱くして、輪郭は上の音のままに保つ
    */
-  _playOctaves(ev, amp, t0, t1, dest, nodes) {
+  _playOctaves(ev, amp, t0, t1, dest, nodes, tune = false) {
     const n = ev.octave2 | 0;
     if (n <= 0) return;
-    this._playVoice(ev, ev.freq / 2, amp * 0.5, t0, t1, dest, nodes);
-    if (n >= 2) this._playVoice(ev, ev.freq / 4, amp * 0.28, t0, t1, dest, nodes);
+    this._playVoice(ev, ev.freq / 2, amp * 0.5, t0, t1, dest, nodes, tune);
+    if (n >= 2) this._playVoice(ev, ev.freq / 4, amp * 0.28, t0, t1, dest, nodes, tune);
+  }
+
+  /**
+   * そのチャンネルを丸めるか。配列を入れておけば**チャンネルごと**に決まる
+   * (並びに無いチャンネルは丸める側にする)
+   */
+  _tuneOn(ch) {
+    const t = this.psgTune;
+    if (Array.isArray(t)) return t[ch | 0] !== false;
+    return !!t;
   }
 
   /** 1 音ぶんの音源 + エンベロープを組み立てて鳴らす */
-  _playVoice(ev, freq, amp, t0, t1, dest, nodes) {
+  _playVoice(ev, freq, amp, t0, t1, dest, nodes, tune = false) {
     const ctx = this.ctx;
     // 実機に寄せるときは、ここで階段へ丸める(重ねる音・エコーも同じ道を通る)
-    if (this.psgTune) freq = psgSnap(freq);
+    if (tune) freq = psgSnap(freq, ev.wave);
     const g = ctx.createGain();
     g.connect(dest);
     const src = this._makeOscillator(ev, freq);
@@ -1133,6 +1172,7 @@ registerProcessor('mmsxx-tap', MmsxxTap);
    * @param {number} off 曲の中の再開位置(秒)
    */
   _scheduleTrackFrom(track, when, dest, nodes, off) {
+    const tune = this._tuneOn(track.ch);
     for (const ev of track.events) {
       const end = ev.t + Math.max(0.01, ev.gate);
       if (end <= off) continue;                 // もう鳴り終わっている音
@@ -1140,22 +1180,23 @@ registerProcessor('mmsxx-tap', MmsxxTap);
       const t0 = when + (start - off);
       const t1 = when + (end - off);
       const amp = volGain(ev.vol) * MASTER_VOL;
-      this._playVoice(ev, ev.freq, amp, t0, t1, dest, nodes);
-      this._playOctaves(ev, amp, t0, t1, dest, nodes);
+      this._playVoice(ev, ev.freq, amp, t0, t1, dest, nodes, tune);
+      this._playOctaves(ev, amp, t0, t1, dest, nodes, tune);
       if (ev.detune > 0) {
         const f2 = ev.freq * Math.pow(2, ev.detune / 1200);
-        this._playVoice(ev, f2, amp * 0.6, t0, t1, dest, nodes);
+        this._playVoice(ev, f2, amp * 0.6, t0, t1, dest, nodes, tune);
       }
       if (ev.echo > 0) {
         const delay = 0.11 + ev.echo * 0.012;
         const eAmp = amp * (0.12 + ev.echo * 0.035);
-        this._playVoice(ev, ev.freq, eAmp, t0 + delay, t1 + delay, dest, nodes);
+        this._playVoice(ev, ev.freq, eAmp, t0 + delay, t1 + delay, dest, nodes, tune);
       }
     }
   }
 
   /** 1チャンネルぶんのイベントを Web Audio ノードとしてスケジュールする */
   _scheduleTrack(track, when, dest, nodes, from = -Infinity, to = Infinity) {
+    const tune = this._tuneOn(track.ch);
     for (const ev of track.events) {
       // 先読み予約: 曲の中の時刻が [from, to) のイベントだけを積む
       if (ev.t < from || ev.t >= to) continue;
@@ -1163,22 +1204,22 @@ registerProcessor('mmsxx-tap', MmsxxTap);
       const t1 = t0 + Math.max(0.01, ev.gate);
       const amp = volGain(ev.vol) * MASTER_VOL;
 
-      this._playVoice(ev, ev.freq, amp, t0, t1, dest, nodes);
+      this._playVoice(ev, ev.freq, amp, t0, t1, dest, nodes, tune);
 
       // オクターブ重ね: 下のオクターブを重ねて厚みを出す
-      this._playOctaves(ev, amp, t0, t1, dest, nodes);
+      this._playOctaves(ev, amp, t0, t1, dest, nodes, tune);
 
       // デチューン: わずかにずらした音を重ねて厚みを出す
       if (ev.detune > 0) {
         const f2 = ev.freq * Math.pow(2, ev.detune / 1200);
-        this._playVoice(ev, f2, amp * 0.6, t0, t1, dest, nodes);
+        this._playVoice(ev, f2, amp * 0.6, t0, t1, dest, nodes, tune);
       }
 
       // エコー: 少し遅らせて小さく鳴らす
       if (ev.echo > 0) {
         const delay = 0.11 + ev.echo * 0.012;
         const eAmp = amp * (0.12 + ev.echo * 0.035);
-        this._playVoice(ev, ev.freq, eAmp, t0 + delay, t1 + delay, dest, nodes);
+        this._playVoice(ev, ev.freq, eAmp, t0 + delay, t1 + delay, dest, nodes, tune);
       }
     }
   }

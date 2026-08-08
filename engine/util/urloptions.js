@@ -53,7 +53,7 @@ const TABLE = {
   // 実機の PSG は出せる音程が階段になっていて、高い音ほど狂う。
   // それをそのまま真似るかどうか
   psgtune: {
-    flag: true, def: false, help: '実機の PSG と同じ音程のずれを出す',
+    flag: true, def: true, help: '実機と同じ音程のずれを出す(0 で消す)',
     after: (m, v) => { m.audio.psgTune = !!v; },
   },
   volume: {
@@ -97,7 +97,12 @@ export function urlOptions(search, opts = {}) {
     let v;
     if (spec.num) v = readNum(raw, spec.num, def);
     else if (spec.list) v = spec.list.includes(raw) ? raw : def;
-    else if (spec.flag) v = (raw === '1' || raw === 'on') ? true : !!def;
+    else if (spec.flag) {
+      // **0 / off で消せる**ようにする(既定が true の項目があるため)
+      if (raw === '1' || raw === 'on') v = true;
+      else if (raw === '0' || raw === 'off') v = false;
+      else v = !!def;
+    }
     else v = (raw == null || raw === '') ? def : raw;
     if (spec.fix) v = spec.fix(v);
     value[name] = v;

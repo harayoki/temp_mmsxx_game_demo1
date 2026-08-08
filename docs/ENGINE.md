@@ -245,11 +245,15 @@ mmsxx.audio.stopBGM();
 // ノイズ(爆発など)は本数が別枠。new MMSXXEngine(canvas, { maxNoise: 2 }) で決める
 // (既定 1 = 実機の PSG と同じ。数えるのは SE のぶんだけで BGM のドラムは別)。
 // あふれたときは優先度の低いノイズ SE を止める。
-// **実機の PSG と同じ音程のずれ**を出す(既定 false)。
-// 実機はクロックを 16 と整数で割った高さしか出せないので、出せる音程が階段になる。
-// 低い音はほぼ合い、**高い音ほど狂う**(A6 で -12 セント、C7 で +14 セントほど)。
-// BGM も SE も、鳴らすものすべてに効く。URL からは ?psgtune=1
-mmsxx.audio.psgTune = true;
+// **実機と同じ音程のずれ**を出す(既定 true)。
+// 実機はクロックを 16(三角波は 32)と整数で割った高さしか出せないので、
+// 出せる音程が階段になる。低い音はほぼ合い、**高い音ほど狂う**
+// (A6 で -12 セント、C7 で +14 セントほど)。
+// **FM とノイズには効かない**(実機の FM は 1 オクターブを 512 段階で刻むので正確)。
+// MSX の PSG / ファミコンの矩形波 / PC エンジン / SCC は同じ階段になる。
+// URL からは ?psgtune=0 で消せる
+mmsxx.audio.psgTune = false;              // まっすぐな音程にする
+mmsxx.audio.psgTune = [true, false, true]; // チャンネルごとに決める
 mmsxx.audio.playSE('shot');                       // ふつうの SE
 mmsxx.audio.playSE('laser', 3);                   // 大事な SE
 mmsxx.audio.playSE('fanfare', 9, { exclusive: true }); // 独り占め(他を全部止める)
