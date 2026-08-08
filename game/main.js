@@ -2096,7 +2096,7 @@ function burnBossBehind(fx, fy, r) {
   // 出てくる(つま先立ち)あいだは体力がまだ入っていないので、
   // 焼いたぶんを覚えておいて、構え終わった時に体力から引く
   if (boss.kind === 'king' && boss.stage === 'pose') {
-    // 予約できるのは **5 撃ぶんまで**。
+    // 予約できるのは **1 撃ぶんだけ**。
     // 出てくるあいだ焼き続けても、そこで打ち止めにする
     // (構える前に大半を削れてしまうと、第 2 段階が始まらなくなるため)
     if ((boss.preBurnHits || 0) >= KING_PRE_BURN_MAX) return;
@@ -9825,17 +9825,17 @@ const BOSS_NEAR_NONE = 140;   // これより遠いと 1 倍
 // 炎でボスに入る量。**弾と違って強化の影響を受けない**。
 // 1 秒あたりの量で決めて、当たる回数で割ったものを 1 回ぶんにする
 // (当たる間隔を変えても、削れる速さは変わらない)
-const BOSS_FLAME_DPS = 150;          // ふつうの推進炎
-const BOSS_FLAME_DPS_DRAGON = 300;   // 七色の炎(そらのドラゴンのアイテム)
-const BOSS_FLAME_HZ = 4;             // 1 秒に当たる回数
-const BOSS_FLAME_GAP = Math.round(60 / BOSS_FLAME_HZ);   // 15 コマに 1 回
+const BOSS_FLAME_DPS = 100;          // ふつうの推進炎
+const BOSS_FLAME_DPS_DRAGON = 200;   // 七色の炎(そらのドラゴンのアイテム)
+const BOSS_FLAME_GAP = 4;            // 当たる間隔(4 コマに 1 回)
+const BOSS_FLAME_HZ = 60 / BOSS_FLAME_GAP;   // 1 秒に当たる回数(15 回)
 /** 炎 1 回ぶんの量 */
 function bossFlameDamage() {
   return (dragonFlame ? BOSS_FLAME_DPS_DRAGON : BOSS_FLAME_DPS) / BOSS_FLAME_HZ;
 }
 // ラスボスが出てくるあいだに炎で溜められる数。体力が入る前なので、
 // 当てたぶんは覚えておいて、構え終わったところでまとめて引く
-const KING_PRE_BURN_MAX = 5;
+const KING_PRE_BURN_MAX = 1;
 /** ボス(いま出ているもの)の中心。段階や種類で絵の大きさが違う */
 function bossCenter(b) {
   if (!b) return null;
