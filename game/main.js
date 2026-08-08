@@ -1855,6 +1855,9 @@ function clearEntities() {
   clearShootStars();
   clearWeakSparks();
   clearDeathBurst();
+  // 青い裂け目は**集計のあいだ残す**ようにしたので、
+  // 場を片づけるここで消さないと、次のゲームまで持ち越してしまう
+  clearKingEscape();
   if (boss) {
     if (boss.eyeL) mmsxx.removeSprite(boss.eyeL);
     if (boss.eyeR) mmsxx.removeSprite(boss.eyeR);
@@ -4416,6 +4419,13 @@ function shareTextLines() {
 /** ダイアログの板を作る(1 回だけ) */
 function makeShareEl() {
   if (shareEl) return shareEl;
+  // 選んでいる印の点滅。**2 コマ点いて 2 コマ消える**(60 分の 4 秒で 1 周)。
+  // 毎コマ塗り直すのは重いので、切り替えはブラウザにまかせる
+  const css = document.createElement('style');
+  css.textContent = '@keyframes share-focus {'
+    + '0%,49.9% { border-color:#ffe000; background:#3a3520 }'
+    + '50%,100% { border-color:#cccccc; background:#202020 } }';
+  document.head.appendChild(css);
   const el = document.createElement('div');
   el.id = 'share';
   Object.assign(el.style, {
@@ -4541,8 +4551,11 @@ function focusShareItem(i) {
 
 /** 選ばれているものは枠と地の色を変える */
 function paintShareItem(el, on) {
-  el.style.borderColor = on ? '#ffe000' : '#cccccc';
-  el.style.background = on ? '#3a3520' : '#202020';
+  // 選んでいるものは**2 コマ点いて 2 コマ消える**(ゲームの中の点滅と同じ速さ)。
+  // 60 分の 4 秒ごとの切り替えなので、毎コマ塗らずに CSS の繰り返しにまかせる
+  el.style.animation = on ? 'share-focus 0.0667s step-end infinite' : '';
+  el.style.borderColor = '#cccccc';
+  el.style.background = '#202020';
 }
 
 /**
@@ -4678,8 +4691,11 @@ function openShare(after, spec) {
   shareRepeat = 0;
   updateShareMovieBtn();
   // 出したときは下のボタンの SHARE を選んでおく(そのまま SPACE で送れる)
+  // 下へ降りたときに選ばれるものだけ決めておく
   shareFocus = Math.max(0, shareItems.findIndex(it => it.el === shareSendBtn));
-  setShareZone('buttons');
+  // **始まりは上(コマを選ぶ矢印)**。まず絵を決めてから送ってほしいので。
+  // コマを選べないとき(集計画面の 1 枚だけなど)は、中で下のボタンに落ちる
+  setShareZone('frame');
   mmsxx.audio.playSE('shutter', SE_JINGLE);
 }
 
