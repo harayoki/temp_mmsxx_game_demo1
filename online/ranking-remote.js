@@ -43,6 +43,18 @@
 // `browserId` と `playId` は**ゲームが持つもの**なので、値か、値を返す関数を渡す。
 // 関数にしておくと「1 プレイごとに作り直す playId」をそのまま渡せる。
 //
+// ## 記録に添える手がかり
+//
+// 上と同じように、値か、値を返す関数で渡せる。渡さなければ送らない(「不明」になる)。
+//
+//   platform: 'pc',                      // 'pc' / 'mobile' / 'app'
+//   input: () => mmsxx.input.usedInputs(),  // 'key' / 'touch' / 'pad' を + で連結
+//   gameVersion: '1.01',                 // ビルドの版。追跡用で、ランキングは分かれない
+//   rankingVersion: '1.00',              // メジャーが同じ記録どうしが同じ土俵
+//
+// **サーバは値を確かめない**。想定外の値もそのまま記録され、一覧にそのまま出る。
+// 小文字でそろえること(`PC` は `pc` と別物として並ぶ)。
+//
 // ## サーバの URL はここが知っている
 //
 // 宛先はこの部品が両方とも持っていて、`dev` で選ぶ。**ゲームには持たせない**。
@@ -107,6 +119,10 @@ export class RemoteRankingSource {
    *   games: Object<string, { gameId: string, rankingKey: string, valueKey: string }>,
    *   browserId?: string|(()=>string),  この端末を見分ける ID
    *   playId?: string|(()=>string),     1 回のプレイを見分ける ID
+   *   platform?: string|(()=>string),      'pc' / 'mobile' / 'app'
+   *   input?: string|(()=>string),         'key' / 'touch' / 'pad' を + で連結
+   *   gameVersion?: string|(()=>string),   ビルドの版
+   *   rankingVersion?: string|(()=>string),ランキングを分ける基準
    *   timeoutMs?: number,     これだけ待って返らなければあきらめる(既定 5 秒)
    *   limit?: number,         一度に取る件数の上限(既定 100)
    *   turnstile?: object|null, 送信確認の設定。既定は本番のときだけ有効。null で明示的に切る
@@ -118,6 +134,13 @@ export class RemoteRankingSource {
     this.games = opts.games || {};
     this.browserId = opts.browserId || '';
     this.playId = opts.playId || '';
+    // 記録に添える手がかり。**サーバは中身を確かめない**ので、
+    // 決めた語(小文字)以外を送るとそのまま一覧に出てしまう。
+    // input はプレイのあいだに変わるので、値ではなく関数で渡してよい
+    this.platform = opts.platform || '';
+    this.input = opts.input || '';
+    this.gameVersion = opts.gameVersion || '';
+    this.rankingVersion = opts.rankingVersion || '';
     this.timeoutMs = opts.timeoutMs ?? 5000;
     this.limit = opts.limit ?? 100;
     // 送信確認は**本番だけ**。開発用サーバは求めてこないので、
@@ -203,6 +226,15 @@ export class RemoteRankingSource {
       browserId: this._id(this.browserId),
       values: { [g.valueKey]: entry[g.valueKey] },
     };
+    // 手がかりは**分かるものだけ**載せる。送らなければ「不明」として記録され、
+    // 空文字を送ると「空文字という値」が記録されてしまう
+    const hints = {
+      platform: this._id(this.platform),
+      input: this._id(this.input),
+      gameVersion: this._id(this.gameVersion),
+      rankingVersion: this._id(this.rankingVersion),
+    };
+    for (const [k, v] of Object.entries(hints)) if (v) body[k] = v;
     // トークンは使い捨て。送るたびに取り直したものを載せる
     if (token) body.turnstileToken = token;
     let data;

@@ -10,6 +10,12 @@
 // 同じキーを別々の場所から聞いても干渉しない。
 // タッチのフリックを「N コマ押しっぱなし」として流し込めば、
 // 画面側は何も変えずに勢いのぶんスクロールする(docs/SMARTPHONE.md)。
+//
+// ## 何で操作したかを控える
+//
+// press() は「どれで押されたか」を第 2 引数で受け取り、使われた種類を覚えておく。
+// ランキングへ「そのプレイで何を使ったか」を送るために要る。
+// 途中で持ち替える人がいるので、**最後の 1 つではなく使ったもの全部**を残す。
 export class Input {
   /** @param {() => void} [onFirstInput] 最初のキー入力時に呼ばれる(オーディオ解禁用) */
   constructor(onFirstInput) {
@@ -19,11 +25,13 @@ export class Input {
     this.pressed = new Set();
     /** @type {Map<string, number>} 押しているコマ数。押した瞬間が 0 */
     this.held = new Map();
+    /** @type {Set<string>} 何で操作されたか('key' / 'touch' / 'pad') */
+    this.usedSources = new Set();
     this.onFirstInput = onFirstInput;
 
     window.addEventListener('keydown', (e) => {
       if (this.onFirstInput) { this.onFirstInput(); }
-      this.press(e.code);
+      this.press(e.code, 'key');
       // ゲーム用キーのスクロールなどを抑止
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
         e.preventDefault();
@@ -37,8 +45,13 @@ export class Input {
    * 押されたことにする。**キーボードもタッチもここを通す**。
    * 押しっぱなしで何度も呼ばれても、押した瞬間は 1 回だけにする
    * (OS のキーリピートで pressed が立ち続けないように)
+   * @param {string} code
+   * @param {'key'|'touch'|'pad'} [source] 何で押されたか(既定はキーボード)
    */
-  press(code) {
+  press(code, source = 'key') {
+    // 種類は**押しっぱなしの判定より先に**控える。
+    // 同じキーをキーボードで押したままタッチでも押したときに取りこぼさない
+    this.usedSources.add(source);
     if (this.down.has(code)) return;
     this.pressed.add(code);
     this.down.add(code);
@@ -56,6 +69,18 @@ export class Input {
     this.down.clear();
     this.held.clear();
   }
+
+  /**
+   * 何で操作されたかを `key+touch+pad` の形で返す。まだ何も無ければ空文字。
+   * **並びは key → touch → pad で固定**。受け取る側が並べ直さないので、
+   * 同じ組み合わせがいつも同じ文字列になるようにする
+   */
+  usedInputs() {
+    return ['key', 'touch', 'pad'].filter(s => this.usedSources.has(s)).join('+');
+  }
+
+  /** 控えを捨てる。**1 プレイごとに数え直す**ときに呼ぶ(clear() では消さない) */
+  forgetUsedInputs() { this.usedSources.clear(); }
 
   /** キーが押されているか */
   isDown(code) { return this.down.has(code); }

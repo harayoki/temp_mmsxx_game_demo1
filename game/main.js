@@ -866,6 +866,30 @@ const browserId = getBrowserId();
  */
 let playId = newUuid();
 
+/**
+ * ランキングを分ける基準。**メジャーが同じ記録どうしが同じ土俵**になる
+ * (1.00 と 1.03 は同じランキング、2.00 は別ランキング)。
+ *
+ * 上げるのは、**遊びの中身を変えて過去の記録と比べられなくなったとき だけ**:
+ *
+ *   ・難しさ・ステージ・点の数えかたを変えた → メジャーを上げる(1.xx → 2.00)
+ *   ・比べられる範囲の小さな変更を残したい   → マイナーを上げる(1.00 → 1.01)
+ *   ・不具合直し・描画・UI・読み込みだけ     → **そのまま**(gameVersion だけ上がる)
+ *
+ * ビルドの版(BUILD.version)とは連動させない。ビルドを重ねても中身が同じなら据え置く。
+ * **サーバからは中身が変わったか分からない**ので、出すときの決めごととして守る
+ */
+const RANKING_VERSION = '1.00';
+
+/**
+ * どこで遊んでいるか。ブラウザなら 'pc' か 'mobile'。
+ * Windows / Android のアプリとして包んで配るようになったら 'app' を返すようにする。
+ * **必ず小文字**。サーバは値を確かめないので、ゆれるとそのまま一覧に出る
+ */
+function rankPlatform() {
+  return isMobileLike() ? 'mobile' : 'pc';
+}
+
 // ランキングの供給元。ふだんは手元の localStorage。
 // サーバへ繋がなくても通信の様子を試せるようにしてある。
 //
@@ -919,6 +943,25 @@ async function makeRemoteRankSource(dev) {
     browserId,
     // playId は 1 プレイごとに作り直すので、送るたびに今の値を聞いてもらう
     playId: () => playId,
+    platform: rankPlatform(),
+    // input は**まだ送らない**。
+    //
+    // 今 press() を通るのはキーボードだけで、タッチやパッドの入口が無い。
+    // このまま送ると、指で遊んだ人の記録まで `mobile` なのに `key` として残り、
+    // **後から直せない**(どれが本当にキーボードだったか分からなくなる)。
+    // 送らなければ「不明」(null)として記録されるので、入口ができてからの記録と混ざらない。
+    //
+    // バーチャルパッドやゲームパッドを足して press(code, 'touch') /
+    // press(code, 'pad') が通るようにしたら、下の 1 行を戻すこと。
+    // 何で操作したかは**プレイの途中で増える**(持ち替える人がいる)ので、
+    // 送るときに今の控えを聞いてもらう:
+    //
+    //   input: () => mmsxx.input.usedInputs(),
+    //
+    // ビルドの版。頭の v は付けずに送る(1.01 / 公開版は 1.01.42)。
+    // **ランキングは分かれない**。どのビルドの記録かを後で追うためだけの項目
+    gameVersion: BUILD.version.replace(/^v/, ''),
+    rankingVersion: RANKING_VERSION,
     games: {
       'starfable-hiscores-easy': { gameId: 'star-fable-normal', rankingKey: 'high-score', valueKey: 'score' },
       'starfable-hiscores': { gameId: 'star-fable-hard', rankingKey: 'high-score', valueKey: 'score' },
@@ -3643,6 +3686,8 @@ function enterPlay(fromContinue = false) {
   konamiPos = 0;
   // このプレイを見分ける ID を作り直す(記録を送るときに使う)
   playId = newUuid();
+  // 何で操作したかも数え直す。**このプレイで使ったもの**だけを記録に残す
+  mmsxx.input.forgetUsedInputs();
   // 乱数の種も作り直す。**記録に残すのはこの数だけ**で、
   // 流れ('main' と 'boss')の種はここから作られる
   mmsxx.rng.seed();
@@ -10360,7 +10405,11 @@ mmsxx.expose('mmsxxDebug', () => ({
   playerX: Math.round(player.x), bullets: bullets.length,
   talkHold, continueStages: { ...continueStages },
   rank: { mode: RANK_MODE, browserId, playId, seed: mmsxx.rng.masterSeed,
-    delay: RANK_DELAY, errorRate: RANK_ERROR },
+    delay: RANK_DELAY, errorRate: RANK_ERROR,
+    platform: rankPlatform(),
+    // 控えてはいるが**まだ送っていない**(上の makeRemoteRankSource を見ること)
+    inputNotSent: mmsxx.input.usedInputs(),
+    gameVersion: BUILD.version.replace(/^v/, ''), rankingVersion: RANKING_VERSION },
   dragon: dragonSpot ? { hits: dragonSpot.hits, done: dragonSpot.done,
     x: dragonSpot.x, y: dragonSpotY() } : null,
   secret: secretSpots ? secretSpots.map(s => ({ x: s.x, y: s.y, hits: s.hits, done: s.done })) : null,
