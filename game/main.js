@@ -2086,9 +2086,9 @@ function burnBossBehind(fx, fy, r) {
   // 炎は自機の後ろ(下)へ出るので、上から覆いかぶさる形でしか当てられない
   if (player.y + 8 >= c[1]) return;
   if (Math.abs(fx - c[0]) > hw + r) return;
-  // ラスボスは**頭に当てたときだけ**。胴を焼いても通らない
+  // ラスボスは頭でも胴でも通る(頭にぶつからないぶん、焼きに行きやすい)
   if (boss.kind === 'king') {
-    if (fy < boss.y - r || fy > boss.y + KING_MAN_H * 0.38) return;
+    if (fy < boss.y - r || fy > boss.y + KING_MAN_H + r) return;
   } else if (Math.abs(fy - c[1]) > hh + r) return;
   boss.burnGap = BOSS_FLAME_GAP;
   // 七色の炎なら 2 倍。差は bossFlameDamage() が持っている
@@ -2901,7 +2901,10 @@ function drawBossBar() {
   hud.fill(0, 0, BAR_Y, VW, 8);
   if (!boss || boss.dying > 0) return;
   hud.print(8, BAR_Y, 'BOSS', 8);
-  const w = Math.max(0, Math.round(BAR_W * boss.hp / boss.max));
+  // **登場の演出のあいだは満タンに見せる**。中の数はまだ入っていないので、
+  // そのまま出すと減って見える。実際に減るのは演出が終わってから
+  const posing = bossIntro > 0 || (boss.kind === 'king' && boss.stage === 'pose');
+  const w = posing ? BAR_W : Math.max(0, Math.round(BAR_W * boss.hp / boss.max));
   for (let i = 0; i * 8 < BAR_W; i++) {
     const n = Math.max(0, Math.min(8, w - i * 8));
     hud.draw(BAR_X + i * 8, BAR_Y, BAR_TILES[n]);
@@ -6404,6 +6407,9 @@ const KING_MAX_Y = SCREEN_H / 2 - KING_MAN_H / 2;
 const KING_ZEN_COLORS = [8, 9, 10, 2, 7, 4, 13];
 const kingZenMap = () => ({ 1: KING_ZEN_COLORS[Math.floor(mmsxx.frame / 6) % KING_ZEN_COLORS.length] });
 const KING_MAN_HP = 480;           // 第 2 段階の体力(弱すぎたので 4 倍にした)
+// 頭とみなす高さの割合(上から 38%)。弾が 2 倍になる場所であり、
+// **自機がぶつからない**場所でもある
+const KING_HEAD_RATIO = 0.38;
 let kingBeams = [];
 
 /**
@@ -9404,7 +9410,7 @@ function updatePlay() {
         // (七色に光っているので、点滅すると何が起きているか分からなくなる)
         if (boss.meditate > 0) { mmsxx.audio.playSE('armor'); continue; }
         // 頭に当たると 2 倍。上から攻めるのが効く相手にする
-        const head = (b.sp.y + 8) < boss.y + KING_MAN_H * 0.38;
+        const head = (b.sp.y + 8) < boss.y + KING_MAN_H * KING_HEAD_RATIO;
         // 頭は 2 倍。さらに近いほど効く(上からの倍率は頭の判定と重なるので入れない)
         boss.hp -= Math.max(1, Math.round(BOSS_DMG * (head ? 2 : 1) * bossDamageMul(boss, false)));
         // **弾で削ったという印**。座って立て直すのは、これがあるときだけ
@@ -9719,7 +9725,11 @@ function updatePlay() {
           hit = true; hitCause = 'KING BEAM'; break;
         }
       }
-      if (!hit && boss.stage === 'man' &&
+      // **頭にはぶつからない**(胴から下だけ)。炎を当てるには頭へ覆いかぶさる
+      // ことになるので、頭に当たり判定があると焼きに行けない。
+      // こちらの弾と炎は、頭にも胴にも当たる
+      const bodyTop = boss.y + KING_MAN_H * KING_HEAD_RATIO;
+      if (!hit && boss.stage === 'man' && py > bodyTop &&
           Math.abs((boss.x + KING_MAN_W / 2) - px) < (KING_MAN_W / 2 - 14) * R &&
           Math.abs((boss.y + KING_MAN_H / 2) - py) < (KING_MAN_H / 2 - 6) * R) {
         criticalHit('THE KING');
@@ -11177,6 +11187,9 @@ function storySpriteSet() {
 }
 
 /** エンディング。4 秒 x 3 枚 */
+// エンディング最後の場面(青いひび)を置く高さ。文字と離すぶんだけ上げてある
+const RIFT_SCENE_Y = -8;
+
 function buildEnding() {
   return new StoryScenes(mmsxx, {
     artLayer: 3, textLayer: 4, textY: 160, lineStep: 12,
@@ -11271,8 +11284,11 @@ function buildEnding() {
         // 曲は 10 秒かけてゆっくり落とす(場面は 6 秒なので、
         // 消えきる前に静かになっていく)
         onEnter: () => { mmsxx.backdrop = 1; mmsxx.audio.fadeOutBGM(10); },
-        duo: { image: BG_SYMBOLS.endRift, maps: GAME_DATA.duo.rift, x: 16, y: 0 },
-        draw: (m, art) => { art.draw(16, 0, BG_SYMBOLS.endRift, true,
+        // **8 ドット上へ**。下は 160 から出る「TO BE CONTINUED?」の行なので、
+        // そのままだとひびの下端(絵の 159 行目)と文字がくっついて見える。
+        // 絵の上 32 行は空なので、上へずらしても欠けるところは無い
+        duo: { image: BG_SYMBOLS.endRift, maps: GAME_DATA.duo.rift, x: 16, y: RIFT_SCENE_Y },
+        draw: (m, art) => { art.draw(16, RIFT_SCENE_Y, BG_SYMBOLS.endRift, true,
           { colorMap: GAME_DATA.duo.rift[0] }); },
         // 絵は 4 コマのパラパラアニメで、真ん中から上下へ裂けて出てくる。
         // ちらつきも重ねて「まだ実体でない」感じを出す。
@@ -11287,7 +11303,7 @@ function buildEnding() {
           // 絵は 32 幅で、背景と同じだけ左右へ曲がっている。
           // 切り出した位置(裂け目の中ほど)に合わせて置く
           s.glow.x = 16 + 112 - 16;
-          s.glow.y = 32 + Math.round((128 - 64) / 2);
+          s.glow.y = RIFT_SCENE_Y + 32 + Math.round((128 - 64) / 2);
           return [s.glow];
         },
       },
