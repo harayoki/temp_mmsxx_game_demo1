@@ -13,15 +13,16 @@ rem のように書けば上書きできる。
 rem 画面に出す文字は英語(コマンドプロンプトの文字コードに引っぱられないように)
 
 if "%~1"=="" goto usage
-if not exist "%~1\meta.json" goto notrec
+if not exist "%~f1\meta.json" goto notrec
 
-pushd "%~dp0"
-node tools\rec2mp4.mjs "%~1" %2 %3 %4 %5 %6 --scale 5 --pad 1920x1080 --out "%~1\out-youtube.mp4"
+rem 変換の道具は **このバッチと同じ場所**から探す(%~dp0)。
+rem ショートカットから起動されても、作業フォルダに関係なく動くようにするため。
+rem 渡されたフォルダも %~f1 でフルパスに直しておく
+node "%~dp0tools\rec2mp4.mjs" "%~f1" %2 %3 %4 %5 %6 --scale 5 --pad 1920x1080 --out "%~f1\out-youtube.mp4"
 set ERR=%ERRORLEVEL%
-popd
 if not "%ERR%"=="0" goto failed
 echo.
-echo Done: %~1\out-youtube.mp4  (1920x1080, 5x centered)
+echo Done: %~f1\out-youtube.mp4  (1920x1080, 5x centered)
 echo You can delete frames.idx.gz and audio.pcm once the mp4 looks right.
 goto end
 
@@ -38,7 +39,7 @@ goto end
 
 :notrec
 echo Not a recording folder (meta.json not found):
-echo   %~1
+echo   %~f1
 goto end
 
 :failed
