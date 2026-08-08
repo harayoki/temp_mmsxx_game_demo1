@@ -1164,9 +1164,12 @@ function spawnEyeballs() {
     sp.y = fromBelow ? SCREEN_H + EYE_SIZE : -EYE_SIZE;
     const pupil = mmsxx.sprite(SPRITE_SYMBOLS.eyeIris0);
     pupil.priority = 10;
-    // 血管は赤の単色スプライト
+    // 血管は赤の単色スプライト。**瞳より奥**に置く。
+    // 血管は白目の側に走るものなので、黒目の上に乗るのはおかしい。
+    // 数字を分けておくと前後が入れ替わらず、席の取り合いでも
+    // 手前(瞳)が先に座るので、必ず残ってほしいほうが残る
     const vein = mmsxx.sprite(SPRITE_SYMBOLS.eyeVein);
-    vein.priority = 10;
+    vein.priority = 9;
     // **瞳(黒)は明滅させない**。消えている瞬間に写真を撮ると、
     // 眼球に黒目が無い絵になってしまう。
     // 明滅するのは血管だけで、**左右で 1 コマずらす**。
