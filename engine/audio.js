@@ -17,6 +17,41 @@ registerDefaultFM();
 
 const MASTER_VOL = 0.14;
 
+/**
+ * **エンジンが最初から持っている SE**。
+ *
+ * どのゲームでも同じであってほしい音だけを置く。名前に `.` を入れてあるのは、
+ * ゲームが `defineSE()` で登録する名前と**絶対にぶつからない**ようにするため。
+ *
+ * `sys.pause` は初期のコナミのファミコン作品を手本にした、
+ * 「ぽろろん」と鳴る短いジングル。**矩形波(50%)で C の和音を分散させた 3 音**。
+ * e → g → 1 オクターブ上の c と少しずつずらして重ね、
+ * 鳴らしっぱなしにして**最後は和音として響かせる**。
+ *
+ * 和音の音だけを下から順に積むので、鳴らしているものが**和音だと分かる**。
+ * 締めを root(c) にしてあるのがきもで、3rd や 5th で終わると
+ * 途中で切れたように聞こえ、合図として落ち着かない。
+ *
+ * 3 音を順に切り替えるとハープを弾いたようにはならず、
+ * ただの上昇音 = 効果音に聞こえる。**声を分けて、あとの音が入っても
+ * 前の音を切らない**のがジングルらしさの正体。
+ * エンベロープは **flat**。piano のように減衰させると音が痩せてぼやけ、
+ * 矩形波らしい輪郭が消える。flat なら鳴っているあいだは音量が落ちないので、
+ * 3 声が最後まで同じ強さで鳴り、和音の形がはっきり出る。
+ * ゲートも目いっぱい(q8)にして、切れ際までしっかり鳴らす。
+ * エコーは輪郭をにじませるので、尾が分かる程度に浅く掛けてある。
+ * 全体で 0.6 秒ほど。ポーズは**ゲームが止まる合図**なので、
+ * これより長くすると止まったことが分かりにくくなる。
+ */
+export const SE_SYS_PAUSE = 'sys.pause';
+const SYSTEM_SE = {
+  [SE_SYS_PAUSE]: [
+    '@{pulse50} @e{flat} @s3 q8 t200 v13 o5 l16 e4.',
+    '@{pulse50} @e{flat} @s3 q8 t200 v11 o5 l16 r g4.',
+    '@{pulse50} @e{flat} @s4 q8 t200 v10 o5 l16 r r > c4.',
+  ],
+};
+
 // 実機(MSX)の PSG のトーン。**クロックを 16 と整数(1〜4095)で割った高さ**しか
 // 出せないので、出せる音程が階段になっている。低いところは細かいが、
 // 高いところは段が粗く、狙った高さから外れる = 音痴に聞こえる
@@ -81,6 +116,9 @@ export class PSGPlayer {
     this.ctx = null;
     this.bgmDefs = new Map();
     this.seDefs = new Map();
+    // エンジンが持っている音。ゲームの SE と名前がぶつからないよう、
+    // 使えない字(.)を入れた名前にしてある
+    for (const [name, mml] of Object.entries(SYSTEM_SE)) this.defineSE(name, mml);
     /** しゃべる言葉。録音は持たず、鳴らすときにフォルマント合成で作る */
     this.talkDefs = new Map();
     this.bgmState = null;
@@ -126,8 +164,9 @@ export class PSGPlayer {
       if (now < v.endTime) return true;
       // くり返しの途中なら、まだ片づけない
       if (v.left !== 0 && v.timer) return true;
-      // ポーズ中のものは、解除で鳴り直すので残す
-      if (v.paused || this._sePausedAll) return true;
+      // ポーズ中のものは、解除で鳴り直すので残す。
+      // 仕掛けの音はポーズ中でも鳴り切るので、ふつうに片づける
+      if (!v.system && (v.paused || this._sePausedAll)) return true;
       if (v.timer) { clearTimeout(v.timer); v.timer = 0; }
       try { v.gain.disconnect(); } catch (e) { /* already gone */ }
       return false;
@@ -636,7 +675,47 @@ registerProcessor('mmsxx-tap', MmsxxTap);
       }
       state.timer = setTimeout(pump, TICK_MS);
     };
+    // ポーズから戻すときにも、同じ手で積み直す
+    state.pump = pump;
     pump();
+  }
+
+  /**
+   * **BGM を止めずに、その場で凍らせる**(ゲームのポーズ用)。
+   *
+   * `stopBGM()` との違いは、**続きから鳴らし直せる**こと。
+   * 止めてしまうと `playBGM()` で頭出しし直すことになり、
+   * ポーズを抜けるたびにイントロから鳴ってしまう。
+   *
+   * 音声ファイルの BGM は途中の位置を持てないので、黙らせるだけにする
+   * (裏で進み続けるので、戻したときに少し先へ飛ぶ)。
+   */
+  pauseBGM() {
+    const s = this.bgmState;
+    if (!s || !this.ctx || s.paused) return;
+    s.paused = true;
+    if (!s.pump) { this._muteBGM(true); return; }
+    if (s.timer) { clearTimeout(s.timer); s.timer = 0; }
+    // いまのループの頭から何秒進んだか。**積んだ位置(cursor)ではなく
+    // 鳴っている位置**を覚える。cursor は先読みのぶんだけ先へ行っている
+    const off = this.ctx.currentTime - s.base;
+    s.offset = Math.max(0, Math.min(Math.max(0, s.length - 0.02), off));
+    for (const n of s.nodes) { try { n.stop(0); } catch (e) { /* stopped */ } }
+    s.nodes = [];
+  }
+
+  /** 凍らせた BGM を続きから鳴らし直す */
+  resumeBGM() {
+    const s = this.bgmState;
+    if (!s || !this.ctx || !s.paused) return;
+    s.paused = false;
+    if (!s.pump) { this._muteBGM(false); return; }
+    const off = s.offset || 0;
+    // 止めたところが「いま」になるように、ループの開始時刻を過去へずらす
+    s.base = this.ctx.currentTime + 0.05 - off;
+    s.cursor = off;
+    s.offset = 0;
+    s.pump();
   }
 
   /**
@@ -791,33 +870,40 @@ registerProcessor('mmsxx-tap', MmsxxTap);
     if (!tracks || !this.ctx) return 0;
     const now = this.ctx.currentTime;
     this._cleanupSE(now);
-    // 独り占めしている SE より低い優先度なら、そもそも鳴らさない
-    if (this.seVoices.some(v => v.exclusive && v.priority > priority)) return 0;
-    if (opts.exclusive) {
-      for (const v of [...this.seVoices]) this._stopVoice(v);
-    }
+    const system = !!opts.system;
     const need = tracks.length;
     const needNoise = noiseCount(tracks);
     // 席は、その場の指定 > 名前で決めた割り当て、の順で決める
     const ch = opts.ch || (this._chanOf && this._chanOf.get(name)) || null;
-    // **席の取り合いは、その範囲の中だけで起きる**。
-    // 取ってあるカテゴリならその席、指定が無ければ残りの席
-    let sc = this._scope(ch);
-    // 空きが足りなければ、優先度の低いものから止めて場所を作る
-    while (sc.used + need > sc.max) {
-      const low = this._victim(priority, false, sc.list);
-      if (!low) return 0;   // 止められるものが無い = 鳴らさない
-      this._stopVoice(low);
-      sc = this._scope(ch);
-    }
-    // ノイズは本数が決まっているので、あふれるならノイズを使っている SE を止める
-    // (1 つの SE だけでノイズを使い切る場合は、その SE 自体は鳴らす)
-    while (needNoise > 0 && needNoise <= sc.maxNoise
-           && sc.usedNoise + needNoise > sc.maxNoise) {
-      const low = this._victim(priority, true, sc.list);
-      if (!low) return 0;
-      this._stopVoice(low);
-      sc = this._scope(ch);
+    // **仕掛けの音は席の取り合いに入らない。** ポーズ中は鳴っている SE が
+    // 黙らされたまま席に居座っているので、ふつうに取り合わせると
+    // 場所を空けるために**戻すはずだった SE を止めてしまう**。
+    // 数フレームで消える短い音なので、はみ出させたほうが害が無い
+    if (!system) {
+      // 独り占めしている SE より低い優先度なら、そもそも鳴らさない
+      if (this.seVoices.some(v => v.exclusive && v.priority > priority)) return 0;
+      if (opts.exclusive) {
+        for (const v of [...this.seVoices]) this._stopVoice(v);
+      }
+      // **席の取り合いは、その範囲の中だけで起きる**。
+      // 取ってあるカテゴリならその席、指定が無ければ残りの席
+      let sc = this._scope(ch);
+      // 空きが足りなければ、優先度の低いものから止めて場所を作る
+      while (sc.used + need > sc.max) {
+        const low = this._victim(priority, false, sc.list);
+        if (!low) return 0;   // 止められるものが無い = 鳴らさない
+        this._stopVoice(low);
+        sc = this._scope(ch);
+      }
+      // ノイズは本数が決まっているので、あふれるならノイズを使っている SE を止める
+      // (1 つの SE だけでノイズを使い切る場合は、その SE 自体は鳴らす)
+      while (needNoise > 0 && needNoise <= sc.maxNoise
+             && sc.usedNoise + needNoise > sc.maxNoise) {
+        const low = this._victim(priority, true, sc.list);
+        if (!low) return 0;
+        this._stopVoice(low);
+        sc = this._scope(ch);
+      }
     }
     const gain = this.ctx.createGain();
     gain.gain.value = 1;
@@ -828,7 +914,9 @@ registerProcessor('mmsxx-tap', MmsxxTap);
     const when = now + 0.02;
     const state = {
       id, gain, nodes: [], priority, voices: need, noise: needNoise, ch,
-      endTime: when + len, exclusive: !!opts.exclusive,
+      endTime: when + len, exclusive: !system && !!opts.exclusive,
+      // 全体のポーズに巻き込まれない音(ポーズの音そのものなど)
+      system,
       left: loop, timer: 0, nextAt: when + len,
       paused: false, tracks, len,
       // ポーズを解いたときの鳴らしかた。'head' = くり返しの頭から / 'continue' = 続きから
@@ -865,6 +953,25 @@ registerProcessor('mmsxx-tap', MmsxxTap);
   }
 
   /**
+   * **ポーズの出入りの音**を鳴らす。エンジンが持っている音なので、
+   * ゲーム側で SE を用意しなくても鳴る。
+   *
+   * 全体のポーズ(`pauseSE()`)に**巻き込まれない**のがふつうの `playSE()` との違い。
+   * ここを分けていないと、
+   *
+   *   playSE('pause'); pauseSE();   // 鳴らした直後に自分で黙らせている
+   *
+   * となって、ポーズへ入る音が出ない。抜けるときも `resumeSE()` が
+   * 「1 回きりの SE は鳴らし直さない」の決まりで**鳴りかけの音を片づけて**しまう。
+   * 出入りのどちらでも同じように鳴らしたいので、ポーズの仕組みの外に置いてある。
+   *
+   * @returns {number} 管理番号
+   */
+  playPauseSE() {
+    return this.playSE(SE_SYS_PAUSE, 0, { system: true });
+  }
+
+  /**
    * SE を一時停止する。
    *
    * **ポーズには 2 段ある**。
@@ -882,7 +989,7 @@ registerProcessor('mmsxx-tap', MmsxxTap);
       return;
     }
     this._sePausedAll = true;
-    for (const v of this.seVoices) this._silence(v);
+    for (const v of this.seVoices) if (!v.system) this._silence(v);
   }
 
   /**
@@ -899,7 +1006,7 @@ registerProcessor('mmsxx-tap', MmsxxTap);
       return;
     }
     this._sePausedAll = false;
-    for (const v of [...this.seVoices]) this._restart(v);
+    for (const v of [...this.seVoices]) if (!v.system) this._restart(v);
   }
 
   /** 鳴っている音を黙らせる(予約も止める。残り回数と位置は覚えておく) */

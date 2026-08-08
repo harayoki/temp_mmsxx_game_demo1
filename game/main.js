@@ -895,6 +895,34 @@ function rankPlatform() {
   return isMobileLike() ? 'mobile' : 'pc';
 }
 
+/**
+ * 何で操作したかを送るか。**送らないなら空文字**(記録には「不明」として残る)。
+ *
+ * ## 送ってよい基準
+ *
+ * その platform で**実際に使われる入力手段を全部捕捉できているとき だけ**送る。
+ * 1 つでも捕捉もれがあれば送らない。
+ *
+ * 例: PC でキーボードだけ捕捉して送ると、パッドで遊んだ人の記録が `key` として残る。
+ * これは「不明」ではなく**誤り**で、あとから直せない
+ * (列ごと消すことはできるが、正しい記録も巻き添えになる)。
+ * 未指定は「不明」として残るだけで実害がないので、**迷ったら送らない**。
+ *
+ * そのため、パッドが先にできたら pc だけ送る / スマホが先ならmobile だけ送る、
+ * というように **platform ごとに判断する**。両方そろったら全部で送る。
+ *
+ * ## いまは開発版だけ
+ *
+ * タッチもパッドも入口が無く、どの platform も基準を満たさない。
+ * 開発版は本番サーバへ書き込めない(RANK_MODE が 'local' か 'dev')ので、
+ * ここで送っても届く先は開発用サーバだけ。**本番には構造上入らない**。
+ * 送る道が通っていることを試せるようにしてある
+ */
+function rankInput() {
+  if (!DEV) return '';
+  return mmsxx.input.usedInputs();
+}
+
 // ランキングの供給元。ふだんは手元の localStorage。
 // サーバへ繋がなくても通信の様子を試せるようにしてある。
 //
@@ -949,20 +977,10 @@ async function makeRemoteRankSource(dev) {
     // playId は 1 プレイごとに作り直すので、送るたびに今の値を聞いてもらう
     playId: () => playId,
     platform: rankPlatform(),
-    // input は**まだ送らない**。
-    //
-    // 今 press() を通るのはキーボードだけで、タッチやパッドの入口が無い。
-    // このまま送ると、指で遊んだ人の記録まで `mobile` なのに `key` として残り、
-    // **後から直せない**(どれが本当にキーボードだったか分からなくなる)。
-    // 送らなければ「不明」(null)として記録されるので、入口ができてからの記録と混ざらない。
-    //
-    // バーチャルパッドやゲームパッドを足して press(code, 'touch') /
-    // press(code, 'pad') が通るようにしたら、下の 1 行を戻すこと。
     // 何で操作したかは**プレイの途中で増える**(持ち替える人がいる)ので、
-    // 送るときに今の控えを聞いてもらう:
-    //
-    //   input: () => mmsxx.input.usedInputs(),
-    //
+    // 送るときに今の控えを聞いてもらう。
+    // 送ってよいかの判断は rankInput() が持っている(いまは開発版だけ)
+    input: () => rankInput(),
     // ビルドの版。頭の v は付けずに送る(1.01 / 公開版は 1.01.42)。
     // **ランキングは分かれない**。どのビルドの記録かを後で追うためだけの項目
     gameVersion: BUILD.version.replace(/^v/, ''),
@@ -10441,8 +10459,8 @@ mmsxx.expose('mmsxxDebug', () => ({
   rank: { mode: RANK_MODE, browserId, playId, seed: mmsxx.rng.masterSeed,
     delay: RANK_DELAY, errorRate: RANK_ERROR,
     platform: rankPlatform(),
-    // 控えてはいるが**まだ送っていない**(上の makeRemoteRankSource を見ること)
-    inputNotSent: mmsxx.input.usedInputs(),
+    // 控えているもの と、実際に送るもの(送らないときは空)
+    inputHeld: mmsxx.input.usedInputs(), inputSent: rankInput(),
     gameVersion: BUILD.version.replace(/^v/, ''), rankingVersion: RANKING_VERSION },
   dragon: dragonSpot ? { hits: dragonSpot.hits, done: dragonSpot.done,
     x: dragonSpot.x, y: dragonSpotY() } : null,
@@ -12529,9 +12547,13 @@ function clearPauseText() {
 }
 function togglePause() {
   setPaused(!paused);
-  mmsxx.audio.playSE('pause');
+  // エンジンが持っている音。ふつうの playSE() で鳴らすと、
+  // すぐ下の pauseSE() に巻き込まれて自分で黙らせてしまう
+  mmsxx.audio.playPauseSE();
   if (paused) {
-    mmsxx.audio.stopBGM();
+    // **止めずに凍らせる**。stopBGM() だと続きが分からなくなるので、
+    // 抜けたときにイントロから鳴り直してしまう
+    mmsxx.audio.pauseBGM();
     // くり返し中の SE(レーザーなど)も一緒に止める。
     // 解除すると、止めてあったものだけが鳴り直す
     mmsxx.audio.pauseSE();
@@ -12543,7 +12565,11 @@ function togglePause() {
     typed = '';
     typedShow = '';
     mmsxx.audio.resumeSE();
-    currentBGM = null; // 局面に合った BGM を鳴らし直させる
+    // 曲は続きから。**currentBGM は消さない**(消すと updateBGM が
+    // playBGM(…, true) で鳴らし直し、頭から流れてしまう)。
+    // ポーズ中の裏技で局面が変わったときは、次のコマで want が変わるので
+    // そちらの道でちゃんと曲が切り替わる
+    mmsxx.audio.resumeBGM();
     // ALT+S を押した直後にポーズを抜けたときは、**もう 1 枚**コピーする。
     // ポーズの文字が写らない絵がほしいときの流れ:
     //   ポーズ → 構図を決める → ALT+S(そのまま 1 枚) → ESC(文字なしで 1 枚)
@@ -12821,7 +12847,11 @@ mmsxx.run(() => {
     checkCheatCode();
     return;
   }
-  if (state === 'play' && (mmsxx.input.wasPressed('KeyP') || mmsxx.input.wasPressed('Escape'))) {
+  // ボーナス集計を出しているあいだ(clearTimer)はポーズさせない。
+  // あそこは ESC が「集計を飛ばす」に割り当ててあるので、
+  // 止められるようにしておくと**飛ばすのと同時にポーズが掛かる**
+  if (state === 'play' && clearTimer <= 0
+      && (mmsxx.input.wasPressed('KeyP') || mmsxx.input.wasPressed('Escape'))) {
     togglePause();
     return;
   }

@@ -56,6 +56,11 @@ if (Test-Path (Join-Path $root 'online')) {
 if (Test-Path (Join-Path $root 'assets')) {
   Copy-Item -Recurse (Join-Path $root 'assets') (Join-Path $deploy 'assets')
 }
+# バーチャルパッドの実験台。**開発版で実機の手触りを詰めるため**に入れる。
+# 無ければ入れない
+if (Test-Path (Join-Path $root 'padlab')) {
+  Copy-Item -Recurse (Join-Path $root 'padlab') (Join-Path $deploy 'padlab')
+}
 # Cloudflare Pages の Functions と、その通り道の指定(_routes.json)。
 # **_routes.json が無いと `/` は静的配信のままで Function を通らない。**
 # 手元用にも入れる。**プレビュー(dev ブランチ)へ上げるときに要る**ため
