@@ -10321,7 +10321,8 @@ mmsxx.expose('mmsxxSheet', (kind = 'sprite', scale = 2, width = 512, padding = 2
     ? mmsxx.symbols().map(s => [s.name, s.sym])
     : (kind === 'bg' ? BG_SYMBOLS : SPRITE_SYMBOLS);
   const c = exportSheet(mmsxx, list, {
-    scale, width, padding, sort: kind !== 'all', label: true, background: 1,
+    scale, width, padding, sort: kind !== 'all',
+    label: true, labelColor: '#333333', checker: true,
   });
   downloadArt(c, kind + '-sheet.png');
   const n = Array.isArray(list) ? list.length : Object.keys(list).length;
@@ -10340,7 +10341,8 @@ mmsxx.expose('mmsxxSheets', (scale = 1, width = 1024) => {
   for (const [name, pick] of groups) {
     const list = all.filter(pick).map(s => [s.name, s.sym]);
     if (!list.length) continue;
-    const c = exportSheet(mmsxx, list, { scale, width, padding: 3, label: true, background: 1 });
+    const c = exportSheet(mmsxx, list, {
+      scale, width, padding: 3, label: true, labelColor: '#333333', checker: true });
     downloadArt(c, 'sheet-' + name + '.png');
     done.push(`${name}: ${list.length} 枚 ${c.width}x${c.height}`);
   }

@@ -44,6 +44,23 @@ function drawLabel(g, text, dx, dy, cw, color = '#8f8f8f') {
   }
 }
 
+/**
+ * 透けているところが分かるように、**白と灰の市松**を敷く(絵を描くのは この上)。
+ * 画像編集の道具で見慣れた見え方に合わせてある。
+ * @param {CanvasRenderingContext2D} g @param {number} w @param {number} h
+ * @param {number} [size=8] 市松 1 つの大きさ(出てくる画像のドット)
+ */
+function drawChecker(g, w, h, size = 8) {
+  g.fillStyle = '#ffffff';
+  g.fillRect(0, 0, w, h);
+  g.fillStyle = '#cccccc';
+  for (let y = 0; y < h; y += size) {
+    for (let x = ((y / size) & 1) * size; x < w; x += size * 2) {
+      g.fillRect(x, y, size, size);
+    }
+  }
+}
+
 /** 1 枚の絵を canvas に描く(倍率は整数。ドットはぼかさない) */
 function drawSymbol(mmsxx, sym, g, dx, dy, k) {
   const { width: w, height: h, pixels } = sym;
@@ -61,8 +78,9 @@ function drawSymbol(mmsxx, sym, g, dx, dy, k) {
  * **絵を 1 枚だけ**書き出す。
  * @param {object} mmsxx エンジン
  * @param {{width:number,height:number,pixels:Uint8Array}} sym 絵(スプライトでも BG でもよい)
- * @param {{scale?:number, background?:?number}} [opts]
+ * @param {{scale?:number, background?:?number, checker?:boolean, checkerSize?:number}} [opts]
  *   scale = 何倍にするか(既定 1) / background = 下地の色番号(省略すると透明のまま)
+ *   checker = 透けているところに**白と灰の市松**を敷くか(background を渡すとそちらが勝つ)
  * @returns {HTMLCanvasElement}
  */
 export function exportSymbol(mmsxx, sym, opts = {}) {
@@ -72,9 +90,12 @@ export function exportSymbol(mmsxx, sym, opts = {}) {
   c.height = sym.height * k;
   const g = c.getContext('2d');
   g.imageSmoothingEnabled = false;
+  // 市松を敷くと、**透けているところが一目で分かる**。色の下地を頼まれたらそちらを優先
   if (opts.background != null) {
     g.fillStyle = cssOf(mmsxx, opts.background);
     g.fillRect(0, 0, c.width, c.height);
+  } else if (opts.checker) {
+    drawChecker(g, c.width, c.height, opts.checkerSize);
   }
   drawSymbol(mmsxx, sym, g, 0, 0, k);
   return c;
@@ -90,12 +111,15 @@ export function exportSymbol(mmsxx, sym, opts = {}) {
  * @param {object} mmsxx エンジン
  * @param {Object<string,*>|Array} symbols 絵の一覧(名前つきの入れものでも配列でもよい)
  * @param {{scale?:number, width?:number, cols?:number, padding?:number,
- *          background?:?number, sort?:boolean}} [opts]
+ *          background?:?number, checker?:boolean, checkerSize?:number,
+ *          sort?:boolean}} [opts]
  *   scale = 何倍にするか(既定 1)
  *   width = 出す絵の幅(ドット)。ここへ入るだけ横に並べる
  *   cols = 横に並べる数。width より優先する
  *   padding = 升目のまわりの余白(既定 2)
  *   background = 下地の色番号(省略すると透明のまま)
+ *   checker = 透けているところに**白と灰の市松**を敷くか(background を渡すとそちらが勝つ)
+ *   checkerSize = 市松 1 つの大きさ(既定 8)
  *   sort = 名前の順に並べ替えるか(既定 false = 登録順)
  *   label = 升目の下に名前を出すか(既定 false)。エンジンの 8x8 の字を横半分に
  *     間引いて 4x8 で書くので、升目が狭くてもそこそこ入る
@@ -137,9 +161,12 @@ export function exportSheet(mmsxx, symbols, opts = {}) {
   c.height = pad + rows * (ch + pad);
   const g = c.getContext('2d');
   g.imageSmoothingEnabled = false;
+  // 市松を敷くと、**透けているところが一目で分かる**。色の下地を頼まれたらそちらを優先
   if (opts.background != null) {
     g.fillStyle = cssOf(mmsxx, opts.background);
     g.fillRect(0, 0, c.width, c.height);
+  } else if (opts.checker) {
+    drawChecker(g, c.width, c.height, opts.checkerSize);
   }
   list.forEach(([label, sym], i) => {
     const col = i % cols, row = (i / cols) | 0;
