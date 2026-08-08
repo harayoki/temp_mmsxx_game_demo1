@@ -11697,6 +11697,7 @@ function enterSoundTest() {
   currentBGM = null;
   neb.clear();          // 背景の大きな絵は消して読みやすくする
   soundAll = -1;
+  soundAllFollow = false;
   soundBack = null;
   soundPage = new SoundTest(mmsxx, {
     layer: 4,
@@ -11763,16 +11764,30 @@ const SOUND_ALL_LEN = 1800;   // 1 曲あたりの長さ(30 秒)
 const SOUND_ALL_FADE = 120;   // 消えていく時間(2 秒)
 let soundAll = -1;            // -1 = 全曲再生していない
 let soundAllTimer = 0;
+// **カーソルを鳴っている曲へ連れていくか**。
+// 全曲再生を始めた直後だけ true で、遊ぶ人が何か触ったところで落とす
+// (自分で選んでいる最中にカーソルが動くと、選びなおしになってしまう)
+let soundAllFollow = false;
+/** 鳴っている曲へカーソルを移す(BGM の列は ALL と STOP のぶん 2 つずれる) */
+function followSoundAll() {
+  if (!soundAllFollow || !soundPage || soundAll < 0) return;
+  soundPage.col = 0;
+  soundPage.sel[0] = soundAll + 2;
+  soundPage.draw();
+}
 // 直前に鳴らしていた BGM(ジングルは BGM を黙らせて重ねるので、戻す仕掛けは要らない)
 let soundBack = null;
 
 function startSoundAll() {
   soundAll = 0;
   soundAllTimer = SOUND_ALL_LEN;
+  soundAllFollow = true;   // 触られるまではカーソルも付いていく
   mmsxx.audio.playBGM(SOUND_BGM[0], true, true);
+  followSoundAll();
 }
 function stopSoundAll() {
   soundAll = -1;
+  soundAllFollow = false;
   mmsxx.audio.stopBGM();
 }
 
@@ -11786,9 +11801,18 @@ function updateSoundAll() {
   if (soundAll >= SOUND_BGM.length) soundAll = 0;
   soundAllTimer = SOUND_ALL_LEN;
   mmsxx.audio.playBGM(SOUND_BGM[soundAll], true, true);
+  followSoundAll();
 }
 
 function updateSoundTest() {
+  // **何か触ったら、カーソルは付いていくのをやめる**。
+  // 見るのは一覧を動かすキーだけ(SPACE は下の update が受け取ってから決まる)
+  const key = mmsxx.input;
+  if (soundAllFollow && (key.wasPressed('ArrowUp') || key.wasPressed('ArrowDown')
+      || key.wasPressed('ArrowLeft') || key.wasPressed('ArrowRight')
+      || key.wasPressed('Space'))) {
+    soundAllFollow = false;
+  }
   updateSoundAll();
   soundPage.update();
 }
