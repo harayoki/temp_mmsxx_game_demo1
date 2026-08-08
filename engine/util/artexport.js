@@ -15,10 +15,33 @@
 //
 // 出てくるのは canvas。**保存はしない**(呼んだ側が落とすなり送るなり決める)。
 
+import { getGlyph } from '../font.js';
+
 /** 色番号 -> CSS の色(パレットの 32bit は ABGR) */
 function cssOf(mmsxx, i) {
   const v = mmsxx.vdp.pal32[i] >>> 0;
   return `rgb(${v & 0xff},${(v >> 8) & 0xff},${(v >> 16) & 0xff})`;
+}
+
+/**
+ * 升目の下に名前を書く。**エンジンの 8x8 の字**をそのまま使うので、
+ * 外の字を持ってこなくてよい(見た目も画面と揃う)。
+ * 長い名前は升目の幅に収まるところまでで切る。
+ */
+function drawLabel(g, text, dx, dy, cw, color = '#8f8f8f') {
+  const max = Math.max(1, Math.floor(cw / 4));      // 1 文字 4 ドット幅で描く
+  const s = text.length > max ? text.slice(0, max) : text;
+  g.fillStyle = color;
+  for (let n = 0; n < s.length; n++) {
+    const glyph = getGlyph(s[n]);
+    for (let y = 0; y < 8; y++) {
+      const row = glyph[y] || '';
+      for (let x = 0; x < 8; x++) {
+        // 8x8 の字を横半分に間引いて、4x8 として置く(名前が長いので)
+        if (row[x] === '#' && (x & 1) === 0) g.fillRect(dx + n * 4 + (x >> 1), dy + y, 1, 1);
+      }
+    }
+  }
 }
 
 /** 1 枚の絵を canvas に描く(倍率は整数。ドットはぼかさない) */
@@ -74,22 +97,36 @@ export function exportSymbol(mmsxx, sym, opts = {}) {
  *   padding = 升目のまわりの余白(既定 2)
  *   background = 下地の色番号(省略すると透明のまま)
  *   sort = 名前の順に並べ替えるか(既定 false = 登録順)
+ *   label = 升目の下に名前を出すか(既定 false)。エンジンの 8x8 の字を横半分に
+ *     間引いて 4x8 で書くので、升目が狭くてもそこそこ入る
+ *   labelColor = 名前の色(CSS。既定は灰色)
  * @returns {HTMLCanvasElement}
  */
 export function exportSheet(mmsxx, symbols, opts = {}) {
   const k = Math.max(1, Math.round(opts.scale || 1));
   const pad = (opts.padding == null ? 2 : Math.max(0, Math.round(opts.padding)));
-  let list = Array.isArray(symbols)
-    ? symbols.map((s, i) => [String(i), s])
-    : Object.entries(symbols);
+  // 受けるのは 3 通り: 名前つきの入れもの / 絵の配列 / **[名前, 絵] の配列**。
+  // 3 つめは、**同じ名前が何枚あってもそのまま並べられる**ので一覧に向く
+  // (入れものだと同じ名前は 1 つに潰れてしまう)
+  let list;
+  if (Array.isArray(symbols)) {
+    const pairs = symbols.length && Array.isArray(symbols[0]) && symbols[0].length === 2;
+    list = pairs
+      ? symbols.map(([n, s]) => [String(n), s])
+      : symbols.map((s, i) => [String(i), s]);
+  } else {
+    list = Object.entries(symbols);
+  }
   // 絵らしくないもの(壊れているもの)は落とす
   list = list.filter(([, s]) => s && s.pixels && s.width && s.height);
   if (opts.sort) list.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
   if (!list.length) return document.createElement('canvas');
 
-  // 升目の大きさは**いちばん大きい絵**に合わせる
+  // 升目の大きさは**いちばん大きい絵**に合わせる。
+  // 名前を出すときは、そのぶん(9 ドット)だけ升目を縦に伸ばす
+  const lh = opts.label ? 9 : 0;
   const cw = Math.max(...list.map(([, s]) => s.width)) * k;
-  const ch = Math.max(...list.map(([, s]) => s.height)) * k;
+  const ch = Math.max(...list.map(([, s]) => s.height)) * k + lh;
   const cols = Math.max(1, opts.cols
     ? Math.round(opts.cols)
     : Math.floor(((opts.width || 512) - pad) / (cw + pad)));
@@ -104,12 +141,14 @@ export function exportSheet(mmsxx, symbols, opts = {}) {
     g.fillStyle = cssOf(mmsxx, opts.background);
     g.fillRect(0, 0, c.width, c.height);
   }
-  list.forEach(([, sym], i) => {
+  list.forEach(([label, sym], i) => {
     const col = i % cols, row = (i / cols) | 0;
+    const cellX = pad + col * (cw + pad), cellY = pad + row * (ch + pad);
     // 升目の真ん中に置く(大きさがまちまちでも中心がそろう)
-    const x = pad + col * (cw + pad) + ((cw - sym.width * k) >> 1);
-    const y = pad + row * (ch + pad) + ((ch - sym.height * k) >> 1);
+    const x = cellX + ((cw - sym.width * k) >> 1);
+    const y = cellY + ((ch - lh - sym.height * k) >> 1);
     drawSymbol(mmsxx, sym, g, x, y, k);
+    if (opts.label) drawLabel(g, label, cellX, cellY + ch - lh + 1, cw, opts.labelColor);
   });
   return c;
 }

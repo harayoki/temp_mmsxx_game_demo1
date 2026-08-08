@@ -392,6 +392,16 @@ export class VDP {
     /** @type {Set<Sprite>} BG スプライト(8 ドット単位で動く、通常スプライトより奥) */
     this.bgSprites = new Set();
 
+    /**
+     * **作った絵の控え**(開発用)。true のあいだ、登録した絵と派生した絵を
+     * 順に控えていく。`symbols()` で一覧が取れ、素材の書き出しに使う。
+     *
+     * **公開版では false。** 控えると使い終わった派生の絵も捨てられなくなるので、
+     * 開発中だけにする(engine.js が _dev を見て決める)。
+     */
+    this.trackSymbols = false;
+    this._symbolLog = [];
+
     // RGBA -> インデックス画像の変換キャッシュ
     this.convertCache = new Map();
 
@@ -669,7 +679,34 @@ export class VDP {
     }
     // 実機のスプライトは 16x16 単位。16 に収まる小さいものはそのままでよい
     this._checkSize(sym, 'スプライト', this.bgCheck, 16);
+    return this._track(sym, 'sprite');
+  }
+
+  /**
+   * 作った絵を控えに足す(開発用)。trackSymbols が false のときは何もしない。
+   * @param {*} sym @param {'sprite'|'bg'} kind @param {*} [from] 何から派生したか
+   * @returns {*} 受け取った絵をそのまま返す(呼び出しをそのまま包める)
+   */
+  _track(sym, kind, from) {
+    if (this.trackSymbols && sym) this._symbolLog.push({ sym, kind, from: from || null });
     return sym;
+  }
+
+  /**
+   * **作った絵の一覧**(開発用。trackSymbols が true のときだけ中身がある)。
+   * 登録した絵も、色替え・走査線・反転で派生した絵も、作った順に並ぶ。
+   * @returns {{name:string, kind:string, width:number, height:number,
+   *            derived:boolean, sym:*}[]}
+   */
+  symbols() {
+    return this._symbolLog.map(({ sym, kind, from }) => ({
+      name: sym.name || '(名前なし)',
+      kind,
+      width: sym.width,
+      height: sym.height,
+      derived: !!from,
+      sym,
+    }));
   }
 
   /**
@@ -698,10 +735,11 @@ export class VDP {
     if (src.pixels instanceof Uint8Array) {
       const sym = new BgSymbol(src.width, src.height, src.pixels, name);
       this._checkBgImage(sym, 'BG シンボル', opts.bgCheck);
-      return this._bakeBg(sym, opts.backdrop);
+      return this._track(this._bakeBg(sym, opts.backdrop), 'bg');
     }
     const im = this._cached(src, 'bg', () => convertRGBA(src.data, src.width, src.height));
-    return this._bakeBg(new BgSymbol(im.width, im.height, im.pixels, name), opts.backdrop);
+    return this._track(
+      this._bakeBg(new BgSymbol(im.width, im.height, im.pixels, name), opts.backdrop), 'bg');
   }
 
   /**
@@ -1435,7 +1473,8 @@ export class VDP {
     // (空のセルはそのまま透明。行ごと塗ると、絵の無いところまで黒くなってしまう)。
     // 通常スプライトは透明のままでよい(穴あきが持ち味)
     if (img.backdrop != null) fillCells(px, img.width, img.height, img.backdrop);
-    const out = img.derive(px, nameOf(img, '走査線'));
+    const out = this._track(img.derive(px, nameOf(img, '走査線')),
+      img.backdrop == null ? 'sprite' : 'bg', img);
     byPhase.set(phase, out);
     return out;
   }
@@ -1458,7 +1497,8 @@ export class VDP {
     // **BG は透明へ替えさせない**(絵のあるセルに穴が開いてしまう)。
     // 透明にしたいと言われたら下地の色へ寄せる
     if (img.backdrop != null) fillCells(px, img.width, img.height, img.backdrop);
-    const out = img.derive(px, nameOf(img, '色替え'));
+    const out = this._track(img.derive(px, nameOf(img, '色替え')),
+      img.backdrop == null ? 'sprite' : 'bg', img);
     byKey.set(key, out);
     return out;
   }
@@ -1478,7 +1518,11 @@ export class VDP {
     if (!byImg) { byImg = new Map(); this._xformCache.set(img, byImg); }
     const key = (flipX ? 1 : 0) | (flipY ? 2 : 0) | (r << 2);
     let hit = byImg.get(key);
-    if (!hit) { hit = transformImage(img, flipX, flipY, r); byImg.set(key, hit); }
+    if (!hit) {
+      hit = this._track(transformImage(img, flipX, flipY, r),
+        img.backdrop == null ? 'sprite' : 'bg', img);
+      byImg.set(key, hit);
+    }
     return hit;
   }
 

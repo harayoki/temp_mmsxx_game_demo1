@@ -384,8 +384,10 @@ function recolor(img, color) {
     const c = img.pixels[i];
     pixels[i] = (c === 0 || (keepBack && c === 1)) ? c : color;
   }
-  // 型はそのまま引き継ぐ(色の置き換えは 1 対 1 なので、決まりは保たれる)
-  return img.derive(pixels, img.name ? img.name + '(単色' + color + ')' : img.name);
+  // 型はそのまま引き継ぐ(色の置き換えは 1 対 1 なので、決まりは保たれる)。
+  // **控えにも足しておく**(素材の一覧に出す。開発版だけ効く)
+  return mmsxx.trackSymbol(
+    img.derive(pixels, img.name ? img.name + '(単色' + color + ')' : img.name), img);
 }
 SPRITE_SYMBOLS.itemW = recolor(SPRITE_SYMBOLS.item, 15);   // アイテム点滅用(黄と白を1フレーム交互)
 // 色違いで使い回していた敵は、それぞれ専用の絵に差し替えた
@@ -10304,6 +10306,8 @@ mmsxx.expose('mmsxxBossHp', (n) => {
 //   mmsxxArt('player', 4)          … 1 枚を 4 倍で落とす
 //   mmsxxSheet('sprite', 2, 512)   … スプライトを 2 倍で 512 ドット幅に並べて落とす
 //   mmsxxSheet('bg', 1, 1024)      … BG も同じように
+//   mmsxxSheet('all', 1, 1024)     … **作った絵ぜんぶ**(派生したものも含む)
+//   mmsxxSymbols()                 … 名前と大きさの一覧(文字)
 mmsxx.expose('mmsxxArt', (name, scale = 4) => {
   const sym = SPRITE_SYMBOLS[name] || BG_SYMBOLS[name];
   if (!sym) return '知らない名前: ' + name;
@@ -10311,11 +10315,41 @@ mmsxx.expose('mmsxxArt', (name, scale = 4) => {
   return name + ' を ' + scale + ' 倍で落としました';
 });
 mmsxx.expose('mmsxxSheet', (kind = 'sprite', scale = 2, width = 512, padding = 2) => {
-  const from = kind === 'bg' ? BG_SYMBOLS : SPRITE_SYMBOLS;
-  const c = exportSheet(mmsxx, from, { scale, width, padding, sort: true });
+  // 'all' はエンジンの控えから引く。**ゲームの辞書に入れていない絵も出る**
+  // (色替えや走査線で派生したもの。抜けがあると気づけないので、こちらが本命)
+  const list = kind === 'all'
+    ? mmsxx.symbols().map(s => [s.name, s.sym])
+    : (kind === 'bg' ? BG_SYMBOLS : SPRITE_SYMBOLS);
+  const c = exportSheet(mmsxx, list, {
+    scale, width, padding, sort: kind !== 'all', label: true, background: 1,
+  });
   downloadArt(c, kind + '-sheet.png');
-  return `${Object.keys(from).length} 枚を ${c.width}x${c.height} に並べました`;
+  const n = Array.isArray(list) ? list.length : Object.keys(list).length;
+  return `${n} 枚を ${c.width}x${c.height} に並べました`;
 });
+// 絵ぜんぶを、大きさで組に分けて何枚かに落とす。
+// **1 枚にまとめると升目がいちばん大きい絵に合わせて巨大になる**ので分ける
+mmsxx.expose('mmsxxSheets', (scale = 1, width = 1024) => {
+  const all = mmsxx.symbols();
+  const groups = [
+    ['sprite', s => s.kind === 'sprite'],
+    ['bg-small', s => s.kind === 'bg' && s.width <= 64 && s.height <= 64],
+    ['bg-large', s => s.kind === 'bg' && (s.width > 64 || s.height > 64)],
+  ];
+  const done = [];
+  for (const [name, pick] of groups) {
+    const list = all.filter(pick).map(s => [s.name, s.sym]);
+    if (!list.length) continue;
+    const c = exportSheet(mmsxx, list, { scale, width, padding: 3, label: true, background: 1 });
+    downloadArt(c, 'sheet-' + name + '.png');
+    done.push(`${name}: ${list.length} 枚 ${c.width}x${c.height}`);
+  }
+  return done.join(' / ');
+});
+// 名前と大きさだけの一覧(文字)。**絵を直したときの差分を git で追える**
+mmsxx.expose('mmsxxSymbols', () => mmsxx.symbols()
+  .map(s => `${s.kind}\t${s.width}x${s.height}\t${s.derived ? '派生\t' : '\t'}${s.name}`)
+  .join('\n'));
 
 mmsxx.expose('mmsxxDebug', () => ({
   state, modeIndex, mode: gameMode(), titlePage, charPage, stageNo,

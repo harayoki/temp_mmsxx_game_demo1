@@ -224,6 +224,9 @@ export class MMSXXEngine {
     this.vdp.bgCheck = this._dev ? 'throw' : 'warn';
     // 開発版では、合成のようすを一定間隔で console に出す(遅いところを見つける材料)
     this.vdp.profile = this._dev;
+    // 開発版では、作った絵を控えておく(素材の一覧を書き出すため)。
+    // 公開版で控えると、使い終わった派生の絵も捨てられなくなるので入れない
+    this.vdp.trackSymbols = this._dev;
     this._layers = this.vdp.layers.map((_, i) => new LayerHandle(this.vdp, i));
     /** 経過フレーム数 (60fps) */
     this.frame = 0;
@@ -779,6 +782,25 @@ export class MMSXXEngine {
    * @param {*} image RGBA の絵 @param {{name?:string}} [opts]
    */
   bgSymbol(image, opts) { return this.vdp.bgSymbol(image, opts); }
+
+  /**
+   * **作った絵の一覧**(開発版だけ中身がある)。
+   * 登録した絵も、色替え・走査線・反転で派生した絵も、作った順に並ぶ。
+   * 素材の書き出し(engine/util/artexport.js)に渡して使う。
+   */
+  symbols() { return this.vdp.symbols(); }
+
+  /**
+   * **自前で派生させた絵を控えに足す**(開発用)。
+   * ゲーム側で `sym.derive()` を使って色違いなどを作ったときに通しておくと、
+   * `symbols()` の一覧と素材の書き出しに出てくる。
+   * 公開版では何もしない。渡した絵をそのまま返すので、そのまま包める。
+   *
+   * ```js
+   * return mmsxx.trackSymbol(img.derive(pixels, name));
+   * ```
+   */
+  trackSymbol(sym, from) { return this.vdp._track(sym, sym.backdrop == null ? 'sprite' : 'bg', from || sym); }
 
   /**
    * スプライトを生成(枚数・横並び制限なし)。opts は convert() と同じ。
