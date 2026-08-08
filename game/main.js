@@ -1164,12 +1164,15 @@ function spawnEyeballs() {
     sp.y = fromBelow ? SCREEN_H + EYE_SIZE : -EYE_SIZE;
     const pupil = mmsxx.sprite(SPRITE_SYMBOLS.eyeIris0);
     pupil.priority = 10;
-    // 血管は赤の単色スプライト。瞳と交互に出して重ね枚数を抑える
+    // 血管は赤の単色スプライト
     const vein = mmsxx.sprite(SPRITE_SYMBOLS.eyeVein);
     vein.priority = 10;
-    // 瞳と血管はエンジンの「何フレームに 1 回出すか」で交互に表示する
-    pupil.blink = 2; pupil.blinkPhase = 0;
-    vein.blink = 2; vein.blinkPhase = 1;
+    // **瞳(黒)は明滅させない**。消えている瞬間に写真を撮ると、
+    // 眼球に黒目が無い絵になってしまう。
+    // 明滅するのは血管だけで、**左右で 1 コマずらす**。
+    // こうすると、どのコマで撮っても どちらかの血管は写る
+    pupil.blink = 0;
+    vein.blink = 2; vein.blinkPhase = i;
     eyeballs.push({
       sp, pupil, vein, hp: EYE_HP, age: 0, fromBelow,
       // 上から来たら画面の上寄り、下から来たら下寄りで止まる
@@ -1239,8 +1242,8 @@ function updateEyeballs() {
     // ダメージが進むほど瞳が閉じていく
     const stage = Math.min(3, Math.floor((1 - e.hp / EYE_HP) * 4));
     e.pupil.image = IRIS_IMGS()[stage];
-    // 血管は眼球の中心に合わせて置く。瞳とは 1 フレームおきの交互表示にして
-    // 重ねるスプライトの枚数を抑える(実機のスプライト多重表示と同じ考え方)
+    // 血管は眼球の中心に合わせて置く。1 コマおきに出るので、
+    // 重なっているあいだも 1 行に並ぶ枚数は増えすぎない
     e.vein.x = cx - 16;
     e.vein.y = cy - 16;
     e.pupil.visible = true;
