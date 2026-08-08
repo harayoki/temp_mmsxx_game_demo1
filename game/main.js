@@ -12586,6 +12586,9 @@ mmsxx.run(() => {
       titleTimer = 0;
       titlePage = (titlePage + (turn || 1) + TITLE_PAGES) % TITLE_PAGES;
       drawTitlePage();
+      // **自分で送ったときだけ**音を鳴らす。
+      // ひとりでに流れていくぶんまで鳴ると、ずっと鳴りっぱなしになる
+      if (turn) mmsxx.audio.playSE('item');
     }
     if (titlePage === 0) {
       // ロゴのページだけ、上下キーでゲームモードを選ぶ。
