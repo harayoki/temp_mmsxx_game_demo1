@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MMS-XX ゲームパッド確認ツール</title>
+<style>
+  body {
+    margin: 0; padding: 16px 20px 48px;
+    background: #14161c; color: #dfe3ea;
+    font: 17px/1.7 "Consolas", "Courier New", monospace;
+  }
+  h1 { font-size: 22px; margin: 0 0 6px; color: #8fd0ff; }
+  h1 .sub { font-size: 15px; color: #6d7484; }
+  h2 { font-size: 18px; margin: 26px 0 8px; color: #8fd0ff; border-bottom: 1px solid #2c313c; padding-bottom: 4px; }
+  .note { color: #8b93a3; font-size: 15px; margin: 0 0 10px; }
+  table { border-collapse: collapse; }
+  th, td { padding: 2px 10px 2px 0; text-align: left; vertical-align: top; }
+  th { color: #8b93a3; font-weight: normal; }
+  .pads td.cur { color: #ffd47a; }
+  /* ボタンの箱 */
+  .btns { display: flex; flex-wrap: wrap; gap: 4px; }
+  .btn {
+    width: 84px; padding: 4px 0; text-align: center;
+    border: 1px solid #2c313c; border-radius: 3px;
+    background: #1b1e26; color: #6d7484; font-size: 15px;
+  }
+  .btn.on { background: #2f6b3f; border-color: #56b06e; color: #eaffef; }
+  .btn .v { display: block; font-size: 13px; opacity: .8; }
+  .btn .code { display: block; font-size: 13px; color: #ffd47a; }
+  /* 軸の棒グラフ。真ん中が 0、遊びの境目に縦線を重ねる */
+  .axis { display: flex; align-items: center; gap: 8px; margin: 2px 0; }
+  .axis .name { width: 80px; color: #8b93a3; }
+  .axis .num { width: 80px; text-align: right; }
+  .bar { position: relative; width: 360px; height: 18px; background: #1b1e26; border: 1px solid #2c313c; }
+  .bar .fill { position: absolute; top: 0; bottom: 0; background: #4a7fd0; }
+  .bar .dz { position: absolute; top: -2px; bottom: -2px; width: 1px; background: #b06a6a; }
+  .bar .mid { position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: #454b58; }
+  /* つまみ */
+  .knobs { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start; }
+  .knob { display: flex; flex-direction: column; gap: 2px; }
+  .knob label { color: #8b93a3; font-size: 15px; }
+  input[type=range] { width: 200px; }
+  select, button { font: inherit; background: #1b1e26; color: #dfe3ea; border: 1px solid #3a4150; border-radius: 3px; padding: 4px 8px; }
+  button { cursor: pointer; }
+  button:hover { background: #262b36; }
+  /* 通知ログ */
+  #log { height: 300px; overflow-y: auto; background: #1b1e26; border: 1px solid #2c313c; padding: 6px 10px; font-size: 16px; }
+  #log div { white-space: pre; }
+  .press { color: #7ee39a; }
+  .release { color: #8b93a3; }
+  .warn { color: #ffb37a; }
+</style>
+</head>
+<body>
+
+<h1>MMS-XX ゲームパッド確認ツール <span class="sub">(engine/util/gamepad.js の単体確認)</span></h1>
+<p class="note">
+  部品を単体で確かめるための器。<b>ゲームには依存しません</b>(キャンバスもエンジンも使わないので、
+  engine/util/gamepad.js を持っているどのゲームでもそのまま使えます)。<br>
+  <b>パッドはボタンを 1 回押すまで見えません</b>(挿しただけでは出てこない)。https か localhost でのみ動きます。<br>
+  <b>mapping が standard でないパッドは、ゲーム側では相手にしません</b>。ここでは中身が見えるように出しています。
+</p>
+
+<h2>つながっているパッド</h2>
+<table class="pads"><tbody id="pads"><tr><td>まだ見えていません。どれかボタンを押してください</td></tr></tbody></table>
+
+<h2>生の状態</h2>
+<div class="btns" id="btns"></div>
+<div id="axes" style="margin-top:8px"></div>
+
+<h2>つまみ</h2>
+<div class="knobs">
+  <div class="knob">
+    <label>スティックの遊び <span id="dzNum">0.50</span></label>
+    <input type="range" id="dz" min="0" max="0.95" step="0.05" value="0.5">
+  </div>
+  <div class="knob">
+    <label>十字と軸</label>
+    <select id="mode">
+      <option value="both">both (どちらでも動く)</option>
+      <option value="dpad">dpad (十字だけ)</option>
+      <option value="axes">axes (軸だけ)</option>
+    </select>
+  </div>
+  <div class="knob">
+    <label>連射 (Space) <span id="rapidNum">なし</span></label>
+    <input type="range" id="rapid" min="0" max="10" step="1" value="0">
+  </div>
+  <div class="knob">
+    <label>使うパッド</label>
+    <select id="which"><option value="">自動 (最後に押されたもの)</option></select>
+  </div>
+  <div class="knob">
+    <label>振動 (試すだけ)</label>
+    <div>
+      <input type="range" id="vibPow" min="0" max="1" step="0.1" value="1" style="width:90px">
+      <button id="vib">200ms 鳴らす</button>
+      <span id="vibNote" class="note"></span>
+    </div>
+  </div>
+</div>
+
+<h2>部品が出した通知</h2>
+<p class="note">
+  遅れ = 生の変化を見つけたコマから、通知を出すまでのコマ数。<br>
+  ms = そのコマを読んだ時点で、パッドの標本(gamepad.timestamp)がどれだけ古かったか。
+</p>
+<div>
+  <button id="clear">消す</button>
+  <button id="hold">止める</button>
+  <span id="stat" class="note"></span>
+</div>
+<div id="log"></div>
+
+<script type="module">
+import { createGamepad, STANDARD_MAP } from '../../engine/util/gamepad.js';
+
+const $ = (id) => document.getElementById(id);
+let paused = false;
+let sample = 0;   // いま読んでいる標本の古さ(ms)
+
+// 部品。ここでは Input へ流さず、画面へ書き出すだけ
+const pad = createGamepad({
+  press:   (code) => log('PRESS', code),
+  release: (code) => log('RELEASE', code),
+});
+
+function log(kind, code) {
+  if (paused) return;
+  const el = document.createElement('div');
+  el.className = kind === 'PRESS' ? 'press' : 'release';
+  const ms = sample >= 0 ? sample.toFixed(1) + 'ms' : '-';
+  // 遅れ = 生で押されはじめてから、この通知までのコマ数。
+  // ふつうは 0(見つけたその場で通知する)。連射を入れると 0 より大きくなる
+  const held = pad._rawHeld.get(code);
+  const lag = held === undefined ? 0 : held;
+  el.textContent = `#${String(pad.frame).padStart(6)}  ${kind.padEnd(7)} ${code.padEnd(12)} 遅れ ${lag} コマ  ${ms}`;
+  const box = $('log');
+  box.insertBefore(el, box.firstChild);
+  while (box.childNodes.length > 300) box.removeChild(box.lastChild);
+}
+
+// ---- つまみ ----
+$('dz').addEventListener('input', (e) => {
+  pad.deadzone = Number(e.target.value);
+  $('dzNum').textContent = pad.deadzone.toFixed(2);
+});
+$('mode').addEventListener('change', (e) => { pad.mode = e.target.value; });
+$('rapid').addEventListener('input', (e) => {
+  pad.rapid = Number(e.target.value);
+  $('rapidNum').textContent = pad.rapid ? `${pad.rapid} コマおき` : 'なし';
+});
+$('which').addEventListener('change', (e) => {
+  pad.releaseAll();
+  pad.index = e.target.value === '' ? null : Number(e.target.value);
+});
+$('clear').addEventListener('click', () => { $('log').textContent = ''; });
+$('hold').addEventListener('click', (e) => {
+  paused = !paused;
+  e.target.textContent = paused ? '流す' : '止める';
+});
+$('vib').addEventListener('click', () => {
+  const p = pad.snapshot;
+  const act = p && p.vibrationActuator;
+  if (!act || !act.playEffect) { $('vibNote').textContent = 'このパッドは非対応'; return; }
+  const v = Number($('vibPow').value);
+  act.playEffect('dual-rumble', { duration: 200, strongMagnitude: v, weakMagnitude: v })
+    .then(() => { $('vibNote').textContent = '鳴らした'; })
+    .catch((err) => { $('vibNote').textContent = '失敗: ' + err.message; });
+});
+
+// ---- 表示 ----
+let padCount = -1;
+function drawPads(pads) {
+  const rows = pads.map(p => {
+    const cur = p.index === (pad.index === null ? pad.active : pad.index);
+    return `<tr class="${cur ? 'cur' : ''}">
+      <td class="${cur ? 'cur' : ''}">${cur ? '▶' : ''} ${p.index}</td>
+      <td>${p.id.replace(/</g, '&lt;')}</td>
+      <td>${p.mapping === 'standard' ? 'standard' : `<span class="warn">${p.mapping || '(なし)'}</span>`}</td>
+      <td>btn ${p.buttons.length} / axes ${p.axes.length}</td>
+      <td>${p.connected ? '' : '<span class="warn">切断</span>'}</td>
+    </tr>`;
+  });
+  $('pads').innerHTML = rows.length ? rows.join('')
+    : '<tr><td>まだ見えていません。どれかボタンを押してください</td></tr>';
+  // 選択肢は台数が変わったときだけ作り直す(選んでいるものが飛ばないように)
+  if (pads.length !== padCount) {
+    padCount = pads.length;
+    const sel = $('which');
+    const keep = sel.value;
+    sel.innerHTML = '<option value="">自動 (最後に押されたもの)</option>'
+      + pads.map(p => `<option value="${p.index}">${p.index}: ${p.id.slice(0, 24)}</option>`).join('');
+    sel.value = keep;
+  }
+}
+
+function drawState(p) {
+  if (!p) { $('btns').innerHTML = ''; $('axes').innerHTML = ''; return; }
+  $('btns').innerHTML = p.buttons.map((b, i) => {
+    const code = STANDARD_MAP[i] || '';
+    return `<div class="btn ${b.pressed ? 'on' : ''}">${i}
+      <span class="v">${b.value.toFixed(2)}</span>
+      <span class="code">${code}</span></div>`;
+  }).join('');
+  const dz = pad.deadzone;
+  $('axes').innerHTML = p.axes.map((v, i) => {
+    const half = Math.min(Math.abs(v), 1) * 50;
+    const left = v < 0 ? 50 - half : 50;
+    return `<div class="axis">
+      <span class="name">axes[${i}]</span>
+      <span class="num">${v.toFixed(3)}</span>
+      <span class="bar">
+        <span class="mid"></span>
+        <span class="fill" style="left:${left}%;width:${half}%"></span>
+        <span class="dz" style="left:${50 - dz * 50}%"></span>
+        <span class="dz" style="left:${50 + dz * 50}%"></span>
+      </span>
+    </div>`;
+  }).join('');
+}
+
+function tick() {
+  const pads = pad.list();
+  // 標本の古さ。poll の前に測る(通知のときに読めるように)
+  const p0 = pads.find(p => p.index === (pad.index === null ? pad.active : pad.index));
+  sample = p0 && p0.timestamp ? performance.now() - p0.timestamp : -1;
+  pad.poll();
+  drawPads(pads);
+  // 部品が相手にしていないパッドでも、**生の様子だけは見せる**。
+  // 「繋いだのに反応しない」ときに、中身を確かめられるようにしておく
+  drawState(pad.snapshot || pads[0] || null);
+  $('stat').textContent = pad.snapshot
+    ? `#${pad.frame}  使用中 ${pad.snapshot.index}  標本 ${sample >= 0 ? sample.toFixed(1) + 'ms' : '不明'}`
+    : `#${pad.frame}  ${pads.length ? '使えるパッドなし (standard ではありません。表示は生の値だけ)' : 'パッドなし'}`;
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+
+// つないだ / 抜いた は、押されたあとであれば通知が来る
+window.addEventListener('gamepadconnected', (e) => log('PRESS', `(connected ${e.gamepad.index})`));
+window.addEventListener('gamepaddisconnected', (e) => log('RELEASE', `(disconnected ${e.gamepad.index})`));
+</script>
+</body>
+</html>

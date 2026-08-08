@@ -32,6 +32,11 @@ import { exportSymbol, exportSheet, downloadArt } from '../engine/util/artexport
 // 端末の見分け。**エンジンは npm の部品に依存しない**ので、
 // ちゃんと見分けたいゲームが自分で入れて差し替える(ここがその例)
 import { useUAParser, isMobileLike } from '../engine/util/device.js';
+// ゲームパッド。**キーのコードへ変換して Input へ流す**だけなので、
+// 遊びのコードはキーボードのときのまま動く(engine/util/gamepad.js)
+import { createGamepad } from '../engine/util/gamepad.js';
+// キャンバスの上に重ねる知らせ(読ませてゲームを止める)
+import { createNotice } from '../engine/util/notice.js';
 import Bowser from '../vendor/bowser/bowser.js';
 // 開発者ツールで止まったときに見せる、このゲームのぶんの文章
 import { gameStop } from './console-stop.js';
@@ -4102,15 +4107,24 @@ function drawNameEntry() {
   hud.print(centerX(help2), 132, help2, 10);
 }
 
-/** 入力欄の 5 桁と、いま選んでいる桁の下じるし(点滅する) */
+// 名前の 5 桁の右にくっつける「決定」。**桁と同じように左右で選べる 6 文字目**。
+// キーボードには ENTER があるが、パッドには無い。
+// 画面に出しておけば、どちらも「選んで押す」で同じ操作になる。
+// 字はフォントにある改行(RETURN)マーク 1 文字(engine/font.js の 0x1C)
+const OK_POS = NAME_MAX;
+const OK_CHAR = String.fromCharCode(0x1c);
+
+/** 入力欄の 5 桁と決定マーク、いま選んでいるところの下じるし(点滅する) */
 function drawNameRow() {
   // 空白の桁はアンダーラインにして、5 桁あることが分かるようにする
   const padded = entryName.padEnd(NAME_MAX, ' ');
   const shown = padded.replace(/ /g, '_');
-  const x = centerX(shown);
+  const x = centerX(shown + OK_CHAR);
   hud.fill(0, 0, 100, VW, 16);
   hud.print(x, 100, shown, 7);
-  // 選んでいる桁だけ、下に▲を点滅させる(上下キーで変えられる目印)
+  // 選んでいるあいだは色を変える(桁と地続きなので、色が変わると分かりやすい)
+  hud.print(x + NAME_MAX * 8, 100, OK_CHAR, entryPos === OK_POS ? 11 : 5);
+  // 選んでいるところだけ、下に▲を点滅させる(上下キーで変えられる目印)
   if ((mmsxx.frame >> 4) & 1) return;
   hud.print(x + entryPos * 8, 108, String.fromCharCode(0x18), 11);
 }
@@ -4120,17 +4134,32 @@ function updateNameEntry() {
   let changed = false;
   // 下じるしの点滅ぶんだけは毎フレーム描き直す
   if (mmsxx.frame % 16 === 0) drawNameRow();
-  /** 打ち込みで 1 文字入れる。いま選んでいる桁に置いて、次の桁へ進む */
+  /**
+   * 打ち込みで 1 文字入れる。いま選んでいる桁に置いて、次の桁へ進む。
+   * **5 桁め まで入れると ENTER の枠へ移る**(そのまま押せば確定できる)。
+   * ENTER の枠にいるあいだの打ち込みは、いままでどおり最後の桁を書き換える
+   */
   const typeChar = (ch) => {
-    setNameChar(entryPos, ch);
-    if (entryPos < NAME_MAX - 1) entryPos++;
+    const pos = Math.min(entryPos, NAME_MAX - 1);
+    setNameChar(pos, ch);
+    entryPos = Math.min(pos + 1, OK_POS);
     changed = true;
   };
-  // カーソルキー: 左右で桁を選び、上下でその桁の文字を送る
-  if (mmsxx.input.wasPressed('ArrowLeft')) { entryPos = (entryPos + NAME_MAX - 1) % NAME_MAX; changed = true; }
-  if (mmsxx.input.wasPressed('ArrowRight')) { entryPos = (entryPos + 1) % NAME_MAX; changed = true; }
-  if (mmsxx.input.wasPressed('ArrowUp')) { cycleNameChar(1); changed = true; }
-  if (mmsxx.input.wasPressed('ArrowDown')) { cycleNameChar(-1); changed = true; }
+  // カーソルキー: 左右で桁と ENTER を選び、上下でその桁の文字を送る
+  const POSITIONS = NAME_MAX + 1;   // 5 桁 + ENTER の枠
+  if (mmsxx.input.wasPressed('ArrowLeft')) { entryPos = (entryPos + POSITIONS - 1) % POSITIONS; changed = true; }
+  if (mmsxx.input.wasPressed('ArrowRight')) { entryPos = (entryPos + 1) % POSITIONS; changed = true; }
+  // 上下は文字を送るためのもの。ENTER の枠には送る文字が無い
+  if (entryPos !== OK_POS) {
+    if (mmsxx.input.wasPressed('ArrowUp')) { cycleNameChar(1); changed = true; }
+    if (mmsxx.input.wasPressed('ArrowDown')) { cycleNameChar(-1); changed = true; }
+  }
+  // ENTER の枠を選んでいるときは、**ショット(SPACE)でも確定できる**。
+  // パッドには ENTER が無いので、ここが「押す」の入口になる
+  if (entryPos === OK_POS && mmsxx.input.wasPressed('Space')) {
+    startSubmit();
+    return;
+  }
   for (let i = 0; i < 26; i++) {
     if (mmsxx.input.wasPressed('Key' + String.fromCharCode(65 + i))) typeChar(String.fromCharCode(65 + i));
   }
@@ -4154,6 +4183,8 @@ function updateNameEntry() {
   if (mmsxx.input.wasPressed('Slash')) typeChar('?');
   if (mmsxx.input.wasPressed('Backslash') || mmsxx.input.wasPressed('Equal')) typeChar('!');
   if (mmsxx.input.wasPressed('Backspace')) {
+    // ENTER の枠にいるときは、最後の桁へ戻ってから消す
+    if (entryPos === OK_POS) entryPos = NAME_MAX - 1;
     // いまの桁に文字が入っていればそこを消す。空ならひとつ前へ戻って消す。
     // (打ち終わりはカーソルが最後の桁に乗ったままなので、
     //  いきなり前へ戻すと最後の 1 文字が消せなかった)
@@ -10404,6 +10435,9 @@ mmsxx.expose('mmsxxDebug', () => ({
   gear: { shotLevel, speedLevel, maxVolleys, damageLevel, barrierHP, ships },
   playerX: Math.round(player.x), bullets: bullets.length,
   talkHold, continueStages: { ...continueStages },
+  // パッドの受け入れ具合(使うと答えたか / 断られた回数 / 札が出ているか)
+  pad: { enabled: padEnabled, declined: padDeclined, notice: padNotice.open,
+    pads: gamepad.usable().length, unsupported: gamepad.unsupported().length },
   rank: { mode: RANK_MODE, browserId, playId, seed: mmsxx.rng.masterSeed,
     delay: RANK_DELAY, errorRate: RANK_ERROR,
     platform: rankPlatform(),
@@ -12574,7 +12608,107 @@ enterTitle();
     else enterPlay();
   }
 }
+// ---- ゲームパッド ----
+// **このゲームでの割り当て**。部品(engine/util/gamepad.js)は番号と位置しか知らないので、
+// どのボタンを何にするかはここで決める。差し替えるときはこの表だけを直す。
+//
+//   十字(12〜15) / 左スティック … 矢印
+//   A(0) / B(1)                 … SPACE(ショット・決定)
+//   X(2) / Y(3)                 … ESC(ポーズ・もどる)
+//   START(9)                    … ESC
+//   **それ以外のボタンはショット**
+//
+// 右手の 4 つを下段(A・B)と上段(X・Y)で分け、**下段を撃つ・上段を戻す**にする。
+// 親指をどちらに置いても、そのまま押せば弾が出る。
+// 残りのボタンもショットにしてあるので、割り当てを覚えてもらう必要がない。
+//
+// 連射は入れない。**こすり打ちのゲーム**なので、こちらから連射を足すと
+// 記録の意味が変わってしまう(docs/TODO.md の J 章)。
+// なお**パッド側が持っている連射は止められない**。人が速く叩いたのと
+// まったく同じ形で届くので、見分けがつかない
+const PAD_MAP = {
+  2: 'Escape', 3: 'Escape', 9: 'Escape',
+  12: 'ArrowUp', 13: 'ArrowDown', 14: 'ArrowLeft', 15: 'ArrowRight',
+};
+for (let i = 0; i < 32; i++) if (PAD_MAP[i] === undefined) PAD_MAP[i] = 'Space';
+
+const gamepad = createGamepad({
+  // **第 2 引数の 'pad' を忘れない**。省くとキーボードで遊んだことになり、
+  // ランキングへ誤った操作方法が載る(engine/input.js の usedInputs)。
+  //
+  // 使うと答えてもらうまでは流さない(下の padEnabled)。
+  // **離すほうは常に流す**。切り替わった拍子に押しっぱなしが残らないように
+  press: (code) => { if (padEnabled) mmsxx.input.press(code, 'pad'); },
+  release: (code) => mmsxx.input.release(code),
+  map: PAD_MAP,
+});
+
+// ---- パッドを認識したことの知らせ ----
+// **キャンバスに描かず、DOM を上に重ねる**(docs/SMARTPHONE.md の 5 節)。
+// 画面の下に置くとキー入力が二重になったり奪われたりするので、
+// キャンバスの上に白い札として出し、**出ているあいだはゲームを止める**。
+//
+// スペースを押してもらうのには意味が 2 つある。
+//   1. パッドを繋いだ人に「使える」と伝える
+//   2. **音を出す**。ブラウザはパッドの操作を「人が触った」と数えないので、
+//      キーかクリックが 1 回ないと音が鳴りはじめない
+const PAD_NOTICE_TEXT = {
+  ja: {
+    ok: 'ゲームパッドを認識しました。<br>SPACE：使う　　ESC：使わない',
+    ng: 'ゲームパッドを認識しましたが、対応していない形式です。<br>スペースキーを押してください。',
+  },
+  en: {
+    ok: 'GAMEPAD DETECTED.<br>SPACE: USE&nbsp;&nbsp;&nbsp;ESC: DO NOT USE',
+    ng: 'GAMEPAD DETECTED, BUT THIS FORMAT IS NOT SUPPORTED.<br>PRESS THE SPACE KEY.',
+  },
+};
+let padEnabled = false;       // パッドの入力をゲームへ流すか。**スペースで入り、ESC で切れる**
+let padDeclined = 0;          // ESC で断られた回数
+let padNgShown = false;       // 対応していないパッドの知らせを出したか(1 ページに 1 回)
+// **これだけ断られたら、そのページでは二度と出さない。**
+// 3 回続くのは、ボタンが張り付いているなど**こちらの都合ではない何か**が
+// 起きているとき。出し続けても邪魔にしかならない
+const PAD_DECLINE_MAX = 3;
+// 札そのものはエンジンの道具(engine/util/notice.js)。文言と返事の中身だけここで決める
+const padNotice = createNotice(mmsxx, {
+  mount: document.getElementById('stage'),
+  canvas: document.getElementById('screen'),
+  className: 'pad-notice',
+});
+/**
+ * 知らせを出す。出ているあいだはゲームが止まる。
+ * **使うと決めたあとは出さない**し、断られ続けたときも出さない
+ */
+function showPadNotice() {
+  if (padNotice.open || padEnabled || padDeclined >= PAD_DECLINE_MAX) return;
+  const ok = gamepad.usable().length > 0;
+  // 日本語の環境なら日本語、それ以外は英語
+  const text = PAD_NOTICE_TEXT[pickLanguage(['ja'], 'en')];
+  // 閉じたときに押されていたキーで返事が変わる。
+  //   ESC    … **使わない**。パッドの入力を切ったままにする
+  //            (うっかり触れただけの人の逃げ道。ゲームを止めているので逃げ道が要る)
+  //   その他  … **使う**。あわせて音も解禁される(エンジンが keydown で unlock する)
+  padNotice.show(ok ? text.ok : text.ng, (e) => {
+    // **また押されたら、もう一度聞く**。断られ続けたときだけ黙る
+    if (e.code === 'Escape') { padEnabled = false; padDeclined++; }
+    else padEnabled = true;
+  });
+}
+// **押されるまでパッドは見えない**ので、知らせを出す機会もここになる
+gamepad.onRawPress = () => showPadNotice();
+
 mmsxx.run(() => {
+  // **ゲームが入力を読む前に**パッドを流し込む。
+  // エンジンは update() のあとで endFrame() を呼ぶので、押したそのコマで効く
+  gamepad.poll();
+  // 対応していないパッドは poll() が相手にしないので、押されたことも伝わってこない。
+  // **繋いだのに何も起きない**を放っておかないよう、ここで見つけて知らせる
+  // 対応していないパッドは**押しても番号が読めない**ので、「また押されたら
+  // もう一度」ができない。ページを開いているあいだ 1 回だけ知らせる
+  if (!padNgShown && gamepad.unsupported().length) { padNgShown = true; showPadNotice(); }
+  // 札が出ているあいだは**ゲームを進めない**。
+  // 読んでもらう間に敵が寄ってきたり、パッドの入力で画面が変わったりしない
+  if (padNotice.open) return;
   if (fpsMeter) fpsMeter.tick();
   // 名乗りのあいだは、画面も HUD もいっさい動かさない
   if (talkHold > 0) {
