@@ -4294,6 +4294,7 @@ let shareSendBtn = null;    // POST TO X のボタン(出したときはここ�
 let shareItems = [];        // 並び順。{ el, run, repeat }
 let shareFocus = 0;         // 下のボタンのうち、いま選んでいるもの
 let shareZone = 'buttons';  // 'frame' = 矢印(時間を選ぶ) / 'buttons' = 下のボタン
+let shareArrow = 0;         // 矢印のどちらを選んでいるか(0 = ◀ / 1 = ▶)
 let shareHiScore = false;   // ランクインで出したか(文言が変わる)
 // **やられる前の数秒を録った動画**(mp4。作れない環境では webm)。
 // リプレイを流したときに録ってあり、ダイアログから落とせる。
@@ -4482,8 +4483,13 @@ function makeShareEl() {
       border: '2px solid #cccccc', padding: '12px 8px', cursor: 'pointer',
       lineHeight: '1', flex: '0 0 auto',
     });
-    // マウスで押したときは、矢印のほうを選んだ状態にする
-    b.addEventListener('click', () => { b.blur(); setShareZone('frame'); fn(); });
+    // マウスで押したときは、**押した矢印**を選んだ状態にする
+    b.addEventListener('click', () => {
+      b.blur();
+      setShareZone('frame');
+      focusShareArrow(b === shareRightBtn ? 1 : 0);
+      fn();
+    });
     let wait = 0, run = 0;
     const stop = () => { clearTimeout(wait); clearInterval(run); wait = run = 0; };
     b.addEventListener('pointerdown', () => {
@@ -4568,10 +4574,27 @@ function paintShareItem(el, on) {
 function setShareZone(z) {
   // コマを選べないとき(集計画面など)は、いつでも下のボタン
   shareZone = (z === 'frame' && shareBack !== SHARE_ONE) ? 'frame' : 'buttons';
-  const on = shareZone === 'frame';
-  paintShareItem(shareLeftBtn, on);
-  paintShareItem(shareRightBtn, on);
+  if (shareZone === 'frame') focusShareArrow(shareArrow);
+  else {
+    paintShareItem(shareLeftBtn, false);
+    paintShareItem(shareRightBtn, false);
+  }
   focusShareItem(shareFocus);
+}
+
+/**
+ * 矢印のどちらを選ぶか。**押せない矢印は選ばない**。
+ * 反対側も押せなければ、下のボタンへ移る(選べないものに留まらない)
+ * @param {number} i 0 = ◀(古いほうへ) / 1 = ▶(新しいほうへ)
+ */
+function focusShareArrow(i) {
+  const btns = [shareLeftBtn, shareRightBtn];
+  const live = btns.map((b) => b && !b.disabled && b.style.display !== 'none');
+  if (!live[0] && !live[1]) { setShareZone('buttons'); return; }
+  if (!live[i]) i = 1 - i;
+  shareArrow = i;
+  paintShareItem(shareLeftBtn, shareZone === 'frame' && i === 0);
+  paintShareItem(shareRightBtn, shareZone === 'frame' && i === 1);
 }
 
 /** いま押せるものか(隠れているもの・端まで来た矢印は飛ばす) */
@@ -4592,6 +4615,13 @@ function moveShareFocus(d) {
 }
 
 /** いま選んでいるものを実行する */
+/** 選んでいる矢印を押す(◀ = 古いほうへ / ▶ = 新しいほうへ) */
+function runShareArrow() {
+  const btn = shareArrow === 0 ? shareLeftBtn : shareRightBtn;
+  if (!btn || btn.disabled) return;
+  stepShareShot(shareArrow === 0 ? 1 : -1);
+}
+
 function runShareFocus() {
   const it = shareItems[shareFocus];
   if (it && shareItemLive(it)) it.run();
@@ -4623,8 +4653,10 @@ function drawShareShot() {
   const { lo, hi } = shareWindow();
   setArrowEnabled(shareLeftBtn, shareBack < hi);
   setArrowEnabled(shareRightBtn, shareBack > lo);
+  // 端まで来て押せなくなった矢印に留まらない
+  if (shareZone === 'frame') focusShareArrow(shareArrow);
   const n = hi - shareBack + 1, of = hi - lo + 1;   // 古いほうから数えた番号
-  const keys = '  (UP-DOWN: SWITCH / LEFT-RIGHT: TIME OR BUTTON / SPACE: RUN)';
+  const keys = '  (UP-DOWN: SWITCH / LEFT-RIGHT: SELECT / SPACE: RUN)';
   // 足した 1 枚には「何秒前」が無いので、名前で出す
   shareHintEl.textContent = shareBack === SHARE_EXTRA
     ? `FRAME ${n}/${of} - RESULT` + keys
@@ -4697,7 +4729,9 @@ function openShare(after, spec) {
   // 下へ降りたときに選ばれるものだけ決めておく
   shareFocus = Math.max(0, shareItems.findIndex(it => it.el === shareSendBtn));
   // **始まりは上(コマを選ぶ矢印)**。まず絵を決めてから送ってほしいので。
-  // コマを選べないとき(集計画面の 1 枚だけなど)は、中で下のボタンに落ちる
+  // コマを選べないとき(集計画面の 1 枚だけなど)は、中で下のボタンに落ちる。
+  // 最初に選ぶのは ◀(古いほうへ戻る側)。新しい端から始まるため
+  shareArrow = 0;
   setShareZone('frame');
   mmsxx.audio.playSE('shutter', SE_JINGLE);
 }
@@ -12451,14 +12485,13 @@ mmsxx.run(() => {
     if (shareBack !== SHARE_ONE && (key.wasPressed('ArrowUp') || key.wasPressed('ArrowDown'))) {
       setShareZone(shareZone === 'frame' ? 'buttons' : 'frame');
     } else if (shareZone === 'frame') {
-      // 1 コマずつなので、押しっぱなしのときは少し待ってから送り続ける
-      if (key.wasPressed('ArrowLeft')) { stepShareShot(1); shareRepeat = 20; }
-      else if (key.wasPressed('ArrowRight')) { stepShareShot(-1); shareRepeat = 20; }
-      else if (key.isDown('ArrowLeft') || key.isDown('ArrowRight')) {
-        if (--shareRepeat <= 0) {
-          stepShareShot(key.isDown('ArrowLeft') ? 1 : -1);
-          shareRepeat = 3;
-        }
+      // 左右は**矢印を選ぶ**。送るのは SPACE(下のボタンと同じ操作にそろえる)。
+      // 押しっぱなしのときは少し待ってから送り続ける
+      if (key.wasPressed('ArrowLeft')) focusShareArrow(0);
+      else if (key.wasPressed('ArrowRight')) focusShareArrow(1);
+      else if (key.wasPressed('Space')) { runShareArrow(); shareRepeat = 20; }
+      else if (key.isDown('Space')) {
+        if (--shareRepeat <= 0) { runShareArrow(); shareRepeat = 3; }
       }
     } else {
       if (key.wasPressed('ArrowLeft')) moveShareFocus(-1);
