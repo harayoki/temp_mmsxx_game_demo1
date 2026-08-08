@@ -1,0 +1,567 @@
+// バーチャルパッド(タッチ操作)。**DOM だけで作る**。canvas には何も描かない。
+// 設計は docs/SMARTPHONE.md の 3〜5 節と 8 節。
+//
+//   import { VirtualPad } from './engine/util/pad.js';
+//
+//   const pad = new VirtualPad({
+//     onPress:   (code, source) => mmsxx.input.press(code, source),
+//     onRelease: (code, source) => mmsxx.input.release(code),
+//   });
+//   pad.attach(document.body);
+//
+// ## エンジンにも game にも依存しない
+//
+// ここは**押した / 離したを呼び出し側へ知らせるだけ**。Input も mmsxx も触らない。
+// SMARTPHONE.md の 10 節では `new VirtualPad(mmsxx, ...)` と書いてあるが、
+// 通知にしたので mmsxx は要らなくなった。繋ぐのは呼び出し側の仕事。
+//
+// ## 押されたときの「何で押したか」
+//
+// onPress の第 2 引数に **かならず 'touch'** を載せる。受け取る側は素通しすればよい:
+//
+//   onPress: (code, source) => mmsxx.input.press(code, source),
+//
+// こうすると繋ぐ側が種別を書く判断をしないので、**付け忘れが起きない**。
+// 'touch' という文字列を持っているのはこのファイルの SOURCE 1 か所だけ。
+// TODO: ランキングの窓口(markInputSource)へ繋ぐのは game/main.js 側。
+//   docs/TODO.md の O 章。組み込みのときに一緒にやる
+//
+// ## つまみ(手触りを詰めるための値)
+//
+// すべて setOptions() で**動かしたまま**変えられる。padlab/ で実機で触って決める。
+// 決まった値をここの既定値に書き戻すこと。
+
+/** 押されたと知らせるときの種別。**ここ 1 か所だけ** */
+const SOURCE = 'touch';
+
+/** 8 方向。角度の区画(45 度ずつ)の順に、立てるキーを並べたもの */
+const SECTOR_KEYS = [
+  ['ArrowRight'],                 // 0:   0 度(右)
+  ['ArrowRight', 'ArrowDown'],    // 1:  45
+  ['ArrowDown'],                  // 2:  90(下。画面の y は下向き)
+  ['ArrowLeft', 'ArrowDown'],     // 3: 135
+  ['ArrowLeft'],                  // 4: 180
+  ['ArrowLeft', 'ArrowUp'],       // 5: 225
+  ['ArrowUp'],                    // 6: 270
+  ['ArrowRight', 'ArrowUp'],      // 7: 315
+];
+
+const DEFAULTS = {
+  side: 'left',        // 十字をどちら側に置くか('left' / 'right')
+  dpadZone: 28,        // 十字エリアの幅(画面幅に対する %)
+  deadzone: 12,        // これ未満しか動いていなければ無入力(px)
+  dragMax: 48,         // これより離れたら原点を引きずる(px)
+  hysteresis: 7,       // 区画の境目の重なり(度)。ばたつき止め
+  shotZone: 28,        // ショットエリアの幅(%)
+  shotMode: 'B',       // 'A' 区画割り / 'B' 移動量 / 'C' 出入り
+  shotStep: 24,        // A なら区画の一辺、B なら 1 発ぶんの移動量(px)
+  holdRepeatMs: 0,     // 長押しの連射間隔(ms)。**0 で無し**(連射は腕前のまま)
+  shotCode: 'Space',
+  pauseCode: 'Escape',
+};
+
+export class VirtualPad {
+  /**
+   * @param {{
+   *   onPress?:   (code:string, source:string) => void,
+   *   onRelease?: (code:string, source:string) => void,
+   *   side?: string, dpadZone?: number, deadzone?: number, dragMax?: number,
+   *   hysteresis?: number, shotZone?: number, shotMode?: string, shotStep?: number,
+   *   holdRepeatMs?: number, shotCode?: string, pauseCode?: string,
+   * }} [opts]
+   */
+  constructor(opts = {}) {
+    this.onPress = opts.onPress || null;
+    this.onRelease = opts.onRelease || null;
+    /** つまみ。setOptions() で書き換える */
+    this.opts = { ...DEFAULTS, ...opts };
+
+    /** いま押していることになっている code */
+    this.down = new Set();
+    /** pointerId ごとの担当。**途中で入れ替えない**(SMARTPHONE.md 8 節) */
+    this.pointers = new Map();
+
+    /** 相対十字の様子(padlab が読む) */
+    this.stick = { active: false, ox: 0, oy: 0, x: 0, y: 0, dx: 0, dy: 0, dist: 0, deg: 0, sector: -1 };
+    /** こすり打ちの様子(padlab が読む) */
+    this.rub = { pressCount: 0, releaseCount: 0, move: 0, rate: 0, maxRate: 0, cell: '' };
+
+    this.el = null;
+    this._host = null;
+    /** 1 コマだけ押すための仕掛け */
+    this._pulseDown = new Set();
+    this._pulseQueue = new Map();
+    this._pulseRaf = 0;
+    /** 直近の発射の時刻(1 秒あたりの連射数を出すため) */
+    this._shotTimes = [];
+    /** 長押しの見張り */
+    this._holdTimer = 0;
+    this._lastShotAt = 0;
+  }
+
+  // ── 取り付け ──────────────────────────────────────────
+
+  /** DOM に取り付ける。@param {HTMLElement} host 置き場所 */
+  attach(host) {
+    if (this.el) this.detach();
+    injectStyle();
+    this._host = host;
+    this.el = buildDom();
+    this._applyLayout();
+    host.appendChild(this.el);
+
+    this._dpad = this.el.querySelector('.mmsxx-pad-dpad');
+    this._shot = this.el.querySelector('.mmsxx-pad-shot');
+    this._fire = this.el.querySelector('.mmsxx-pad-fire');
+    this._pause = this.el.querySelector('.mmsxx-pad-pause');
+    this._knob = this.el.querySelector('.mmsxx-pad-knob');
+    this._ring = this.el.querySelector('.mmsxx-pad-ring');
+
+    this._bind(this._dpad, 'dpad');
+    this._bind(this._fire, 'shot');
+    this._bind(this._pause, 'pause');
+    return this;
+  }
+
+  /** 外す。押しっぱなしは全部離してから */
+  detach() {
+    if (!this.el) return;
+    this.releaseAll();
+    if (this.el.parentNode) this.el.parentNode.removeChild(this.el);
+    this.el = null;
+    this._host = null;
+  }
+
+  /** 出し入れ */
+  get visible() { return !!this.el && this.el.style.display !== 'none'; }
+  set visible(v) {
+    if (!this.el) return;
+    if (!v) this.releaseAll();
+    this.el.style.display = v ? '' : 'none';
+  }
+
+  /** つまみを変える。**動かしたまま効く** */
+  setOptions(patch) {
+    Object.assign(this.opts, patch);
+    this._applyLayout();
+  }
+
+  /** 押しっぱなしを全部離す(画面が非アクティブになったときなど) */
+  releaseAll() {
+    for (const code of [...this.down]) this._release(code);
+    this.pointers.clear();
+    this._pulseDown.clear();
+    this._pulseQueue.clear();
+    this._stopHold();
+    this.stick.active = false;
+    this._hideRing();
+    this._paint();
+  }
+
+  /** 数えたぶんを捨てる(padlab の RESET) */
+  reset() {
+    this.releaseAll();
+    this.rub.pressCount = 0;
+    this.rub.releaseCount = 0;
+    this.rub.move = 0;
+    this.rub.rate = 0;
+    this.rub.maxRate = 0;
+    this._shotTimes.length = 0;
+  }
+
+  /** いまの様子をまとめて渡す(padlab の計器盤が読む) */
+  state() {
+    this._trimShotTimes();
+    return {
+      down: [...this.down],
+      pointers: [...this.pointers.entries()].map(([id, p]) => ({
+        id, owner: p.owner, x: Math.round(p.x), y: Math.round(p.y),
+      })),
+      stick: { ...this.stick },
+      rub: { ...this.rub },
+    };
+  }
+
+  // ── 見た目 ────────────────────────────────────────────
+
+  _applyLayout() {
+    if (!this.el) return;
+    const o = this.opts;
+    this.el.dataset.side = o.side;
+    this.el.querySelector('.mmsxx-pad-dpad').style.width = o.dpadZone + '%';
+    this.el.querySelector('.mmsxx-pad-shot').style.width = o.shotZone + '%';
+  }
+
+  /** 押しているところを明るくする。**音は鳴らさない** */
+  _paint() {
+    if (!this.el) return;
+    for (const arrow of this.el.querySelectorAll('.mmsxx-pad-arrow')) {
+      arrow.classList.toggle('on', this.down.has(arrow.dataset.code));
+    }
+    if (this._fire) this._fire.classList.toggle('on', this.down.has(this.opts.shotCode));
+    if (this._pause) this._pause.classList.toggle('on', this.down.has(this.opts.pauseCode));
+  }
+
+  // ── 通知 ──────────────────────────────────────────────
+
+  _press(code) {
+    if (this.down.has(code)) return;
+    this.down.add(code);
+    if (this.onPress) this.onPress(code, SOURCE);
+    if (code === this.opts.shotCode) this._countShot();
+    this._paint();
+  }
+
+  _release(code) {
+    if (!this.down.has(code)) return;
+    this.down.delete(code);
+    if (this.onRelease) this.onRelease(code, SOURCE);
+    if (code === this.opts.shotCode) this.rub.releaseCount++;
+    this._paint();
+  }
+
+  /**
+   * **1 コマだけ押す**。押した直後に離すとゲーム側の wasPressed() が拾えないので、
+   * 離すのは次の描き替えまで待つ。待っているあいだに来たぶんは順番に並べる
+   */
+  _pulse(code) {
+    if (this._pulseDown.has(code) || this.down.has(code)) {
+      this._pulseQueue.set(code, (this._pulseQueue.get(code) || 0) + 1);
+    } else {
+      this._press(code);
+      this._pulseDown.add(code);
+    }
+    this._runPulses();
+  }
+
+  _runPulses() {
+    if (this._pulseRaf) return;
+    this._pulseRaf = requestAnimationFrame(() => {
+      this._pulseRaf = 0;
+      for (const code of [...this._pulseDown]) {
+        this._release(code);
+        this._pulseDown.delete(code);
+      }
+      for (const [code, n] of [...this._pulseQueue]) {
+        this._press(code);
+        this._pulseDown.add(code);
+        if (n <= 1) this._pulseQueue.delete(code);
+        else this._pulseQueue.set(code, n - 1);
+      }
+      if (this._pulseDown.size || this._pulseQueue.size) this._runPulses();
+    });
+  }
+
+  _countShot() {
+    const now = performance.now();
+    this.rub.pressCount++;
+    this._lastShotAt = now;
+    this._shotTimes.push(now);
+    this._trimShotTimes();
+    if (this.rub.rate > this.rub.maxRate) this.rub.maxRate = this.rub.rate;
+  }
+
+  /** 直近 1 秒に入っているものだけ残す */
+  _trimShotTimes() {
+    const cut = performance.now() - 1000;
+    while (this._shotTimes.length && this._shotTimes[0] < cut) this._shotTimes.shift();
+    this.rub.rate = this._shotTimes.length;
+  }
+
+  // ── 指の受け付け ──────────────────────────────────────
+
+  _bind(el, owner) {
+    el.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      // 担当は触れた瞬間に決めて、離すまで変えない
+      const p = { owner, x: e.clientX, y: e.clientY, el };
+      this.pointers.set(e.pointerId, p);
+      // 捕まえておくと、指がボタンから滑り出ても続きが届く。
+      // **失敗しても先へ進む**(捕まえられなくても、その場での操作は成り立つ)
+      try { el.setPointerCapture(e.pointerId); } catch (err) { /* 捕まえられなくても続ける */ }
+      if (owner === 'dpad') this._stickDown(p);
+      else if (owner === 'shot') this._shotDown(p, e);
+      else this._press(this.opts.pauseCode);
+    });
+
+    el.addEventListener('pointermove', (e) => {
+      const p = this.pointers.get(e.pointerId);
+      if (!p) return;
+      e.preventDefault();
+      const dist = Math.hypot(e.clientX - p.x, e.clientY - p.y);
+      p.x = e.clientX;
+      p.y = e.clientY;
+      if (p.owner === 'dpad') this._stickMove(p);
+      else if (p.owner === 'shot') this._shotMove(p, dist);
+    });
+
+    const up = (e) => {
+      const p = this.pointers.get(e.pointerId);
+      if (!p) return;
+      this.pointers.delete(e.pointerId);
+      if (p.owner === 'dpad') this._stickUp();
+      else if (p.owner === 'shot') this._shotUp();
+      else this._release(this.opts.pauseCode);
+    };
+    // 着信やジェスチャで指が消えることがあるので cancel も拾う
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+    el.addEventListener('lostpointercapture', up);
+  }
+
+  // ── 相対十字 ──────────────────────────────────────────
+
+  _stickDown(p) {
+    const s = this.stick;
+    s.active = true;
+    s.ox = p.x; s.oy = p.y;
+    s.x = p.x; s.y = p.y;
+    s.dx = 0; s.dy = 0; s.dist = 0; s.deg = 0; s.sector = -1;
+    this._showRing();
+  }
+
+  _stickMove(p) {
+    const s = this.stick;
+    s.x = p.x; s.y = p.y;
+    let dx = s.x - s.ox;
+    let dy = s.y - s.oy;
+    let dist = Math.hypot(dx, dy);
+
+    // 大きく離れたら、その距離を保つように原点を引きずる
+    const max = this.opts.dragMax;
+    if (dist > max && dist > 0) {
+      const k = (dist - max) / dist;
+      s.ox += dx * k;
+      s.oy += dy * k;
+      dx = s.x - s.ox;
+      dy = s.y - s.oy;
+      dist = max;
+    }
+    s.dx = dx; s.dy = dy; s.dist = dist;
+    s.deg = (Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360;
+
+    if (dist < this.opts.deadzone) s.sector = -1;
+    else s.sector = this._sectorOf(s.deg, s.sector);
+
+    this._applyDirs(s.sector < 0 ? [] : SECTOR_KEYS[s.sector]);
+    this._showRing();
+  }
+
+  _stickUp() {
+    this.stick.active = false;
+    this.stick.sector = -1;
+    this._applyDirs([]);
+    this._hideRing();
+  }
+
+  _hideRing() {
+    if (this._ring) this._ring.style.display = 'none';
+    if (this._knob) this._knob.style.display = 'none';
+  }
+
+  /** 区画を決める。**境目を少し重ねて**ばたつきを止める */
+  _sectorOf(deg, current) {
+    const next = Math.round(deg / 45) % 8;
+    if (current < 0 || next === current) return next;
+    // いまの区画の真ん中からどれだけ離れたか(0〜180 度)
+    const d = Math.abs(((deg - current * 45 + 540) % 360) - 180);
+    return d > 22.5 + this.opts.hysteresis ? next : current;
+  }
+
+  /** 向きを入れ替える。増えたぶんを押し、減ったぶんを離す */
+  _applyDirs(keys) {
+    for (const code of ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']) {
+      if (keys.includes(code)) this._press(code);
+      else this._release(code);
+    }
+  }
+
+  /** 十字の絵を原点へ、つまみを指の場所へ */
+  _showRing() {
+    if (!this._ring || !this._dpad) return;
+    const r = this._dpad.getBoundingClientRect();
+    const s = this.stick;
+    this._ring.style.display = '';
+    this._knob.style.display = '';
+    this._ring.style.left = (s.ox - r.left) + 'px';
+    this._ring.style.top = (s.oy - r.top) + 'px';
+    this._ring.style.width = (this.opts.dragMax * 2) + 'px';
+    this._ring.style.height = (this.opts.dragMax * 2) + 'px';
+    this._knob.style.left = (s.x - r.left) + 'px';
+    this._knob.style.top = (s.y - r.top) + 'px';
+  }
+
+  // ── こすり打ち ────────────────────────────────────────
+
+  _shotDown(p, e) {
+    this.rub.move = 0;
+    p.acc = 0;
+    p.cell = this._cellOf(p);
+    this.rub.cell = p.cell;
+    // どの方式でも、触れた瞬間に 1 発は出る
+    if (this.opts.shotMode === 'C') this._press(this.opts.shotCode);
+    else this._pulse(this.opts.shotCode);
+    this._startHold();
+  }
+
+  _shotMove(p, dist) {
+    const o = this.opts;
+    p.acc = (p.acc || 0) + dist;
+    this.rub.move += dist;
+    const inside = this._inFire(p);
+
+    if (o.shotMode === 'C') {
+      // 領域はひとつ。入ったら押す、出たら離す
+      if (inside) this._press(o.shotCode);
+      else this._release(o.shotCode);
+      return;
+    }
+    if (!inside) { this.rub.cell = ''; return; }
+
+    if (o.shotMode === 'A') {
+      // 区画割り。別の区画へ入るたびに 1 発
+      const cell = this._cellOf(p);
+      if (cell !== p.cell) {
+        p.cell = cell;
+        this.rub.cell = cell;
+        this._pulse(o.shotCode);
+      }
+      return;
+    }
+    // B: 動いた量で数える。こする速さがそのまま連射数になる
+    const step = Math.max(1, o.shotStep);
+    while (p.acc >= step) {
+      p.acc -= step;
+      this._pulse(o.shotCode);
+    }
+  }
+
+  _shotUp() {
+    this._release(this.opts.shotCode);
+    this._stopHold();
+    this.rub.cell = '';
+  }
+
+  /** ショットボタンの中に指があるか(滑り出ても担当は変えない) */
+  _inFire(p) {
+    if (!this._fire) return false;
+    const r = this._fire.getBoundingClientRect();
+    return p.x >= r.left && p.x < r.right && p.y >= r.top && p.y < r.bottom;
+  }
+
+  /** 区画割り(A)の、いまの区画の名前 */
+  _cellOf(p) {
+    if (!this._fire) return '';
+    const r = this._fire.getBoundingClientRect();
+    const step = Math.max(1, this.opts.shotStep);
+    return Math.floor((p.x - r.left) / step) + ',' + Math.floor((p.y - r.top) / step);
+  }
+
+  /**
+   * 長押しの見張り。**既定は動かない**(holdRepeatMs が 0)。
+   * 動かしたときは、こすらずに置いたままでも間隔ごとに 1 発出る
+   */
+  _startHold() {
+    this._stopHold();
+    if (!(this.opts.holdRepeatMs > 0)) return;
+    this._holdTimer = setInterval(() => {
+      const gap = this.opts.holdRepeatMs;
+      if (!(gap > 0)) return;
+      if (performance.now() - this._lastShotAt < gap) return;
+      this._release(this.opts.shotCode);   // C で押しっぱなしのときのため
+      this._pulse(this.opts.shotCode);
+    }, 16);
+  }
+
+  _stopHold() {
+    if (this._holdTimer) clearInterval(this._holdTimer);
+    this._holdTimer = 0;
+  }
+}
+
+// ── DOM と CSS ──────────────────────────────────────────
+
+function buildDom() {
+  const el = document.createElement('div');
+  el.className = 'mmsxx-pad';
+  el.innerHTML = `
+    <div class="mmsxx-pad-zone mmsxx-pad-dpad">
+      <div class="mmsxx-pad-ring"></div>
+      <div class="mmsxx-pad-knob"></div>
+      <div class="mmsxx-pad-arrow" data-code="ArrowUp"></div>
+      <div class="mmsxx-pad-arrow" data-code="ArrowDown"></div>
+      <div class="mmsxx-pad-arrow" data-code="ArrowLeft"></div>
+      <div class="mmsxx-pad-arrow" data-code="ArrowRight"></div>
+    </div>
+    <div class="mmsxx-pad-zone mmsxx-pad-shot">
+      <div class="mmsxx-pad-fire"></div>
+      <div class="mmsxx-pad-pause">PAUSE</div>
+    </div>`;
+  return el;
+}
+
+let styled = false;
+
+/** CSS は 1 度だけ入れる。ドット絵風に、角は丸めない */
+function injectStyle() {
+  if (styled) return;
+  styled = true;
+  const s = document.createElement('style');
+  s.id = 'mmsxx-pad-style';
+  s.textContent = `
+.mmsxx-pad {
+  position: fixed; inset: 0; pointer-events: none; z-index: 20;
+  touch-action: none; user-select: none; -webkit-touch-callout: none;
+}
+.mmsxx-pad-zone {
+  position: absolute; top: 0; bottom: 0; pointer-events: auto;
+  touch-action: none; overflow: hidden;
+  image-rendering: pixelated;
+}
+.mmsxx-pad[data-side="left"]  .mmsxx-pad-dpad { left: 0; }
+.mmsxx-pad[data-side="left"]  .mmsxx-pad-shot { right: 0; }
+.mmsxx-pad[data-side="right"] .mmsxx-pad-dpad { right: 0; }
+.mmsxx-pad[data-side="right"] .mmsxx-pad-shot { left: 0; }
+
+/* 十字。触れたところに現れる */
+.mmsxx-pad-ring {
+  position: absolute; display: none; transform: translate(-50%, -50%);
+  border: 2px solid #4488cc; background: rgba(32, 64, 112, 0.35);
+}
+.mmsxx-pad-knob {
+  position: absolute; width: 20px; height: 20px; margin: -10px 0 0 -10px;
+  background: #66ccff; display: none;
+}
+
+/* 押している向きの目印。四隅ではなく上下左右の端に出す */
+.mmsxx-pad-arrow {
+  position: absolute; background: #224466; width: 22px; height: 22px;
+}
+.mmsxx-pad-arrow.on { background: #ffcc22; }
+.mmsxx-pad-arrow[data-code="ArrowUp"]    { top: 8px;    left: 50%; margin-left: -11px; }
+.mmsxx-pad-arrow[data-code="ArrowDown"]  { bottom: 8px; left: 50%; margin-left: -11px; }
+.mmsxx-pad-arrow[data-code="ArrowLeft"]  { left: 8px;   top: 50%;  margin-top: -11px; }
+.mmsxx-pad-arrow[data-code="ArrowRight"] { right: 8px;  top: 50%;  margin-top: -11px; }
+
+/* ショット。面の横溝で「こする場所」だと見せる */
+.mmsxx-pad-fire {
+  position: absolute; left: 6px; right: 6px; top: 6px; bottom: 64px;
+  background: #aa2222;
+  background-image: repeating-linear-gradient(
+    to bottom, #cc3333 0 6px, #881111 6px 12px);
+  border: 2px solid #ee6666;
+}
+.mmsxx-pad-fire.on {
+  background-image: repeating-linear-gradient(
+    to bottom, #ff8888 0 6px, #cc3333 6px 12px);
+}
+.mmsxx-pad-pause {
+  position: absolute; left: 6px; right: 6px; bottom: 6px; height: 44px;
+  background: #333344; border: 2px solid #8888aa; color: #ccccdd;
+  font: 12px monospace; letter-spacing: 1px;
+  display: flex; align-items: center; justify-content: center;
+}
+.mmsxx-pad-pause.on { background: #8888aa; color: #111122; }
+`;
+  document.head.appendChild(s);
+}

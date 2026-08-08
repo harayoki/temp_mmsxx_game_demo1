@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>padlab - バーチャルパッドの実験台</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>
+/* iOS のバウンスは overscroll-behavior では止まらないので、ページごと固定する */
+html, body {
+  position: fixed; width: 100%; height: 100%; overflow: hidden;
+  margin: 0; background: #101018; color: #ccccdd;
+  font: 12px/1.4 monospace;
+  touch-action: none; user-select: none; -webkit-touch-callout: none;
+}
+/* 計器盤。**本番でゲーム画面が出る場所**＝指が来ない場所に置く */
+#panel {
+  position: fixed; top: 0; bottom: 0;
+  overflow-y: auto; touch-action: pan-y;
+  padding: 6px 8px; box-sizing: border-box;
+  border-left: 1px solid #333344; border-right: 1px solid #333344;
+}
+h2 {
+  font-size: 11px; margin: 8px 0 3px; color: #7788aa;
+  border-bottom: 1px solid #333344; font-weight: normal;
+}
+h2:first-child { margin-top: 0; }
+.row { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.big { font-size: 20px; color: #ffcc22; }
+.dim { color: #666677; }
+
+/* ① キーの状態 */
+.key {
+  padding: 3px 6px; background: #222233; border: 1px solid #444455; color: #666677;
+}
+.key.down { background: #ffcc22; border-color: #ffee88; color: #111122; }
+.key.hit  { border-color: #ffffff; }
+
+/* ② タッチ点 */
+.dot { display: inline-block; width: 10px; height: 10px; margin-right: 4px; }
+
+/* ⑥ ログ */
+#log { height: 92px; overflow: hidden; color: #889; }
+#log div { white-space: pre; }
+#log .p { color: #8fc; }
+#log .r { color: #667; }
+
+/* つまみ */
+details { margin-top: 8px; border-top: 1px solid #333344; }
+summary { cursor: pointer; padding: 4px 0; color: #7788aa; }
+label.knob { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+label.knob span:first-child { width: 96px; flex: none; }
+label.knob output { width: 44px; flex: none; text-align: right; color: #ffcc22; }
+input[type=range] { flex: 1; min-width: 80px; touch-action: none; }
+button {
+  font: 12px monospace; padding: 5px 10px; margin-right: 6px;
+  background: #333344; color: #ccccdd; border: 1px solid #8888aa;
+}
+#values {
+  width: 100%; height: 66px; box-sizing: border-box; margin-top: 6px;
+  background: #0a0a12; color: #8fc; border: 1px solid #333344;
+  font: 11px monospace; user-select: text;
+}
+</style>
+</head>
+<body>
+
+<div id="panel">
+  <h2>① キーの状態</h2>
+  <div class="row" id="keys"></div>
+
+  <h2>② タッチ点 <span class="dim" id="touchCount"></span></h2>
+  <div id="touches" class="dim">（触れていません）</div>
+
+  <h2>③ 相対十字</h2>
+  <div id="stick" class="dim">（触れていません）</div>
+
+  <h2>④ こすり打ち</h2>
+  <div class="row">
+    <span class="big" id="rate">0</span><span class="dim">発/秒</span>
+    <span class="dim">最高</span><span id="maxRate">0</span>
+  </div>
+  <div id="rub" class="dim"></div>
+
+  <h2>⑤ 端末・画面</h2>
+  <div id="device" class="dim"></div>
+
+  <h2>⑥ ログ</h2>
+  <div id="log"></div>
+
+  <details>
+    <summary>つまみ</summary>
+    <div id="knobs"></div>
+    <div class="row" style="margin-top:6px">
+      <button id="reset">RESET</button>
+      <button id="copy">COPY VALUES</button>
+    </div>
+    <textarea id="values" readonly></textarea>
+  </details>
+</div>
+
+<script type="module">
+import { VirtualPad } from '../engine/util/pad.js';
+import { isMobileLike } from '../engine/util/device.js';
+
+// ダブルタップの拡大を潰す(user-scalable=no は iOS Safari が無視する)
+document.addEventListener('gesturestart', (e) => e.preventDefault());
+document.addEventListener('touchmove', (e) => {
+  if (e.target.closest('#panel')) return;   // 計器盤の中だけは送れるように
+  e.preventDefault();
+}, { passive: false });
+
+// ── パッド ────────────────────────────────────────────
+const log = [];
+const hits = new Map();   // code -> 押した時刻(立ち上がりを光らせる)
+
+const pad = new VirtualPad({
+  onPress: (code, source) => {
+    // 本番では mmsxx.input.press(code, source) へ素通しする。
+    // ここは実験台なので、そのまま表に出すだけ
+    hits.set(code, performance.now());
+    addLog('PRESS  ', code, source);
+  },
+  onRelease: (code, source) => addLog('RELEASE', code, source),
+});
+pad.attach(document.body);
+// 実機を繋いで中を覗くとき用(mmsxxDebug() と同じ考えかた)
+window.pad = pad;
+
+let lastLogAt = 0;
+function addLog(kind, code, source) {
+  const now = performance.now();
+  const gap = lastLogAt ? Math.round(now - lastLogAt) : 0;
+  lastLogAt = now;
+  log.unshift({ kind, code, source, gap });
+  if (log.length > 20) log.pop();
+}
+
+// ── つまみ ────────────────────────────────────────────
+// [キー, 表示名, 最小, 最大, 刻み]
+const KNOBS = [
+  ['dpadZone', '十字の幅%', 10, 45, 1],
+  ['deadzone', '不感帯px', 0, 40, 1],
+  ['dragMax', '引きずりpx', 16, 120, 1],
+  ['hysteresis', '重なり度', 0, 20, 1],
+  ['shotZone', 'ショット幅%', 10, 45, 1],
+  ['shotStep', 'しきい値px', 4, 80, 1],
+  ['holdRepeatMs', '長押しms(0=無)', 0, 500, 10],
+];
+
+const knobsEl = document.getElementById('knobs');
+
+// 方式のラジオ。A 区画割り / B 移動量 / C 出入り
+const modeRow = document.createElement('div');
+modeRow.className = 'row';
+modeRow.innerHTML = '<span style="width:96px">方式</span>'
+  + ['A 区画', 'B 移動量', 'C 出入り'].map((t, i) =>
+      `<label><input type="radio" name="mode" value="${'ABC'[i]}"`
+      + `${pad.opts.shotMode === 'ABC'[i] ? ' checked' : ''}> ${t}</label>`).join(' ');
+knobsEl.appendChild(modeRow);
+modeRow.addEventListener('change', (e) => {
+  pad.setOptions({ shotMode: e.target.value });
+  showValues();
+});
+
+// 十字を置く側
+const sideRow = document.createElement('div');
+sideRow.className = 'row';
+sideRow.innerHTML = '<span style="width:96px">十字の側</span>'
+  + '<label><input type="radio" name="side" value="left" checked> 左</label> '
+  + '<label><input type="radio" name="side" value="right"> 右</label>';
+knobsEl.appendChild(sideRow);
+sideRow.addEventListener('change', (e) => {
+  pad.setOptions({ side: e.target.value });
+  syncPanel();
+  showValues();
+});
+
+for (const [key, name, min, max, step] of KNOBS) {
+  const el = document.createElement('label');
+  el.className = 'knob';
+  el.innerHTML = `<span>${name}</span>`
+    + `<input type="range" min="${min}" max="${max}" step="${step}" value="${pad.opts[key]}">`
+    + `<output>${pad.opts[key]}</output>`;
+  const range = el.querySelector('input');
+  const out = el.querySelector('output');
+  range.addEventListener('input', () => {
+    const v = Number(range.value);
+    out.textContent = v;
+    pad.setOptions({ [key]: v });
+    if (key === 'dpadZone' || key === 'shotZone') syncPanel();
+    showValues();
+  });
+  knobsEl.appendChild(el);
+}
+
+document.getElementById('reset').addEventListener('click', () => {
+  pad.reset();
+  log.length = 0;
+  hits.clear();
+});
+
+const valuesEl = document.getElementById('values');
+document.getElementById('copy').addEventListener('click', () => {
+  if (navigator.clipboard) navigator.clipboard.writeText(valuesEl.value).catch(() => {});
+  valuesEl.select();
+});
+
+/** 決まった値を控えるための、そのまま貼れる形 */
+function showValues() {
+  const o = pad.opts;
+  valuesEl.value = '{\n'
+    + [...KNOBS.map(([k]) => k), 'shotMode', 'side']
+        .map(k => `  ${k}: ${typeof o[k] === 'string' ? `'${o[k]}'` : o[k]},`)
+        .join('\n')
+    + '\n}';
+}
+showValues();
+
+/** 計器盤を、左右のエリアに挟まれた真ん中へ収める */
+function syncPanel() {
+  const p = document.getElementById('panel');
+  const left = pad.opts.side === 'left' ? pad.opts.dpadZone : pad.opts.shotZone;
+  const right = pad.opts.side === 'left' ? pad.opts.shotZone : pad.opts.dpadZone;
+  p.style.left = left + '%';
+  p.style.right = right + '%';
+}
+syncPanel();
+
+// ── タッチ点を自前でも数える(パッドの外に置いた指も見たい) ──
+const FINGER_COLORS = ['#ff5555', '#55ff55', '#5599ff', '#ffff55', '#ff55ff', '#55ffff'];
+const fingers = new Map();
+let fingerSeq = 0;
+addEventListener('pointerdown', (e) => {
+  fingers.set(e.pointerId, { x: e.clientX, y: e.clientY, n: fingerSeq++ });
+}, true);
+addEventListener('pointermove', (e) => {
+  const f = fingers.get(e.pointerId);
+  if (f) { f.x = e.clientX; f.y = e.clientY; }
+}, true);
+const drop = (e) => { fingers.delete(e.pointerId); if (!fingers.size) fingerSeq = 0; };
+addEventListener('pointerup', drop, true);
+addEventListener('pointercancel', drop, true);
+
+// ── 毎コマ描き替える ──────────────────────────────────
+const KEY_LIST = [
+  ['ArrowUp', '↑'], ['ArrowDown', '↓'], ['ArrowLeft', '←'], ['ArrowRight', '→'],
+  ['Space', 'SHOT'], ['Escape', 'PAUSE'],
+];
+const el = (id) => document.getElementById(id);
+
+function frame() {
+  const st = pad.state();
+  const now = performance.now();
+
+  // ① キーの状態
+  el('keys').innerHTML = KEY_LIST.map(([code, name]) => {
+    const down = st.down.includes(code);
+    const hit = now - (hits.get(code) || -1e9) < 150;
+    return `<span class="key${down ? ' down' : ''}${hit ? ' hit' : ''}">${name}</span>`;
+  }).join('');
+
+  // ② タッチ点
+  el('touchCount').textContent = `${fingers.size} 本`;
+  const owners = new Map(st.pointers.map(p => [p.id, p.owner]));
+  el('touches').innerHTML = fingers.size === 0 ? '<span class="dim">（触れていません）</span>'
+    : [...fingers.entries()].map(([id, f]) =>
+        `<div><span class="dot" style="background:${FINGER_COLORS[f.n % FINGER_COLORS.length]}"></span>`
+        + `#${id} ${Math.round(f.x)},${Math.round(f.y)} `
+        + `<span class="dim">${owners.get(id) || '—'}</span></div>`).join('');
+
+  // ③ 相対十字
+  const s = st.stick;
+  el('stick').innerHTML = !s.active ? '<span class="dim">（触れていません）</span>'
+    : `原点 ${Math.round(s.ox)},${Math.round(s.oy)}<br>`
+      + `指 &nbsp;&nbsp;${Math.round(s.x)},${Math.round(s.y)}<br>`
+      + `差 &nbsp;&nbsp;${Math.round(s.dx)},${Math.round(s.dy)} `
+      + `距離 ${s.dist.toFixed(1)} 角度 ${s.deg.toFixed(0)}度<br>`
+      + `区画 ${s.sector < 0 ? '<span class="dim">なし（不感帯）</span>' : s.sector}`;
+
+  // ④ こすり打ち
+  el('rate').textContent = st.rub.rate;
+  el('maxRate').textContent = st.rub.maxRate;
+  el('rub').innerHTML = `PRESS ${st.rub.pressCount} / RELEASE ${st.rub.releaseCount}`
+    + ` / 移動 ${Math.round(st.rub.move)}px`
+    + (pad.opts.shotMode === 'A' ? ` / 区画 ${st.rub.cell || '—'}` : '');
+
+  // ⑤ 端末・画面
+  const forced = new URLSearchParams(location.search).get('device');
+  el('device').innerHTML =
+    `向き ${innerWidth >= innerHeight ? '横' : '縦'} / ${innerWidth}x${innerHeight}<br>`
+    + `dpr ${devicePixelRatio} / maxTouchPoints ${navigator.maxTouchPoints || 0}<br>`
+    + `isMobileLike ${isMobileLike()}`
+    + (forced ? ` <span class="dim">(?device=${forced} で上書き)</span>` : '');
+
+  // ⑥ ログ
+  el('log').innerHTML = log.map(e =>
+    `<div class="${e.kind[0] === 'P' ? 'p' : 'r'}">`
+    + `${e.kind} ${e.code.padEnd(10)} ${e.source} +${e.gap}ms</div>`).join('');
+
+  requestAnimationFrame(frame);
+}
+frame();
+</script>
+</body>
+</html>
