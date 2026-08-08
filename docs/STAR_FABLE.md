@@ -424,6 +424,7 @@ BG スプライトはレイヤーと同じ優先度空間を使うので、こ�
 ?slow=24          この数を超えたら処理落ち（既定 0 = しない）
 ?mute=1           音を消して始める
 ?volume=70        音の大きさ（0〜100）
+?psgtune=1        実機の PSG と同じ音程のずれを出す（高い音ほど狂う）
 ?mode=hard        始めかた（normal / hard / bossrush / staff / sound / chars）
 ```
 

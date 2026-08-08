@@ -50,6 +50,12 @@ const TABLE = {
     after: (m, v) => { if (v && m.paletteNames.includes(v)) m.setPalette(v); },
   },
   mute: { flag: true, def: false, help: '音を消して始める', after: (m, v) => { if (v) m.audio.mute(true); } },
+  // 実機の PSG は出せる音程が階段になっていて、高い音ほど狂う。
+  // それをそのまま真似るかどうか
+  psgtune: {
+    flag: true, def: false, help: '実機の PSG と同じ音程のずれを出す',
+    after: (m, v) => { m.audio.psgTune = !!v; },
+  },
   volume: {
     num: [0, 100], def: 100, help: '音の大きさ(0〜100)',
     after: (m, v) => { m.audio.volume = v / 100; },

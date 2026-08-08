@@ -17,6 +17,17 @@ registerDefaultFM();
 
 const MASTER_VOL = 0.14;
 
+// 実機(MSX)の PSG のトーン。**クロックを 16 と整数(1〜4095)で割った高さ**しか
+// 出せないので、出せる音程が階段になっている。低いところは細かいが、
+// 高いところは段が粗く、狙った高さから外れる = 音痴に聞こえる
+const PSG_CLOCK = 3579545 / 2;
+/** その階段のいちばん近い段へ丸める */
+function psgSnap(freq) {
+  if (!(freq > 0)) return freq;
+  const tp = Math.max(1, Math.min(4095, Math.round(PSG_CLOCK / (16 * freq))));
+  return PSG_CLOCK / (16 * tp);
+}
+
 /** PSG 風の音量カーブ (0..15 -> ゲイン) */
 function volGain(v) {
   if (v <= 0) return 0;
@@ -68,6 +79,19 @@ export class PSGPlayer {
      * 何人かが同時にしゃべる場面では増やせる
      */
     this.maxTalk = opts.maxTalk ?? 1;
+    /**
+     * **実機の PSG と同じ音程のずれを出すか**(既定 false)。
+     *
+     * 実機は「クロック ÷ 16 ÷ 整数」でしか音を作れないので、
+     * 出せる高さが階段になっている。低い音はほぼ合うが、**高い音ほど狂う**。
+     * true にすると、その階段に丸めて鳴らす(いわゆる「音痴」な音)。
+     * BGM も SE も、鳴らすものすべてに効く。
+     *
+     * ```js
+     * mmsxx.audio.psgTune = true;   // 実機に寄せる
+     * ```
+     */
+    this.psgTune = !!opts.psgTune;
     /** いま BGM が使っている音の数 */
     this.bgmVoices = 0;
     /** SE の管理番号(playSE が返す。stopSE で狙って止めるのに使う) */
@@ -1051,6 +1075,8 @@ registerProcessor('mmsxx-tap', MmsxxTap);
   /** 1 音ぶんの音源 + エンベロープを組み立てて鳴らす */
   _playVoice(ev, freq, amp, t0, t1, dest, nodes) {
     const ctx = this.ctx;
+    // 実機に寄せるときは、ここで階段へ丸める(重ねる音・エコーも同じ道を通る)
+    if (this.psgTune) freq = psgSnap(freq);
     const g = ctx.createGain();
     g.connect(dest);
     const src = this._makeOscillator(ev, freq);
