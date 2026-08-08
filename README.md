@@ -12,6 +12,7 @@ MSX1 と同じグラフィックス性能を持つ「ように感じられる」
 - **裏技一覧** → [docs/CHEATS.md](docs/CHEATS.md)
 - **UTIL(任意の部品)** → [docs/UTIL.md](docs/UTIL.md)
 - **残りの課題・これから作るもの** → [docs/TODO.md](docs/TODO.md)
+- **どこに置くか(配信先の考察)** → [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md)
 
 ## できること(要約)
 
