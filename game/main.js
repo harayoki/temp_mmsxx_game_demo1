@@ -3268,7 +3268,7 @@ function drawTitlePage() {
     hud.print(logoX + BG_SYMBOLS.logo.width - (gver.length + 1) * 8, logoY + BG_SYMBOLS.logo.height,
       gver, 14);
     // エンジンの版はその下に(ロゴから 2 行ぶん下)
-    const ver = 'MMSXX ENGINE V' + MMSXXEngine.version;
+    const ver = 'MMS-XX ENGINE V' + MMSXXEngine.version;
     hud.print(centerX(ver), logoY + BG_SYMBOLS.logo.height + 16, ver, 14);
     // 操作の説明はここには出さない。**遊びかたの話なので 1 面の頭で出す**
     // (PLAY_HELP / startStage を参照)
@@ -11537,9 +11537,10 @@ const STAFF_LINES = [
   String.fromCharCode(0x18, 0x18, 0x19, 0x19, 0x1a, 0x1b, 0x1a, 0x1b) + 'BA',
   '',
   '',
-  'ABOUT MMSXX ENGINE',
+  'ABOUT MMS-XX ENGINE',
   '',
   'A MACHINE THAT NEVER EXISTED.',
+  'MOCK MACHINE SYSTEM, MODEL XX.',
   '',
   'TMS9918 AND AY-3-8910,',
   'GROWN THE WRONG WAY.',
@@ -11580,7 +11581,7 @@ const STAFF_HEADINGS = new Map([
   ['STAR FABLE STAFF', 8],          // いちばん上の大見出しは赤
   ['THANK YOU FOR PLAYING!', 7],    // 締めの一言は水色
   ...['DIRECTOR', 'PROGRAM', 'DESIGN', 'MUSIC', 'DEBUG STAFF',
-    'ART SUPPORT', 'SPECIAL THANKS', 'ABOUT MMSXX ENGINE'].map((k) => [k, true]),
+    'ART SUPPORT', 'SPECIAL THANKS', 'ABOUT MMS-XX ENGINE'].map((k) => [k, true]),
 ]);
 // 流すところはエンジンの任意部品 StaffRoll にまかせる(docs/UTIL.md 参照)
 let staffRoll = null;

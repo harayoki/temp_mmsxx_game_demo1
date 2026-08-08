@@ -113,6 +113,8 @@ class LayerHandle {
 /**
  * MSX1 風仮想マシンのゲームエンジン本体。
  *
+ * MMSXX = **MMS-XX (Mock Machine System, model XX)**。実在しなかった機械の型番。
+ *
  * const mmsxx = new MMSXXEngine(canvas, { scale: 3 });
  * mmsxx.backdrop = 4;
  * mmsxx.layer(0).draw(0, 0, rgbaImage);
@@ -121,7 +123,7 @@ class LayerHandle {
  */
 export class MMSXXEngine {
   /** エンジンの版(コンソールの名乗りなどに使う) */
-  static get version() { return '0.32'; }
+  static get version() { return '0.33'; }
 
   /**
    * @param {HTMLCanvasElement} canvas
