@@ -50,17 +50,21 @@ export class SpriteSymbol extends ImageSymbol {
 
 /**
  * BG として出す絵。**横 8 ドット 2 色**を守っている。
- * 大きさは自由(半端なぶんは、置いたときに黒で埋まる)。
- * ただし BG スプライトにするものは 8 の倍数でなければならない。
+ * 大きさは 8 の倍数(半端な絵は、作るときに広げて埋められる)。
  */
 export class BgSymbol extends ImageSymbol {
-  constructor(width, height, pixels, name) {
+  constructor(width, height, pixels, name, backdrop = 1) {
     super(width, height, pixels, name);
     /** BG スプライトにできるか(8 の倍数か)。作るときに決まる */
     this.canBgSprite = (width % 8 === 0) && (height % 8 === 0);
+    /**
+     * **セルの下地の色**。登録するときに決まり、派生した絵にも引き継がれる。
+     * 走査線などで透明が戻ったときは、この色で埋め直す(既定 1 = 黒)
+     */
+    this.backdrop = backdrop;
   }
 
   derive(pixels, name) {
-    return new BgSymbol(this.width, this.height, pixels, name || this.name);
+    return new BgSymbol(this.width, this.height, pixels, name || this.name, this.backdrop);
   }
 }

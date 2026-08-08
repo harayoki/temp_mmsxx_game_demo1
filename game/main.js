@@ -375,8 +375,15 @@ for (const [name, im] of Object.entries(GAME_DATA.images)) {
 
 /** 変換済み画像の色を全部差し替えたコピーを作る(単色スプライトの色違い用) */
 function recolor(img, color) {
+  // **BG の絵は 8x8 セルに黒の下地が焼き込まれている**ので、下地は塗り替えない。
+  // 実機でいえば「キャラクタパターンの色だけ変える」。
+  // 塗ってしまうと、絵ではなく升目ごと光ってしまう
+  const keepBack = img.canBgSprite !== undefined;
   const pixels = new Uint8Array(img.pixels.length);
-  for (let i = 0; i < pixels.length; i++) pixels[i] = img.pixels[i] === 0 ? 0 : color;
+  for (let i = 0; i < pixels.length; i++) {
+    const c = img.pixels[i];
+    pixels[i] = (c === 0 || (keepBack && c === 1)) ? c : color;
+  }
   // 型はそのまま引き継ぐ(色の置き換えは 1 対 1 なので、決まりは保たれる)
   return img.derive(pixels, img.name ? img.name + '(単色' + color + ')' : img.name);
 }

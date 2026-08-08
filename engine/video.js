@@ -62,6 +62,36 @@ function nameOf(img, how) {
   return img && img.name ? img.name + '(' + how + ')' : undefined;
 }
 
+/**
+ * **キャラクタパターンを焼き込む**。8x8 のセルを見て、1 ドットでも絵(色2以上)の
+ * あるセルは、残った透明を下地の色で埋める。絵の無いセルは透明のまま。
+ * 「パターンのあるセルは不透明」という実機 BG の見え方そのもの。
+ *
+ * **シンボルに登録した時点で決まりを守っている**状態にするための土台で、
+ * 焼き込み(_bakeBg)と、行を抜いたあとの埋め直し(走査線)の両方から呼ぶ。
+ * @param {Uint8Array} px 絵(書き換える)  @param {number} w 8 の倍数
+ * @param {number} h 8 の倍数  @param {number} backdrop 下地の色
+ */
+function fillCells(px, w, h, backdrop) {
+  for (let cy = 0; cy < h; cy += 8) {
+    for (let cx = 0; cx < w; cx += 8) {
+      let hasPattern = false;
+      for (let iy = cy; iy < cy + 8 && !hasPattern; iy++) {
+        for (let ix = cx; ix < cx + 8; ix++) {
+          if (px[iy * w + ix] >= 2) { hasPattern = true; break; }
+        }
+      }
+      if (!hasPattern) continue;
+      for (let iy = cy; iy < cy + 8; iy++) {
+        for (let ix = cx; ix < cx + 8; ix++) {
+          const i = iy * w + ix;
+          if (px[i] === 0) px[i] = backdrop;
+        }
+      }
+    }
+  }
+}
+
 /** BG の座標は 8 ドット単位に丸める(負の値でも下方向に丸める) */
 const snap8 = v => Math.floor(Math.round(v) / 8) * 8;
 /** 幅・高さは 8 の倍数に切り上げる */
@@ -694,24 +724,8 @@ export class VDP {
     } else {
       px = new Uint8Array(px);
     }
-    for (let cy = 0; cy < h; cy += 8) {
-      for (let cx = 0; cx < w; cx += 8) {
-        let hasPattern = false;
-        for (let iy = cy; iy < cy + 8 && !hasPattern; iy++) {
-          for (let ix = cx; ix < cx + 8; ix++) {
-            if (px[iy * w + ix] >= 2) { hasPattern = true; break; }
-          }
-        }
-        if (!hasPattern) continue;
-        for (let iy = cy; iy < cy + 8; iy++) {
-          for (let ix = cx; ix < cx + 8; ix++) {
-            const i = iy * w + ix;
-            if (px[i] === 0) px[i] = backdrop;
-          }
-        }
-      }
-    }
-    return new BgSymbol(w, h, px, sym.name);
+    fillCells(px, w, h, backdrop);
+    return new BgSymbol(w, h, px, sym.name, backdrop);
   }
 
   /** 同じ RGBA を同じやり方で二度変換しない(結果を覚えておく) */
@@ -1162,9 +1176,6 @@ export class VDP {
       const rot = (opts.rotate === 180) ? 180 : 0;
       img = this._transformed(img, !!opts.flipX, !!opts.flipY, rot);
     }
-    // 走査線は行を抜くので、抜いたあとにセルを埋め直す(結果はキャッシュされる)。
-    // 反転・色替えは 1 対 1 なので、ここで変わるのは走査線を入れたときだけ
-    if (opts.scanline != null) img = this._bgCellFilled(img);
     const L = this.layers[layerIndex];
     const layer = L.pixels;
     // BG は 8 ドット単位でしか置けない(実機のキャラクタ単位に合わせる)
@@ -1420,6 +1431,10 @@ export class VDP {
       if (((y + phase) & 1) === 0) continue;
       px.fill(0, y * img.width, (y + 1) * img.width);
     }
+    // **BG は抜いたあとに下地で埋め直す**。絵のあるセルに透明を戻さないため
+    // (空のセルはそのまま透明。行ごと塗ると、絵の無いところまで黒くなってしまう)。
+    // 通常スプライトは透明のままでよい(穴あきが持ち味)
+    if (img.backdrop != null) fillCells(px, img.width, img.height, img.backdrop);
     const out = img.derive(px, nameOf(img, '走査線'));
     byPhase.set(phase, out);
     return out;
@@ -1440,6 +1455,9 @@ export class VDP {
       const to = map[px[i]];
       if (to !== undefined) px[i] = to;
     }
+    // **BG は透明へ替えさせない**(絵のあるセルに穴が開いてしまう)。
+    // 透明にしたいと言われたら下地の色へ寄せる
+    if (img.backdrop != null) fillCells(px, img.width, img.height, img.backdrop);
     const out = img.derive(px, nameOf(img, '色替え'));
     byKey.set(key, out);
     return out;
@@ -1450,37 +1468,6 @@ export class VDP {
     this.bgSprites.delete(sprite);
   }
 
-  /**
-   * BG スプライト用に、絵の 8x8 セルのうち色2以上を含むセルの透明を黒(1)で
-   * 埋めた版を作る(キャッシュ付き)。BG と同じ「パターンのあるセルは不透明」の
-   * 見え方になり、下のレイヤーと混ざって横8ドット2色を破ることがなくなる。
-   */
-  _bgCellFilled(img) {
-    if (!this._bgFillCache) this._bgFillCache = new WeakMap();
-    const hit = this._bgFillCache.get(img);
-    if (hit) return hit;
-    const px = new Uint8Array(img.pixels);
-    for (let cy = 0; cy < img.height; cy += 8) {
-      for (let cx = 0; cx < img.width; cx += 8) {
-        let hasPattern = false;
-        for (let iy = cy; iy < Math.min(cy + 8, img.height) && !hasPattern; iy++) {
-          for (let ix = cx; ix < Math.min(cx + 8, img.width); ix++) {
-            if (px[iy * img.width + ix] >= 2) { hasPattern = true; break; }
-          }
-        }
-        if (!hasPattern) continue;
-        for (let iy = cy; iy < Math.min(cy + 8, img.height); iy++) {
-          for (let ix = cx; ix < Math.min(cx + 8, img.width); ix++) {
-            const i = iy * img.width + ix;
-            if (px[i] === 0) px[i] = 1;
-          }
-        }
-      }
-    }
-    const out = img.derive(px, nameOf(img, 'セル埋め'));
-    this._bgFillCache.set(img, out);
-    return out;
-  }
 
   /** 反転・回転した絵を取り出す(同じ組み合わせは使い回す) */
   _transformed(img, flipX, flipY, rot) {
@@ -1650,7 +1637,7 @@ export class VDP {
       let src = this._transformed(base, s.flipX, s.flipY, rot);
       // 走査線は反転・回転のあとにかける(画面の行に対して抜きたいので)
       if (s.scanline != null) src = this._scanlined(src, s.scanline);
-      const img = bg ? this._bgCellFilled(src) : src;
+      const img = src;   // 絵は登録した時点で決まりを守っている
       const bx = bg ? snap8(s.x) : Math.round(s.x);
       const by = bg ? snap8(s.y) : Math.round(s.y);
       // 拡大(1 ドットを mag x mag の四角にする)。1 のときは今までと同じ道を通る
