@@ -4284,7 +4284,10 @@ const SHARE_ONE = -2;       // 列そのものが無い(1 枚だけ見せる)
 let shareBack = SHARE_ONE;  // いま見せているコマ
 let shareFixed = null;      // 列が無いときに見せる 1 枚(原寸)
 let shareExtra = null;      // 列の端に足す 1 枚(原寸)。無ければ null
-let shareRepeat = 0;        // 左右を押しっぱなしにしたときの送り
+let shareRepeat = 0;        // 押しっぱなしにしたときの送り
+// **押しはじめに選んでいた矢印**。端まで来て反対側へ移ったら、
+// そこで自動の連打を切る(押したままだと、そのまま逆へ戻ってしまうため)
+let shareHold = -1;
 let shareHintEl = null;     // 何コマめかの案内を出すところ
 let shareLeftBtn = null;    // 古いほうへ送る矢印
 let shareRightBtn = null;   // 新しいほうへ送る矢印
@@ -4724,6 +4727,7 @@ function openShare(after, spec) {
   shareStatusEl.textContent = '';
   shareBusy = false;
   shareRepeat = 0;
+  shareHold = -1;
   updateShareMovieBtn();
   // 出したときは下のボタンの SHARE を選んでおく(そのまま SPACE で送れる)
   // 下へ降りたときに選ばれるものだけ決めておく
@@ -12489,8 +12493,11 @@ mmsxx.run(() => {
       // 押しっぱなしのときは少し待ってから送り続ける
       if (key.wasPressed('ArrowLeft')) focusShareArrow(0);
       else if (key.wasPressed('ArrowRight')) focusShareArrow(1);
-      else if (key.wasPressed('Space')) { runShareArrow(); shareRepeat = 20; }
-      else if (key.isDown('Space')) {
+      else if (key.wasPressed('Space')) {
+        runShareArrow(); shareRepeat = 20; shareHold = shareArrow;
+      } else if (key.isDown('Space') && shareHold === shareArrow) {
+        // 選んでいる矢印が押しはじめと同じあいだだけ続ける。
+        // 端で反対側へ移ったら、ここで途切れて逆へは進まない
         if (--shareRepeat <= 0) { runShareArrow(); shareRepeat = 3; }
       }
     } else {
