@@ -9529,7 +9529,9 @@ function updatePlay() {
         // 画面の外で顔だけ出してためているあいだは、逆にダメージが通らない
         const rage = boss.kind === 'dragon' && boss.mode === 'rage';
         const jaws = rage && boss.hide <= 0 && boss.telegraph <= 0;
-        const bracing = rage && !jaws;   // 顔を出してためている最中
+        // 顔を出してためている最中と、**突進のあと上から降りてくる間**は硬い。
+        // どちらも「口を閉じて構えている」ところなので、同じ扱いにする
+        const bracing = (rage && !jaws) || (boss.kind === 'dragon' && boss.mode === 'return');
         // 壺に乗っているあいだは「ほんの少しだけ」通る(点滅はさせない)
         // タコの発射口は「壊せる部位」。開いているあいだに撃ち込めば
         // 体力を削らずにそのまま撃破できる(手のひらを全部壊す道もある)
