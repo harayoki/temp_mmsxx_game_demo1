@@ -203,6 +203,26 @@ export class TouchControls {
     this._applyLayout();
   }
 
+  /**
+   * 絵を差し替える。**渡すのは CSS の背景に置ける値**(url(...) や data: の URI)。
+   * 渡したものだけ変わり、渡さなかったところは既定の見た目のまま。
+   *
+   *   touch.setSkin({ fire: `url(${shotPng})`, firePressed: `url(${shotOnPng})` });
+   *
+   * fire … こすり面のふだん / firePressed … 撃った瞬間
+   * knob … 指そのものの印(既定では何も出ない)
+   */
+  setSkin(patch) {
+    const map = { fire: '--fire-img', firePressed: '--fire-img-on', knob: '--knob-img' };
+    for (const [key, prop] of Object.entries(map)) {
+      if (!(key in patch)) continue;
+      for (const z of this._zones) {
+        if (patch[key]) z.style.setProperty(prop, patch[key]);
+        else z.style.removeProperty(prop);
+      }
+    }
+  }
+
   /** 文言を差し替える。渡したものだけ変わる */
   setLabels(patch) {
     Object.assign(this.labels, patch);
@@ -311,8 +331,20 @@ export class TouchControls {
     if (this.down.has(code)) return;
     this.down.add(code);
     if (this.onPress) this.onPress(code, SOURCE);
-    if (code === this.opts.shotCode) this._countShot();
+    if (code === this.opts.shotCode) { this._countShot(); this._flashFire(); }
     this._paint();
+  }
+
+  /**
+   * 1 発ごとに、こすり面をぱっと光らせる。
+   * **押しているのは 1 コマだけ**なので、色を変えるだけでは目に入らない
+   */
+  _flashFire() {
+    const el = this._fire;
+    if (!el) return;
+    el.classList.remove('hit');
+    void el.offsetWidth;      // ここで巻き戻さないと、続けて撃ったときに光り直さない
+    el.classList.add('hit');
   }
 
   _release(code) {
@@ -711,6 +743,7 @@ function injectStyle() {
 .mmsxx-touch-knob {
   position: absolute; width: 20px; height: 20px; margin: -10px 0 0 -10px;
   display: none; background-size: 100% 100%; background-repeat: no-repeat;
+  background-image: var(--knob-img, none);
 }
 
 /* 押している向きの目印。**太めの矢印をベタ塗りで。**
@@ -731,14 +764,22 @@ function injectStyle() {
 .mmsxx-touch-fire {
   /* **エリアの下半分だけ。** 親指の届くところに置く */
   position: absolute; left: 6px; right: 6px; top: 50%; bottom: 22px;
-  background: #aa2222;
-  background-image: repeating-linear-gradient(
-    to bottom, #cc3333 0 6px, #881111 6px 12px);
+  background-color: #aa2222;
+  background-size: 100% 100%; background-repeat: no-repeat;
+  /* 既定は横溝(こする面に見せる)。setSkin() で絵に差し替えられる */
+  background-image: var(--fire-img, repeating-linear-gradient(
+    to bottom, #cc3333 0 6px, #881111 6px 12px));
   border: 2px solid #ee6666;
 }
-.mmsxx-touch-fire.on {
-  background-image: repeating-linear-gradient(
-    to bottom, #ff8888 0 6px, #cc3333 6px 12px);
+.mmsxx-touch-fire.on, .mmsxx-touch-fire.hit {
+  background-image: var(--fire-img-on, var(--fire-img, repeating-linear-gradient(
+    to bottom, #ff8888 0 6px, #cc3333 6px 12px)));
+}
+/* 1 発ごとの光り。短くぱっと明るくして戻す */
+.mmsxx-touch-fire.hit { animation: mmsxx-touch-flash 140ms steps(2, jump-none); }
+@keyframes mmsxx-touch-flash {
+  0%   { filter: brightness(2.2); border-color: #ffffff; }
+  100% { filter: brightness(1);   border-color: #ee6666; }
 }
 .mmsxx-touch-pause {
   position: absolute; left: 6px; right: 6px; top: 22px; height: 44px;
