@@ -71,11 +71,19 @@ export class TouchControls {
    *   side?: string, dpadZone?: number, deadzone?: number, dragMax?: number,
    *   hysteresis?: number, shotZone?: number, shotMode?: string, shotStep?: number,
    *   holdRepeatMs?: number, shotCode?: string, pauseCode?: string,
+   *   toLocal?: (x:number, y:number) => number[],
    * }} [opts]
    */
   constructor(opts = {}) {
     this.onPress = opts.onPress || null;
     this.onRelease = opts.onRelease || null;
+    /**
+     * 画面の座標を、パッドを載せている入れ物の座標へ移す。
+     * **画面を 90 度回して見せているときに要る**(SMARTPHONE.md 7 節)。
+     * 置きかたを知っているのは呼び出し側なので、変換も呼び出し側から渡す。
+     * null なら回っていない(そのまま使う)。あとから差し替えてよい
+     */
+    this.toLocal = opts.toLocal || null;
     /** つまみ。setOptions() で書き換える */
     this.opts = { ...DEFAULTS, ...opts };
 
@@ -185,6 +193,32 @@ export class TouchControls {
     };
   }
 
+  // ── 座標 ──────────────────────────────────────────────
+  //
+  // 画面を回して見せているときは、指の場所も同じだけ回さないと、
+  // 見えている場所と当たり判定がずれる。**ここから下はすべて入れ物の座標**で扱う。
+
+  /** pointer の場所を入れ物の座標にする */
+  _pt(e) {
+    if (!this.toLocal) return { x: e.clientX, y: e.clientY };
+    const [x, y] = this.toLocal(e.clientX, e.clientY);
+    return { x, y };
+  }
+
+  /**
+   * 要素の四角を入れ物の座標にする。
+   * 90 度単位の回転なら、向かい合う角を 2 つ移して並べ直せば元の四角に戻る
+   */
+  _rectOf(el) {
+    const r = el.getBoundingClientRect();
+    if (!this.toLocal) return r;
+    const [ax, ay] = this.toLocal(r.left, r.top);
+    const [bx, by] = this.toLocal(r.right, r.bottom);
+    const left = Math.min(ax, bx), right = Math.max(ax, bx);
+    const top = Math.min(ay, by), bottom = Math.max(ay, by);
+    return { left, top, right, bottom, width: right - left, height: bottom - top };
+  }
+
   // ── 見た目 ────────────────────────────────────────────
 
   _applyLayout() {
@@ -277,7 +311,8 @@ export class TouchControls {
     el.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       // 担当は触れた瞬間に決めて、離すまで変えない
-      const p = { owner, x: e.clientX, y: e.clientY, el };
+      const at = this._pt(e);
+      const p = { owner, x: at.x, y: at.y, el };
       this.pointers.set(e.pointerId, p);
       // 捕まえておくと、指がボタンから滑り出ても続きが届く。
       // **失敗しても先へ進む**(捕まえられなくても、その場での操作は成り立つ)
@@ -291,9 +326,10 @@ export class TouchControls {
       const p = this.pointers.get(e.pointerId);
       if (!p) return;
       e.preventDefault();
-      const dist = Math.hypot(e.clientX - p.x, e.clientY - p.y);
-      p.x = e.clientX;
-      p.y = e.clientY;
+      const at = this._pt(e);
+      const dist = Math.hypot(at.x - p.x, at.y - p.y);
+      p.x = at.x;
+      p.y = at.y;
       if (p.owner === 'dpad') this._stickMove(p);
       else if (p.owner === 'shot') this._shotMove(p, dist);
     });
@@ -382,7 +418,7 @@ export class TouchControls {
   /** 十字の絵を原点へ、つまみを指の場所へ */
   _showRing() {
     if (!this._ring || !this._dpad) return;
-    const r = this._dpad.getBoundingClientRect();
+    const r = this._rectOf(this._dpad);
     const s = this.stick;
     this._ring.style.display = '';
     this._knob.style.display = '';
@@ -448,14 +484,14 @@ export class TouchControls {
   /** ショットボタンの中に指があるか(滑り出ても担当は変えない) */
   _inFire(p) {
     if (!this._fire) return false;
-    const r = this._fire.getBoundingClientRect();
+    const r = this._rectOf(this._fire);
     return p.x >= r.left && p.x < r.right && p.y >= r.top && p.y < r.bottom;
   }
 
   /** 区画割り(A)の、いまの区画の名前 */
   _cellOf(p) {
     if (!this._fire) return '';
-    const r = this._fire.getBoundingClientRect();
+    const r = this._rectOf(this._fire);
     const step = Math.max(1, this.opts.shotStep);
     return Math.floor((p.x - r.left) / step) + ',' + Math.floor((p.y - r.top) / step);
   }

@@ -14,6 +14,12 @@ html, body {
   font: 12px/1.4 monospace;
   touch-action: none; user-select: none; -webkit-touch-callout: none;
 }
+/* 縦持ちのときに 90 度回すための入れ物。
+   中身はすべてこの中に入れる(パッドも計器盤も)。
+   transform を掛けると、中の position:fixed はこの入れ物を基準にしてくれる */
+#stage {
+  position: fixed; left: 0; top: 0; transform-origin: 0 0; overflow: hidden;
+}
 /* 計器盤。**本番でゲーム画面が出る場所**＝指が来ない場所に置く */
 #panel {
   position: fixed; top: 0; bottom: 0;
@@ -66,7 +72,13 @@ button {
 </head>
 <body>
 
+<div id="stage">
 <div id="panel">
+  <div class="row" style="margin-bottom:6px">
+    <button id="rot">⟳ 90度回す</button>
+    <span class="dim" id="rotState"></span>
+  </div>
+
   <h2>① キーの状態</h2>
   <div class="row" id="keys"></div>
 
@@ -99,6 +111,7 @@ button {
     <textarea id="values" readonly></textarea>
   </details>
 </div>
+</div>
 
 <script type="module">
 import { TouchControls } from '../../engine/util/touch.js';
@@ -124,9 +137,59 @@ const touch = new TouchControls({
   },
   onRelease: (code, source) => addLog('RELEASE', code, source),
 });
-touch.attach(document.body);
+const stage = document.getElementById('stage');
+touch.attach(stage);
 // 実機を繋いで中を覗くとき用(mmsxxDebug() と同じ考えかた)
 window.touch = touch;
+
+// ── 縦持ちのときは 90 度回して横で見せる ────────────────
+// 「横にしてください」とは出さない(SMARTPHONE.md 7 節)。
+// 回すのは**指で触る端末のときだけ**。PC で窓を縦長にしても回さない。
+//
+// **自動の判定が外れることがある**ので、手で回せるボタンも置く。
+// ゲーム本体でも同じ考えかたが要る(縦固定・横固定はゲームごとに違い、
+// 起動後には変えられない)。**判定はここ側の仕事**で、タッチの部品は
+// 座標の変換(toLocal)を受け取るだけにしてある
+let rotated = false;
+/** 手で決めたときの向き。null なら自動に任せる */
+let manual = null;
+
+function layout() {
+  const w = innerWidth, h = innerHeight;
+  const auto = h > w && matchMedia('(pointer: coarse)').matches;
+  rotated = manual === null ? auto : manual;
+  if (rotated) {
+    // 長い辺を横にする。原点を右上へ運んでから時計回りに 90 度
+    stage.style.width = h + 'px';
+    stage.style.height = w + 'px';
+    stage.style.transform = `translateX(${w}px) rotate(90deg)`;
+    // 画面の点を入れ物の点へ戻す(上の変換の逆)
+    touch.toLocal = (x, y) => [y, w - x];
+  } else {
+    stage.style.width = w + 'px';
+    stage.style.height = h + 'px';
+    stage.style.transform = 'none';
+    touch.toLocal = null;
+  }
+  document.getElementById('rotState').textContent =
+    manual === null ? `自動（いま ${rotated ? '回している' : '回していない'}）`
+                    : `手で ${rotated ? '回した' : '戻した'}`;
+  syncPanel();
+}
+
+document.getElementById('rot').addEventListener('click', () => {
+  manual = !rotated;      // いまと逆にする。以後は自動判定に戻さない
+  layout();
+});
+
+// resize は途中の大きさでも飛んでくるので、次の描き替えまで待ってから測る
+let layoutWait = 0;
+function relayout() {
+  if (layoutWait) return;
+  layoutWait = requestAnimationFrame(() => { layoutWait = 0; layout(); });
+}
+addEventListener('resize', relayout);
+addEventListener('orientationchange', relayout);
 
 let lastLogAt = 0;
 function addLog(kind, code, source) {
@@ -226,7 +289,7 @@ function syncPanel() {
   p.style.left = left + '%';
   p.style.right = right + '%';
 }
-syncPanel();
+layout();   // 入れ物の大きさと向きを決める。中で syncPanel() も呼ぶ
 
 // ── タッチ点を自前でも数える(パッドの外に置いた指も見たい) ──
 const FINGER_COLORS = ['#ff5555', '#55ff55', '#5599ff', '#ffff55', '#ff55ff', '#55ffff'];
@@ -289,7 +352,8 @@ function frame() {
   // ⑤ 端末・画面
   const forced = new URLSearchParams(location.search).get('device');
   el('device').innerHTML =
-    `向き ${innerWidth >= innerHeight ? '横' : '縦'} / ${innerWidth}x${innerHeight}<br>`
+    `向き ${innerWidth >= innerHeight ? '横' : '縦'} / ${innerWidth}x${innerHeight}`
+    + (rotated ? ' <span style="color:#ffcc22">90度回して表示中</span>' : '') + '<br>'
     + `dpr ${devicePixelRatio} / maxTouchPoints ${navigator.maxTouchPoints || 0}<br>`
     + `isMobileLike ${isMobileLike()}`
     + (forced ? ` <span class="dim">(?device=${forced} で上書き)</span>` : '');
