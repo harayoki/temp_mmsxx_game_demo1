@@ -9,9 +9,13 @@
     "serve": "node serve.js",
     "checkbgm": "node assets-src/checkbgm.mjs",
     "preview": "node assets-src/preview.mjs",
-    "movie": "node tools/rec2mp4.mjs"
+    "movie": "node tools/rec2mp4.mjs",
+    "font": "node tools/subset-font.mjs",
+    "uishot": "node tools/uishot.mjs"
   },
   "devDependencies": {
+    "joyo-kanji": "^0.2.1",
+    "subset-font": "^2.5.0",
     "terser": "^5.49.0"
   },
   "dependencies": {

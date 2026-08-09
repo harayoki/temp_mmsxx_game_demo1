@@ -28,7 +28,10 @@
 /** 白い札の見た目。**ゲームごとに変えたくなったら style で差し替える** */
 const BASE_STYLE = 'display:none;position:absolute;left:0;top:50%;'
   + 'transform:translateY(-50%);box-sizing:border-box;padding:16px 12px;'
-  + 'background:#ffffff;color:#111111;font-family:monospace;font-size:14px;'
+  // 書体は借りる側が --mmsxx-gui-font で決める(渡さなければ等幅のまま)。
+  // **ドット絵の書体は決まった大きさでしか揃わない**ので、16px(8 の倍数)にする
+  + 'background:#ffffff;color:#111111;'
+  + 'font-family:var(--mmsxx-gui-font, monospace);font-size:16px;letter-spacing:0;'
   + 'line-height:1.8;text-align:center;pointer-events:none';
 
 // ボタンの見た目。**キーボードの無い端末のための入口**なので、指で押せる大きさにする

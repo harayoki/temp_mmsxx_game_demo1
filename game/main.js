@@ -35,6 +35,11 @@ import { useUAParser, isMobileLike } from '../engine/util/device.js';
 // ゲームパッド。**キーのコードへ変換して Input へ流す**だけなので、
 // 遊びのコードはキーボードのときのまま動く(engine/util/gamepad.js)
 import { createGamepad } from '../engine/util/gamepad.js';
+// スマホのタッチ操作。十字とショット・ジェスチャの見分け・案内の出し分けをまとめた器。
+// こちらもキーのコードへ変換して Input へ流すので、遊びのコードは変えなくてよい
+import { TouchGui } from '../engine/util/touchgui.js';
+// PC の窓の中に実機と同じ画角を作るための、機種ごとの数字(?device= で選ぶ)
+import { DEVICES, findDevice } from '../engine/util/devices.js';
 // キャンバスの上に重ねる知らせ(読ませてゲームを止める)
 import { createNotice } from '../engine/util/notice.js';
 import Bowser from '../vendor/bowser/bowser.js';
@@ -112,6 +117,16 @@ const DEV = mmsxx.dev;
 // ゲームの設定。進みぐあいや遊んだ記録とは別に持つ(消したい単位が違う)
 const settings = new SaveGroup('starfable-settings', {
   mute: { type: T.FLAG, label: 'MUTE' },
+  // 画面の大きさ(左上の ＋ / − で決めたぶん)。**1 は「置けるだけ大きく」**。
+  // 覚えておかないと、開き直すたびに決め直すことになる
+  zoom: { type: T.NUMBER, min: 0.4, max: 1, digits: 2, label: 'SCREEN SIZE' },
+  // **決めたことがあるか**の印。数だけだと「まだ決めていない」と
+  // 「いちばん小さくした」が見分けられない(読めない値のときは下限が返る)
+  zoomSet: { type: T.FLAG, label: 'SCREEN SIZE SET' },
+  // ドットをそろえる(整数倍へ切り下げる)か。既定は「置けるだけ大きく」
+  pixelFit: { type: T.FLAG, label: 'PIXEL PERFECT' },
+  // 触ったことがあるかの印。**既定が入りなので、値だけでは切ったのか未設定か分からない**
+  pixelFitSet: { type: T.FLAG, label: 'PIXEL PERFECT SET' },
 });
 // 前に音を消したままなら、消した状態で始める。
 // **?mute= は次の行で効く**ので、URL で指定したぶんが優先される
@@ -134,6 +149,8 @@ let muteTold = false;
 const ICON_BODY = 15;                  // 本体(白)
 const ICON_ON_ACCENT = 7;              // 音が出ているとき(水色。波紋のぶん)
 const ICON_OFF_ACCENT = 8;             // 消しているとき(赤)
+/** 効いていない切り替えボタンの差し色(灰)。**枠は白のまま、中だけ沈める** */
+const ICON_MONO = 14;
 /** いまの状態の並びと差し色 */
 const muteIconArt = (off) => ({
   rows: off ? ICONS.soundOff : ICONS.soundOn,
@@ -748,6 +765,9 @@ const record = new SaveGroup('starfable-record', {
   // 被弾はバリアや装備で耐えたぶんも数える(やられた数とは別)
   hits: { type: T.COUNT, label: 'TIMES DAMAGE' },
   deaths: { type: T.COUNT, label: 'SHIPS LOST' },
+  // **遊びを途中で捨てた回数。** ポーズの RESET でも、打ち込みの Q でも
+  // 同じ数に足す(入口が違うだけで、していることは同じ)
+  resets: { type: T.COUNT, label: 'RESETS' },
   // 連射の記録。腕前を見せるところなので、アイテムで増えたぶんは数えない
   maxRapid: { type: T.NUMBER, min: 0, max: 60, digits: 1, label: 'BEST SHOTS/SEC' },
   maxStreak: { type: T.COUNT, label: 'LONGEST FIRING' },
@@ -4549,7 +4569,7 @@ const SHARE_TEXTS = {
  */
 function shareTextLines() {
   const meta = snsShareMetadata();
-  const t = SHARE_TEXTS[pickLanguage(SNS_LANGS) || 'en'] || SHARE_TEXTS.en;
+  const t = SHARE_TEXTS[testLang(SNS_LANGS) || 'en'] || SHARE_TEXTS.en;
   const text = meta.templateKey.startsWith('high-score') ? t.high(meta.values) : t.playing();
   return text.split('\n');
 }
@@ -4573,15 +4593,22 @@ function makeShareEl() {
   });
   const box = document.createElement('div');
   Object.assign(box.style, {
-    font: '14px monospace', color: '#e8e8e8', textAlign: 'center',
+    // **字は画面の中と同じ大きさに寄せる**が、大きな窓では伸びすぎるので頭を打つ。
+    // 12 の倍数でないとドットが揃わないので、上限も 24
+    font: 'clamp(16px, var(--mmsxx-gui-font-size, 16px), 32px) var(--mmsxx-gui-font, monospace)',
+    color: '#e8e8e8', textAlign: 'center',
     background: '#101010', border: '2px solid #cccccc',
-    padding: '20px 28px', lineHeight: '1.7',
+    // **横持ちのスマホでは高さが足りない。** 詰めたうえで、
+    // それでも溢れるぶんは中で送れるようにする(ボタンが画面の外へ出ない)
+    padding: '10px 14px', lineHeight: '1.35',
+    maxWidth: '96vw', maxHeight: '96vh', boxSizing: 'border-box',
+    overflowY: 'auto',
   });
   // 押せるものを 1 つ作る。作った順が**左右で選ぶときの並び**になる
   const mkItem = (fn, repeat = false) => {
     const b = document.createElement('button');
     Object.assign(b.style, {
-      font: '13px monospace', color: '#e8e8e8', background: '#202020',
+      font: 'clamp(16px, var(--mmsxx-gui-font-size, 16px), 32px) var(--mmsxx-gui-font, monospace)', color: '#e8e8e8', background: '#202020',
       border: '2px solid #cccccc', padding: '8px 16px', cursor: 'pointer',
       flex: '0 0 auto',
     });
@@ -4613,7 +4640,7 @@ function makeShareEl() {
     const b = document.createElement('button');
     b.textContent = label;
     Object.assign(b.style, {
-      font: '18px monospace', color: '#e8e8e8', background: '#202020',
+      font: 'clamp(24px, var(--mmsxx-gui-font-size, 24px), 40px) var(--mmsxx-gui-font, monospace)', color: '#e8e8e8', background: '#202020',
       border: '2px solid #cccccc', padding: '12px 8px', cursor: 'pointer',
       lineHeight: '1', flex: '0 0 auto',
     });
@@ -4640,7 +4667,7 @@ function makeShareEl() {
 
   // どのコマを見せているかの案内。溜めたコマを出しているときだけ中身が入る
   const hint = document.createElement('div');
-  Object.assign(hint.style, { font: '12px monospace', color: '#9a9a9a', marginBottom: '10px' });
+  Object.assign(hint.style, { font: 'clamp(16px, var(--mmsxx-gui-font-size, 16px), 32px) var(--mmsxx-gui-font, monospace)', color: '#9a9a9a', marginBottom: '10px' });
   box.appendChild(hint);
   shareHintEl = hint;
 
@@ -4669,7 +4696,15 @@ function makeShareEl() {
   // X(旧 Twitter)へ出す口。絵と値を投稿サーバへ送り、下書きを開く。
   // 絵は**公式の素材が要る**(自分で描いた × 印は「閉じる」に見えてしまう)ので、
   // それが来るまでは文字で置いておく。ほかの SNS もここへ並べる
-  shareSendBtn = mkBtn('POST TO X', () => postShareToX());
+  // **X の公式マークをそのまま使う。** 送り先の名前は、その先の見た目と
+  // そろっていないと迷わせる(ドット絵に描き起こすと別の何かに見える)
+  shareSendBtn = mkBtn('POST TO ', () => postShareToX());
+  shareSendBtn.insertAdjacentHTML('beforeend',
+    '<svg viewBox="0 0 24 24" width="1em" height="1em" aria-label="X" role="img"'
+    + ' style="vertical-align:-0.12em;margin-left:0.15em">'
+    + '<path fill="currentColor" d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17'
+    + 'l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161'
+    + ' 17.52h1.833L7.084 4.126H5.117z"/></svg>');
   // いま板に載っている 1 枚を手元へ落とす。**ALT+S(クリップボード)の代わり**に、
   // キーボードの無い端末でも絵を持ち出せるようにするためのもの
   mkBtn('SAVE IMAGE', () => saveShareImage());
@@ -4771,9 +4806,13 @@ function drawShareShot() {
     : (one ? enlargeShareShot(one) : null);
   shareShot = src;
   if (shareShot) {
-    // 大きい画面でも板からはみ出さないようにする。ドットはぼかさない
+    // 板からはみ出さないようにする。ドットはぼかさない。
+    // **縦も抑える**。横だけ見ていると、横持ちのスマホで絵が画面の高さを
+    // 追い越して、下のボタンが画面の外へ押し出される。
+    // 絵は小さくても構わない(どのコマかが分かればよい)
     Object.assign(shareShot.style, {
-      display: 'block', maxWidth: '76vw', height: 'auto',
+      display: 'block', maxWidth: '60vw', maxHeight: '38vh',
+      width: 'auto', height: 'auto',
       imageRendering: 'pixelated', border: '1px solid #444444',
     });
     shareShotBox.replaceChildren(shareShot);
@@ -4955,6 +4994,23 @@ async function getSnsClient() {
 // オランダは英語がよく通じるので、あえて英語のままにしている)。
 //   例) 日本語で遊んでいる人 … 'high-score-ja'
 const SNS_LANGS = ['ja', 'es', 'pt'];
+
+/**
+ * **確かめるための言語の上書き**。`?lang=ja` のように書くと、
+ * ブラウザの希望より先にそれを使う。**用意していない言葉は無視**して、
+ * いつもどおりの選びかたへ落ちる(打ち間違いで別の言葉になったりしない)。
+ *
+ * 出し分けているところは全部これを通す。片方だけ上書きが効くと、
+ * 「案内は日本語なのにシェア文は英語」のようなちぐはぐな絵ができてしまう。
+ * **実運用ではブラウザ任せのまま**(URL に書かなければ何も変わらない)
+ * @param {string[]} supported 用意している言葉
+ * @param {string} [fallback] どれにも当たらないときに返すもの
+ */
+function testLang(supported, fallback = '') {
+  const v = OPT.get('lang');
+  if (v && supported.includes(v)) return v;
+  return pickLanguage(supported, fallback);
+}
 
 /** 札の名前。その人の言葉があれば後ろに付ける(見分けはエンジンの部品にまかせる) */
 function snsTemplateKey(base) {
@@ -10751,18 +10807,28 @@ function drawCheatInput() {
   hud.print(centerX(t), 136, t, 7);
 }
 
+/**
+ * **遊びを途中で捨ててタイトルへ戻る。**
+ * 入口は 2 つ(ポーズの RESET ボタンと、打ち込みの Q)。
+ * どちらから来ても同じことをして、**同じ数に足す**
+ */
+function resetToTitle() {
+  setPaused(false);
+  record.add('resets', 1);
+  statsFinish();
+  // ポーズから抜けて終わった場合は、**コンティニューできない**。
+  // (やられていないのに、同じ面から何度でも始められてしまうため)
+  if (continueStages[continueKey()] !== undefined) continueStages[continueKey()] = 1;
+  enterTitle();
+}
+
 /** 打ち込まれた語を判定して効果を出す */
 function runCheatWord(word) {
   // タイトルへ戻る。ほかの語と違い**ちょうど 'Q' のときだけ**効かせる。
   // (endsWith にすると 'AAAAQ' のような打ち間違いでも終わってしまう。
   //  遊びを捨てる操作なので、案内に出したとおりの打ち方だけを通す)
   if (word === 'Q') {
-    setPaused(false);
-    statsFinish();
-    // ポーズから抜けて終わった場合は、**コンティニューできない**。
-    // (やられていないのに、同じ面から何度でも始められてしまうため)
-    if (continueStages[continueKey()] !== undefined) continueStages[continueKey()] = 1;
-    enterTitle();
+    resetToTitle();
     return;
   }
   // CLS: ポーズ中の文字(PAUSE / ESC:RESUME... / 打ち込み)を消す。
@@ -11027,6 +11093,7 @@ function statList() {
   add('playSeconds', formatSpan(g('playSeconds')));
   add('totalScore', statNum(g('totalScore')));
   add('deaths', statNum(g('deaths')));
+  add('resets', statNum(g('resets')));
   add('hits', statNum(g('hits')));
 
   gap('- SHOTS -');
@@ -12559,6 +12626,7 @@ function clearPauseText() {
   for (let y = 88; y <= 152; y += 16) hud.fill(0, 0, y, VW, 8);
 }
 function togglePause() {
+  resetAsk = false;   // 聞き返しの途中でポーズを出入りしたら、聞かなかったことにする
   setPaused(!paused);
   // エンジンが持っている音。ふつうの playSE() で鳴らすと、
   // すぐ下の pauseSE() に巻き込まれて自分で黙らせてしまう
@@ -12751,10 +12819,537 @@ function showPadNotice() {
 // **押されるまでパッドは見えない**ので、知らせを出す機会もここになる
 gamepad.onRawPress = () => showPadNotice();
 
+// ---- スマホのタッチ操作 ----
+// 器は engine/util/touchgui.js、十字とショットは engine/util/touch.js、
+// ジェスチャの見分けは engine/util/gesture.js。**ここで決めるのは
+// 「どの画面で何ができるか」だけ**(docs/SMARTPHONE.md)。
+//
+//   ゲーム中          … 左に十字、右にこすり打ちのショット
+//   タイトル・ポーズ・一覧 … どちらも出さず、画面ぜんぶでジェスチャを受ける。
+//                        空いた左右には**いま何ができるか**を書く
+//
+// 出すのは**スマホと見なした端末だけ**。PC で確かめたい人のために口を 2 つ:
+//
+//   ?pad=1            … パッドを出すだけ。窓の大きさはそのまま
+//   ?device=<機種>    … **スマホモードを丸ごと強制する**。パッドを出し、
+//                       指で触る端末として扱い(縦持ちなら 90 度回す)、
+//                       置ける場所を**その機種の画角**に区切る。
+//                       名前は下の DEVICES を見ること(mobile で既定の機種)
+//   ?notch=left/right … ノッチをどちら側に来させるか
+//
+// **?device= の機種名は device.js には無い名前**。あちらは mobile / desktop しか
+// 見ないので、知らない名前は無視されて自動判定に戻る。だからここで PAD_ON も
+// 立ててやる必要がある(下の DEVICE を見ている)
+//
+// キーボードはどちらでも今までどおり効く。
+/**
+ * ?device= で選ばれた機種。**知らない名前と実機では null**(区切らない)。
+ * 一覧は engine/util/devices.js。ノッチがどちら側に来るかは ?notch= で選ぶ
+ */
+const DEVICE = coarsePointer() ? null : findDevice(OPT.get('device'));
+function coarsePointer() {
+  try { return window.matchMedia('(pointer: coarse)').matches; } catch (e) { return false; }
+}
+// 機種を名指しされたときも出す(device.js は機種名を知らないので、ここで足す)
+const PAD_ON = isMobileLike() || OPT.get('pad') === '1' || !!DEVICE;
+/**
+ * 案内の文言。**ここだけ日本語と英語を出し分ける**(canvas の中は英語のまま)。
+ * **?lang=ja / ?lang=en で決め打ちにできる**(両方の見えかたを撮るため。
+ * ふだんはブラウザの希望どおりで、知らない値は無視する)
+ */
+const TG_LANG = testLang(['ja'], 'en');
+/** 左の空きに出す案内。上下と左右で 1 つずつ */
+// **用事だけを書く。** 「スワイプで」「ドラッグで」は要らない。
+// 下敷きの矢印が向きを言っているし、そこを払うより先に指が動くことはない。
+// 日本語は**漢字を積極的に使って詰める**(「えらぶ」より「選択」)
+/**
+ * **数個から選ぶ場面で、縦に 1 歩送るのに要る指の移動**(px)。
+ * 何十行もある一覧(既定 26px)と同じ細かさにすると、
+ * ちょっと動かしただけで飛んでしまう
+ */
+const TG_PICK = 52;
+
+/**
+ * **画面の大きさを遊ぶ人が決める**(左上の ＋ / −)。
+ * **一度でも押されたら、こちらからは動かさない**(onNeedRoom を黙らせる)。
+ * 自分で決めたものを勝手に戻されるのがいちばん困る。
+ *
+ * **宣言はここ。** 使うのは下の bindZoomButtons() だが、
+ * あちらは PAD_ON の block から呼ばれるので、**それより前に置く**
+ * (const は巻き上がらない。下に置くと初期化前に触って落ちる)
+ */
+let zoomByUser = false;
+const ZOOM_STEP = 1.12;   // 1 回で 1 割ちょっと。押した手応えが分かるくらい
+const ZOOM_MIN = 0.4, ZOOM_MAX = 1;
+/**
+ * **自動で縮めるときの下限**(ゲーム画面の見た目の幅 px)。
+ *
+ * **1 ドットが CSS で 2px** になるところ(256 ドット + ボーダー 16 で 544)。
+ * ここを割ってまで GUI の場所を作らない。当たったら諦めて重ねる。
+ *
+ * これで**小さい機種は縮まず、大きい機種だけ縮む**。
+ *   iPhone SE  … 等倍でも 416px しかない → 縮めない(重ねる)
+ *   iPad       … 960px あるので 820px まで縮めて、帯を開ける
+ *
+ * **遊ぶ人が ＋ / − で縮めるぶんには効かない**(あちらは自分で決めたこと)
+ */
+const MIN_GAME_W = 544;
+const TG = {
+  // **長押しで出す説明(tip)は、見えている文字より詳しく書く。**
+  // 同じことが書いてあるだけなら、長押しした甲斐が無い。
+  // 見えている側は用事だけ、長押し側は**指の動かしかたまで**
+  page: { icon: 'leftright', en: 'PAGE', ja: 'ページ切り替え',
+    tipEn: 'SWIPE LEFT / RIGHT TO TURN THE PAGE', tipJa: '左右にスワイプでページを送る' },
+  scroll: { icon: 'updown', en: 'SCROLL', ja: 'スクロール',
+    tipEn: 'DRAG UP / DOWN TO SCROLL THE LIST', tipJa: '上下にドラッグで一覧を送る' },
+  // **何を選ぶのかまで書く。** ただの「選択」では、その画面で
+  // 上下が何に効くのか分からない
+  menu: { icon: 'updown', en: 'MENU', ja: 'メニュー選択',
+    tipEn: 'DRAG UP / DOWN TO PICK A MENU', tipJa: '上下にドラッグでメニューを選ぶ' },
+  select: { icon: 'updown', en: 'SELECT', ja: '選択',
+    tipEn: 'DRAG UP / DOWN TO PICK AN ITEM', tipJa: '上下にドラッグで項目を選ぶ' },
+  sound: { icon: 'updown', en: 'SOUND', ja: 'サウンド選択',
+    tipEn: 'DRAG UP / DOWN TO PICK A SOUND', tipJa: '上下にドラッグで曲や音を選ぶ' },
+  category: { icon: 'leftright', en: 'CATEGORY', ja: 'カテゴリ変更',
+    tipEn: 'SWIPE LEFT / RIGHT TO CHANGE CATEGORY', tipJa: '左右にスワイプで種類を変える' },
+  letter: { icon: 'updown', en: 'LETTER', ja: '文字',
+    tipEn: 'DRAG UP / DOWN TO CHANGE THE LETTER', tipJa: '上下にドラッグで文字を変える' },
+  cursor: { icon: 'leftright', en: 'CURSOR', ja: '桁',
+    tipEn: 'SWIPE LEFT / RIGHT TO MOVE THE CURSOR', tipJa: '左右にスワイプで桁を移る' },
+};
+/**
+ * **OK と ESC のボタンに入れる文言。** 場面ごとに中身だけ入れ替える。
+ * 「タップで◯◯」という案内は出さない。**ボタンにそう書いてあれば足りる**。
+ * 場所と大きさは動かさないので、押す位置は覚えたままでよい
+ */
+// **やさしい英語はそのまま英語で出す。** SKIP や BACK まで訳すと、
+// かえって回りくどく読める。日本語にするのは、左の空きに出す**説明の文**だけ
+const OK = {
+  start: 'START',
+  title: 'TITLE',
+  next: 'NEXT',
+  enter: 'ENTER',
+  select: 'SELECT',
+  play: 'PLAY',
+  skip: 'SKIP',
+  back: 'BACK',
+  // **名前入力では BACK と書かない。** 左キーが「桁を戻す」なので、
+  // BACK だと 1 文字戻ると読める。ここは打つのをやめて出ていくほう
+  cancel: 'CANCEL',
+  pause: 'PAUSE',
+  resume: 'RESUME',
+  stop: 'STOP',
+};
+/**
+ * **ESC の下の OPTION ボタン**。場面ごとに割り当てが変わる 3 つめ。
+ * キーのある用事は `code`、キーの無い用事は `run` を渡す
+ */
+const OPTBTN = {
+  // **押しても、まだ捨てない。** 遊びを捨てる操作なので、
+  // 隣の RESUME と間違えて触ったぶんが取り返せるように、一度聞き返す
+  reset: { en: 'RESET', run: () => { resetAsk = true; } },
+  // 聞き返しているあいだの 2 つ。**捨てるほうを上、やめるほうを下**に置く
+  goTitle: { en: 'TITLE', run: () => { resetAsk = false; resetToTitle(); } },
+  keepPlaying: { en: 'CANCEL', run: () => { resetAsk = false; } },
+  // サウンドテストの停止。**鳴らしっぱなしを止める口**が要る。
+  // ESC は画面を出るほうなので、止めるだけの関数を直に呼ぶ
+  soundStop: { en: 'STOP', run: () => stopSoundTest() },
+  // 名前入力の 1 文字消し。左キーは桁を移るだけなので、消す口がここに要る
+  del: { en: 'BACK', code: 'Backspace' },
+};
+/** RESET を押して、まだ答えていない状態。ポーズを抜けたら忘れる */
+let resetAsk = false;
+
+/**
+ * いまの画面でできること。**ここに書いてあるのは、その画面が実際に
+ * 見ているキーだけ**(押せないものを案内すると嘘になる)。
+ * ok / esc はボタンを効かせるかどうかで、置き場所は動かさない
+ */
+function menuGuide() {
+  // ポーズ中。抜けるのは ESC だけ(SPACE は裏技の打ち込みに使う)
+  // ポーズ中。**RESET は OPTION ボタン**(打ち込みの Q と同じことをする)
+  if (paused) {
+    // RESET を押したあとは**聞き返す**。上が捨てるほう、下がやめるほう
+    if (resetAsk) return { left: [], esc: OPTBTN.goTitle, ok: OPTBTN.keepPlaying, opt: null };
+    return { left: [], ok: null, esc: OK.resume, opt: OPTBTN.reset };
+  }
+  switch (state) {
+    case 'title':
+      // ロゴのページだけ上下でモードを選べる。一覧のページは上下がスクロール
+      // モードは数個しかないので、**1 歩ぶんを大きく取る**(TG_PICK)
+      if (titlePage === 0) {
+        return { left: [TG.page, TG.menu], ok: OK.start, esc: null, step: TG_PICK };
+      }
+      if (titlePage === 1) return { left: [TG.page], ok: OK.title, esc: null };
+      return { left: [TG.page, TG.scroll], ok: OK.title, esc: null };
+    case 'over':
+      return { left: [], ok: OK.skip, esc: OK.skip };
+    case 'entry':
+      // 左右で桁と ENTER を選び、上下でその桁の文字を送る
+      return { left: [TG.cursor, TG.letter], ok: OK.enter, esc: OK.cancel, opt: OPTBTN.del };
+    case 'story':
+      return { left: [], ok: OK.next, esc: OK.skip };
+    case 'staff':
+      return { left: [], ok: OK.skip, esc: OK.skip };
+    case 'chars':
+      // ページ送りは左右だけ。SPACE は先へ進むだけ(戻るのは左)
+      return { left: [TG.page], ok: OK.next, esc: OK.back };
+    case 'stats':
+      return { left: [TG.scroll], ok: null, esc: OK.back };
+    case 'sound':
+      return { left: [TG.category, TG.sound], ok: OK.play, esc: OK.back,
+        opt: OPTBTN.soundStop, step: TG_PICK };
+    case 'scene':
+    case 'devset':
+      return { left: [TG.select], ok: OK.select, esc: OK.back, step: TG_PICK };
+    // リプレイは見ているだけ。止められるのは ESC
+    case 'replay':
+      return { left: [], ok: null, esc: OK.stop };
+    // 送っている最中は触らせない
+    default:
+      return { left: [], ok: null, esc: null };
+  }
+}
+
+let touchGui = null;
+if (PAD_ON) {
+  touchGui = new TouchGui({
+    canvas: document.getElementById('screen'),
+    // 回しているかどうかを知っているのはエンジン(engine/video.js)
+    isRotated: () => mmsxx.vdp.rotated,
+    // **第 2 引数の種別をそのまま流す**。付け忘れが起きないよう素通しにする
+    // (engine/input.js の usedInputs。ランキングへ操作方法として載る)
+    onPress: (code, source) => {
+      // **指でも音を解禁する。** ブラウザは「人が触った」合図がないと
+      // 音を出さない。エンジンがそれをやっているのは keydown のときだけで
+      // (engine.js の new Input)、タッチは input.press() を直に呼ぶので
+      // その道を通らない。**繋がないかぎり最初から最後まで無音になっていた**。
+      // ここは pointerdown の中から呼ばれているので、合図として通る
+      mmsxx.audio.unlock();
+      mmsxx.input.press(code, source);
+    },
+    onRelease: (code) => mmsxx.input.release(code),
+    lang: TG_LANG,
+    // 強制したときだけ、器も同じ画角に区切る(canvas 側は下の fitSize)
+    frame: DEVICE ? () => DEVICE : null,
+    /**
+     * **GUI の置き場所がまったく無いと言われたら、画面を 1 段小さくする。**
+     * 重ねるのは最後の手。iPad のように画面の大きい機種なら、
+     * 少し縮めても十分大きいので、そちらのほうがよい。
+     * @returns {boolean} 縮めたか(縮めたら器が測り直す)
+     */
+    onNeedRoom: (want, cur) => {
+      // **遊ぶ人が自分で決めたあとは、こちらから動かさない**(下の zoom ボタン)
+      if (zoomByUser) return false;
+      if (!(cur > 0) || !(want > 0)) return false;
+      // **等倍を割ってまでは縮めない。** GUI の置き場所より、
+      // ゲーム画面が読めることのほうが先。ここに当たったら、
+      // 帯が足りなくても諦めて重ねる
+      if (cur <= MIN_GAME_W) return false;
+      const room = Math.max(want, MIN_GAME_W);
+      const z = mmsxx.vdp.zoom * (room / cur);
+      if (z >= mmsxx.vdp.zoom - 0.01) return false;
+      mmsxx.vdp.zoom = z;
+      mmsxx.vdp.refitCss();
+      return true;
+    },
+  });
+  // PC で ?device=mobile を付けたときは、**指で触る端末として扱う**。
+  // 縦持ちで見せる回転もここで効くようになる
+  if (DEVICE) {
+    mmsxx.vdp.touchLike = true;
+    mmsxx.vdp.fitSize = DEVICE;
+    mmsxx.vdp.zoom = 1;
+    // **dpr も真似る。** 倍率は実画素で整数に丸めるので、
+    // dpr が違うと同じ画角でも倍率が変わってしまう(PC は 1、スマホは 3 が多い)
+    mmsxx.vdp.fitDpr = DEVICE.dpr;
+    // 端末に食われるぶんも真似る。
+    //
+    // **ホームバーはいつも居る**(そういう機種なら)。ノッチがどちら側だろうと
+    // 下の長い辺に沿って座っていて、そこは上スワイプを OS に吸われる
+    const st = document.documentElement.style;
+    if (DEVICE.home) st.setProperty('--mmsxx-safe-bottom', DEVICE.home + 'px');
+    // **横持ちのノッチは左右どちらに来るか分からない**ので、両方見られるようにする
+    //   ?notch=left   … 左がくびれる
+    //   ?notch=right  … 右がくびれる
+    //   指定なし      … くびれなし(ホームバーのぶんだけ)
+    const notch = OPT.get('notch');
+    if (DEVICE.notch && (notch === 'left' || notch === 'right')) {
+      st.setProperty('--mmsxx-safe-' + notch, DEVICE.notch + 'px');
+    }
+  }
+  // **取り付ける前に、画面の大きさを決めきっておく。**
+  // 取り付けると器がその場で測るので、まだ小さい(あるいは大きい)canvas を
+  // 見て「空きが無い」と判断し、要らない縮小が掛かってしまう。
+  // canvas の下の文字を消すのも、縦が空いて大きさが変わるのでここでやる
+  document.body.classList.add('touch-gui');
+  // **既定はドットをそろえるほう。** 切り下げるぶん画面は少し小さくなるが、
+  // 1 ドットの大きさがまだらにならない。大きさが欲しい人は、
+  // ボタンで切ってもらう(その判断は遊ぶ人のもの)
+  mmsxx.vdp.pixelPerfect = true;
+  mmsxx.vdp.refitCss();
+
+  touchGui.attach();
+  // 音の入切とシェアのボタンは、器の右の空きへ移す。
+  // **器は画面ぜんぶを覆う**ので、外に置いたままでは指が届かない
+  const toolsEl = document.getElementById('tools');
+  if (toolsEl && touchGui.toolsSlot) touchGui.toolsSlot.appendChild(toolsEl);
+  // **DEV の印は器の外へ出す。** スマホの画面のつもりで見ているところに
+  // 開発版の印が居ると、そのぶん置き場所を食うし、写真にも写る。
+  // 窓の隅(画角の外)へ逃がす
+  const devEl = document.getElementById('dev-badge');
+  if (devEl) {
+    document.body.appendChild(devEl);
+    Object.assign(devEl.style, { position: 'fixed', left: '6px', top: '4px', zIndex: '20' });
+  }
+  // ボタンを移したぶん帯の中身が変わっているので、もう一度測る
+  touchGui.layout();
+  // 実機を繋いで中を覗くとき用(touch-tool の window.touch と同じ考えかた)
+  mmsxx.expose('touchGui', touchGui);
+  if (DEVICE) showDeviceLinks();
+  restoreZoom();
+}
+// **PC でも要る。** 大きさもドットのそろえかたも、指で触る端末だけの話ではない。
+// スマホ用の分岐の中に入れていたせいで、PC ではボタンが空のままだった
+bindZoomButtons();
+setupOsShare();
+
+/**
+ * **画面の大きさを遊ぶ人が決める**(左上の ＋ / −)。
+ * 空きの取りかたは自動で決めているが、好みや持ちかたで合わないことがある。
+ *
+ * **一度でも押されたら、こちらからは動かさない**(onNeedRoom を黙らせる)。
+ * 自分で決めたものを勝手に戻されるのがいちばん困る
+ */
+/**
+ * 大きさを当てる。**当てた時点で「遊ぶ人が決めた」印**を立てるので、
+ * 以後こちらからは動かさない(自動縮小が黙る)
+ */
+function applyZoom(z) {
+  zoomByUser = true;
+  mmsxx.vdp.zoom = z;
+  mmsxx.vdp.refitCss();
+  if (touchGui) touchGui.layout();
+}
+
+/** 前に決めた大きさがあれば、それで始める */
+function restoreZoom() {
+  // 確認モードは覚えない側なので、戻すのもしない(機種ごとの素の姿を見る)
+  if (DEVICE || !settings.get('zoomSet')) return;
+  const z = settings.get('zoom');
+  if (typeof z === 'number' && z >= ZOOM_MIN && z <= ZOOM_MAX) applyZoom(z);
+}
+
+function bindZoomButtons() {
+  const step = (mul) => {
+    const z = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, mmsxx.vdp.zoom * mul));
+    if (Math.abs(z - mmsxx.vdp.zoom) < 0.001) return;
+    applyZoom(z);
+    updateZoomButtons();   // 端まで来たら、そのボタンを灰色にする
+    // **決めたぶんは覚えておく。** 次に開いたときも同じ大きさで始まる。
+    // ただし**確認モード(?device=)では覚えない**。機種を渡り歩くときに、
+    // 前の機種で決めた大きさが次の機種へ持ち越されて話が分からなくなる
+    if (DEVICE) return;
+    settings.set('zoom', z);
+    settings.set('zoomSet', true);
+    settings.flush();
+  };
+  const bind = (id, mul) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('click', () => step(mul));
+  };
+  // **＋ / − は指で触る端末だけ。** PC は窓の大きさがそのまま画面の大きさなので、
+  // 窓を変えれば済む。ボタンを出しても手が増えるだけ
+  for (const id of ['zoom-in', 'zoom-out']) {
+    const el = document.getElementById(id);
+    if (el && !PAD_ON) el.style.display = 'none';
+  }
+  bind('zoom-in', ZOOM_STEP);
+  bind('zoom-out', 1 / ZOOM_STEP);
+
+  // **ドットをそろえるかどうか**。既定は「置けるだけ大きく」だが、
+  // ドットのガタつきが気になる人のために、整数倍へ切り下げる道も残す
+  const pf = document.getElementById('pixel-fit');
+  if (pf) {
+    pf.addEventListener('click', () => {
+      mmsxx.vdp.pixelPerfect = !mmsxx.vdp.pixelPerfect;
+      mmsxx.vdp.refitCss();
+      if (touchGui) touchGui.layout();
+      drawToolIcons();
+      if (!DEVICE) {
+        settings.set('pixelFit', mmsxx.vdp.pixelPerfect);
+        settings.set('pixelFitSet', true);
+        settings.flush();
+      }
+    });
+    // **既定は入りなので、覚えるのは「切った」ほう**。
+    // 印が無いかぎり触らない(切ったことがある人だけ、切ったまま始まる)
+    if (!DEVICE && settings.get('pixelFitSet')) {
+      mmsxx.vdp.pixelPerfect = !!settings.get('pixelFit');
+      mmsxx.vdp.refitCss();
+    }
+  }
+  drawToolIcons();
+}
+
+/**
+ * 借りているボタンの絵を、**画面のスプライトと同じ並び**から作って貼る
+ * (engine/util/icons.js)。絵文字や SVG で描くと、canvas の中と外で
+ * 字形が食い違う
+ */
+function drawToolIcons() {
+  const put = (id, rows, accent) => {
+    const el = document.getElementById(id);
+    if (!el || !rows) return;
+    try {
+      el.style.backgroundImage =
+        `url("${iconDataURL(mmsxx, rows, { body: ICON_BODY, accent, scale: 2, key: id })}")`;
+      el.textContent = '';
+    } catch (e) { /* 絵が作れない環境では文字のまま */ }
+  };
+  put('zoom-in', ICONS.zoomIn, 10);      // 明るい緑。増やすほう
+  put('zoom-out', ICONS.zoomOut, 8);     // 赤。減らすほう
+  // **カメラ。** あの窓は X への投稿だけでなくダウンロードもできるので、
+  // 外のボタンで行き先を名乗らない。することは「画面を撮る」
+  put('share-btn', ICONS.camera, 7);
+  put('os-share', ICONS.share, 7);
+  // **切り替えのボタンは中の絵だけで状態を出す。**(枠は白いまま。いつでも押せる)
+  // 効いていないときは差し色も灰色にして、絵ごとモノクロにする
+  put('pixel-fit', ICONS.pixelFit, mmsxx.vdp.pixelPerfect ? 7 : ICON_MONO);
+  updateZoomButtons();
+}
+
+/**
+ * **いまの画面を PNG にする**(3 倍のドットのまま)。
+ * クリップボードへ貼るのも OS へ渡すのも、元はこれ 1 つ
+ */
+function screenshotBlob() {
+  const canvas = mmsxx.capture({ type: 'canvas' });
+  const out = document.createElement('canvas');
+  out.width = canvas.width * 3;
+  out.height = canvas.height * 3;
+  const cx = out.getContext('2d');
+  cx.imageSmoothingEnabled = false;
+  cx.drawImage(canvas, 0, 0, out.width, out.height);
+  return new Promise((res) => out.toBlob(res, 'image/png'));
+}
+
+/**
+ * **OS へ画像を渡すボタン**(箱から矢印)。共有シートが開き、
+ * そこから「写真に保存」も「送る」も選べる。
+ *
+ * **出すかどうかは環境の名前で決めない。** 実際に PNG を 1 枚作って
+ * `canShare({files})` に聞く。これなら Windows / Mac / スマホの別も、
+ * ブラウザの別(Firefox には無い)も、こちらが表を持たずに済む。
+ * 聞けるのは**ファイルを 1 つ用意してから**なので、起動時に 1 回だけ試す
+ */
+async function setupOsShare() {
+  const btn = document.getElementById('os-share');
+  if (!btn || !navigator.share || !navigator.canShare) return;
+  let file;
+  try {
+    const blob = await screenshotBlob();
+    if (!blob) return;
+    file = new File([blob], 'star-fable.png', { type: 'image/png' });
+    if (!navigator.canShare({ files: [file] })) return;   // 渡せない環境
+  } catch (e) { return; }
+  btn.style.display = '';
+  drawToolIcons();
+  btn.addEventListener('click', async () => {
+    btn.blur();
+    try {
+      const blob = await screenshotBlob();
+      if (!blob) return;
+      await navigator.share({
+        files: [new File([blob], 'star-fable.png', { type: 'image/png' })],
+        title: 'STAR FABLE',
+      });
+    } catch (e) { /* 取り消されただけのことが多い。何も知らせない */ }
+  });
+}
+
+/** 端まで来た ＋ / − を灰色にする。**枠ごと**沈めて、押せないことを見せる */
+function updateZoomButtons() {
+  const z = mmsxx.vdp.zoom;
+  const off = (id, yes) => {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('off', yes);
+  };
+  off('zoom-in', z >= ZOOM_MAX - 0.001);
+  off('zoom-out', z <= ZOOM_MIN + 0.001);
+}
+
+/**
+ * **機種を渡り歩くためのリンク**。仮想の画面の外(窓の下端)に置く。
+ * 機種を替えるたびに URL を打ち直すのが手間だったので。
+ * **中に置かない**。画角の中に無いものが写ると、確かめている絵にならない
+ */
+function showDeviceLinks() {
+  const keys = Object.keys(DEVICES);
+  const at = keys.findIndex((k) => DEVICES[k] === DEVICE);
+  const go = (d) => {
+    const q = new URLSearchParams(location.search);
+    q.set('device', keys[(at + d + keys.length) % keys.length]);
+    return location.pathname + '?' + q;
+  };
+  const bar = document.createElement('div');
+  // **枠の外は地の色が読めない**(白いことも黒いこともある)ので、
+  // 札そのものに背景を敷いて、どこに出ても読めるようにする
+  bar.style.cssText = 'position:fixed;left:0;right:0;bottom:6px;z-index:30;'
+    + 'display:flex;gap:10px;align-items:center;justify-content:center;'
+    + 'font:14px monospace;color:#ffffff;pointer-events:auto';
+  const link = (text, href) => {
+    const a = document.createElement('a');
+    a.href = href;
+    a.textContent = text;
+    a.style.cssText = 'color:#cfe0ff;text-decoration:none;padding:4px 10px;'
+      + 'background:#1b1d2a;border:1px solid #5a6180';
+    return a;
+  };
+  const now = Object.assign(document.createElement('span'), {
+    textContent: `${DEVICE.name}  ${DEVICE.w}x${DEVICE.h} @${DEVICE.dpr}`,
+  });
+  now.style.cssText = 'padding:4px 10px;background:#1b1d2a;border:1px solid #5a6180';
+  // **言葉も切り替えられるようにする。** 案内の文言は日英で出し分けているので、
+  // 機種と同じくらい見比べたい(いま出ているほうは押しても意味が無いので沈める)
+  const langLink = (v) => {
+    const q = new URLSearchParams(location.search);
+    q.set('lang', v);
+    const a = link(v.toUpperCase(), location.pathname + '?' + q);
+    if (TG_LANG === v) a.style.opacity = '0.4';
+    return a;
+  };
+  bar.append(
+    link('◀ ' + DEVICES[keys[(at - 1 + keys.length) % keys.length]].name, go(-1)),
+    now,
+    link(DEVICES[keys[(at + 1) % keys.length]].name + ' ▶', go(1)),
+    langLink('ja'),
+    langLink('en'),
+  );
+  document.body.appendChild(bar);
+}
+
+/** いまの画面から、出すものと案内を決める。**毎コマ呼んでよい**(同じなら何もしない) */
+function updateTouchGui() {
+  if (!touchGui) return;
+  // 遊んでいる最中だけゲームモード。ポーズは選ぶ場面なのでメニュー側
+  // 遊んでいる最中。**上のボタンだけ出して「PAUSE」と書く**。
+  // 器に一本化してあるので、メニューのときと大きさも位置もそろう
+  if (state === 'play' && !paused) {
+    touchGui.setMode('game');
+    touchGui.setGuide({ left: [], esc: OK.pause, ok: null, opt: null });
+    return;
+  }
+  touchGui.setMode('menu');
+  touchGui.setGuide(menuGuide());
+}
+
 mmsxx.run(() => {
   // **ゲームが入力を読む前に**パッドを流し込む。
   // エンジンは update() のあとで endFrame() を呼ぶので、押したそのコマで効く
   gamepad.poll();
+  // 出すものと案内を、いまの画面に合わせる。**同じなら何もしない**
+  updateTouchGui();
   // 対応していないパッドは poll() が相手にしないので、押されたことも伝わってこない。
   // **繋いだのに何も起きない**を放っておかないよう、ここで見つけて知らせる
   // 対応していないパッドは**押しても番号が読めない**ので、「また押されたら

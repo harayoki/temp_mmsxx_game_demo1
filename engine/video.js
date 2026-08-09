@@ -254,6 +254,42 @@ export class VDP {
     canvas.style.imageRendering = 'pixelated';
     this.canvas = canvas;
     this.scale = scale;
+    /**
+     * **指で触る端末として扱うか**。null なら自分で見分ける(`pointer: coarse`)。
+     * true / false を入れると、そのとおりになる。
+     * 縦持ちのときに 90 度回して見せるかどうかが、これで決まる
+     * (PC でスマホの見えかたを確かめるための逃げ道)
+     */
+    this.touchLike = null;
+    /**
+     * **置ける場所の大きさを決め打ちにする**。null なら窓いっぱい。
+     * `{ w, h }`(CSS の px)を入れると、その大きさの中に収まる倍率を選ぶ。
+     * PC の窓の中に**実機と同じ画角**を作って確かめるためのもの
+     */
+    this.fitSize = null;
+    /**
+     * **実画素の細かさ(dpr)も決め打ちにする**。null なら端末のものを使う。
+     * 倍率は実画素で整数に丸めるので、**dpr が違うと同じ画角でも倍率が変わる**。
+     * PC(dpr 1)で dpr 3 の機種を確かめるときに要る
+     */
+    this.fitDpr = null;
+    /**
+     * **ドットを揃えることを、画面の大きさより優先するか**。
+     *
+     * true なら実画素で整数倍になるところまで切り下げる(1 ドットが
+     * どこでも同じ画素数になり、斜めの線がガタつかない)。
+     * false なら**置けるだけ大きく**する。あと一歩で 1 段上がらないとき、
+     * 切り下げると画面がぐっと小さくなってしまうため。
+     *
+     * **スマホでは大きさのほうが大事**なので false にして使う。
+     * PC は今までどおり true(窓が広く、切り下げても十分大きい)
+     */
+    this.pixelPerfect = true;
+    /**
+     * 遊ぶ人が決めた大きさ。1 で「置けるだけ大きく」、0.5 で半分。
+     * 画面に対する割合なので、**機種が変わっても同じ見えかた**になる
+     */
+    this.zoom = 1;
     this.ctx = canvas.getContext('2d');
     this.ctx.imageSmoothingEnabled = false;
 
@@ -285,6 +321,12 @@ export class VDP {
       };
       window.addEventListener('resize', refit);
       window.addEventListener('orientationchange', refit);
+      // **スマホの URL バーが出入りしても測り直す。** 隠れたぶん縦が広がるが、
+      // resize が飛んでこないことがあるので、見えている範囲そのものを見張る
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', refit);
+        window.visualViewport.addEventListener('scroll', refit);
+      }
     }
 
     // パレットを ABGR(リトルエンディアンの RGBA) 32bit 値に前計算
@@ -857,27 +899,40 @@ export class VDP {
         bw = (parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.borderRightWidth) || 0);
         bh = (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
       } catch (e) { /* 取れなくても続ける */ }
-      const dpr = window.devicePixelRatio || 1;
+      const dpr = this.fitDpr || window.devicePixelRatio || 1;
       // 置ける大きさは documentElement から取る。
       // innerWidth はスクロールバーのぶんを含んでいて、はみ出しの原因になる
       const el = document.documentElement;
-      const availW = (el && el.clientWidth) || window.innerWidth;
-      const availH = (el && el.clientHeight) || window.innerHeight;
+      let availW = (el && el.clientWidth) || window.innerWidth;
+      let availH = (el && el.clientHeight) || window.innerHeight;
+      // 決め打ちの画角があれば、そちらに収める(窓のほうが大きくても広げない)
+      if (this.fitSize) { availW = this.fitSize.w; availH = this.fitSize.h; }
       // **画面の長いほうへ、ゲームの長いほうを合わせる**。
       // 向きが食い違っていたら 90 度回して見せる(端末の傾きに関係なく同じ形)。
       // ただし**指で触る端末のときだけ**。PC で窓を縦長にしただけで
       // 回ってしまうと、作っている最中に困る
-      let touchLike = false;
-      try {
-        touchLike = window.matchMedia('(pointer: coarse)').matches;
-      } catch (e) { /* 古い環境では回さない */ }
+      // **touchLike に true / false を入れると、その通りになる**(既定は null で自動)。
+      // PC でスマホの見えかたを確かめるための逃げ道
+      let touchLike = this.touchLike;
+      if (touchLike === null || touchLike === undefined) {
+        touchLike = false;
+        try {
+          touchLike = window.matchMedia('(pointer: coarse)').matches;
+        } catch (e) { /* 古い環境では回さない */ }
+      }
       const rot = touchLike && (ow >= oh) !== (availW >= availH);
       // 回すと、置き場所として要る幅と高さが入れ替わる
       const needW = rot ? oh : ow, needH = rot ? ow : oh;
-      // 実際の画素で何倍まで置けるか
-      const fitX = Math.floor(((availW - bw) * dpr) / needW);
-      const fitY = Math.floor(((availH - bh) * dpr) / needH);
-      n = Math.max(1, Math.min(this.scale * dpr, fitX, fitY));
+      // 実際の画素で何倍まで置けるか。
+      // **pixelPerfect のときだけ整数へ切り下げる。** 切り下げると
+      // ドットは揃うが、あと一歩で 1 段上がらないときに画面がぐっと小さくなる。
+      // スマホでは**画面の大きさのほうが大事**なので、既定は切り下げない
+      const trim = this.pixelPerfect ? Math.floor : ((v) => v);
+      const fitX = trim(((availW - bw) * dpr) / needW);
+      const fitY = trim(((availH - bh) * dpr) / needH);
+      // 遊ぶ人が決めた大きさ(zoom)を掛ける。1 が「置けるだけ大きく」
+      const want = Math.min(fitX, fitY) * (this.zoom || 1);
+      n = Math.max(1, Math.min(this.scale * dpr, want));
       // 実画素で整数倍になる大きさを、CSS の大きさへ戻す
       st.width = (ow * n / dpr) + 'px';
       st.height = (oh * n / dpr) + 'px';

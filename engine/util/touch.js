@@ -71,10 +71,31 @@ const DEFAULTS = {
   // いまの手元の端末を 1 として、0.7 なら小さい画面向け、1.5 なら大きい画面向け。
   // TODO: 方向が見えたら、画面の解像度から自動で決めるようにする
   scale: 1,
-  deadzone: 5,         // これ未満しか動いていなければ無入力(px。scale が掛かる)
-  dragMax: 80,         // これより離れたら原点を引きずる(px)
+  // これ未満しか動いていなければ無入力(px。scale が掛かる)。
+  // **押しても動かないところが要る。** 5 では狭すぎて、置いただけの指の
+  // わずかなぶれで向きが立ってしまった
+  deadzone: 9,
+  // これより離れたら原点を引きずる(px)。**0 で引きずらない**(既定)。
+  // 引きずると、指を大きく動かしたときに原点が付いてきて「戻す量」が変わる。
+  // 避けゲーでは、触れたところが最後まで真ん中でいてくれるほうが読みやすい
+  dragMax: 0,
   hysteresis: 7,       // 区画の境目の重なり(度)。ばたつき止め
-  guiRadius: 72,       // PAD の大きさ(px)。矢印の太さと長さ、はみ出しの許しかたも連れて変わる
+  guiRadius: 72,       // PAD の大きさ(px)。**入れ物が測れないときだけ**使う。
+                       // ふだんは下の areaRatio から決まる
+  // **入れ物の幅の何割を絵にするか。** 狭いエリアでは小さく、広いエリアでは大きく。
+  // 指の大きさは端末によらず同じなので、広いところで小さいままだと押しにくい
+  areaRatio: 0.8,
+  minRadius: 44,       // これより小さくはしない(指で押せなくなる)
+  maxRadius: 120,      // これより大きくはしない(px での歯止め)
+  /**
+   * **指の大きさは端末によらない**ので、上限は本当は長さで考えたい。
+   * ドット数で決めると、画面の広いタブレットでボタンだけ巨大になる。
+   *
+   * CSS の px は **1/96 インチ**と決まっているので、mm から px が出せる。
+   * 実際の端末では見かけの大きさが多少ずれるが、桁は合う。
+   * 22mm は親指の腹より少し大きいくらい(差し渡しで 44mm)
+   */
+  maxRadiusMm: 22,
   shotMode: 'D',       // 'D' 往復(既定) / 'A' 区画割り / 'B' 移動量 / 'C' 出入り。
                        // 既定は D。ほかもゲームによっては使えるので残してある
   shotStep: 14,        // D なら折り返しと認める距離、A なら区画の一辺、B なら 1 発ぶんの移動量(px)
@@ -373,21 +394,42 @@ export class TouchControls {
 
   /** 見た目に関わるつまみを CSS へ流す。**大きさや位置は借りる側が決める** */
   _applyLayout() {
-    // **渡された入れ物に収まる大きさを上限にする。**
-    // 狭いエリアを渡されたとき(小さい端末など)に絵がはみ出さないための保険。
+    // **入れ物の幅に対する割合で決める**(areaRatio、既定 8 割)。
+    // 狭いエリアでは小さく、広いエリアでは大きく。**縮むだけでなく育つ**ので、
+    // 空きの広い機種では指に合った大きさになる。
     // 画面の大きさではなく**入れ物**を見るので、エリアの取りかたを変えても壊れない。
     //
     // いちばん大きい絵はボタンの丸で、その幅は (2.8r - 40) * 1.02。
-    // それが入れ物の幅から 8px 引いたぶんに収まるところまで小さくする
-    let r = this.opts.guiRadius;
+    // これが入れ物の幅の areaRatio になるところを狙う。
+    // **小さくなりすぎるのは止める**(minRadius)。指で押せなくなるため
+    // **狭いほうのエリアに合わせる**(左右で同じ大きさにする)。
+    // 測れないうちは guiRadius をそのまま使う
+    const o = this.opts;
+    let r = null;
     for (const z of this._zones) {
       const w = z.clientWidth;
-      if (w > 0) r = Math.min(r, ((w - 8) / 1.02 + 40) / 2.8);
+      if (w > 0) {
+        const fit = ((w * o.areaRatio) / 1.02 + 40) / 2.8;
+        r = r === null ? fit : Math.min(r, fit);
+      }
     }
+    if (r === null) r = o.guiRadius;
+    // **長さでも頭を打たせる。** ドット数だけで決めると、画面の広い端末で
+    // ボタンだけ巨大になる。指の大きさは端末によらないので、そちらに合わせる
+    const mmMax = o.maxRadiusMm > 0 ? o.maxRadiusMm * 96 / 25.4 : Infinity;
+    r = Math.min(Math.max(r, o.minRadius), o.maxRadius, mmMax);
     /** 実際に使っている大きさ。つまみの値と違うことがある(実験台が読む) */
     this._r = Math.max(16, Math.round(r));
     // **scale は掛けない。** 見た目の大きさは変えず、判定だけを変えるつまみ
     for (const z of this._zones) z.style.setProperty('--r', this._r + 'px');
+    // **触れていないときの目印も、触れたときと同じ場所へ。**
+    // 別々に置くと、指を下ろした拍子に十字がそこへ飛んだように見える
+    // (「タップした位置へ移動している」ように見えていたのはこれ)
+    if (this._dpad) {
+      const at = this._anchor(this._rectOf(this._dpad));
+      this._dpad.style.setProperty('--hx', at.x + 'px');
+      this._dpad.style.setProperty('--hy', at.y + 'px');
+    }
   }
 
   /** 押しているところを明るくする。**音は鳴らさない** */
@@ -544,9 +586,9 @@ export class TouchControls {
     let dy = s.y - s.oy;
     let dist = Math.hypot(dx, dy);
 
-    // 大きく離れたら、その距離を保つように原点を引きずる
+    // 大きく離れたら、その距離を保つように原点を引きずる。**0 なら引きずらない**
     const max = this._px(this.opts.dragMax);
-    if (dist > max && dist > 0) {
+    if (max > 0 && dist > max) {
       const k = (dist - max) / dist;
       s.ox += dx * k;
       s.oy += dy * k;
@@ -565,7 +607,6 @@ export class TouchControls {
   }
 
   _stickUp() {
-    this._moveHint();          // 目印を、いま離した場所へ置いておく
     this.stick.active = false;
     this.stick.sector = -1;
     this._applyDirs([]);
@@ -573,29 +614,27 @@ export class TouchControls {
   }
 
   /**
-   * 触れていないときの目印を、**最後に使った原点へ移す**。
-   * 次もだいたい同じ場所に指を置くので、そこに出ているほうが探さずに済む。
-   * ただし**エリアからはみ出すぶんは戻す**(欠けた絵が端に貼り付くのを避ける)
+   * **十字の絵を置く場所。動かさない。**
+   *
+   * 触れたところが原点なのは今までどおりで、**動かないのは絵のほうだけ**。
+   * 出るところが毎回変われば、結局そこを目で探すことになる。ガラスには縁が無く、
+   * 指で位置を確かめられないので、絵は目印として据え置いたほうが強い。
+   *
+   * 横はエリアの真ん中。**左右どちらの端からも一番遠い**ので、
+   * Android の「戻る」(端から内へ払う)に巻き込まれにくい。
+   * 縦は下寄り(親指の来るところ)。CSS の目印 --hx / --hy の既定と同じ場所で、
+   * **触れる前と触れているあいだで絵が動かない**
    */
-  _moveHint() {
-    if (!this._dpad) return;
-    const r = this._rectOf(this._dpad);
-    const at = this._fit(this.stick.ox - r.left, this.stick.oy - r.top, r);
-    this._dpad.style.setProperty('--hx', at.x + 'px');
-    this._dpad.style.setProperty('--hy', at.y + 'px');
-  }
-
-  /**
-   * 絵がエリアからはみ出すぶんを戻す。**入力の原点は動かさない**
-   * (戻した先を原点にすると、触れた瞬間に向きが立ってしまう)。
-   * 端に触れたときだけ、絵が指から少しずれて見える
-   */
-  _fit(x, y, r) {
-    // **少しはみ出してよい。** きっちり収めると、端では絵が指から離れすぎる。
-    // ここは絵の話なので scale を掛けず、実際に使っている大きさで測る
-    const pad = this._r * 0.8;
-    const one = (v, size) => (size < pad * 2 ? size / 2 : Math.min(Math.max(v, pad), size - pad));
-    return { x: one(x, r.width), y: one(y, r.height) };
+  _anchor(r) {
+    // **連射ボタンと下をそろえる。** 左右で高さが違うと、持ち替えるたびに
+    // 親指の位置を作り直すことになる。
+    // ボタンの丸は下から 10%、差し渡しは下の式(CSS の .mmsxx-touch-fire と同じ)。
+    // その中心の高さへ、十字の中心を合わせる
+    const d = (this._r * 2.8 - 40) * 1.6 * 34 / 48 * 0.9;
+    // **十字はボタンより少し下**。親指の付け根に近いぶん、
+    // 同じ高さだと十字のほうが遠く感じる
+    const y = r.height - (r.height * 0.10 + d / 2) + this._r * 0.3;
+    return { x: r.width / 2, y: Math.min(Math.max(y, this._r), r.height - this._r) };
   }
 
   _hideRing() {
@@ -621,7 +660,7 @@ export class TouchControls {
     }
   }
 
-  /** 十字の絵を原点へ、つまみを指の場所へ */
+  /** 十字の絵は据え置きの場所へ、つまみだけ指の場所へ */
   _showRing() {
     if (!this._stickEl || !this._dpad) return;
     const r = this._rectOf(this._dpad);
@@ -630,7 +669,7 @@ export class TouchControls {
     this._stickEl.style.display = 'block';
     this._knob.style.display = 'block';
     this._dpad.classList.add('holding');   // 目印を引っ込める
-    const at = this._fit(s.ox - r.left, s.oy - r.top, r);
+    const at = this._anchor(r);
     this._stickEl.style.left = at.x + 'px';
     this._stickEl.style.top = at.y + 'px';
     this._knob.style.left = (s.x - r.left) + 'px';
@@ -836,10 +875,13 @@ function injectStyle() {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* エリアの名前と使いかた。**さりげなく**出す。指の邪魔をしないよう素通しにする */
+/* エリアの名前と使いかた。**さりげなく**出す。指の邪魔をしないよう素通しにする。
+   書体は借りる側が --mmsxx-gui-font で決める(何も渡さなければ等幅)。
+   **ドット絵の書体は決まった大きさでしか揃わない**ので、字間は広げない */
 .mmsxx-touch-title, .mmsxx-touch-note {
   position: absolute; left: 0; right: 0; text-align: center;
-  pointer-events: none; color: #667; font: 11px monospace; letter-spacing: 1px;
+  pointer-events: none; color: #667;
+  font: 16px var(--mmsxx-gui-font, monospace); letter-spacing: 0;
   white-space: nowrap; overflow: hidden;
 }
 .mmsxx-touch-title { top: 4px; }
@@ -869,7 +911,11 @@ function injectStyle() {
   position: absolute; transform: translateX(-50%);
   left: var(--hx, 50%);
   top: calc(var(--hy, calc(100% - var(--r) * 2)) + var(--r) * 1.28);
-  color: #ffffff; font: bold 16px monospace; letter-spacing: 3px; white-space: nowrap;
+  /* **太字にはしない。** ドット絵の書体に太字は無く、ブラウザが
+     にじませて作るので、格子が崩れる。大きさは借りる側が決める */
+  color: #ffffff; white-space: nowrap;
+  font: var(--mmsxx-gui-font-size, 16px) var(--mmsxx-gui-font, monospace);
+  letter-spacing: 0;
 }
 /* 触れているあいだと、一度でも触ったあとは出さない。
    **点滅はしない**(目印の外に置いてあるため) */
@@ -969,11 +1015,17 @@ function injectStyle() {
   from { transform: rotate(0deg) translate(7px, 0) rotate(0deg); }
   to   { transform: rotate(360deg) translate(7px, 0) rotate(-360deg); }
 }
-/* 3 秒ずつ入れ替える */
-.mmsxx-touch-way1 { animation: mmsxx-touch-way-a 6s steps(1) infinite; }
-.mmsxx-touch-way2 { animation: mmsxx-touch-way-b 6s steps(1) infinite; }
-@keyframes mmsxx-touch-way-a { 0% { opacity: 1; } 50% { opacity: 0; } }
-@keyframes mmsxx-touch-way-b { 0% { opacity: 0; } 50% { opacity: 1; } }
+/* 3 秒ずつ入れ替えて、**2 とおり見せたら指は消える**。
+   こすりかたは 2 つ(斜めの往復・くるくる)しかないので、見せ終わったら用が済む。
+   そのあとも動き続けると、遊んでいる最中ずっと指が視界に居ることになる。
+   **infinite にしない**のはそのため。forwards で消えたまま留める */
+.mmsxx-touch-way1 { animation: mmsxx-touch-way-a 6s steps(1) 1 forwards; }
+.mmsxx-touch-way2 { animation: mmsxx-touch-way-b 6s steps(1) 1 forwards; }
+/* **こちらも 100% を書く。** 書かないと、終わったときに元の値(1)へ戻って
+   1 つめの指が出たまま居座る(実際そうなった) */
+@keyframes mmsxx-touch-way-a { 0% { opacity: 1; } 50% { opacity: 0; } 100% { opacity: 0; } }
+/* **100% で 0 に戻す**のを忘れないこと。書かないと 2 つめが出たまま残る */
+@keyframes mmsxx-touch-way-b { 0% { opacity: 0; } 50% { opacity: 1; } 100% { opacity: 0; } }
 .mmsxx-touch-shot.used .mmsxx-touch-gesture { display: none; }
 
 /* ボタンの絵。**指はエリア全体で受けるので、これは見せるだけ**。
@@ -983,7 +1035,11 @@ function injectStyle() {
 .mmsxx-touch-fire {
   /* **大きさは PAD に合わせる**(矢印の外端までと同じ差し渡し)。
      指を受けるのはエリア全体なので、この大きさは見た目だけの話 */
-  position: absolute; left: 50%; bottom: 10%; transform: translateX(-50%);
+  /* **十字と同じ高さまで下げる。** あちらは _anchor() で --r の 0.3 ぶん
+     下げてあるので、こちらも同じだけ下げる。そろえないと、下の説明文字との
+     間隔が左右で違って見える */
+  position: absolute; left: 50%; bottom: calc(10% - var(--r) * 0.3);
+  transform: translateX(-50%);
   /* 絵の矢印の 9 割 */
   width: calc((var(--r) * 2.8 - 40px) * 1.6 * 34 / 48 * 0.9);
   height: calc((var(--r) * 2.8 - 40px) * 1.6 * 34 / 48 * 0.9);
@@ -1009,10 +1065,38 @@ function injectStyle() {
   0%   { border-color: #cca31b; }
   100% { border-color: #224466; }
 }
+/* PAUSE の札。
+ *
+ * **使いにくいところ**(2026-08-10、組み込んで分かったこと)。
+ * engine/util/touchgui.js と一緒に使うときは、**こちらは伏せて器の
+ * ボタンに一本化している**。単体で使うぶんには今までどおり動く。
+ *
+ *   1. **場所が「ショットのエリアの中」に縛られる。** 渡された入れ物の
+ *      中にしか置けないので、器の側が「上の段はボタン、下の段は遊びのもの」
+ *      と決めても、それに合わせて動かせない
+ *   2. **文言を場面で変えられない。** ここが出せるのは PAUSE ひとつだけ。
+ *      実際には遊んでいる最中は PAUSE、メニューでは RESUME / BACK /
+ *      CANCEL と書き替えたかった
+ *   3. **同じ場所に器のボタンが来ると二重になる。** 持ち主が違うので、
+ *      大きさ・端寄せ・字の大きさを片方だけ直して取り残す事故が実際に
+ *      何度も起きた(文言が ESC のまま、高さだけ 44px のまま、など)
+ *   4. **狭い機種の事情を知らない。** 帯が細いときにボタンを外側の端へ
+ *      寄せる、といった判断は器の側にしか材料がない
+ *
+ * つまり **「ボタンを 1 つ持つ」ところまでが、この部品の役目としては
+ * 半端だった**。次に手を入れるなら、ここは絵と当たり判定だけにして、
+ * ボタンは丸ごと借りる側へ渡してしまうほうがよい。
+ *
+ * 大きさは器のボタン(.mmsxx-gui-btn)にそろえてある。同じ場所に
+ * 入れ替わりで出るものなので、違うと切り替わった拍子に飛び跳ねて見える */
 .mmsxx-touch-pause {
-  position: absolute; left: 6px; right: 6px; top: 22px; height: 44px;
+  position: absolute; top: 22px;
+  left: 50%; transform: translateX(-50%);
+  width: max-content; min-width: 62%; max-width: calc(100% - 4px);
+  padding: 7px 8px; box-sizing: border-box;
   background: #333344; border: 2px solid #8888aa; color: #ccccdd;
-  font: 12px monospace; letter-spacing: 1px;
+  font: var(--mmsxx-gui-font-size, 16px) var(--mmsxx-gui-font, monospace);
+  letter-spacing: 0;
   display: flex; align-items: center; justify-content: center;
 }
 .mmsxx-touch-pause.on { background: #8888aa; color: #111122; }
