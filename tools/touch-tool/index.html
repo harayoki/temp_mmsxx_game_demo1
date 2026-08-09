@@ -20,6 +20,8 @@ html, body {
 #stage {
   position: fixed; left: 0; top: 0; transform-origin: 0 0; overflow: hidden;
 }
+/* パッドを置くエリア。**場所を決めるのは器の側**で、部品は中身だけ作る */
+.zone { position: fixed; top: 0; bottom: 0; }
 /* 計器盤。**本番でゲーム画面が出る場所**＝指が来ない場所に置く */
 #panel {
   position: fixed; top: 0; bottom: 0;
@@ -73,6 +75,8 @@ button {
 <body>
 
 <div id="stage">
+<div id="zoneA" class="zone"></div>
+<div id="zoneB" class="zone"></div>
 <div id="panel">
   <div class="row" style="margin-bottom:6px">
     <button id="rot">⟳ 90度回す</button>
@@ -150,7 +154,11 @@ const touch = new TouchControls({
   onRelease: (code, source) => addLog('RELEASE', code, source),
 });
 const stage = document.getElementById('stage');
-touch.attach(stage);
+const zoneA = document.getElementById('zoneA');
+const zoneB = document.getElementById('zoneB');
+/** 場所の決めごとは**器の持ちもの**(部品は中身だけ作る) */
+const zone = { side: 'left', dpadZone: 28, shotZone: 28 };
+touch.attach({ dpad: zoneA, shot: zoneB });
 // 実機を繋いで中を覗くとき用(mmsxxDebug() と同じ考えかた)
 window.touch = touch;
 
@@ -213,14 +221,14 @@ function addLog(kind, code, source) {
 }
 
 // ── つまみ ────────────────────────────────────────────
-// [キー, 表示名, 最小, 最大, 刻み]
+// [キー, 表示名, 最小, 最大, 刻み, 器の持ちものか]
 const KNOBS = [
-  ['dpadZone', '十字の幅%', 10, 45, 1],
+  ['dpadZone', '十字の幅%', 10, 45, 1, true],
   ['deadzone', '不感帯px', 0, 40, 1],
   ['dragMax', '引きずりpx', 16, 120, 1],
   ['hysteresis', '重なり度', 0, 20, 1],
   ['guiRadius', '十字の半径px', 12, 80, 1],
-  ['shotZone', 'ショット幅%', 10, 45, 1],
+  ['shotZone', 'ショット幅%', 10, 45, 1, true],
   ['shotStep', 'しきい値px', 4, 80, 1],
   ['holdRepeatMs', '長押しms(0=無)', 0, 500, 10],
 ];
@@ -249,25 +257,43 @@ sideRow.innerHTML = '<span style="width:96px">十字の側</span>'
   + '<label><input type="radio" name="side" value="left" checked> 左</label> '
   + '<label><input type="radio" name="side" value="right"> 右</label>';
 knobsEl.appendChild(sideRow);
+
+// 画面の大きさぶんの伸び縮み。**いまの端末を「中」とする**。
+// px で決めたつまみ(不感帯・引きずり・半径・しきい値)にまとめて掛かる
+const sizeRow = document.createElement('div');
+sizeRow.className = 'row';
+sizeRow.innerHTML = '<span style="width:128px">画面の大きさ</span>'
+  + [['小', 0.7], ['中', 1], ['大', 1.5]].map(([t, v]) =>
+      `<label><input type="radio" name="size" value="${v}"`
+      + `${touch.opts.scale === v ? ' checked' : ''}> ${t}</label>`).join(' ');
+knobsEl.appendChild(sizeRow);
+sizeRow.addEventListener('change', (e) => {
+  touch.setOptions({ scale: Number(e.target.value) });
+  showValues();
+});
 sideRow.addEventListener('change', (e) => {
-  touch.setOptions({ side: e.target.value });
+  zone.side = e.target.value;
   syncPanel();
   showValues();
 });
 
-for (const [key, name, min, max, step] of KNOBS) {
+/** つまみの値。器の持ちものと部品の持ちもの、どちらから読むか */
+const valueOf = (key, mine) => (mine ? zone : touch.opts)[key];
+
+for (const [key, name, min, max, step, mine] of KNOBS) {
   const el = document.createElement('label');
   el.className = 'knob';
+  const v0 = valueOf(key, mine);
   el.innerHTML = `<span>${name}</span>`
-    + `<input type="range" min="${min}" max="${max}" step="${step}" value="${touch.opts[key]}">`
-    + `<output>${touch.opts[key]}</output>`;
+    + `<input type="range" min="${min}" max="${max}" step="${step}" value="${v0}">`
+    + `<output>${v0}</output>`;
   const range = el.querySelector('input');
   const out = el.querySelector('output');
   range.addEventListener('input', () => {
     const v = Number(range.value);
     out.textContent = v;
-    touch.setOptions({ [key]: v });
-    if (key === 'dpadZone' || key === 'shotZone') syncPanel();
+    if (mine) { zone[key] = v; syncPanel(); }
+    else touch.setOptions({ [key]: v });
     showValues();
   });
   knobsEl.appendChild(el);
@@ -294,9 +320,9 @@ document.getElementById('copy').addEventListener('click', () => {
 
 /** 決まった値を控えるための、そのまま貼れる形 */
 function showValues() {
-  const o = touch.opts;
+  const o = { ...zone, ...touch.opts };
   valuesEl.value = '{\n'
-    + [...KNOBS.map(([k]) => k), 'shotMode', 'side']
+    + [...KNOBS.map(([k]) => k), 'shotMode', 'side', 'scale']
         .map(k => `  ${k}: ${typeof o[k] === 'string' ? `'${o[k]}'` : o[k]},`)
         .join('\n')
     + '\n}';
@@ -305,9 +331,13 @@ showValues();
 
 /** 計器盤を、左右のエリアに挟まれた真ん中へ収める */
 function syncPanel() {
+  const leftIsDpad = zone.side === 'left';
+  const left = leftIsDpad ? zone.dpadZone : zone.shotZone;
+  const right = leftIsDpad ? zone.shotZone : zone.dpadZone;
+  const [lz, rz] = leftIsDpad ? [zoneA, zoneB] : [zoneB, zoneA];
+  lz.style.left = '0'; lz.style.right = 'auto'; lz.style.width = left + '%';
+  rz.style.right = '0'; rz.style.left = 'auto'; rz.style.width = right + '%';
   const p = document.getElementById('panel');
-  const left = touch.opts.side === 'left' ? touch.opts.dpadZone : touch.opts.shotZone;
-  const right = touch.opts.side === 'left' ? touch.opts.shotZone : touch.opts.dpadZone;
   p.style.left = left + '%';
   p.style.right = right + '%';
 }

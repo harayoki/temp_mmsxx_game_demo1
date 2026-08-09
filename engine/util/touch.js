@@ -50,13 +50,14 @@ const SECTOR_KEYS = [
 ];
 
 const DEFAULTS = {
-  side: 'left',        // 十字をどちら側に置くか('left' / 'right')
-  dpadZone: 28,        // 十字エリアの幅(画面幅に対する %)
-  deadzone: 12,        // これ未満しか動いていなければ無入力(px)
+  // **px で決めた値をまとめて伸び縮みさせる。** 画面が大きいほど指の動きも大きくなるので、
+  // 同じ px のままだと小さい画面では敏感すぎ、大きい画面では鈍くなる。
+  // いまの手元の端末を 1(中)として、0.7 なら小さい画面向け、1.5 なら大きい画面向け
+  scale: 1,
+  deadzone: 12,        // これ未満しか動いていなければ無入力(px。scale が掛かる)
   dragMax: 48,         // これより離れたら原点を引きずる(px)
   hysteresis: 7,       // 区画の境目の重なり(度)。ばたつき止め
   guiRadius: 36,       // 十字の四角を、原点からどれだけ離して置くか(px)
-  shotZone: 28,        // ショットエリアの幅(%)
   shotMode: 'D',       // 'A' 区画割り / 'B' 移動量 / 'C' 出入り / 'D' 往復
   shotStep: 24,        // A なら区画の一辺、B なら 1 発ぶんの移動量(px)
   holdRepeatMs: 0,     // 長押しの連射間隔(ms)。**0 で無し**(連射は腕前のまま)
@@ -69,9 +70,9 @@ export class TouchControls {
    * @param {{
    *   onPress?:   (code:string, source:string) => void,
    *   onRelease?: (code:string, source:string) => void,
-   *   side?: string, dpadZone?: number, deadzone?: number, dragMax?: number,
+   *   scale?: number, deadzone?: number, dragMax?: number,
    *   hysteresis?: number, guiRadius?: number,
-   *   shotZone?: number, shotMode?: string, shotStep?: number,
+   *   shotMode?: string, shotStep?: number,
    *   holdRepeatMs?: number, shotCode?: string, pauseCode?: string,
    *   toLocal?: (x:number, y:number) => number[],
    * }} [opts]
@@ -99,8 +100,9 @@ export class TouchControls {
     /** こすり打ちの様子(touch-tool が読む) */
     this.rub = { pressCount: 0, releaseCount: 0, move: 0, rate: 0, maxRate: 0, cell: '', turns: 0 };
 
-    this.el = null;
-    this._host = null;
+    /** 借りている入れ物(十字・ショットの順) */
+    this._zones = [];
+    this._dpad = this._shot = this._fire = this._pause = this._knob = this._stickEl = null;
     /** 1 コマだけ押すための仕掛け */
     this._pulseDown = new Set();
     this._pulseQueue = new Map();
@@ -114,43 +116,63 @@ export class TouchControls {
 
   // ── 取り付け ──────────────────────────────────────────
 
-  /** DOM に取り付ける。@param {HTMLElement} host 置き場所 */
-  attach(host) {
-    if (this.el) this.detach();
+  /**
+   * **場所は載せる側が決める。** 十字とショットを置く入れ物を 2 つ渡す。
+   * 中身(絵と当たり判定)はこちらが作る。
+   *
+   *   touch.attach({ dpad: leftDiv, shot: rightDiv });
+   *
+   * 横画面の左右の空きをどう取るかはゲームごとに違うので、ここでは決めない。
+   * 渡された入れ物いっぱいに広がる
+   *
+   * @param {{ dpad: HTMLElement, shot: HTMLElement }} areas
+   */
+  attach(areas) {
+    if (this._zones.length) this.detach();
+    if (!areas || !areas.dpad || !areas.shot) {
+      throw new Error('attach({ dpad, shot }) に入れ物を 2 つ渡してください');
+    }
     injectStyle();
-    this._host = host;
-    this.el = buildDom();
+
+    this._dpad = areas.dpad;
+    this._shot = areas.shot;
+    this._zones = [this._dpad, this._shot];
+    this._dpad.classList.add('mmsxx-touch-zone', 'mmsxx-touch-dpad');
+    this._shot.classList.add('mmsxx-touch-zone', 'mmsxx-touch-shot');
+    this._dpad.innerHTML = DPAD_HTML;
+    this._shot.innerHTML = SHOT_HTML;
+
+    this._fire = this._shot.querySelector('.mmsxx-touch-fire');
+    this._pause = this._shot.querySelector('.mmsxx-touch-pause');
+    this._knob = this._dpad.querySelector('.mmsxx-touch-knob');
+    this._stickEl = this._dpad.querySelector('.mmsxx-touch-stick');
+
     this._applyLayout();
-    host.appendChild(this.el);
-
-    this._dpad = this.el.querySelector('.mmsxx-touch-dpad');
-    this._shot = this.el.querySelector('.mmsxx-touch-shot');
-    this._fire = this.el.querySelector('.mmsxx-touch-fire');
-    this._pause = this.el.querySelector('.mmsxx-touch-pause');
-    this._knob = this.el.querySelector('.mmsxx-touch-knob');
-    this._stickEl = this.el.querySelector('.mmsxx-touch-stick');
-
     this._bind(this._dpad, 'dpad');
     this._bind(this._fire, 'shot');
     this._bind(this._pause, 'pause');
     return this;
   }
 
-  /** 外す。押しっぱなしは全部離してから */
+  /** 外す。押しっぱなしは全部離してから。**入れ物そのものは消さない**(借り物なので) */
   detach() {
-    if (!this.el) return;
+    if (!this._zones.length) return;
     this.releaseAll();
-    if (this.el.parentNode) this.el.parentNode.removeChild(this.el);
-    this.el = null;
-    this._host = null;
+    for (const z of this._zones) {
+      z.classList.remove('mmsxx-touch-zone', 'mmsxx-touch-dpad', 'mmsxx-touch-shot', 'holding');
+      z.innerHTML = '';
+    }
+    this._zones = [];
+    this._dpad = this._shot = this._fire = this._pause = this._knob = this._stickEl = null;
   }
 
   /** 出し入れ */
-  get visible() { return !!this.el && this.el.style.display !== 'none'; }
+  get visible() {
+    return this._zones.length > 0 && this._zones[0].style.display !== 'none';
+  }
   set visible(v) {
-    if (!this.el) return;
     if (!v) this.releaseAll();
-    this.el.style.display = v ? '' : 'none';
+    for (const z of this._zones) z.style.display = v ? '' : 'none';
   }
 
   /** つまみを変える。**動かしたまま効く** */
@@ -196,6 +218,9 @@ export class TouchControls {
     };
   }
 
+  /** px で決めたつまみに、画面の大きさぶんの伸び縮みを掛ける */
+  _px(v) { return v * (this.opts.scale || 1); }
+
   // ── 座標 ──────────────────────────────────────────────
   //
   // 画面を回して見せているときは、指の場所も同じだけ回さないと、
@@ -224,19 +249,15 @@ export class TouchControls {
 
   // ── 見た目 ────────────────────────────────────────────
 
+  /** 見た目に関わるつまみを CSS へ流す。**大きさや位置は借りる側が決める** */
   _applyLayout() {
-    if (!this.el) return;
-    const o = this.opts;
-    this.el.dataset.side = o.side;
-    this.el.style.setProperty('--r', o.guiRadius + 'px');
-    this.el.querySelector('.mmsxx-touch-dpad').style.width = o.dpadZone + '%';
-    this.el.querySelector('.mmsxx-touch-shot').style.width = o.shotZone + '%';
+    for (const z of this._zones) z.style.setProperty('--r', this._px(this.opts.guiRadius) + 'px');
   }
 
   /** 押しているところを明るくする。**音は鳴らさない** */
   _paint() {
-    if (!this.el) return;
-    for (const arrow of this.el.querySelectorAll('.mmsxx-touch-arrow')) {
+    if (!this._dpad) return;
+    for (const arrow of this._dpad.querySelectorAll('.mmsxx-touch-stick .mmsxx-touch-arrow')) {
       arrow.classList.toggle('on', this.down.has(arrow.dataset.code));
     }
     if (this._fire) this._fire.classList.toggle('on', this.down.has(this.opts.shotCode));
@@ -365,7 +386,7 @@ export class TouchControls {
     let dist = Math.hypot(dx, dy);
 
     // 大きく離れたら、その距離を保つように原点を引きずる
-    const max = this.opts.dragMax;
+    const max = this._px(this.opts.dragMax);
     if (dist > max && dist > 0) {
       const k = (dist - max) / dist;
       s.ox += dx * k;
@@ -377,7 +398,7 @@ export class TouchControls {
     s.dx = dx; s.dy = dy; s.dist = dist;
     s.deg = (Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360;
 
-    if (dist < this.opts.deadzone) s.sector = -1;
+    if (dist < this._px(this.opts.deadzone)) s.sector = -1;
     else s.sector = this._sectorOf(s.deg, s.sector);
 
     this._applyDirs(s.sector < 0 ? [] : SECTOR_KEYS[s.sector]);
@@ -394,6 +415,7 @@ export class TouchControls {
   _hideRing() {
     if (this._stickEl) this._stickEl.style.display = 'none';
     if (this._knob) this._knob.style.display = 'none';
+    if (this._dpad) this._dpad.classList.remove('holding');   // 目印を出す
   }
 
   /** 区画を決める。**境目を少し重ねて**ばたつきを止める */
@@ -421,6 +443,7 @@ export class TouchControls {
     // **'' ではなく 'block'。** '' にすると CSS の display:none へ戻ってしまう
     this._stickEl.style.display = 'block';
     this._knob.style.display = 'block';
+    this._dpad.classList.add('holding');   // 目印を引っ込める
     this._stickEl.style.left = (s.ox - r.left) + 'px';
     this._stickEl.style.top = (s.oy - r.top) + 'px';
     this._knob.style.left = (s.x - r.left) + 'px';
@@ -471,7 +494,7 @@ export class TouchControls {
       // B: 動いた量で数える。
       // **長く滑らせるほど得**になってしまうので、実機では使いものにならなかった。
       // 比べるために残してある
-      const step = Math.max(1, o.shotStep);
+      const step = Math.max(1, this._px(o.shotStep));
       while (p.acc >= step) {
         p.acc -= step;
         this._pulse(o.shotCode);
@@ -508,7 +531,7 @@ export class TouchControls {
       return;
     }
     // 反転した。**戻る前に十分こすっていたときだけ**数える(震えを拾わない)
-    if (p.stroke >= Math.max(1, o.shotStep)) {
+    if (p.stroke >= Math.max(1, this._px(o.shotStep))) {
       this.rub.turns++;
       this._pulse(o.shotCode);
     }
@@ -533,7 +556,7 @@ export class TouchControls {
   _cellOf(p) {
     if (!this._fire) return '';
     const r = this._rectOf(this._fire);
-    const step = Math.max(1, this.opts.shotStep);
+    const step = Math.max(1, this._px(this.opts.shotStep));
     return Math.floor((p.x - r.left) / step) + ',' + Math.floor((p.y - r.top) / step);
   }
 
@@ -561,26 +584,19 @@ export class TouchControls {
 
 // ── DOM と CSS ──────────────────────────────────────────
 
-function buildDom() {
-  const el = document.createElement('div');
-  el.className = 'mmsxx-touch';
-  el.innerHTML = `
-    <div class="mmsxx-touch-zone mmsxx-touch-dpad">
-      <div class="mmsxx-touch-stick">
-        <div class="mmsxx-touch-ring"></div>
-        <div class="mmsxx-touch-arrow" data-code="ArrowUp"></div>
-        <div class="mmsxx-touch-arrow" data-code="ArrowDown"></div>
-        <div class="mmsxx-touch-arrow" data-code="ArrowLeft"></div>
-        <div class="mmsxx-touch-arrow" data-code="ArrowRight"></div>
-      </div>
-      <div class="mmsxx-touch-knob"></div>
-    </div>
-    <div class="mmsxx-touch-zone mmsxx-touch-shot">
-      <div class="mmsxx-touch-fire"></div>
-      <div class="mmsxx-touch-pause">PAUSE</div>
-    </div>`;
-  return el;
-}
+const ARROWS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']
+  .map(c => `<div class="mmsxx-touch-arrow" data-code="${c}"></div>`).join('');
+
+/** 十字の入れ物の中身 */
+const DPAD_HTML = `
+  <div class="mmsxx-touch-hint">${ARROWS}</div>
+  <div class="mmsxx-touch-stick"><div class="mmsxx-touch-ring"></div>${ARROWS}</div>
+  <div class="mmsxx-touch-knob"></div>`;
+
+/** ショットの入れ物の中身 */
+const SHOT_HTML = `
+  <div class="mmsxx-touch-fire"></div>
+  <div class="mmsxx-touch-pause">PAUSE</div>`;
 
 let styled = false;
 
@@ -591,19 +607,26 @@ function injectStyle() {
   const s = document.createElement('style');
   s.id = 'mmsxx-touch-style';
   s.textContent = `
-.mmsxx-touch {
-  position: fixed; inset: 0; pointer-events: none; z-index: 20;
-  touch-action: none; user-select: none; -webkit-touch-callout: none;
-}
+/* 借りた入れ物。**どこに置くか・どれだけの大きさかは借りる側が決める。**
+   ここで足すのは、指で触るために要る指定だけ */
 .mmsxx-touch-zone {
-  position: absolute; top: 0; bottom: 0; pointer-events: auto;
-  touch-action: none; overflow: hidden;
+  position: relative; overflow: hidden;
+  touch-action: none; user-select: none; -webkit-touch-callout: none;
   image-rendering: pixelated;
 }
-.mmsxx-touch[data-side="left"]  .mmsxx-touch-dpad { left: 0; }
-.mmsxx-touch[data-side="left"]  .mmsxx-touch-shot { right: 0; }
-.mmsxx-touch[data-side="right"] .mmsxx-touch-dpad { right: 0; }
-.mmsxx-touch[data-side="right"] .mmsxx-touch-shot { left: 0; }
+
+/* 触れていないときの目印。**ここを触ればいい**と分かるように、ちかちかさせる。
+   点滅は steps(2) でぱっと入れ替える(なめらかに薄くしない。昔の画面の感じ) */
+.mmsxx-touch-hint {
+  position: absolute; left: 50%; top: 50%; width: 0; height: 0;
+  animation: mmsxx-touch-blink 1.4s steps(2, jump-none) infinite;
+}
+@keyframes mmsxx-touch-blink {
+  0%   { opacity: 0.25; }
+  100% { opacity: 0.7; }
+}
+/* 触れているあいだは引っ込める */
+.mmsxx-touch-dpad.holding .mmsxx-touch-hint { display: none; }
 
 /* 十字。**触れたところが原点**で、絵ごとそこへ移る。
    四角 4 つを、原点から一定の距離(--r)に置く */
