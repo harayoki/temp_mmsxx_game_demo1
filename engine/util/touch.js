@@ -668,8 +668,8 @@ function injectStyle() {
 }
 .mmsxx-touch-title { top: 4px; }
 .mmsxx-touch-note { bottom: 4px; color: #556; }
-/* ショット側は下に PAUSE があるので、その上へ逃がす */
-.mmsxx-touch-shot .mmsxx-touch-note { bottom: 56px; }
+/* ショット側は上に PAUSE があるので、題はその上、説明は下端でよい */
+.mmsxx-touch-shot .mmsxx-touch-title { top: 6px; }
 
 /* 触れていないときの目印。**ここを触ればいい**と分かるように、ちかちかさせる。
    点滅は steps(2) でぱっと入れ替える(なめらかに薄くしない。昔の画面の感じ) */
@@ -715,7 +715,7 @@ function injectStyle() {
 
 /* ショット。面の横溝で「こする場所」だと見せる */
 .mmsxx-touch-fire {
-  position: absolute; left: 6px; right: 6px; top: 22px; bottom: 78px;
+  position: absolute; left: 6px; right: 6px; top: 78px; bottom: 22px;
   background: #aa2222;
   background-image: repeating-linear-gradient(
     to bottom, #cc3333 0 6px, #881111 6px 12px);
@@ -726,7 +726,7 @@ function injectStyle() {
     to bottom, #ff8888 0 6px, #cc3333 6px 12px);
 }
 .mmsxx-touch-pause {
-  position: absolute; left: 6px; right: 6px; bottom: 6px; height: 44px;
+  position: absolute; left: 6px; right: 6px; top: 22px; height: 44px;
   background: #333344; border: 2px solid #8888aa; color: #ccccdd;
   font: 12px monospace; letter-spacing: 1px;
   display: flex; align-items: center; justify-content: center;

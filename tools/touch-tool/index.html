@@ -44,7 +44,12 @@ html, body {
   border-bottom: 1px solid #333344; margin-bottom: 6px;
 }
 .topbar button { margin-right: 6px; }
-.topbar .big { line-height: 1; }
+.topbar .big { line-height: 1; margin-left: auto; }
+/* 連射数が 2 桁になっても折り返さない */
+.row.nowrap { flex-wrap: nowrap; }
+button.icon {
+  font: 18px monospace; padding: 4px 9px; margin-right: 4px; flex: none;
+}
 h2 {
   font-size: 14px; margin: 10px 0 4px; color: #7788aa;
   border-bottom: 1px solid #333344; font-weight: normal;
@@ -76,7 +81,26 @@ summary { cursor: pointer; padding: 8px 0; color: #7788aa; }
 label.knob { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
 label.knob span:first-child { width: 128px; flex: none; }
 label.knob output { width: 52px; flex: none; text-align: right; color: #ffcc22; }
-input[type=range] { flex: 1; min-width: 80px; height: 28px; touch-action: none; }
+/* スライダー。**指で掴めるように、つまみを大きくする。**
+   既定のつまみは 12px ほどしかなく、指では狙えない */
+input[type=range] {
+  flex: 1; min-width: 80px; height: 36px; touch-action: none;
+  -webkit-appearance: none; appearance: none; background: transparent;
+}
+input[type=range]::-webkit-slider-runnable-track {
+  height: 10px; background: #2a2a3a; border: 1px solid #555566;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 30px; height: 30px; margin-top: -11px;
+  background: #ffcc22; border: 2px solid #ffee88;
+}
+input[type=range]::-moz-range-track {
+  height: 10px; background: #2a2a3a; border: 1px solid #555566;
+}
+input[type=range]::-moz-range-thumb {
+  width: 28px; height: 28px; border-radius: 0;
+  background: #ffcc22; border: 2px solid #ffee88;
+}
 button {
   font: 16px monospace; padding: 8px 14px; margin-right: 6px;
   background: #333344; color: #ccccdd; border: 1px solid #8888aa;
@@ -96,10 +120,11 @@ button {
 <div id="zoneB" class="zone"></div>
 <div id="panel">
   <div class="topbar">
-    <div class="row">
-      <button id="rot">⟳ 90度回す</button>
-      <button id="reload">↻ 読み直す</button>
-      <span class="big" id="rateTop" style="margin-left:auto">0</span>
+    <div class="row nowrap">
+      <button id="rot" class="icon" title="90度回す">⟳</button>
+      <button id="swap" class="icon" title="左右を入れ替える">⇄</button>
+      <button id="reload" class="icon" title="読み直す">↻</button>
+      <span class="big" id="rateTop">0</span>
       <span class="dim">発/秒</span>
     </div>
     <div class="row" id="keys" style="margin-top:4px"></div>
@@ -319,6 +344,14 @@ for (const [key, name, min, max, step, mine] of KNOBS) {
 }
 
 // キャッシュに古いものが残るので、v を 1 つ増やして開き直す
+document.getElementById('swap').addEventListener('click', () => {
+  zone.side = zone.side === 'left' ? 'right' : 'left';
+  const r = document.querySelector(`input[name=side][value="${zone.side}"]`);
+  if (r) r.checked = true;
+  syncPanel();
+  showValues();
+});
+
 document.getElementById('reload').addEventListener('click', () => {
   const q = new URLSearchParams(location.search);
   q.set('v', String((Number(q.get('v')) || 0) + 1));
@@ -431,7 +464,7 @@ function frame() {
   const forced = new URLSearchParams(location.search).get('device');
   el('device').innerHTML =
     `向き ${innerWidth >= innerHeight ? '横' : '縦'} / ${innerWidth}x${innerHeight}`
-    + (rotated ? ' <span style="color:#ffcc22">90度回して表示中</span>' : '') + '<br>'
+    + '<br>'
     + `dpr ${devicePixelRatio} / maxTouchPoints ${navigator.maxTouchPoints || 0}<br>`
     + `isMobileLike ${isMobileLike()}`
     + (forced ? ` <span class="dim">(?device=${forced} で上書き)</span>` : '');
