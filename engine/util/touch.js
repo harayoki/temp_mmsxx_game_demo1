@@ -727,11 +727,10 @@ const DPAD_HTML = `
 const SHOT_HTML = `
   <div class="mmsxx-touch-title"></div>
   <div class="mmsxx-touch-note"></div>
-  <div class="mmsxx-touch-fire">
-    <svg class="mmsxx-touch-gesture" viewBox="0 0 40 40" aria-hidden="true">
-      <path d="M11 29L29 11"/><path d="M21 11h8v8"/><path d="M19 29h-8v-8"/>
-    </svg>
-  </div>
+  <div class="mmsxx-touch-fire"></div>
+  <svg class="mmsxx-touch-gesture" viewBox="0 0 48 48" aria-hidden="true">
+    <path d="M13 35L35 13"/><path d="M26 13h9v9"/><path d="M22 35h-9v-9"/>
+  </svg>
   <div class="mmsxx-touch-callout"></div>
   <div class="mmsxx-touch-pause"></div>`;
 
@@ -853,11 +852,21 @@ function injectStyle() {
   background-image: var(--shotarea-img, none);
 }
 
-/* こすりかたの絵。**最初だけ**、ボタンの上に白で重ねる */
+/* こすりかたの絵。**最初だけ**、ボタンの上に白で重ねる。
+   **丸より大きくする。** はみ出して構わないこと(受けるのはエリア全体)を見せるため。
+   斜めに行ったり来たりを繰り返して、こする動きそのものを示す */
 .mmsxx-touch-gesture {
-  width: 46%; height: 46%;
+  --btn: calc(var(--r) * 2.8 - 40px);
+  position: absolute; left: 50%; pointer-events: none;
+  bottom: calc(10% - var(--btn) * 0.3);
+  width: calc(var(--btn) * 1.6); height: calc(var(--btn) * 1.6);
   fill: none; stroke: #ffffff; stroke-width: 3;
   stroke-linecap: square; stroke-linejoin: miter;
+  animation: mmsxx-touch-scrub 1.1s ease-in-out infinite alternate;
+}
+@keyframes mmsxx-touch-scrub {
+  0%   { transform: translate(-50%, 0) translate(-9%, 9%); }
+  100% { transform: translate(-50%, 0) translate(9%, -9%); }
 }
 .mmsxx-touch-shot.used .mmsxx-touch-gesture { display: none; }
 
@@ -871,7 +880,6 @@ function injectStyle() {
   position: absolute; left: 50%; bottom: 10%; transform: translateX(-50%);
   width: calc(var(--r) * 2.8 - 40px); height: calc(var(--r) * 2.8 - 40px);
   box-sizing: border-box; pointer-events: none; border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
   border: 9px solid #224466;    /* 輪 */
   padding: 11px;                /* 隙間 */
   background-color: #224466;    /* 中身。矢印のふだんの色と同じ */
