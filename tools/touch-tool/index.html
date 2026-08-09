@@ -36,7 +36,7 @@ html, body {
 /* 計器盤。**本番でゲーム画面が出る場所**＝指が来ない場所に置く */
 #panel {
   position: fixed; top: 0; bottom: 0;
-  overflow-y: auto; touch-action: pan-y;
+  overflow-y: auto;   /* touch-action は layout() が向きに合わせて入れる */
   padding: 8px 10px; box-sizing: border-box;
   border-left: 1px solid #333344; border-right: 1px solid #333344;
 }
@@ -208,6 +208,7 @@ const touch = new TouchControls({
   onRelease: (code, source) => addLog('RELEASE', code, source),
 });
 const stage = document.getElementById('stage');
+const panelEl = document.getElementById('panel');
 const zoneA = document.getElementById('zoneA');
 const zoneB = document.getElementById('zoneB');
 /** 場所の決めごとは**器の持ちもの**(部品は中身だけ作る) */
@@ -239,11 +240,14 @@ function layout() {
     stage.style.transform = `translateX(${w}px) rotate(90deg)`;
     // 画面の点を入れ物の点へ戻す(上の変換の逆)
     touch.toLocal = (x, y) => [y, w - x];
+    // 計器盤を送る指は、画面の上では**横向き**になる
+    panelEl.style.touchAction = 'pan-x';
   } else {
     stage.style.width = w + 'px';
     stage.style.height = h + 'px';
     stage.style.transform = 'none';
     touch.toLocal = null;
+    panelEl.style.touchAction = 'pan-y';
   }
   document.getElementById('rotState').textContent =
     `向き: ${rotated ? '90度回している' : 'そのまま'}`

@@ -734,8 +734,8 @@ function injectStyle() {
 }
 .mmsxx-touch-ring {
   position: absolute;
-  left: calc(var(--r) * -1.45); top: calc(var(--r) * -1.45);
-  width: calc(var(--r) * 2.9); height: calc(var(--r) * 2.9);
+  left: calc(var(--r) * -1.09); top: calc(var(--r) * -1.09);
+  width: calc(var(--r) * 2.18); height: calc(var(--r) * 2.18);
   border-radius: 50%; background: rgba(32, 64, 112, 0.35);
 }
 /* 指そのものの印。**既定では何も出さない。**
