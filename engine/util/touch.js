@@ -728,8 +728,12 @@ const SHOT_HTML = `
   <div class="mmsxx-touch-title"></div>
   <div class="mmsxx-touch-note"></div>
   <div class="mmsxx-touch-fire"></div>
-  <svg class="mmsxx-touch-gesture" viewBox="0 0 48 48" aria-hidden="true">
-    <path d="M13 35L35 13"/><path d="M26 13h9v9"/><path d="M22 35h-9v-9"/>
+  <svg class="mmsxx-touch-gesture" viewBox="0 0 64 48" aria-hidden="true">
+    <path d="M34 38L58 14"/><path d="M50 14h8v8"/><path d="M42 38h-8v-8"/>
+    <g class="mmsxx-touch-finger">
+      <rect x="15" y="6" width="8" height="22" rx="4"/>
+      <rect x="9" y="21" width="20" height="21" rx="7"/>
+    </g>
   </svg>
   <div class="mmsxx-touch-callout"></div>
   <div class="mmsxx-touch-pause"></div>`;
@@ -861,10 +865,12 @@ function injectStyle() {
   position: absolute; left: 50%; pointer-events: none;
   bottom: calc(10% - var(--btn) * 0.3);
   width: calc(var(--btn) * 1.6); height: calc(var(--btn) * 1.6);
-  fill: none; stroke: #ffffff; stroke-width: 3;
+  fill: none; stroke: #ffffff; stroke-width: 2.5;
   stroke-linecap: square; stroke-linejoin: miter;
-  animation: mmsxx-touch-scrub 1.1s ease-in-out infinite alternate;
+  animation: mmsxx-touch-scrub 0.45s ease-in-out infinite alternate;
 }
+/* 指は塗りつぶし。線と同じ白 1 色 */
+.mmsxx-touch-finger { fill: #ffffff; stroke: none; }
 @keyframes mmsxx-touch-scrub {
   0%   { transform: translate(-50%, 0) translate(-9%, 9%); }
   100% { transform: translate(-50%, 0) translate(9%, -9%); }
