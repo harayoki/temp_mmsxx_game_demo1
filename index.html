@@ -131,9 +131,22 @@
     el.style.display = 'block';
     el.textContent += msg + '\n';
   }
+  // **読めなくても遊べるもの。** アクセス数のビーコンは広告ブロッカーに
+  // 止められることが多い。止められたぶんは数えられなくなるだけで、
+  // ゲームには何の関わりもないので、エラー欄に出さない
+  // (出すと、遊びに来た人には**故障したように見える**)
+  var OPTIONAL_SRC = ['cloudflareinsights.com'];
+  function optionalScript(src) {
+    for (var i = 0; i < OPTIONAL_SRC.length; i++) {
+      if (src.indexOf(OPTIONAL_SRC[i]) >= 0) return true;
+    }
+    return false;
+  }
   window.addEventListener('error', function (e) {
     if (e.target && e.target.tagName === 'SCRIPT') {
-      showError('スクリプトの読み込みに失敗: ' + (e.target.src || ''));
+      var src = e.target.src || '';
+      if (optionalScript(src)) return;
+      showError('スクリプトの読み込みに失敗: ' + src);
     } else {
       showError('エラー: ' + (e.message || e.error) + '\n  at ' + (e.filename || '') + ':' + (e.lineno || ''));
     }
