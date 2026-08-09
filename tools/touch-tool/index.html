@@ -30,12 +30,15 @@ html, body {
   border-left: 1px solid #333344; border-right: 1px solid #333344;
 }
 /* 上に貼り付ける。つまみを開いて下へ送っても、連射量は見えたままにする */
+/* 上に貼り付ける帯。**ここはスクロールで流れない。**
+   いちばん見たいもの(連射量とキーの状態)だけを入れる */
 .topbar {
   position: sticky; top: 0; z-index: 2;
   background: #101018; padding: 4px 0 6px;
   border-bottom: 1px solid #333344; margin-bottom: 6px;
 }
 .topbar button { margin-right: 6px; }
+.topbar .big { line-height: 1; }
 h2 {
   font-size: 14px; margin: 10px 0 4px; color: #7788aa;
   border-bottom: 1px solid #333344; font-weight: normal;
@@ -85,16 +88,16 @@ button {
 <div id="zoneA" class="zone"></div>
 <div id="zoneB" class="zone"></div>
 <div id="panel">
-  <div class="row topbar">
-    <button id="rot">⟳ 90度回す</button>
-    <button id="reload">↻ 読み直す</button>
-    <span class="big" id="rateTop" style="margin-left:auto">0</span>
-    <span class="dim">発/秒</span>
+  <div class="topbar">
+    <div class="row">
+      <button id="rot">⟳ 90度回す</button>
+      <button id="reload">↻ 読み直す</button>
+      <span class="big" id="rateTop" style="margin-left:auto">0</span>
+      <span class="dim">発/秒</span>
+    </div>
+    <div class="row" id="keys" style="margin-top:4px"></div>
   </div>
   <div class="row dim" id="rotState" style="margin-bottom:6px"></div>
-
-  <h2>① キーの状態</h2>
-  <div class="row" id="keys"></div>
 
   <h2>② タッチ点 <span class="dim" id="touchCount"></span></h2>
   <div id="touches" class="dim">（触れていません）</div>
@@ -112,9 +115,6 @@ button {
   <h2>⑤ 端末・画面</h2>
   <div id="device" class="dim"></div>
 
-  <h2>⑥ ログ</h2>
-  <div id="log"></div>
-
   <details>
     <summary>つまみ</summary>
     <div id="knobs"></div>
@@ -124,6 +124,9 @@ button {
     </div>
     <textarea id="values" readonly></textarea>
   </details>
+
+  <h2>⑥ ログ</h2>
+  <div id="log"></div>
 </div>
 </div>
 

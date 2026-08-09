@@ -141,6 +141,11 @@ export class TouchControls {
     this._shot.classList.add('mmsxx-touch-zone', 'mmsxx-touch-shot');
     this._dpad.innerHTML = DPAD_HTML;
     this._shot.innerHTML = SHOT_HTML;
+    // 中の絵は absolute で置く。土台が static のままだと行き場が無いので、
+    // **そのときだけ** relative にする。借りる側が fixed などで置いていれば触らない
+    for (const z of this._zones) {
+      if (getComputedStyle(z).position === 'static') z.style.position = 'relative';
+    }
 
     this._fire = this._shot.querySelector('.mmsxx-touch-fire');
     this._pause = this._shot.querySelector('.mmsxx-touch-pause');
@@ -610,7 +615,7 @@ function injectStyle() {
 /* 借りた入れ物。**どこに置くか・どれだけの大きさかは借りる側が決める。**
    ここで足すのは、指で触るために要る指定だけ */
 .mmsxx-touch-zone {
-  position: relative; overflow: hidden;
+  overflow: hidden;
   touch-action: none; user-select: none; -webkit-touch-callout: none;
   image-rendering: pixelated;
 }
