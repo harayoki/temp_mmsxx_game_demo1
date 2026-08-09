@@ -361,8 +361,9 @@ sizeRow.innerHTML = '<span>画面の大きさ</span>'
   + '<output>1.00</output>';
 knobsEl.appendChild(sizeRow);
 showHintOn(sizeRow.querySelector('span'), sizeRow,
-  '画面の大きさ: px で決めた値(不感帯・引きずり・大きさ・しきい値)にまとめて掛かる倍率。'
-  + 'いまの端末が真ん中(1.00)。25% で小さい画面向け、75% で大きい画面向け。'
+  '画面の大きさ: **判定の大きさだけ**を変える倍率(不感帯・引きずり・しきい値)。'
+  + '見た目の大きさは変わらない。いまの端末が真ん中(1.00)、'
+  + '25% で小さい画面向け、75% で大きい画面向け。'
   + '大きい画面ほど指の動きも大きくなるので、そのぶん鈍くする');
 sizeRow.addEventListener('input', (e) => {
   const v = Math.round(scaleAt(Number(e.target.value)) * 100) / 100;

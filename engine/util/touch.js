@@ -65,9 +65,11 @@ const SECTOR_KEYS = [
 ];
 
 const DEFAULTS = {
-  // **px で決めた値をまとめて伸び縮みさせる。** 画面が大きいほど指の動きも大きくなるので、
-  // 同じ px のままだと小さい画面では敏感すぎ、大きい画面では鈍くなる。
-  // いまの手元の端末を 1(中)として、0.7 なら小さい画面向け、1.5 なら大きい画面向け
+  // **判定の大きさだけをまとめて伸び縮みさせる。見た目は変わらない。**
+  // 画面が大きいほど指の動きも大きくなるので、同じ px のままだと
+  // 小さい画面では敏感すぎ、大きい画面では鈍くなる。
+  // いまの手元の端末を 1 として、0.7 なら小さい画面向け、1.5 なら大きい画面向け。
+  // TODO: 方向が見えたら、画面の解像度から自動で決めるようにする
   scale: 1,
   deadzone: 5,         // これ未満しか動いていなければ無入力(px。scale が掛かる)
   dragMax: 80,         // これより離れたら原点を引きずる(px)
@@ -317,7 +319,12 @@ export class TouchControls {
     };
   }
 
-  /** px で決めたつまみに、画面の大きさぶんの伸び縮みを掛ける */
+  /**
+   * **判定の大きさ**に、画面の大きさぶんの伸び縮みを掛ける。
+   * 掛かるのは不感帯・引きずり・こすりのしきい値の 3 つだけで、
+   * **見た目(guiRadius)には掛けない**。絵の大きさを変えずに、
+   * 大きい画面と小さい画面で感じがどう変わるかを見るためのつまみ
+   */
   _px(v) { return v * (this.opts.scale || 1); }
 
   // ── 座標 ──────────────────────────────────────────────
@@ -350,7 +357,8 @@ export class TouchControls {
 
   /** 見た目に関わるつまみを CSS へ流す。**大きさや位置は借りる側が決める** */
   _applyLayout() {
-    for (const z of this._zones) z.style.setProperty('--r', this._px(this.opts.guiRadius) + 'px');
+    // **scale は掛けない。** 見た目の大きさは変えず、判定だけを変えるつまみ
+    for (const z of this._zones) z.style.setProperty('--r', this.opts.guiRadius + 'px');
   }
 
   /** 押しているところを明るくする。**音は鳴らさない** */
@@ -554,8 +562,9 @@ export class TouchControls {
    * 端に触れたときだけ、絵が指から少しずれて見える
    */
   _fit(x, y, r) {
-    // **少しはみ出してよい。** きっちり収めると、端では絵が指から離れすぎる
-    const pad = this.opts.guiRadius * 0.8 * (this.opts.scale || 1);
+    // **少しはみ出してよい。** きっちり収めると、端では絵が指から離れすぎる。
+    // ここは絵の話なので scale を掛けない
+    const pad = this.opts.guiRadius * 0.8;
     const one = (v, size) => (size < pad * 2 ? size / 2 : Math.min(Math.max(v, pad), size - pad));
     return { x: one(x, r.width), y: one(y, r.height) };
   }
