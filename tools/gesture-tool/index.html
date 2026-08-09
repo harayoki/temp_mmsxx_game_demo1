@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>gesture-tool - ジェスチャの実験台</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>
+/* iOS のバウンスは overscroll-behavior では止まらないので、ページごと固定する */
+html, body {
+  position: fixed; width: 100%; height: 100%; overflow: hidden;
+  margin: 0; background: #101018; color: #ccccdd;
+  font: 16px/1.5 monospace;
+  touch-action: none;
+  user-select: none; -webkit-user-select: none;
+  -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
+}
+/* 指を受ける板。ここでジェスチャをする */
+#stage {
+  position: fixed; left: 0; top: 0; right: 45%; bottom: 0;
+  touch-action: none; overflow: hidden;
+  background:
+    repeating-linear-gradient(0deg, #16161f 0 39px, #1c1c28 39px 40px),
+    repeating-linear-gradient(90deg, #16161f 0 39px, #1c1c28 39px 40px);
+}
+#stageHint {
+  position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%);
+  text-align: center; color: #444455; pointer-events: none; line-height: 2;
+}
+/* 指の跡 */
+.trail { position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px; }
+.origin { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; background: #556; }
+
+#panel {
+  position: fixed; top: 0; bottom: 0; left: 55%; right: 0;
+  overflow-y: auto; touch-action: pan-y;
+  padding: 8px 10px; box-sizing: border-box;
+  border-left: 1px solid #333344;
+}
+.topbar {
+  position: sticky; top: 0; z-index: 2;
+  background: #101018; padding: 4px 0 6px;
+  border-bottom: 1px solid #333344; margin-bottom: 6px;
+}
+.topbar button { margin-right: 6px; }
+h2 {
+  font-size: 14px; margin: 10px 0 4px; color: #7788aa;
+  border-bottom: 1px solid #333344; font-weight: normal;
+}
+.row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.big { font-size: 26px; color: #ffcc22; }
+.dim { color: #666677; }
+
+/* 出たジェスチャの札 */
+.tag {
+  padding: 4px 8px; background: #222233; border: 1px solid #444455; color: #666677;
+}
+.tag.hot { background: #ffcc22; border-color: #ffee88; color: #111122; }
+.tag b { font-weight: normal; }
+
+#log { height: 190px; overflow: hidden; color: #889; font-size: 14px; }
+#log div { white-space: pre; }
+#log .g { color: #8fc; }
+
+details { margin-top: 8px; border-top: 1px solid #333344; }
+summary { cursor: pointer; padding: 8px 0; color: #7788aa; }
+label.knob { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
+label.knob span:first-child { width: 150px; flex: none; }
+label.knob output { width: 60px; flex: none; text-align: right; color: #ffcc22; }
+input[type=range] {
+  flex: 1; min-width: 80px; height: 36px; touch-action: none;
+  -webkit-appearance: none; appearance: none; background: transparent;
+}
+input[type=range]::-webkit-slider-runnable-track {
+  height: 10px; background: #2a2a3a; border: 1px solid #555566;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 30px; height: 30px; margin-top: -11px;
+  background: #ffcc22; border: 2px solid #ffee88;
+}
+input[type=range]::-moz-range-track { height: 10px; background: #2a2a3a; border: 1px solid #555566; }
+input[type=range]::-moz-range-thumb {
+  width: 28px; height: 28px; border-radius: 0; background: #ffcc22; border: 2px solid #ffee88;
+}
+button {
+  font: 16px monospace; padding: 8px 14px; margin-right: 6px;
+  background: #333344; color: #ccccdd; border: 1px solid #8888aa;
+}
+</style>
+</head>
+<body>
+
+<div id="stage"><div id="stageHint">ここを指でなぞる<br><span class="dim">PC ではマウスが指 1 本ぶん<br>（ピンチと 3 本指は実機でしか出ない）</span></div></div>
+
+<div id="panel">
+  <div class="topbar">
+    <div class="row">
+      <button id="clear">CLEAR</button>
+      <button id="reload">↻</button>
+      <span class="big" id="lastType" style="margin-left:auto">—</span>
+    </div>
+  </div>
+
+  <h2>① 出たもの</h2>
+  <div class="row" id="tags"></div>
+
+  <h2>② いまの指</h2>
+  <div id="live" class="dim">（触れていません）</div>
+
+  <details open>
+    <summary>しきい値</summary>
+    <div id="knobs"></div>
+  </details>
+
+  <h2>③ ログ</h2>
+  <div id="log"></div>
+</div>
+
+<script type="module">
+import { createGesture, GESTURES } from '../../engine/util/gesture.js';
+
+// 指でつまむ拡大とダブルタップの拡大を潰す(SMARTPHONE.md の 8 節)
+for (const g of ['gesturestart', 'gesturechange', 'gestureend']) {
+  document.addEventListener(g, (e) => e.preventDefault());
+}
+let lastTapAt = 0;
+document.addEventListener('touchend', (e) => {
+  if (e.target.closest('button, input, textarea, summary, label')) return;
+  const now = Date.now();
+  if (now - lastTapAt <= 350) e.preventDefault();
+  lastTapAt = now;
+}, { passive: false });
+document.addEventListener('touchmove', (e) => {
+  if (e.target.closest('#panel')) return;
+  e.preventDefault();
+}, { passive: false });
+
+const stage = document.getElementById('stage');
+const el = (id) => document.getElementById(id);
+
+/** 出た回数と、最後に出た時刻 */
+const count = {}, hitAt = {};
+for (const t of GESTURES) { count[t] = 0; hitAt[t] = -1e9; }
+const log = [];
+let last = null;
+
+const gesture = createGesture({
+  el: stage,
+  onGesture: (e) => {
+    count[e.type] = (count[e.type] || 0) + 1;
+    hitAt[e.type] = performance.now();
+    last = e;
+    // swipe と pinch は続けて出るので、ログには数だけ足す
+    if (e.type === 'swipe' || e.type === 'pinch') {
+      const top = log[0];
+      if (top && top.type === e.type) { top.n++; top.e = e; return; }
+    }
+    log.unshift({ type: e.type, e, n: 1 });
+    if (log.length > 24) log.pop();
+  },
+});
+// 実機で中を覗くとき用
+window.gesture = gesture;
+
+// ── しきい値のつまみ ──────────────────────────────────
+const KNOBS = [
+  ['tapMaxMs', 'タップの長さms', 80, 600, 10],
+  ['tapMaxDist', 'タップの動きpx', 0, 40, 1],
+  ['longPressMs', '長押しms(0=無)', 0, 1200, 50],
+  ['swipeMinDist', 'スワイプpx', 2, 60, 1],
+  ['flickMinSpeed', 'フリックpx/ms', 0.1, 2, 0.05],
+  ['flickWindowMs', '速さを測る幅ms', 40, 400, 10],
+  ['pinchMinScale', 'ピンチの割合', 0.01, 0.5, 0.01],
+];
+const knobsEl = el('knobs');
+for (const [key, name, min, max, step] of KNOBS) {
+  const row = document.createElement('label');
+  row.className = 'knob';
+  row.innerHTML = `<span>${name}</span>`
+    + `<input type="range" min="${min}" max="${max}" step="${step}" value="${gesture.opts[key]}">`
+    + `<output>${gesture.opts[key]}</output>`;
+  const range = row.querySelector('input'), out = row.querySelector('output');
+  range.addEventListener('input', () => {
+    const v = Number(range.value);
+    out.textContent = v;
+    gesture.setOptions({ [key]: v });
+  });
+  knobsEl.appendChild(row);
+}
+
+el('clear').addEventListener('click', () => {
+  for (const t of GESTURES) { count[t] = 0; hitAt[t] = -1e9; }
+  log.length = 0; last = null;
+  for (const d of stage.querySelectorAll('.trail, .origin')) d.remove();
+});
+el('reload').addEventListener('click', () => {
+  const q = new URLSearchParams(location.search);
+  q.set('v', String((Number(q.get('v')) || 0) + 1));
+  location.replace(location.pathname + '?' + q);
+});
+
+// ── 指の跡を板に残す ──────────────────────────────────
+const COLORS = ['#ff5555', '#55ff55', '#5599ff', '#ffff55', '#ff55ff', '#55ffff'];
+let seq = 0;
+const idColor = new Map();
+stage.addEventListener('pointerdown', (e) => {
+  if (!idColor.has(e.pointerId)) idColor.set(e.pointerId, COLORS[seq++ % COLORS.length]);
+  mark(e, 'origin');
+});
+stage.addEventListener('pointermove', (e) => { if (idColor.has(e.pointerId)) mark(e, 'trail'); });
+const drop = (e) => idColor.delete(e.pointerId);
+stage.addEventListener('pointerup', drop);
+stage.addEventListener('pointercancel', drop);
+
+function mark(e, cls) {
+  const r = stage.getBoundingClientRect();
+  const d = document.createElement('div');
+  d.className = cls;
+  d.style.left = (e.clientX - r.left) + 'px';
+  d.style.top = (e.clientY - r.top) + 'px';
+  if (cls === 'trail') d.style.background = idColor.get(e.pointerId) || '#fff';
+  stage.appendChild(d);
+  // 増えすぎたら古いものから消す
+  const all = stage.querySelectorAll('.trail, .origin');
+  if (all.length > 400) all[0].remove();
+}
+
+// ── 毎コマ描き替える ──────────────────────────────────
+function frame() {
+  const now = performance.now();
+
+  el('lastType').textContent = last ? last.type : '—';
+  el('tags').innerHTML = GESTURES.map((t) =>
+    `<span class="tag${now - hitAt[t] < 220 ? ' hot' : ''}">${t} <b>${count[t]}</b></span>`).join('');
+
+  const pts = [...gesture.points.entries()];
+  el('live').innerHTML = pts.length === 0
+    ? '<span class="dim">（触れていません）</span>'
+    : pts.map(([id, p]) => `#${id} ${Math.round(p.x)},${Math.round(p.y)}`).join('<br>')
+      + `<br><span class="dim">本数 ${last ? last.fingers : pts.length} / ${last ? last.source : '—'}</span>`;
+
+  el('log').innerHTML = log.map((r) => {
+    const e = r.e;
+    const bits = [r.type.padEnd(9)];
+    if (e.dir) bits.push(e.dir.padEnd(5));
+    if (e.speed !== undefined) bits.push(e.speed.toFixed(2) + 'px/ms');
+    if (e.scale !== undefined) bits.push('x' + e.scale.toFixed(2));
+    if (e.ms !== undefined) bits.push(Math.round(e.ms) + 'ms');
+    bits.push(e.fingers + '本');
+    if (r.n > 1) bits.push('x' + r.n);
+    return `<div class="g">${bits.join(' ')}</div>`;
+  }).join('');
+
+  requestAnimationFrame(frame);
+}
+frame();
+</script>
+</body>
+</html>
