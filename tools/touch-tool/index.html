@@ -12,8 +12,13 @@ html, body {
   position: fixed; width: 100%; height: 100%; overflow: hidden;
   margin: 0; background: #101018; color: #ccccdd;
   font: 16px/1.5 monospace;
-  touch-action: none; user-select: none; -webkit-touch-callout: none;
+  touch-action: none;
+  /* Safari は接頭辞つきでないと効かない */
+  user-select: none; -webkit-user-select: none;
+  -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
 }
+/* 計器盤の中の文字だけは選べるようにしておく(値を控えるため) */
+#values { -webkit-user-select: text; user-select: text; }
 /* 縦持ちのときに 90 度回すための入れ物。
    中身はすべてこの中に入れる(パッドも計器盤も)。
    transform を掛けると、中の position:fixed はこの入れ物を基準にしてくれる */
@@ -121,7 +126,7 @@ button {
 <div id="panel">
   <div class="topbar">
     <div class="row nowrap">
-      <button id="rot" class="icon" title="90度回す">⟳</button>
+      <button id="rot" class="icon" title="90度回す">⤵</button>
       <button id="swap" class="icon" title="左右を入れ替える">⇄</button>
       <button id="reload" class="icon" title="読み直す">↻</button>
       <span class="big" id="rateTop">0</span>
@@ -294,14 +299,6 @@ modeRow.addEventListener('change', (e) => {
   showValues();
 });
 
-// 十字を置く側
-const sideRow = document.createElement('div');
-sideRow.className = 'row';
-sideRow.innerHTML = '<span style="width:96px">十字の側</span>'
-  + '<label><input type="radio" name="side" value="left" checked> 左</label> '
-  + '<label><input type="radio" name="side" value="right"> 右</label>';
-knobsEl.appendChild(sideRow);
-
 // 画面の大きさぶんの伸び縮み。**いまの端末を「中」とする**。
 // px で決めたつまみ(不感帯・引きずり・半径・しきい値)にまとめて掛かる
 const sizeRow = document.createElement('div');
@@ -313,11 +310,6 @@ sizeRow.innerHTML = '<span style="width:128px">画面の大きさ</span>'
 knobsEl.appendChild(sizeRow);
 sizeRow.addEventListener('change', (e) => {
   touch.setOptions({ scale: Number(e.target.value) });
-  showValues();
-});
-sideRow.addEventListener('change', (e) => {
-  zone.side = e.target.value;
-  syncPanel();
   showValues();
 });
 
@@ -346,8 +338,6 @@ for (const [key, name, min, max, step, mine] of KNOBS) {
 // キャッシュに古いものが残るので、v を 1 つ増やして開き直す
 document.getElementById('swap').addEventListener('click', () => {
   zone.side = zone.side === 'left' ? 'right' : 'left';
-  const r = document.querySelector(`input[name=side][value="${zone.side}"]`);
-  if (r) r.checked = true;
   syncPanel();
   showValues();
 });

@@ -402,6 +402,10 @@ export class TouchControls {
       else if (p.owner === 'shot') this._shotUp();
       else this._release(this.opts.pauseCode);
     };
+    // 長押しのメニュー(iOS の「コピー」など)を断る。
+    // CSS だけでは出てしまうことがあるので、催促そのものを止める
+    el.addEventListener('contextmenu', (e) => e.preventDefault());
+
     // 着信やジェスチャで指が消えることがあるので cancel も拾う
     el.addEventListener('pointerup', up);
     el.addEventListener('pointercancel', up);
@@ -656,8 +660,15 @@ function injectStyle() {
    ここで足すのは、指で触るために要る指定だけ */
 .mmsxx-touch-zone {
   overflow: hidden;
-  touch-action: none; user-select: none; -webkit-touch-callout: none;
+  touch-action: none;
   image-rendering: pixelated;
+}
+/* 長押しで「コピー」などのメニューが出るのを止める。
+   **Safari は接頭辞つきでないと効かない。** 中の文言まで届かせるため子孫にも当てる */
+.mmsxx-touch-zone, .mmsxx-touch-zone * {
+  user-select: none; -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* エリアの名前と使いかた。**さりげなく**出す。指の邪魔をしないよう素通しにする */
@@ -715,7 +726,8 @@ function injectStyle() {
 
 /* ショット。面の横溝で「こする場所」だと見せる */
 .mmsxx-touch-fire {
-  position: absolute; left: 6px; right: 6px; top: 78px; bottom: 22px;
+  /* **エリアの下半分だけ。** 親指の届くところに置く */
+  position: absolute; left: 6px; right: 6px; top: 50%; bottom: 22px;
   background: #aa2222;
   background-image: repeating-linear-gradient(
     to bottom, #cc3333 0 6px, #881111 6px 12px);
