@@ -516,7 +516,8 @@ export class TouchControls {
    * 端に触れたときだけ、絵が指から少しずれて見える
    */
   _fit(x, y, r) {
-    const pad = this.opts.guiRadius * 1.4 * (this.opts.scale || 1);
+    // **少しはみ出してよい。** きっちり収めると、端では絵が指から離れすぎる
+    const pad = this.opts.guiRadius * 0.8 * (this.opts.scale || 1);
     const one = (v, size) => (size < pad * 2 ? size / 2 : Math.min(Math.max(v, pad), size - pad));
     return { x: one(x, r.width), y: one(y, r.height) };
   }
@@ -800,17 +801,20 @@ function injectStyle() {
    上向きの形を 1 つ作って、向きごとに回す */
 /* 上向きの形を 1 つ作って、向きごとに回す。
    **中心ぎりぎりまで寄せる**ので、外側の端は今までと同じところに来る */
+/* 上向きの形を 1 つ作って、向きごとに回す。
+   幅は半径ぶん、長さはその手前まで。**お尻が隣の矢印と重ならない**ところで止める
+   (内側の端が幅の半分より内へ入ると、四隅で重なる) */
 .mmsxx-touch-arrow {
   position: absolute; background: #224466;
-  width: calc(var(--r) * 0.8); height: calc(var(--r) * 1.35);
-  margin: calc(var(--r) * -0.675) 0 0 calc(var(--r) * -0.4);
-  clip-path: polygon(50% 0%, 100% 44%, 76% 44%, 76% 100%, 24% 100%, 24% 44%, 0% 44%);
+  width: var(--r); height: calc(var(--r) * 0.88);
+  margin: calc(var(--r) * -0.44) 0 0 calc(var(--r) * -0.5);
+  clip-path: polygon(50% 0%, 100% 55%, 72% 55%, 72% 100%, 28% 100%, 28% 55%, 0% 55%);
 }
 .mmsxx-touch-arrow.on { background: #ffcc22; }
-.mmsxx-touch-arrow[data-code="ArrowUp"]    { left: 0; top: calc(var(--r) * -0.725); }
-.mmsxx-touch-arrow[data-code="ArrowDown"]  { left: 0; top: calc(var(--r) * 0.725);  transform: rotate(180deg); }
-.mmsxx-touch-arrow[data-code="ArrowLeft"]  { top: 0; left: calc(var(--r) * -0.725); transform: rotate(-90deg); }
-.mmsxx-touch-arrow[data-code="ArrowRight"] { top: 0; left: calc(var(--r) * 0.725);  transform: rotate(90deg); }
+.mmsxx-touch-arrow[data-code="ArrowUp"]    { left: 0; top: calc(var(--r) * -0.96); }
+.mmsxx-touch-arrow[data-code="ArrowDown"]  { left: 0; top: calc(var(--r) * 0.96);  transform: rotate(180deg); }
+.mmsxx-touch-arrow[data-code="ArrowLeft"]  { top: 0; left: calc(var(--r) * -0.96); transform: rotate(-90deg); }
+.mmsxx-touch-arrow[data-code="ArrowRight"] { top: 0; left: calc(var(--r) * 0.96);  transform: rotate(90deg); }
 
 /* ショット。面の横溝で「こする場所」だと見せる */
 .mmsxx-touch-fire {
