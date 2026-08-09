@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<title>pad-tool - バーチャルパッドの実験台</title>
+<title>touch-tool - タッチ操作の実験台</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -101,7 +101,7 @@ button {
 </div>
 
 <script type="module">
-import { VirtualPad } from '../../engine/util/pad.js';
+import { TouchControls } from '../../engine/util/touch.js';
 import { isMobileLike } from '../../engine/util/device.js';
 
 // ダブルタップの拡大を潰す(user-scalable=no は iOS Safari が無視する)
@@ -115,7 +115,7 @@ document.addEventListener('touchmove', (e) => {
 const log = [];
 const hits = new Map();   // code -> 押した時刻(立ち上がりを光らせる)
 
-const pad = new VirtualPad({
+const touch = new TouchControls({
   onPress: (code, source) => {
     // 本番では mmsxx.input.press(code, source) へ素通しする。
     // ここは実験台なので、そのまま表に出すだけ
@@ -124,9 +124,9 @@ const pad = new VirtualPad({
   },
   onRelease: (code, source) => addLog('RELEASE', code, source),
 });
-pad.attach(document.body);
+touch.attach(document.body);
 // 実機を繋いで中を覗くとき用(mmsxxDebug() と同じ考えかた)
-window.pad = pad;
+window.touch = touch;
 
 let lastLogAt = 0;
 function addLog(kind, code, source) {
@@ -157,10 +157,10 @@ modeRow.className = 'row';
 modeRow.innerHTML = '<span style="width:96px">方式</span>'
   + ['A 区画', 'B 移動量', 'C 出入り'].map((t, i) =>
       `<label><input type="radio" name="mode" value="${'ABC'[i]}"`
-      + `${pad.opts.shotMode === 'ABC'[i] ? ' checked' : ''}> ${t}</label>`).join(' ');
+      + `${touch.opts.shotMode === 'ABC'[i] ? ' checked' : ''}> ${t}</label>`).join(' ');
 knobsEl.appendChild(modeRow);
 modeRow.addEventListener('change', (e) => {
-  pad.setOptions({ shotMode: e.target.value });
+  touch.setOptions({ shotMode: e.target.value });
   showValues();
 });
 
@@ -172,7 +172,7 @@ sideRow.innerHTML = '<span style="width:96px">十字の側</span>'
   + '<label><input type="radio" name="side" value="right"> 右</label>';
 knobsEl.appendChild(sideRow);
 sideRow.addEventListener('change', (e) => {
-  pad.setOptions({ side: e.target.value });
+  touch.setOptions({ side: e.target.value });
   syncPanel();
   showValues();
 });
@@ -181,14 +181,14 @@ for (const [key, name, min, max, step] of KNOBS) {
   const el = document.createElement('label');
   el.className = 'knob';
   el.innerHTML = `<span>${name}</span>`
-    + `<input type="range" min="${min}" max="${max}" step="${step}" value="${pad.opts[key]}">`
-    + `<output>${pad.opts[key]}</output>`;
+    + `<input type="range" min="${min}" max="${max}" step="${step}" value="${touch.opts[key]}">`
+    + `<output>${touch.opts[key]}</output>`;
   const range = el.querySelector('input');
   const out = el.querySelector('output');
   range.addEventListener('input', () => {
     const v = Number(range.value);
     out.textContent = v;
-    pad.setOptions({ [key]: v });
+    touch.setOptions({ [key]: v });
     if (key === 'dpadZone' || key === 'shotZone') syncPanel();
     showValues();
   });
@@ -196,7 +196,7 @@ for (const [key, name, min, max, step] of KNOBS) {
 }
 
 document.getElementById('reset').addEventListener('click', () => {
-  pad.reset();
+  touch.reset();
   log.length = 0;
   hits.clear();
 });
@@ -209,7 +209,7 @@ document.getElementById('copy').addEventListener('click', () => {
 
 /** 決まった値を控えるための、そのまま貼れる形 */
 function showValues() {
-  const o = pad.opts;
+  const o = touch.opts;
   valuesEl.value = '{\n'
     + [...KNOBS.map(([k]) => k), 'shotMode', 'side']
         .map(k => `  ${k}: ${typeof o[k] === 'string' ? `'${o[k]}'` : o[k]},`)
@@ -221,8 +221,8 @@ showValues();
 /** 計器盤を、左右のエリアに挟まれた真ん中へ収める */
 function syncPanel() {
   const p = document.getElementById('panel');
-  const left = pad.opts.side === 'left' ? pad.opts.dpadZone : pad.opts.shotZone;
-  const right = pad.opts.side === 'left' ? pad.opts.shotZone : pad.opts.dpadZone;
+  const left = touch.opts.side === 'left' ? touch.opts.dpadZone : touch.opts.shotZone;
+  const right = touch.opts.side === 'left' ? touch.opts.shotZone : touch.opts.dpadZone;
   p.style.left = left + '%';
   p.style.right = right + '%';
 }
@@ -251,7 +251,7 @@ const KEY_LIST = [
 const el = (id) => document.getElementById(id);
 
 function frame() {
-  const st = pad.state();
+  const st = touch.state();
   const now = performance.now();
 
   // ① キーの状態
@@ -284,7 +284,7 @@ function frame() {
   el('maxRate').textContent = st.rub.maxRate;
   el('rub').innerHTML = `PRESS ${st.rub.pressCount} / RELEASE ${st.rub.releaseCount}`
     + ` / 移動 ${Math.round(st.rub.move)}px`
-    + (pad.opts.shotMode === 'A' ? ` / 区画 ${st.rub.cell || '—'}` : '');
+    + (touch.opts.shotMode === 'A' ? ` / 区画 ${st.rub.cell || '—'}` : '');
 
   // ⑤ 端末・画面
   const forced = new URLSearchParams(location.search).get('device');

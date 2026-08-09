@@ -1,18 +1,21 @@
-// バーチャルパッド(タッチ操作)。**DOM だけで作る**。canvas には何も描かない。
-// 設計は docs/SMARTPHONE.md の 3〜5 節と 8 節。
+// **タッチ操作**の GUI(画面の上の十字とショット)。**DOM だけで作る**。
+// canvas には何も描かない。設計は docs/SMARTPHONE.md の 3〜5 節と 8 節。
 //
-//   import { VirtualPad } from './engine/util/pad.js';
+// **ゲームパッドはここではない。** あちらは engine/util/gamepad.js。
+// 送る種別も touch / pad で分かれている(docs/TODO.md の O 章)。
 //
-//   const pad = new VirtualPad({
+//   import { TouchControls } from './engine/util/touch.js';
+//
+//   const touch = new TouchControls({
 //     onPress:   (code, source) => mmsxx.input.press(code, source),
 //     onRelease: (code, source) => mmsxx.input.release(code),
 //   });
-//   pad.attach(document.body);
+//   touch.attach(document.body);
 //
 // ## エンジンにも game にも依存しない
 //
 // ここは**押した / 離したを呼び出し側へ知らせるだけ**。Input も mmsxx も触らない。
-// SMARTPHONE.md の 10 節では `new VirtualPad(mmsxx, ...)` と書いてあるが、
+// SMARTPHONE.md の 10 節では `new TouchControls(mmsxx, ...)` と書いてあるが、
 // 通知にしたので mmsxx は要らなくなった。繋ぐのは呼び出し側の仕事。
 //
 // ## 押されたときの「何で押したか」
@@ -28,7 +31,7 @@
 //
 // ## つまみ(手触りを詰めるための値)
 //
-// すべて setOptions() で**動かしたまま**変えられる。padlab/ で実機で触って決める。
+// すべて setOptions() で**動かしたまま**変えられる。touch-tool/ で実機で触って決める。
 // 決まった値をここの既定値に書き戻すこと。
 
 /** 押されたと知らせるときの種別。**ここ 1 か所だけ** */
@@ -60,7 +63,7 @@ const DEFAULTS = {
   pauseCode: 'Escape',
 };
 
-export class VirtualPad {
+export class TouchControls {
   /**
    * @param {{
    *   onPress?:   (code:string, source:string) => void,
@@ -81,9 +84,9 @@ export class VirtualPad {
     /** pointerId ごとの担当。**途中で入れ替えない**(SMARTPHONE.md 8 節) */
     this.pointers = new Map();
 
-    /** 相対十字の様子(padlab が読む) */
+    /** 相対十字の様子(touch-tool が読む) */
     this.stick = { active: false, ox: 0, oy: 0, x: 0, y: 0, dx: 0, dy: 0, dist: 0, deg: 0, sector: -1 };
-    /** こすり打ちの様子(padlab が読む) */
+    /** こすり打ちの様子(touch-tool が読む) */
     this.rub = { pressCount: 0, releaseCount: 0, move: 0, rate: 0, maxRate: 0, cell: '' };
 
     this.el = null;
@@ -110,12 +113,12 @@ export class VirtualPad {
     this._applyLayout();
     host.appendChild(this.el);
 
-    this._dpad = this.el.querySelector('.mmsxx-pad-dpad');
-    this._shot = this.el.querySelector('.mmsxx-pad-shot');
-    this._fire = this.el.querySelector('.mmsxx-pad-fire');
-    this._pause = this.el.querySelector('.mmsxx-pad-pause');
-    this._knob = this.el.querySelector('.mmsxx-pad-knob');
-    this._ring = this.el.querySelector('.mmsxx-pad-ring');
+    this._dpad = this.el.querySelector('.mmsxx-touch-dpad');
+    this._shot = this.el.querySelector('.mmsxx-touch-shot');
+    this._fire = this.el.querySelector('.mmsxx-touch-fire');
+    this._pause = this.el.querySelector('.mmsxx-touch-pause');
+    this._knob = this.el.querySelector('.mmsxx-touch-knob');
+    this._ring = this.el.querySelector('.mmsxx-touch-ring');
 
     this._bind(this._dpad, 'dpad');
     this._bind(this._fire, 'shot');
@@ -158,7 +161,7 @@ export class VirtualPad {
     this._paint();
   }
 
-  /** 数えたぶんを捨てる(padlab の RESET) */
+  /** 数えたぶんを捨てる(touch-tool の RESET) */
   reset() {
     this.releaseAll();
     this.rub.pressCount = 0;
@@ -169,7 +172,7 @@ export class VirtualPad {
     this._shotTimes.length = 0;
   }
 
-  /** いまの様子をまとめて渡す(padlab の計器盤が読む) */
+  /** いまの様子をまとめて渡す(touch-tool の計器盤が読む) */
   state() {
     this._trimShotTimes();
     return {
@@ -188,14 +191,14 @@ export class VirtualPad {
     if (!this.el) return;
     const o = this.opts;
     this.el.dataset.side = o.side;
-    this.el.querySelector('.mmsxx-pad-dpad').style.width = o.dpadZone + '%';
-    this.el.querySelector('.mmsxx-pad-shot').style.width = o.shotZone + '%';
+    this.el.querySelector('.mmsxx-touch-dpad').style.width = o.dpadZone + '%';
+    this.el.querySelector('.mmsxx-touch-shot').style.width = o.shotZone + '%';
   }
 
   /** 押しているところを明るくする。**音は鳴らさない** */
   _paint() {
     if (!this.el) return;
-    for (const arrow of this.el.querySelectorAll('.mmsxx-pad-arrow')) {
+    for (const arrow of this.el.querySelectorAll('.mmsxx-touch-arrow')) {
       arrow.classList.toggle('on', this.down.has(arrow.dataset.code));
     }
     if (this._fire) this._fire.classList.toggle('on', this.down.has(this.opts.shotCode));
@@ -483,19 +486,19 @@ export class VirtualPad {
 
 function buildDom() {
   const el = document.createElement('div');
-  el.className = 'mmsxx-pad';
+  el.className = 'mmsxx-touch';
   el.innerHTML = `
-    <div class="mmsxx-pad-zone mmsxx-pad-dpad">
-      <div class="mmsxx-pad-ring"></div>
-      <div class="mmsxx-pad-knob"></div>
-      <div class="mmsxx-pad-arrow" data-code="ArrowUp"></div>
-      <div class="mmsxx-pad-arrow" data-code="ArrowDown"></div>
-      <div class="mmsxx-pad-arrow" data-code="ArrowLeft"></div>
-      <div class="mmsxx-pad-arrow" data-code="ArrowRight"></div>
+    <div class="mmsxx-touch-zone mmsxx-touch-dpad">
+      <div class="mmsxx-touch-ring"></div>
+      <div class="mmsxx-touch-knob"></div>
+      <div class="mmsxx-touch-arrow" data-code="ArrowUp"></div>
+      <div class="mmsxx-touch-arrow" data-code="ArrowDown"></div>
+      <div class="mmsxx-touch-arrow" data-code="ArrowLeft"></div>
+      <div class="mmsxx-touch-arrow" data-code="ArrowRight"></div>
     </div>
-    <div class="mmsxx-pad-zone mmsxx-pad-shot">
-      <div class="mmsxx-pad-fire"></div>
-      <div class="mmsxx-pad-pause">PAUSE</div>
+    <div class="mmsxx-touch-zone mmsxx-touch-shot">
+      <div class="mmsxx-touch-fire"></div>
+      <div class="mmsxx-touch-pause">PAUSE</div>
     </div>`;
   return el;
 }
@@ -507,61 +510,61 @@ function injectStyle() {
   if (styled) return;
   styled = true;
   const s = document.createElement('style');
-  s.id = 'mmsxx-pad-style';
+  s.id = 'mmsxx-touch-style';
   s.textContent = `
-.mmsxx-pad {
+.mmsxx-touch {
   position: fixed; inset: 0; pointer-events: none; z-index: 20;
   touch-action: none; user-select: none; -webkit-touch-callout: none;
 }
-.mmsxx-pad-zone {
+.mmsxx-touch-zone {
   position: absolute; top: 0; bottom: 0; pointer-events: auto;
   touch-action: none; overflow: hidden;
   image-rendering: pixelated;
 }
-.mmsxx-pad[data-side="left"]  .mmsxx-pad-dpad { left: 0; }
-.mmsxx-pad[data-side="left"]  .mmsxx-pad-shot { right: 0; }
-.mmsxx-pad[data-side="right"] .mmsxx-pad-dpad { right: 0; }
-.mmsxx-pad[data-side="right"] .mmsxx-pad-shot { left: 0; }
+.mmsxx-touch[data-side="left"]  .mmsxx-touch-dpad { left: 0; }
+.mmsxx-touch[data-side="left"]  .mmsxx-touch-shot { right: 0; }
+.mmsxx-touch[data-side="right"] .mmsxx-touch-dpad { right: 0; }
+.mmsxx-touch[data-side="right"] .mmsxx-touch-shot { left: 0; }
 
 /* 十字。触れたところに現れる */
-.mmsxx-pad-ring {
+.mmsxx-touch-ring {
   position: absolute; display: none; transform: translate(-50%, -50%);
   border: 2px solid #4488cc; background: rgba(32, 64, 112, 0.35);
 }
-.mmsxx-pad-knob {
+.mmsxx-touch-knob {
   position: absolute; width: 20px; height: 20px; margin: -10px 0 0 -10px;
   background: #66ccff; display: none;
 }
 
 /* 押している向きの目印。四隅ではなく上下左右の端に出す */
-.mmsxx-pad-arrow {
+.mmsxx-touch-arrow {
   position: absolute; background: #224466; width: 22px; height: 22px;
 }
-.mmsxx-pad-arrow.on { background: #ffcc22; }
-.mmsxx-pad-arrow[data-code="ArrowUp"]    { top: 8px;    left: 50%; margin-left: -11px; }
-.mmsxx-pad-arrow[data-code="ArrowDown"]  { bottom: 8px; left: 50%; margin-left: -11px; }
-.mmsxx-pad-arrow[data-code="ArrowLeft"]  { left: 8px;   top: 50%;  margin-top: -11px; }
-.mmsxx-pad-arrow[data-code="ArrowRight"] { right: 8px;  top: 50%;  margin-top: -11px; }
+.mmsxx-touch-arrow.on { background: #ffcc22; }
+.mmsxx-touch-arrow[data-code="ArrowUp"]    { top: 8px;    left: 50%; margin-left: -11px; }
+.mmsxx-touch-arrow[data-code="ArrowDown"]  { bottom: 8px; left: 50%; margin-left: -11px; }
+.mmsxx-touch-arrow[data-code="ArrowLeft"]  { left: 8px;   top: 50%;  margin-top: -11px; }
+.mmsxx-touch-arrow[data-code="ArrowRight"] { right: 8px;  top: 50%;  margin-top: -11px; }
 
 /* ショット。面の横溝で「こする場所」だと見せる */
-.mmsxx-pad-fire {
+.mmsxx-touch-fire {
   position: absolute; left: 6px; right: 6px; top: 6px; bottom: 64px;
   background: #aa2222;
   background-image: repeating-linear-gradient(
     to bottom, #cc3333 0 6px, #881111 6px 12px);
   border: 2px solid #ee6666;
 }
-.mmsxx-pad-fire.on {
+.mmsxx-touch-fire.on {
   background-image: repeating-linear-gradient(
     to bottom, #ff8888 0 6px, #cc3333 6px 12px);
 }
-.mmsxx-pad-pause {
+.mmsxx-touch-pause {
   position: absolute; left: 6px; right: 6px; bottom: 6px; height: 44px;
   background: #333344; border: 2px solid #8888aa; color: #ccccdd;
   font: 12px monospace; letter-spacing: 1px;
   display: flex; align-items: center; justify-content: center;
 }
-.mmsxx-pad-pause.on { background: #8888aa; color: #111122; }
+.mmsxx-touch-pause.on { background: #8888aa; color: #111122; }
 `;
   document.head.appendChild(s);
 }
