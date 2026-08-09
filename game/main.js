@@ -12666,7 +12666,7 @@ enterTitle();
 // なお**パッド側が持っている連射は止められない**。人が速く叩いたのと
 // まったく同じ形で届くので、見分けがつかない
 const PAD_MAP = {
-  2: 'Escape', 3: 'Escape', 9: 'Escape',
+  8: 'Escape', 9: 'Escape',   // Back と Start だけポーズ。ABXY はすべてショット
   12: 'ArrowUp', 13: 'ArrowDown', 14: 'ArrowLeft', 15: 'ArrowRight',
 };
 for (let i = 0; i < 32; i++) if (PAD_MAP[i] === undefined) PAD_MAP[i] = 'Space';

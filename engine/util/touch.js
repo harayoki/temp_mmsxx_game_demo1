@@ -671,7 +671,8 @@ const ARROWS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']
 const DPAD_HTML = `
   <div class="mmsxx-touch-title"></div>
   <div class="mmsxx-touch-note"></div>
-  <div class="mmsxx-touch-hint">${ARROWS}<div class="mmsxx-touch-callout"></div></div>
+  <div class="mmsxx-touch-hint">${ARROWS}</div>
+  <div class="mmsxx-touch-callout"></div>
   <div class="mmsxx-touch-stick"><div class="mmsxx-touch-ring"></div>${ARROWS}</div>
   <div class="mmsxx-touch-knob"></div>`;
 
@@ -734,10 +735,13 @@ function injectStyle() {
    **一度でも触ったら二度と出さない** */
 .mmsxx-touch-callout {
   position: absolute; left: 50%; transform: translateX(-50%);
-  top: calc(var(--r) * 1.5);
-  color: #ffffff; font: 12px monospace; letter-spacing: 2px; white-space: nowrap;
+  top: calc(50% + var(--r) * 1.5);
+  color: #ffffff; font: bold 16px monospace; letter-spacing: 3px; white-space: nowrap;
 }
-.mmsxx-touch-dpad.used .mmsxx-touch-callout { display: none; }
+/* 触れているあいだと、一度でも触ったあとは出さない。
+   **点滅はしない**(目印の外に置いてあるため) */
+.mmsxx-touch-dpad.used .mmsxx-touch-callout,
+.mmsxx-touch-dpad.holding .mmsxx-touch-callout { display: none; }
 
 /* 十字。**触れたところが原点**で、絵ごとそこへ移る。
    四角 4 つを、原点から一定の距離(--r)に置く */
@@ -764,7 +768,7 @@ function injectStyle() {
   position: absolute; background: #224466;
   width: calc(var(--r) * 0.8); height: calc(var(--r) * 0.8);
   margin: calc(var(--r) * -0.4) 0 0 calc(var(--r) * -0.4);
-  clip-path: polygon(50% 0%, 100% 55%, 70% 55%, 70% 100%, 30% 100%, 30% 55%, 0% 55%);
+  clip-path: polygon(50% 0%, 100% 58%, 78% 58%, 78% 100%, 22% 100%, 22% 58%, 0% 58%);
 }
 .mmsxx-touch-arrow.on { background: #ffcc22; }
 .mmsxx-touch-arrow[data-code="ArrowUp"]    { left: 0; top: calc(var(--r) * -1); }

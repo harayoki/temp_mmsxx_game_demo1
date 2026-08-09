@@ -361,13 +361,17 @@ const valueOf = (key, mine) => (mine ? zone : touch.opts)[key];
 /** 名前を触ると、**その項目の真下に**説明を出す */
 const hintEl = document.getElementById('knobHint');
 let hintClear = 0;
+let hintOwner = null;
+function closeHint() { hintEl.textContent = ''; hintOwner = null; }
 function showHintOn(el, row, text) {
   el.classList.add('askable');
   el.addEventListener('click', () => {
+    clearTimeout(hintClear);
+    if (hintOwner === el) { closeHint(); return; }   // もう一度触ると閉じる
     row.after(hintEl);            // 触った行の下へ移す
     hintEl.textContent = text;
-    clearTimeout(hintClear);
-    hintClear = setTimeout(() => { hintEl.textContent = ''; }, 8000);
+    hintOwner = el;
+    hintClear = setTimeout(closeHint, 8000);
   });
 }
 
