@@ -357,6 +357,10 @@ export class TouchControls {
   _flashFire() {
     const el = this._fire;
     if (!el) return;
+    if (!el._flashBound) {   // 光り終わったら印を外す(付けっぱなしにしない)
+      el.addEventListener('animationend', () => el.classList.remove('hit'));
+      el._flashBound = true;
+    }
     el.classList.remove('hit');
     void el.offsetWidth;      // ここで巻き戻さないと、続けて撃ったときに光り直さない
     el.classList.add('hit');
@@ -723,7 +727,11 @@ const DPAD_HTML = `
 const SHOT_HTML = `
   <div class="mmsxx-touch-title"></div>
   <div class="mmsxx-touch-note"></div>
-  <div class="mmsxx-touch-fire"></div>
+  <div class="mmsxx-touch-fire">
+    <svg class="mmsxx-touch-gesture" viewBox="0 0 40 40" aria-hidden="true">
+      <path d="M11 29L29 11"/><path d="M21 11h8v8"/><path d="M19 29h-8v-8"/>
+    </svg>
+  </div>
   <div class="mmsxx-touch-callout"></div>
   <div class="mmsxx-touch-pause"></div>`;
 
@@ -845,6 +853,14 @@ function injectStyle() {
   background-image: var(--shotarea-img, none);
 }
 
+/* こすりかたの絵。**最初だけ**、ボタンの上に白で重ねる */
+.mmsxx-touch-gesture {
+  width: 46%; height: 46%;
+  fill: none; stroke: #ffffff; stroke-width: 3;
+  stroke-linecap: square; stroke-linejoin: miter;
+}
+.mmsxx-touch-shot.used .mmsxx-touch-gesture { display: none; }
+
 /* ボタンの絵。**指はエリア全体で受けるので、これは見せるだけ**。
    同系色で少し違う色の枠線を付けた素朴な丸 */
 /* 輪と中身を同じ色にして、あいだに隙間を空ける。
@@ -853,6 +869,7 @@ function injectStyle() {
   position: absolute; left: 50%; bottom: 10%; transform: translateX(-50%);
   width: 74%; aspect-ratio: 1; max-height: 44%;
   box-sizing: border-box; pointer-events: none; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
   border: 9px solid #224466;    /* 輪 */
   padding: 11px;                /* 隙間 */
   background-color: #224466;    /* 中身。矢印のふだんの色と同じ */
@@ -863,11 +880,12 @@ function injectStyle() {
 }
 /* **触れているだけでは色を変えない。** 撃った瞬間だけ、控えめに明るくする
    (黄色にしたり強く光らせたりすると目に障る) */
+/* 撃った瞬間。**中身はそのまま、輪だけ黄色**(矢印が押されたときと同じ色)。
+   色は keyframes だけで付ける。規則に書くと、animation が終わったあとも
+   その色のまま残ってしまう */
 .mmsxx-touch-fire.hit {
-  /* **中身はそのまま。輪だけ黄色にする**(矢印が押されたときと同じ色) */
-  border-color: #ffcc22;
   background-image: var(--fire-img-on, var(--fire-img, none));
-  animation: mmsxx-touch-flash 140ms steps(2, jump-none);
+  animation: mmsxx-touch-flash 120ms steps(2, jump-none);
 }
 @keyframes mmsxx-touch-flash {
   0%   { border-color: #ffcc22; }
