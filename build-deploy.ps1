@@ -56,10 +56,11 @@ if (Test-Path (Join-Path $root 'online')) {
 if (Test-Path (Join-Path $root 'assets')) {
   Copy-Item -Recurse (Join-Path $root 'assets') (Join-Path $deploy 'assets')
 }
-# お試しのページ(tools/*-tool/index.html)。実機で手触りを確かめるための道具で、
-# **開発版にだけ入れる**(-Local)。公開版に混ぜない。
-# 上げると https://dev.msxpoi1.pages.dev/tools/pad-tool/ で触れる
-if ($Local -and (Test-Path (Join-Path $root 'tools'))) {
+# お試しのページ(tools/*-tool/index.html)。実機で手触りを確かめるための道具。
+# **公開版にも入れる。** 開発版(プレビュー)の URL はブランチ名から機械的に決まり、
+# 第三者に見せたくない物が一緒に見えてしまう。人に触ってもらうときは公開版を教える。
+# 上げると https://msxpoi1.pages.dev/tools/touch-tool/ で触れる
+if (Test-Path (Join-Path $root 'tools')) {
   New-Item -ItemType Directory -Force (Join-Path $deploy 'tools') | Out-Null
   foreach ($tool in Get-ChildItem -Directory (Join-Path $root 'tools') -Filter '*-tool') {
     if (-not (Test-Path (Join-Path $tool.FullName 'index.html'))) { continue }
