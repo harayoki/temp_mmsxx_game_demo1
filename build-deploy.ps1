@@ -1,4 +1,4 @@
-# 配布用のフォルダと ZIP を作る。
+﻿# 配布用のフォルダと ZIP を作る。
 #
 #   powershell -File build-deploy.ps1            web 用(公開版)
 #   powershell -File build-deploy.ps1 -Local     手元用(開発版)
@@ -126,7 +126,7 @@ if ($FreezeBuildNumber) {
   Set-Content -Path $numPath -Value $buildNo -NoNewline -Encoding ascii
 }
 # 版の頭。**ここを上げたら build-number.txt を -1 にする**と、次のビルドが .00 から始まる
-$GameVersionBase = 'v1.01'
+$GameVersionBase = 'v1.02'
 # **うしろのビルド番号が付くのは公開版だけ**。
 # 手元用は版の頭だけ(v1.01)にする。どちらも頭は同じ版を名乗る
 if ($Local) { $gameVersion = $GameVersionBase }
