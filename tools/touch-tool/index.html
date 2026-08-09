@@ -340,20 +340,34 @@ modeRow.addEventListener('change', (e) => {
   showValues();
 });
 
-// 画面の大きさぶんの伸び縮み。**いまの端末を「中」とする**。
-// px で決めたつまみ(不感帯・引きずり・半径・しきい値)にまとめて掛かる
-const sizeRow = document.createElement('div');
-sizeRow.className = 'row';
-sizeRow.innerHTML = '<span style="width:128px">画面の大きさ</span>'
-  + [['小', 0.7], ['中', 1], ['大', 1.5]].map(([t, v]) =>
-      `<label><input type="radio" name="size" value="${v}"`
-      + `${touch.opts.scale === v ? ' checked' : ''}> ${t}</label>`).join(' ');
+// 画面の大きさぶんの伸び縮み。**いまの端末を真ん中とする**。
+// px で決めたつまみ(不感帯・引きずり・大きさ・しきい値)にまとめて掛かる。
+//
+// つまみの位置(0〜100)から倍率を出す。**もとの 小 / 中 / 大 が 25 / 50 / 75% に
+// 来る**よう、その 3 点を通る折れ線にしてある(等間隔に並べると中が真ん中に来ない)
+const SIZE_STOPS = [[0, 0.4], [25, 0.7], [50, 1], [75, 1.5], [100, 2]];
+function scaleAt(pos) {
+  for (let i = 1; i < SIZE_STOPS.length; i++) {
+    const [p0, v0] = SIZE_STOPS[i - 1], [p1, v1] = SIZE_STOPS[i];
+    if (pos <= p1) return v0 + (v1 - v0) * (pos - p0) / (p1 - p0);
+  }
+  return SIZE_STOPS[SIZE_STOPS.length - 1][1];
+}
+
+const sizeRow = document.createElement('label');
+sizeRow.className = 'knob';
+sizeRow.innerHTML = '<span>画面の大きさ</span>'
+  + '<input type="range" min="0" max="100" step="1" value="50">'
+  + '<output>1.00</output>';
 knobsEl.appendChild(sizeRow);
 showHintOn(sizeRow.querySelector('span'), sizeRow,
   '画面の大きさ: px で決めた値(不感帯・引きずり・大きさ・しきい値)にまとめて掛かる倍率。'
-  + 'いまの端末が「中」。大きい画面ほど指の動きも大きくなるので、そのぶん鈍くする');
-sizeRow.addEventListener('change', (e) => {
-  touch.setOptions({ scale: Number(e.target.value) });
+  + 'いまの端末が真ん中(1.00)。25% で小さい画面向け、75% で大きい画面向け。'
+  + '大きい画面ほど指の動きも大きくなるので、そのぶん鈍くする');
+sizeRow.addEventListener('input', (e) => {
+  const v = Math.round(scaleAt(Number(e.target.value)) * 100) / 100;
+  sizeRow.querySelector('output').textContent = v.toFixed(2);
+  touch.setOptions({ scale: v });
   showValues();
 });
 

@@ -730,7 +730,7 @@ const SHOT_HTML = `
   <div class="mmsxx-touch-fire"></div>
   <svg class="mmsxx-touch-gesture" viewBox="0 0 48 48" aria-hidden="true">
     <path d="M13 35L35 13"/><path d="M26 13h9v9"/><path d="M22 35h-9v-9"/>
-    <g class="mmsxx-touch-finger" transform="translate(32,29) scale(0.46)">
+    <g class="mmsxx-touch-finger" transform="translate(29,26.5) scale(0.46)">
       <rect x="6.2" y="0" width="3.8" height="11.5" rx="1.9"/>
       <circle cx="11" cy="9.4" r="1.9"/>
       <circle cx="13.2" cy="10.8" r="1.8"/>
@@ -869,9 +869,9 @@ function injectStyle() {
   transform: translate(-50%, 0);   /* 動きを止めてもずれないよう、ここでも寄せておく */
   bottom: calc(10% - var(--btn) * 0.3);
   width: calc(var(--btn) * 1.6); height: calc(var(--btn) * 1.6);
-  fill: none; stroke: #ffffff; stroke-width: 1.8;
+  fill: none; stroke: #ffffff; stroke-width: 1.3;
   stroke-linecap: square; stroke-linejoin: miter;
-  animation: mmsxx-touch-scrub 0.45s ease-in-out infinite alternate;
+  animation: mmsxx-touch-scrub 0.32s ease-in-out infinite alternate;
 }
 /* 指は塗りつぶし。線と同じ白 1 色 */
 .mmsxx-touch-finger { fill: #ffffff; stroke: none; }
