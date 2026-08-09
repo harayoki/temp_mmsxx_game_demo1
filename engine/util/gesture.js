@@ -116,6 +116,7 @@ export function createGesture(opt) {
       t0: now(),
       moved: 0,
       swiping: false,
+      pinching: false,
       spread0: 0,
       /** 速さを測るための、直近の位置 */
       trail: [{ x: c.x, y: c.y, t: now() }],
@@ -147,11 +148,16 @@ export function createGesture(opt) {
     if (run.spread0 > 0 && sp > 0) {
       const scale = sp / run.spread0;
       if (Math.abs(scale - 1) >= g.opts.pinchMinScale) {
+        run.pinching = true;
         emit('pinch', { scale, spread: sp, x: c.x, y: c.y });
       }
     }
 
-    // スワイプ。**動いているあいだ続けて出る**
+    // スワイプ。**動いているあいだ続けて出る**。
+    // **ピンチが始まったら出さない。** 指を広げるときは重心がぶれるので、
+    // 動かしていないのにスワイプが出てしまう。
+    // 指 2 本をそろえて動かしたぶん(広がらない)は、今までどおりスワイプになる
+    if (run.pinching) return;
     if (!run.swiping && run.moved >= g.opts.swipeMinDist) run.swiping = true;
     if (run.swiping && (dx || dy)) {
       emit('swipe', {
@@ -174,9 +180,12 @@ export function createGesture(opt) {
     const span = Math.max(1, b.t - a.t);
     const speed = Math.hypot(b.x - a.x, b.y - a.y) / span;
 
-    if (ms <= g.opts.tapMaxMs && run.moved < g.opts.tapMaxDist) {
+    // ピンチのあとはタップにしない。**指を広げるあいだ重心は動かない**ので、
+    // 手早く広げると「短く触れて離した」と見分けが付かなくなる
+    if (!run.pinching && ms <= g.opts.tapMaxMs && run.moved < g.opts.tapMaxDist) {
       emit('tap', { x: run.x, y: run.y, ms });
-    } else if (speed >= g.opts.flickMinSpeed && run.moved >= g.opts.swipeMinDist) {
+    } else if (!run.pinching && speed >= g.opts.flickMinSpeed
+               && run.moved >= g.opts.swipeMinDist) {
       emit('flick', {
         x: run.x, y: run.y, dx, dy, ms, speed,
         dir: dirOf(b.x - a.x, b.y - a.y),
@@ -192,11 +201,18 @@ export function createGesture(opt) {
     e.preventDefault();
     try { g.el.setPointerCapture(e.pointerId); } catch (err) { /* 捕まえられなくても続ける */ }
     g.points.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (!run) startRun(e.pointerType || 'touch');
-    else {
-      run.fingers = Math.max(run.fingers, g.points.size);
-      if (run.spread0 === 0) run.spread0 = spread();
-    }
+    if (!run) { startRun(e.pointerType || 'touch'); return; }
+    run.fingers = Math.max(run.fingers, g.points.size);
+    // **指が増えたら基準を取り直す。** 重心も指の間隔も、指を足した瞬間に飛ぶ。
+    // 取り直さないと、置いただけで「横へ払った」「広げた」ことになってしまう
+    const c = center();
+    run.x0 = c.x; run.y0 = c.y;
+    run.x = c.x; run.y = c.y;
+    run.moved = 0;
+    run.swiping = false;
+    run.pinching = false;
+    run.spread0 = spread();
+    run.trail = [{ x: c.x, y: c.y, t: now() }];
   };
 
   const onMove = (e) => {
