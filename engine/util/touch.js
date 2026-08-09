@@ -729,17 +729,25 @@ const SHOT_HTML = `
   <div class="mmsxx-touch-note"></div>
   <div class="mmsxx-touch-fire"></div>
   <svg class="mmsxx-touch-gesture" viewBox="0 0 48 48" aria-hidden="true">
-    <g class="mmsxx-touch-sweep">
-      <path d="M13 35L35 13"/><path d="M26 13h9v9"/><path d="M22 35h-9v-9"/>
+    <g class="mmsxx-touch-way1">
+      <path d="M7 41L41 7"/><path d="M30 7h11v11"/><path d="M18 41H7V30"/>
+      <g class="mmsxx-touch-rub"><g class="mmsxx-touch-finger" transform="translate(30,28) scale(0.46)">
+        <rect x="6.2" y="0" width="3.8" height="11.5" rx="1.9"/>
+        <circle cx="11" cy="9.4" r="1.9"/>
+        <circle cx="13.2" cy="10.8" r="1.8"/>
+        <rect x="3.2" y="8.4" width="11.6" height="12" rx="4.4"/>
+        <circle cx="3.6" cy="13.8" r="2.4"/>
+      </g></g>
     </g>
-    <g class="mmsxx-touch-rub">
-    <g class="mmsxx-touch-finger" transform="translate(29,26.5) scale(0.46)">
-      <rect x="6.2" y="0" width="3.8" height="11.5" rx="1.9"/>
-      <circle cx="11" cy="9.4" r="1.9"/>
-      <circle cx="13.2" cy="10.8" r="1.8"/>
-      <rect x="3.2" y="8.4" width="11.6" height="12" rx="4.4"/>
-      <circle cx="3.6" cy="13.8" r="2.4"/>
-    </g>
+    <g class="mmsxx-touch-way2">
+      <path d="M31 12.4A13.5 13.5 0 1 1 17 12.4"/><path d="M24.5 7.5l7 4.9-4.9 7"/>
+      <g class="mmsxx-touch-spin"><g class="mmsxx-touch-finger" transform="translate(20,18) scale(0.46)">
+        <rect x="6.2" y="0" width="3.8" height="11.5" rx="1.9"/>
+        <circle cx="11" cy="9.4" r="1.9"/>
+        <circle cx="13.2" cy="10.8" r="1.8"/>
+        <rect x="3.2" y="8.4" width="11.6" height="12" rx="4.4"/>
+        <circle cx="3.6" cy="13.8" r="2.4"/>
+      </g></g>
     </g>
   </svg>
   <div class="mmsxx-touch-callout"></div>
@@ -871,28 +879,42 @@ function injectStyle() {
    **丸より大きくする。** はみ出して構わないこと(受けるのはエリア全体)を見せるため。
    斜めに行ったり来たりを繰り返して、こする動きそのものを示す */
 .mmsxx-touch-gesture {
-  --btn: calc(var(--r) * 2.8 - 40px);
+  /* 絵の外枠。**矢印はこの 34/48 を占める**(7〜41)。
+     丸(ボタンの絵)は、その矢印の 9 割の大きさにしてある */
+  --box: calc((var(--r) * 2.8 - 40px) * 1.6);
+  --arrow: calc(var(--box) * 34 / 48);
+  --btn: calc(var(--box) * 34 / 48 * 0.9);
   position: absolute; left: 50%; pointer-events: none;
   transform: translate(-50%, 0);   /* 動きを止めてもずれないよう、ここでも寄せておく */
-  bottom: calc(10% - var(--btn) * 0.3);
-  width: calc(var(--btn) * 1.6); height: calc(var(--btn) * 1.6);
+  bottom: calc(10% - (var(--box) - var(--btn)) / 2);
+  width: var(--box); height: var(--box);
   fill: none; stroke: #ffffff; stroke-width: 1.3;
   stroke-linecap: square; stroke-linejoin: miter;
 }
 /* 指は塗りつぶし。線と同じ白 1 色 */
 .mmsxx-touch-finger { fill: #ffffff; stroke: none; }
-/* 指と矢印を**ちょうど逆向き**に動かす。同じ動きに alternate と
-   alternate-reverse を当てると、位相がぴったり反対になる */
+/* **動くのは指だけ。** 矢印は止めておく(動かすと目障りだった)。
+   こすりかたは斜めの往復だけではないので、**数秒おきにくるくるも見せる** */
 .mmsxx-touch-rub {
   animation: mmsxx-touch-scrub 0.32s ease-in-out infinite alternate;
 }
-.mmsxx-touch-sweep {
-  animation: mmsxx-touch-scrub 0.32s ease-in-out infinite alternate-reverse;
-}
 @keyframes mmsxx-touch-scrub {
-  0%   { transform: translate(-4px, 4px); }
-  100% { transform: translate(4px, -4px); }
+  0%   { transform: translate(-5.5px, 5.5px); }
+  100% { transform: translate(5.5px, -5.5px); }
 }
+/* まわりかた。原点で回してから外へずらし、逆に回して向きを戻す */
+.mmsxx-touch-spin {
+  animation: mmsxx-touch-spin 0.9s linear infinite;
+}
+@keyframes mmsxx-touch-spin {
+  from { transform: rotate(0deg) translate(7px, 0) rotate(0deg); }
+  to   { transform: rotate(360deg) translate(7px, 0) rotate(-360deg); }
+}
+/* 3 秒ずつ入れ替える */
+.mmsxx-touch-way1 { animation: mmsxx-touch-way-a 6s steps(1) infinite; }
+.mmsxx-touch-way2 { animation: mmsxx-touch-way-b 6s steps(1) infinite; }
+@keyframes mmsxx-touch-way-a { 0% { opacity: 1; } 50% { opacity: 0; } }
+@keyframes mmsxx-touch-way-b { 0% { opacity: 0; } 50% { opacity: 1; } }
 .mmsxx-touch-shot.used .mmsxx-touch-gesture { display: none; }
 
 /* ボタンの絵。**指はエリア全体で受けるので、これは見せるだけ**。
@@ -903,7 +925,9 @@ function injectStyle() {
   /* **大きさは PAD に合わせる**(矢印の外端までと同じ差し渡し)。
      指を受けるのはエリア全体なので、この大きさは見た目だけの話 */
   position: absolute; left: 50%; bottom: 10%; transform: translateX(-50%);
-  width: calc(var(--r) * 2.8 - 40px); height: calc(var(--r) * 2.8 - 40px);
+  /* 絵の矢印の 9 割 */
+  width: calc((var(--r) * 2.8 - 40px) * 1.6 * 34 / 48 * 0.9);
+  height: calc((var(--r) * 2.8 - 40px) * 1.6 * 34 / 48 * 0.9);
   box-sizing: border-box; pointer-events: none; border-radius: 50%;
   border: 9px solid #224466;    /* 輪 */
   padding: 11px;                /* 隙間 */
