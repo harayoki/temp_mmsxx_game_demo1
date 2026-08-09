@@ -167,24 +167,63 @@ canvas のボーダーに描く案は、60fps の描き直しと細かい表現�
 
 ## 8. 取りこぼし・ブラウザ対策
 
+### 指の取りこぼし
+
 - `pointerdown` / `pointermove` / `pointerup` / **`pointercancel`** をすべて拾う
   （着信やジェスチャで指が消えることがある）
 - **`pointerId` ごと**に「左の十字か、右のボタンか」を覚える。
   途中で担当を入れ替えない
-- 指がボタンから滑り出ても、**離すまでは同じ担当のまま**
-- `touch-action: none` / `user-select: none` / `-webkit-touch-callout: none` を当てて、
-  スクロール・拡大・長押しメニューを止める
-- **iOS のバウンススクロールは `overscroll-behavior` では止まらない**。
-  ページ自体をスクロールできなくするのが確実
-  ```css
-  html, body { position: fixed; width: 100%; height: 100%; overflow: hidden; }
-  ```
-- `touchmove` で `preventDefault()` する。iOS は既定で passive 扱いなので、
-  **`{ passive: false }` を明示しないと効かない**
-- ダブルタップの拡大は `user-scalable=no` では止まらない（iOS Safari が無視する）。
-  `gesturestart` を潰す
-- 下端からのスワイプに注意
+- 指がボタンから滑り出ても、**離すまでは同じ担当のまま**。
+  `setPointerCapture()` で捕まえておくと続きが届く。
+  **失敗しても先へ進むこと**（例外で `pointerdown` の残りが飛ぶ）
 - 音は最初のタッチで解禁する（いまのキーボードと同じ扱い）
+
+### iOS で指の動きにページを持っていかれないための決めごと
+
+実機（iPhone / Safari）で確かめた。**4 つそろって初めて効く。**
+
+**1. ページ自体をスクロールできなくする**（いちばん効く）
+
+```css
+html, body { position: fixed; width: 100%; height: 100%; overflow: hidden; }
+```
+
+バウンススクロールは `overscroll-behavior` では**止まらない**。ページを固定するのが確実。
+
+**2. `touch-action: none`**
+
+body と、指を受ける要素に当てる。「この指はスクロールや拡大に使わない」と
+**先に**ブラウザへ伝える指定。これが無いと**ブラウザが先に指を持っていき**、
+一度スクロールと判断されたら、あとから `preventDefault()` しても戻せない。
+
+**中身を送る欄がある場合は向きに注意。** `pan-y` は「画面の上での縦」なので、
+90 度回して見せているときは `pan-x` に入れ替える（さもないと送れなくなる）。
+
+**3. `touchmove` の `preventDefault()` は `{ passive: false }` を明示する**
+
+```js
+document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+```
+
+**iOS 11.3 以降、`touchmove` は既定で passive 扱い。**
+`{ passive: false }` が無いと `preventDefault()` は**黙って無視される**。
+「書いたのに効かない」はたいていこれ。
+
+**4. `pointerdown` で `preventDefault()`**
+
+### 拡大・長押しメニュー
+
+| 何を止めるか | やりかた |
+|---|---|
+| つまむ拡大 | `gesturestart` / `gesturechange` / `gestureend` を `preventDefault()` |
+| **ダブルタップの拡大** | 上では止まらない。**2 回目のタップの `touchend` を潰す**（350ms 以内）。ボタンや入力欄の上では潰さないこと（クリックが飛ばなくなる）|
+| 長押しメニュー（コピーなど） | `-webkit-touch-callout: none` と `-webkit-user-select: none`。**Safari は接頭辞つきでないと効かない。** 中の文言まで届くよう子孫にも当てる。あわせて `contextmenu` も `preventDefault()` |
+| 3 本指タップ | **止められない。** OS の「ズーム」（設定 → アクセシビリティ）が先に取る。3 本指のジェスチャを使うなら、誤動作する前提で組む |
+
+`user-scalable=no` と `maximum-scale=1` は **iOS が無視する**。書いても害は無いので、
+ほかのブラウザのために入れておく程度。
+
+- 下端からのスワイプに注意（ホームバーが吸う）
 
 ## 9. まだ決めていないこと
 

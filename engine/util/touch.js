@@ -43,6 +43,12 @@
 // **いまの既定値は 2026-08-09 に iPhone で詰めたもの。** 連射は少し頑張って
 // 10 発/秒、すごく頑張って 12 発/秒あたりに落ち着く。
 
+/** setSkin() の名前と、それを流し込む CSS の変数 */
+const SKIN_VARS = {
+  fire: '--fire-img', firePressed: '--fire-img-on',
+  shotArea: '--shotarea-img', knob: '--knob-img', ring: '--ring-img',
+};
+
 /** 押されたと知らせるときの種別。**ここ 1 か所だけ** */
 const SOURCE = 'touch';
 
@@ -100,6 +106,7 @@ export class TouchControls {
    *   holdRepeatMs?: number, shotCode?: string, pauseCode?: string,
    *   toLocal?: (x:number, y:number) => number[],
    *   labels?: object,   エリアに出す文言(既定は英語)
+   *   skin?: object,     差し替える絵(既定は何も出さない)
    * }} [opts]
    */
   constructor(opts = {}) {
@@ -116,6 +123,8 @@ export class TouchControls {
     this.opts = { ...DEFAULTS, ...opts };
     /** 文言。**渡されたぶんだけ差し替える**(全部書かなくてよい) */
     this.labels = { ...LABELS, ...(opts.labels || {}) };
+    /** 差し替えた絵。付け直したときに戻すために覚えておく */
+    this.skin = { ...(opts.skin || {}) };
 
     /** いま押していることになっている code */
     this.down = new Set();
@@ -181,10 +190,21 @@ export class TouchControls {
 
     this._applyLayout();
     this._applyLabels();
+    this.setSkin(this.skin);
     this._bind(this._dpad, 'dpad');
     this._bind(this._shot, 'shot');   // **エリア全体**で受ける(丸は絵だけ)
     this._bind(this._pause, 'pause');
     return this;
+  }
+
+  /**
+   * **十字とボタンの担当を入れ替える**(左利き向け)。
+   * 渡された 2 つの入れ物を取り替えるだけなので、置き場所そのものは動かない。
+   * つまみ・文言・絵はそのまま引き継ぐ。押しっぱなしは離れる
+   */
+  swapSides() {
+    if (!this._zones.length) return this;
+    return this.attach({ dpad: this._shot, shot: this._dpad });
   }
 
   /** 外す。押しっぱなしは全部離してから。**入れ物そのものは消さない**(借り物なので) */
@@ -192,8 +212,12 @@ export class TouchControls {
     if (!this._zones.length) return;
     this.releaseAll();
     for (const z of this._zones) {
-      z.classList.remove('mmsxx-touch-zone', 'mmsxx-touch-dpad', 'mmsxx-touch-shot', 'holding');
+      z.classList.remove('mmsxx-touch-zone', 'mmsxx-touch-dpad', 'mmsxx-touch-shot',
+                         'holding', 'used');
       z.innerHTML = '';
+      // 借り物なので、こちらが入れた指定は残さない
+      for (const prop of Object.values(SKIN_VARS)) z.style.removeProperty(prop);
+      for (const prop of ['--r', '--hx', '--hy']) z.style.removeProperty(prop);
     }
     this._zones = [];
     this._dpad = this._shot = this._fire = this._pause = this._knob = this._stickEl = null;
@@ -225,9 +249,8 @@ export class TouchControls {
    * knob … 指そのものの印 / ring … 原点の下敷き(いずれも既定では何も出ない)
    */
   setSkin(patch) {
-    const map = { fire: '--fire-img', firePressed: '--fire-img-on',
-                  shotArea: '--shotarea-img', knob: '--knob-img', ring: '--ring-img' };
-    for (const [key, prop] of Object.entries(map)) {
+    Object.assign(this.skin, patch);   // 付け直したときに戻せるよう覚えておく
+    for (const [key, prop] of Object.entries(SKIN_VARS)) {
       if (!(key in patch)) continue;
       for (const z of this._zones) {
         if (patch[key]) z.style.setProperty(prop, patch[key]);
@@ -730,7 +753,7 @@ const SHOT_HTML = `
   <div class="mmsxx-touch-fire"></div>
   <svg class="mmsxx-touch-gesture" viewBox="0 0 48 48" aria-hidden="true">
     <g class="mmsxx-touch-way1">
-      <g class="mmsxx-touch-rub"><g class="mmsxx-touch-finger" transform="translate(17,13) scale(1.0)">
+      <g class="mmsxx-touch-rub"><g class="mmsxx-touch-finger" transform="translate(19.5,15.5) scale(0.9)">
         <rect x="6.2" y="0" width="3.8" height="11.5" rx="1.9"/>
         <circle cx="11" cy="9.4" r="1.9"/>
         <circle cx="13.2" cy="10.8" r="1.8"/>
@@ -739,7 +762,7 @@ const SHOT_HTML = `
       </g></g>
     </g>
     <g class="mmsxx-touch-way2">
-      <g class="mmsxx-touch-spin"><g class="mmsxx-touch-finger" transform="translate(17,13) scale(1.0)">
+      <g class="mmsxx-touch-spin"><g class="mmsxx-touch-finger" transform="translate(19.5,15.5) scale(0.9)">
         <rect x="6.2" y="0" width="3.8" height="11.5" rx="1.9"/>
         <circle cx="11" cy="9.4" r="1.9"/>
         <circle cx="13.2" cy="10.8" r="1.8"/>
@@ -807,7 +830,7 @@ function injectStyle() {
 .mmsxx-touch-callout {
   position: absolute; transform: translateX(-50%);
   left: var(--hx, 50%);
-  top: calc(var(--hy, calc(100% - var(--r) * 2)) + var(--r) * 1.5);
+  top: calc(var(--hy, calc(100% - var(--r) * 2)) + var(--r) * 1.28);
   color: #ffffff; font: bold 16px monospace; letter-spacing: 3px; white-space: nowrap;
 }
 /* 触れているあいだと、一度でも触ったあとは出さない。
