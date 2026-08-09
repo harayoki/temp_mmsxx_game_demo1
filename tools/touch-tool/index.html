@@ -11,7 +11,7 @@
 html, body {
   position: fixed; width: 100%; height: 100%; overflow: hidden;
   margin: 0; background: #101018; color: #ccccdd;
-  font: 12px/1.4 monospace;
+  font: 16px/1.5 monospace;
   touch-action: none; user-select: none; -webkit-touch-callout: none;
 }
 /* 縦持ちのときに 90 度回すための入れ物。
@@ -24,21 +24,21 @@ html, body {
 #panel {
   position: fixed; top: 0; bottom: 0;
   overflow-y: auto; touch-action: pan-y;
-  padding: 6px 8px; box-sizing: border-box;
+  padding: 8px 10px; box-sizing: border-box;
   border-left: 1px solid #333344; border-right: 1px solid #333344;
 }
 h2 {
-  font-size: 11px; margin: 8px 0 3px; color: #7788aa;
+  font-size: 14px; margin: 10px 0 4px; color: #7788aa;
   border-bottom: 1px solid #333344; font-weight: normal;
 }
 h2:first-child { margin-top: 0; }
 .row { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
-.big { font-size: 20px; color: #ffcc22; }
+.big { font-size: 30px; color: #ffcc22; }
 .dim { color: #666677; }
 
 /* ① キーの状態 */
 .key {
-  padding: 3px 6px; background: #222233; border: 1px solid #444455; color: #666677;
+  padding: 5px 9px; background: #222233; border: 1px solid #444455; color: #666677;
 }
 .key.down { background: #ffcc22; border-color: #ffee88; color: #111122; }
 .key.hit  { border-color: #ffffff; }
@@ -47,26 +47,26 @@ h2:first-child { margin-top: 0; }
 .dot { display: inline-block; width: 10px; height: 10px; margin-right: 4px; }
 
 /* ⑥ ログ */
-#log { height: 92px; overflow: hidden; color: #889; }
+#log { height: 120px; overflow: hidden; color: #889; font-size: 14px; }
 #log div { white-space: pre; }
 #log .p { color: #8fc; }
 #log .r { color: #667; }
 
 /* つまみ */
 details { margin-top: 8px; border-top: 1px solid #333344; }
-summary { cursor: pointer; padding: 4px 0; color: #7788aa; }
-label.knob { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
-label.knob span:first-child { width: 96px; flex: none; }
-label.knob output { width: 44px; flex: none; text-align: right; color: #ffcc22; }
-input[type=range] { flex: 1; min-width: 80px; touch-action: none; }
+summary { cursor: pointer; padding: 8px 0; color: #7788aa; }
+label.knob { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
+label.knob span:first-child { width: 128px; flex: none; }
+label.knob output { width: 52px; flex: none; text-align: right; color: #ffcc22; }
+input[type=range] { flex: 1; min-width: 80px; height: 28px; touch-action: none; }
 button {
-  font: 12px monospace; padding: 5px 10px; margin-right: 6px;
+  font: 16px monospace; padding: 8px 14px; margin-right: 6px;
   background: #333344; color: #ccccdd; border: 1px solid #8888aa;
 }
 #values {
-  width: 100%; height: 66px; box-sizing: border-box; margin-top: 6px;
+  width: 100%; height: 92px; box-sizing: border-box; margin-top: 6px;
   background: #0a0a12; color: #8fc; border: 1px solid #333344;
-  font: 11px monospace; user-select: text;
+  font: 14px monospace; user-select: text;
 }
 </style>
 </head>
