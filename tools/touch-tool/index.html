@@ -29,6 +29,13 @@ html, body {
   padding: 8px 10px; box-sizing: border-box;
   border-left: 1px solid #333344; border-right: 1px solid #333344;
 }
+/* 上に貼り付ける。つまみを開いて下へ送っても、連射量は見えたままにする */
+.topbar {
+  position: sticky; top: 0; z-index: 2;
+  background: #101018; padding: 4px 0 6px;
+  border-bottom: 1px solid #333344; margin-bottom: 6px;
+}
+.topbar button { margin-right: 6px; }
 h2 {
   font-size: 14px; margin: 10px 0 4px; color: #7788aa;
   border-bottom: 1px solid #333344; font-weight: normal;
@@ -78,11 +85,13 @@ button {
 <div id="zoneA" class="zone"></div>
 <div id="zoneB" class="zone"></div>
 <div id="panel">
-  <div class="row" style="margin-bottom:6px">
+  <div class="row topbar">
     <button id="rot">⟳ 90度回す</button>
-    <span class="dim" id="rotState"></span>
-    <button id="reload" style="margin-left:auto;margin-right:0">↻ 読み直す</button>
+    <button id="reload">↻ 読み直す</button>
+    <span class="big" id="rateTop" style="margin-left:auto">0</span>
+    <span class="dim">発/秒</span>
   </div>
+  <div class="row dim" id="rotState" style="margin-bottom:6px"></div>
 
   <h2>① キーの状態</h2>
   <div class="row" id="keys"></div>
@@ -396,6 +405,7 @@ function frame() {
 
   // ④ こすり打ち
   el('rate').textContent = st.rub.rate;
+  el('rateTop').textContent = st.rub.rate;
   el('maxRate').textContent = st.rub.maxRate;
   el('rub').innerHTML = `PRESS ${st.rub.pressCount} / RELEASE ${st.rub.releaseCount}`
     + ` / 移動 ${Math.round(st.rub.move)}px`
