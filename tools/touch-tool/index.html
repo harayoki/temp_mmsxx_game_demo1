@@ -330,6 +330,9 @@ modeRow.innerHTML = '<span style="width:96px">方式</span>'
         + `${touch.opts.shotMode === v ? ' checked' : ''}> ${t}</label>`;
     }).join(' ');
 knobsEl.appendChild(modeRow);
+showHintOn(modeRow.querySelector('span'), modeRow,
+  '方式: こすりの数えかた。D 往復=向きが変わるたびに 1 発(既定)。'
+  + 'A 区画=区画をまたぐたび。B 移動量=動いた距離ぶん(一気に滑らせると出すぎる)。C 出入り=面に出入りするたび');
 modeRow.addEventListener('change', (e) => {
   touch.setOptions({ shotMode: e.target.value });
   showValues();
@@ -344,6 +347,9 @@ sizeRow.innerHTML = '<span style="width:128px">画面の大きさ</span>'
       `<label><input type="radio" name="size" value="${v}"`
       + `${touch.opts.scale === v ? ' checked' : ''}> ${t}</label>`).join(' ');
 knobsEl.appendChild(sizeRow);
+showHintOn(sizeRow.querySelector('span'), sizeRow,
+  '画面の大きさ: px で決めた値(不感帯・引きずり・大きさ・しきい値)にまとめて掛かる倍率。'
+  + 'いまの端末が「中」。大きい画面ほど指の動きも大きくなるので、そのぶん鈍くする');
 sizeRow.addEventListener('change', (e) => {
   touch.setOptions({ scale: Number(e.target.value) });
   showValues();
@@ -352,12 +358,13 @@ sizeRow.addEventListener('change', (e) => {
 /** つまみの値。器の持ちものと部品の持ちもの、どちらから読むか */
 const valueOf = (key, mine) => (mine ? zone : touch.opts)[key];
 
-/** 名前を触ると説明を出す */
+/** 名前を触ると、**その項目の真下に**説明を出す */
 const hintEl = document.getElementById('knobHint');
 let hintClear = 0;
-function showHintOn(el, text) {
+function showHintOn(el, row, text) {
   el.classList.add('askable');
   el.addEventListener('click', () => {
+    row.after(hintEl);            // 触った行の下へ移す
     hintEl.textContent = text;
     clearTimeout(hintClear);
     hintClear = setTimeout(() => { hintEl.textContent = ''; }, 8000);
@@ -381,7 +388,7 @@ for (const [key, name, min, max, step, mine, group, hint] of KNOBS) {
     else touch.setOptions({ [key]: v });
     showValues();
   });
-  showHintOn(el.querySelector('span'), `${name}: ${hint}`);
+  showHintOn(el.querySelector('span'), el, `${name}: ${hint}`);
   (group === 'gui' ? guiKnobsEl : knobsEl).appendChild(el);
 }
 

@@ -72,6 +72,7 @@ const DEFAULTS = {
 const LABELS = {
   dpadTitle: 'D-PAD',
   dpadNote: 'DRAG TO MOVE',
+  dpadCallout: 'DRAG ME',   // 一度でも触れば消える誘い文句
   shotTitle: 'SHOT',
   shotNote: 'RUB TO FIRE',
   pause: 'PAUSE',
@@ -237,6 +238,7 @@ export class TouchControls {
     };
     put(this._dpad, '.mmsxx-touch-title', this.labels.dpadTitle);
     put(this._dpad, '.mmsxx-touch-note', this.labels.dpadNote);
+    put(this._dpad, '.mmsxx-touch-callout', this.labels.dpadCallout);
     put(this._shot, '.mmsxx-touch-title', this.labels.shotTitle);
     put(this._shot, '.mmsxx-touch-note', this.labels.shotNote);
     put(this._shot, '.mmsxx-touch-pause', this.labels.pause);
@@ -447,6 +449,7 @@ export class TouchControls {
   // ── 相対十字 ──────────────────────────────────────────
 
   _stickDown(p) {
+    this._dpad.classList.add('used');   // 誘い文句は一度触ったら消す
     const s = this.stick;
     s.active = true;
     s.ox = p.x; s.oy = p.y;
@@ -668,7 +671,7 @@ const ARROWS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']
 const DPAD_HTML = `
   <div class="mmsxx-touch-title"></div>
   <div class="mmsxx-touch-note"></div>
-  <div class="mmsxx-touch-hint">${ARROWS}</div>
+  <div class="mmsxx-touch-hint">${ARROWS}<div class="mmsxx-touch-callout"></div></div>
   <div class="mmsxx-touch-stick"><div class="mmsxx-touch-ring"></div>${ARROWS}</div>
   <div class="mmsxx-touch-knob"></div>`;
 
@@ -727,6 +730,15 @@ function injectStyle() {
 /* 触れているあいだは引っ込める */
 .mmsxx-touch-dpad.holding .mmsxx-touch-hint { display: none; }
 
+/* 「ここを触って動かす」の誘い文句。目印のすぐ下に白で出し、
+   **一度でも触ったら二度と出さない** */
+.mmsxx-touch-callout {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  top: calc(var(--r) * 1.5);
+  color: #ffffff; font: 12px monospace; letter-spacing: 2px; white-space: nowrap;
+}
+.mmsxx-touch-dpad.used .mmsxx-touch-callout { display: none; }
+
 /* 十字。**触れたところが原点**で、絵ごとそこへ移る。
    四角 4 つを、原点から一定の距離(--r)に置く */
 .mmsxx-touch-stick {
@@ -734,8 +746,8 @@ function injectStyle() {
 }
 .mmsxx-touch-ring {
   position: absolute;
-  left: calc(var(--r) * -1.09); top: calc(var(--r) * -1.09);
-  width: calc(var(--r) * 2.18); height: calc(var(--r) * 2.18);
+  left: calc(var(--r) * -0.87); top: calc(var(--r) * -0.87);
+  width: calc(var(--r) * 1.74); height: calc(var(--r) * 1.74);
   border-radius: 50%; background: rgba(32, 64, 112, 0.35);
 }
 /* 指そのものの印。**既定では何も出さない。**

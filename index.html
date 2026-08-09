@@ -78,17 +78,6 @@
     text-align: center;
     color: #ff5555;
   }
-  p.mobile {
-    display: none;
-    color: #ff5555;
-    font-size: 13px;
-    line-height: 1.6;
-    margin: 8px 8px 0;
-    text-align: center;
-  }
-  @media (max-width: 820px), (pointer: coarse) {
-    p.mobile { display: block; }
-  }
   /* 新しく増えた操作なので、ここだけ目立たせる */
   .gamepad { color: #ffe000; }
   p.notice a { color: #8fa2d8; }
@@ -127,10 +116,6 @@
     <span id="dev-badge">DEV</span>
   </div>
 </div>
-<p class="mobile">
-  現在スマホ未対応（対応予定）です。ゲームはキーボードで操作します。<br>
-  No smartphone support yet (planned). Please play with a keyboard.
-</p>
 <p>ARROWS: MOVE / SPACE: SHOT / ESC: PAUSE / ALT+S: COPY SCREEN / ALT+M: MUTE / ALT+P: SHARE / <span class="gamepad">GAMEPAD: PRESS ANY BTN ON TITLE</span></p>
 <p class="notice">
   テスト運用中です。ランキングの記録は予告なくリセットされることがあります。<br>
@@ -176,5 +161,9 @@
 </script>
 <script type="module" src="./game/main.js"></script>
 <script type="module" src="./game/wavexport.js"></script>
+<!-- ここに Cloudflare Web Analytics のビーコンが入る。**公開版のときだけ**。
+     差し込むのは build-deploy.ps1。ソースのままでは外へ通信しないので、
+     手元で開いても開発中の行き来が数字に混ざらない -->
+<!-- MMSXX-WEB-ANALYTICS -->
 </body>
 </html>
