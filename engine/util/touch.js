@@ -57,7 +57,7 @@ const DEFAULTS = {
   deadzone: 12,        // これ未満しか動いていなければ無入力(px。scale が掛かる)
   dragMax: 48,         // これより離れたら原点を引きずる(px)
   hysteresis: 7,       // 区画の境目の重なり(度)。ばたつき止め
-  guiRadius: 36,       // 十字の四角を、原点からどれだけ離して置くか(px)
+  guiRadius: 54,       // 矢印を原点からどれだけ離して置くか(px)。矢印と丸の大きさも連れて変わる
   shotMode: 'D',       // 'A' 区画割り / 'B' 移動量 / 'C' 出入り / 'D' 往復
   shotStep: 24,        // A なら区画の一辺、B なら 1 発ぶんの移動量(px)
   holdRepeatMs: 0,     // 長押しの連射間隔(ms)。**0 で無し**(連射は腕前のまま)
@@ -702,20 +702,23 @@ function injectStyle() {
 }
 .mmsxx-touch-ring {
   position: absolute;
-  left: calc(var(--r) * -1); top: calc(var(--r) * -1);
-  width: calc(var(--r) * 2); height: calc(var(--r) * 2);
+  left: calc(var(--r) * -1.45); top: calc(var(--r) * -1.45);
+  width: calc(var(--r) * 2.9); height: calc(var(--r) * 2.9);
   border-radius: 50%; background: rgba(32, 64, 112, 0.35);
 }
+/* 指そのものの印。**既定では何も出さない。**
+   絵を差したいときだけ見える(背景を入れれば、その絵が指に付いてくる) */
 .mmsxx-touch-knob {
   position: absolute; width: 20px; height: 20px; margin: -10px 0 0 -10px;
-  background: #66ccff; display: none;
+  display: none; background-size: 100% 100%; background-repeat: no-repeat;
 }
 
 /* 押している向きの目印。**太めの矢印をベタ塗りで。**
    上向きの形を 1 つ作って、向きごとに回す */
 .mmsxx-touch-arrow {
   position: absolute; background: #224466;
-  width: 28px; height: 28px; margin: -14px 0 0 -14px;
+  width: calc(var(--r) * 0.8); height: calc(var(--r) * 0.8);
+  margin: calc(var(--r) * -0.4) 0 0 calc(var(--r) * -0.4);
   clip-path: polygon(50% 0%, 100% 55%, 70% 55%, 70% 100%, 30% 100%, 30% 55%, 0% 55%);
 }
 .mmsxx-touch-arrow.on { background: #ffcc22; }
