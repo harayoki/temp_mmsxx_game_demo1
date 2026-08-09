@@ -730,8 +730,7 @@ const SHOT_HTML = `
   <div class="mmsxx-touch-fire"></div>
   <svg class="mmsxx-touch-gesture" viewBox="0 0 48 48" aria-hidden="true">
     <g class="mmsxx-touch-way1">
-      <path d="M7 41L41 7"/><path d="M30 7h11v11"/><path d="M18 41H7V30"/>
-      <g class="mmsxx-touch-rub"><g class="mmsxx-touch-finger" transform="translate(30,28) scale(0.46)">
+      <g class="mmsxx-touch-rub"><g class="mmsxx-touch-finger" transform="translate(17,13) scale(1.0)">
         <rect x="6.2" y="0" width="3.8" height="11.5" rx="1.9"/>
         <circle cx="11" cy="9.4" r="1.9"/>
         <circle cx="13.2" cy="10.8" r="1.8"/>
@@ -740,8 +739,7 @@ const SHOT_HTML = `
       </g></g>
     </g>
     <g class="mmsxx-touch-way2">
-      <path d="M31 12.4A13.5 13.5 0 1 1 17 12.4"/><path d="M24.5 7.5l7 4.9-4.9 7"/>
-      <g class="mmsxx-touch-spin"><g class="mmsxx-touch-finger" transform="translate(20,18) scale(0.46)">
+      <g class="mmsxx-touch-spin"><g class="mmsxx-touch-finger" transform="translate(17,13) scale(1.0)">
         <rect x="6.2" y="0" width="3.8" height="11.5" rx="1.9"/>
         <circle cx="11" cy="9.4" r="1.9"/>
         <circle cx="13.2" cy="10.8" r="1.8"/>
@@ -899,8 +897,8 @@ function injectStyle() {
   animation: mmsxx-touch-scrub 0.32s ease-in-out infinite alternate;
 }
 @keyframes mmsxx-touch-scrub {
-  0%   { transform: translate(-5.5px, 5.5px); }
-  100% { transform: translate(5.5px, -5.5px); }
+  0%   { transform: translate(-7px, 7px); }
+  100% { transform: translate(7px, -7px); }
 }
 /* まわりかた。原点で回してから外へずらし、逆に回して向きを戻す */
 .mmsxx-touch-spin {
