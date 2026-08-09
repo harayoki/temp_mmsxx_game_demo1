@@ -91,6 +91,11 @@ h2:first-child { margin-top: 0; }
   color: #ffcc22; background: #1a1a26; border-left: 3px solid #ffcc22;
 }
 #knobHint:empty { visibility: hidden; }
+/* 触ると説明が出る名前。**触れることが分かるように**下線を引く */
+.askable {
+  text-decoration: underline dotted #7788aa; text-underline-offset: 3px;
+  cursor: help;
+}
 
 /* つまみ */
 details { margin-top: 8px; border-top: 1px solid #333344; }
@@ -347,24 +352,15 @@ sizeRow.addEventListener('change', (e) => {
 /** つまみの値。器の持ちものと部品の持ちもの、どちらから読むか */
 const valueOf = (key, mine) => (mine ? zone : touch.opts)[key];
 
-/** 長押しで説明を出す。動かしはじめたら引っ込める */
+/** 名前を触ると説明を出す */
 const hintEl = document.getElementById('knobHint');
-let hintTimer = 0, hintClear = 0;
-function watchHold(el, text) {
-  const stop = () => { clearTimeout(hintTimer); hintTimer = 0; };
-  el.addEventListener('pointerdown', (e) => {
-    const x0 = e.clientX, y0 = e.clientY;
-    stop();
-    hintTimer = setTimeout(() => {
-      hintEl.textContent = text;
-      clearTimeout(hintClear);
-      hintClear = setTimeout(() => { hintEl.textContent = ''; }, 6000);
-    }, 450);
-    const move = (ev) => { if (Math.hypot(ev.clientX - x0, ev.clientY - y0) > 6) stop(); };
-    el.addEventListener('pointermove', move);
-    const off = () => { stop(); el.removeEventListener('pointermove', move); };
-    el.addEventListener('pointerup', off, { once: true });
-    el.addEventListener('pointercancel', off, { once: true });
+let hintClear = 0;
+function showHintOn(el, text) {
+  el.classList.add('askable');
+  el.addEventListener('click', () => {
+    hintEl.textContent = text;
+    clearTimeout(hintClear);
+    hintClear = setTimeout(() => { hintEl.textContent = ''; }, 8000);
   });
 }
 
@@ -385,7 +381,7 @@ for (const [key, name, min, max, step, mine, group, hint] of KNOBS) {
     else touch.setOptions({ [key]: v });
     showValues();
   });
-  watchHold(el, `${name}: ${hint}`);
+  showHintOn(el.querySelector('span'), `${name}: ${hint}`);
   (group === 'gui' ? guiKnobsEl : knobsEl).appendChild(el);
 }
 
