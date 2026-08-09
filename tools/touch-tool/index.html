@@ -20,6 +20,12 @@ html, body {
 #stage {
   position: fixed; left: 0; top: 0; transform-origin: 0 0; overflow: hidden;
 }
+/* 道具の名前。**パッドのエリアの背景に薄く敷く。**
+   エリアより先に置いてあるので、十字の絵はこの上に描かれる */
+#brand {
+  position: fixed; top: 18%; text-align: center; pointer-events: none;
+  color: #2a3550; font-size: 13px; line-height: 1.6; letter-spacing: 2px;
+}
 /* パッドを置くエリア。**場所を決めるのは器の側**で、部品は中身だけ作る */
 .zone { position: fixed; top: 0; bottom: 0; }
 /* 計器盤。**本番でゲーム画面が出る場所**＝指が来ない場所に置く */
@@ -85,6 +91,7 @@ button {
 <body>
 
 <div id="stage">
+<div id="brand">MMS-XX<br>TOUCH INTERFACE TESTER</div>
 <div id="zoneA" class="zone"></div>
 <div id="zoneB" class="zone"></div>
 <div id="panel">
@@ -99,24 +106,18 @@ button {
   </div>
   <div class="row dim" id="rotState" style="margin-bottom:6px"></div>
 
-  <h2>② タッチ点 <span class="dim" id="touchCount"></span></h2>
-  <div id="touches" class="dim">（触れていません）</div>
-
-  <h2>③ 相対十字</h2>
-  <div id="stick" class="dim">（触れていません）</div>
-
-  <h2>④ こすり打ち</h2>
+  <h2>① こすり打ち</h2>
   <div class="row">
     <span class="big" id="rate">0</span><span class="dim">発/秒</span>
     <span class="dim">最高</span><span id="maxRate">0</span>
   </div>
   <div id="rub" class="dim"></div>
 
-  <h2>⑤ 端末・画面</h2>
+  <h2>② 端末・画面</h2>
   <div id="device" class="dim"></div>
 
   <details>
-    <summary>つまみ</summary>
+    <summary>パラメータ調整</summary>
     <div id="knobs"></div>
     <div class="row" style="margin-top:6px">
       <button id="reset">RESET</button>
@@ -125,7 +126,13 @@ button {
     <textarea id="values" readonly></textarea>
   </details>
 
-  <h2>⑥ ログ</h2>
+  <h2>③ タッチ点 <span class="dim" id="touchCount"></span></h2>
+  <div id="touches" class="dim">（触れていません）</div>
+
+  <h2>④ 相対十字</h2>
+  <div id="stick" class="dim">（触れていません）</div>
+
+  <h2>⑤ ログ</h2>
   <div id="log"></div>
 </div>
 </div>
@@ -352,6 +359,11 @@ function syncPanel() {
   const p = document.getElementById('panel');
   p.style.left = left + '%';
   p.style.right = right + '%';
+  // 名前は十字エリアの背景へ
+  const brand = document.getElementById('brand');
+  const dz = leftIsDpad ? { left: '0', right: 'auto' } : { left: 'auto', right: '0' };
+  brand.style.left = dz.left; brand.style.right = dz.right;
+  brand.style.width = zone.dpadZone + '%';
 }
 layout();   // 入れ物の大きさと向きを決める。中で syncPanel() も呼ぶ
 
@@ -381,14 +393,14 @@ function frame() {
   const st = touch.state();
   const now = performance.now();
 
-  // ① キーの状態
+  // 上の帯: キーの状態
   el('keys').innerHTML = KEY_LIST.map(([code, name]) => {
     const down = st.down.includes(code);
     const hit = now - (hits.get(code) || -1e9) < 150;
     return `<span class="key${down ? ' down' : ''}${hit ? ' hit' : ''}">${name}</span>`;
   }).join('');
 
-  // ② タッチ点
+  // ③ タッチ点
   el('touchCount').textContent = `${fingers.size} 本`;
   const owners = new Map(st.pointers.map(p => [p.id, p.owner]));
   el('touches').innerHTML = fingers.size === 0 ? '<span class="dim">（触れていません）</span>'
@@ -397,7 +409,7 @@ function frame() {
         + `#${id} ${Math.round(f.x)},${Math.round(f.y)} `
         + `<span class="dim">${owners.get(id) || '—'}</span></div>`).join('');
 
-  // ③ 相対十字
+  // ④ 相対十字
   const s = st.stick;
   el('stick').innerHTML = !s.active ? '<span class="dim">（触れていません）</span>'
     : `原点 ${Math.round(s.ox)},${Math.round(s.oy)}<br>`
@@ -406,7 +418,7 @@ function frame() {
       + `距離 ${s.dist.toFixed(1)} 角度 ${s.deg.toFixed(0)}度<br>`
       + `区画 ${s.sector < 0 ? '<span class="dim">なし（不感帯）</span>' : s.sector}`;
 
-  // ④ こすり打ち
+  // ① こすり打ち
   el('rate').textContent = st.rub.rate;
   el('rateTop').textContent = st.rub.rate;
   el('maxRate').textContent = st.rub.maxRate;
@@ -415,7 +427,7 @@ function frame() {
     + (touch.opts.shotMode === 'D' ? ` / 往復 ${st.rub.turns}` : '')
     + (touch.opts.shotMode === 'A' ? ` / 区画 ${st.rub.cell || '—'}` : '');
 
-  // ⑤ 端末・画面
+  // ② 端末・画面
   const forced = new URLSearchParams(location.search).get('device');
   el('device').innerHTML =
     `向き ${innerWidth >= innerHeight ? '横' : '縦'} / ${innerWidth}x${innerHeight}`
@@ -424,7 +436,7 @@ function frame() {
     + `isMobileLike ${isMobileLike()}`
     + (forced ? ` <span class="dim">(?device=${forced} で上書き)</span>` : '');
 
-  // ⑥ ログ
+  // ⑤ ログ
   el('log').innerHTML = log.map(e =>
     `<div class="${e.kind[0] === 'P' ? 'p' : 'r'}">`
     + `${e.kind} ${e.code.padEnd(10)} ${e.source} +${e.gap}ms</div>`).join('');
