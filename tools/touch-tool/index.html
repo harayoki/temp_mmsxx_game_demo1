@@ -53,7 +53,12 @@ html, body {
 /* 連射数が 2 桁になっても折り返さない */
 .row.nowrap { flex-wrap: nowrap; }
 button.icon {
-  font: 18px monospace; padding: 4px 9px; margin-right: 4px; flex: none;
+  padding: 5px 8px; margin-right: 4px; flex: none; line-height: 0;
+}
+button.icon svg {
+  width: 20px; height: 20px; display: block;
+  fill: none; stroke: currentColor; stroke-width: 2;
+  stroke-linecap: square; stroke-linejoin: miter;
 }
 h2 {
   font-size: 14px; margin: 10px 0 4px; color: #7788aa;
@@ -126,9 +131,9 @@ button {
 <div id="panel">
   <div class="topbar">
     <div class="row nowrap">
-      <button id="rot" class="icon" title="90度回す">⤵</button>
-      <button id="swap" class="icon" title="左右を入れ替える">⇄</button>
-      <button id="reload" class="icon" title="読み直す">↻</button>
+      <button id="rot" class="icon" title="90度回す" aria-label="90度回す"><svg viewBox="0 0 20 20"><path d="M5 3v9h8"/><path d="M10 9l3 3-3 3" fill="none"/></svg></button>
+      <button id="swap" class="icon" title="左右を入れ替える" aria-label="左右を入れ替える"><svg viewBox="0 0 20 20"><path d="M3 7h14M13 3l4 4-4 4"/><path d="M17 13H3M7 9l-4 4 4 4"/></svg></button>
+      <button id="reload" class="icon" title="読み直す" aria-label="読み直す"><svg viewBox="0 0 20 20"><path d="M16 10a6 6 0 1 1-1.8-4.3"/><path d="M16 2v4h-4"/></svg></button>
       <span class="big" id="rateTop">0</span>
       <span class="dim">発/秒</span>
     </div>
