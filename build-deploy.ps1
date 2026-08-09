@@ -56,10 +56,15 @@ if (Test-Path (Join-Path $root 'online')) {
 if (Test-Path (Join-Path $root 'assets')) {
   Copy-Item -Recurse (Join-Path $root 'assets') (Join-Path $deploy 'assets')
 }
-# バーチャルパッドの実験台。**開発版で実機の手触りを詰めるため**に入れる。
-# 無ければ入れない
-if (Test-Path (Join-Path $root 'padlab')) {
-  Copy-Item -Recurse (Join-Path $root 'padlab') (Join-Path $deploy 'padlab')
+# お試しのページ(tools/*-tool/index.html)。実機で手触りを確かめるための道具で、
+# **開発版にだけ入れる**(-Local)。公開版に混ぜない。
+# 上げると https://dev.msxpoi1.pages.dev/tools/pad-tool/ で触れる
+if ($Local -and (Test-Path (Join-Path $root 'tools'))) {
+  New-Item -ItemType Directory -Force (Join-Path $deploy 'tools') | Out-Null
+  foreach ($tool in Get-ChildItem -Directory (Join-Path $root 'tools') -Filter '*-tool') {
+    if (-not (Test-Path (Join-Path $tool.FullName 'index.html'))) { continue }
+    Copy-Item -Recurse $tool.FullName (Join-Path $deploy "tools/$($tool.Name)")
+  }
 }
 # Cloudflare Pages の Functions と、その通り道の指定(_routes.json)。
 # **_routes.json が無いと `/` は静的配信のままで Function を通らない。**

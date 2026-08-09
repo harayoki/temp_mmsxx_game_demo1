@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<title>padlab - バーチャルパッドの実験台</title>
+<title>pad-tool - バーチャルパッドの実験台</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -101,8 +101,8 @@ button {
 </div>
 
 <script type="module">
-import { VirtualPad } from '../engine/util/pad.js';
-import { isMobileLike } from '../engine/util/device.js';
+import { VirtualPad } from '../../engine/util/pad.js';
+import { isMobileLike } from '../../engine/util/device.js';
 
 // ダブルタップの拡大を潰す(user-scalable=no は iOS Safari が無視する)
 document.addEventListener('gesturestart', (e) => e.preventDefault());
