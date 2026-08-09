@@ -56,7 +56,7 @@ const DEFAULTS = {
   dragMax: 48,         // これより離れたら原点を引きずる(px)
   hysteresis: 7,       // 区画の境目の重なり(度)。ばたつき止め
   shotZone: 28,        // ショットエリアの幅(%)
-  shotMode: 'B',       // 'A' 区画割り / 'B' 移動量 / 'C' 出入り
+  shotMode: 'D',       // 'A' 区画割り / 'B' 移動量 / 'C' 出入り / 'D' 往復
   shotStep: 24,        // A なら区画の一辺、B なら 1 発ぶんの移動量(px)
   holdRepeatMs: 0,     // 長押しの連射間隔(ms)。**0 で無し**(連射は腕前のまま)
   shotCode: 'Space',
@@ -95,7 +95,7 @@ export class TouchControls {
     /** 相対十字の様子(touch-tool が読む) */
     this.stick = { active: false, ox: 0, oy: 0, x: 0, y: 0, dx: 0, dy: 0, dist: 0, deg: 0, sector: -1 };
     /** こすり打ちの様子(touch-tool が読む) */
-    this.rub = { pressCount: 0, releaseCount: 0, move: 0, rate: 0, maxRate: 0, cell: '' };
+    this.rub = { pressCount: 0, releaseCount: 0, move: 0, rate: 0, maxRate: 0, cell: '', turns: 0 };
 
     this.el = null;
     this._host = null;
@@ -175,6 +175,7 @@ export class TouchControls {
     this.rub.pressCount = 0;
     this.rub.releaseCount = 0;
     this.rub.move = 0;
+    this.rub.turns = 0;
     this.rub.rate = 0;
     this.rub.maxRate = 0;
     this._shotTimes.length = 0;
@@ -259,15 +260,16 @@ export class TouchControls {
 
   /**
    * **1 コマだけ押す**。押した直後に離すとゲーム側の wasPressed() が拾えないので、
-   * 離すのは次の描き替えまで待つ。待っているあいだに来たぶんは順番に並べる
+   * 離すのは次の描き替えまで待つ。
+   *
+   * **待っているあいだに来たぶんは捨てる。** 貯めると、指を止めたあとも
+   * 上限(1 コマ 1 発 = 60 発/秒)で出続けてしまう。実際そうなって、
+   * 一気に指を滑らせるだけで 60 発/秒に張り付いた
    */
   _pulse(code) {
-    if (this._pulseDown.has(code) || this.down.has(code)) {
-      this._pulseQueue.set(code, (this._pulseQueue.get(code) || 0) + 1);
-    } else {
-      this._press(code);
-      this._pulseDown.add(code);
-    }
+    if (this._pulseDown.has(code) || this.down.has(code)) return;
+    this._press(code);
+    this._pulseDown.add(code);
     this._runPulses();
   }
 
@@ -279,13 +281,6 @@ export class TouchControls {
         this._release(code);
         this._pulseDown.delete(code);
       }
-      for (const [code, n] of [...this._pulseQueue]) {
-        this._press(code);
-        this._pulseDown.add(code);
-        if (n <= 1) this._pulseQueue.delete(code);
-        else this._pulseQueue.set(code, n - 1);
-      }
-      if (this._pulseDown.size || this._pulseQueue.size) this._runPulses();
     });
   }
 
@@ -435,8 +430,11 @@ export class TouchControls {
   _shotDown(p, e) {
     this.rub.move = 0;
     p.acc = 0;
+    p.vx = 0; p.vy = 0; p.stroke = 0;
+    p.px = p.x; p.py = p.y;
     p.cell = this._cellOf(p);
     this.rub.cell = p.cell;
+    this.rub.turns = 0;
     // どの方式でも、触れた瞬間に 1 発は出る
     if (this.opts.shotMode === 'C') this._press(this.opts.shotCode);
     else this._pulse(this.opts.shotCode);
@@ -467,12 +465,53 @@ export class TouchControls {
       }
       return;
     }
-    // B: 動いた量で数える。こする速さがそのまま連射数になる
-    const step = Math.max(1, o.shotStep);
-    while (p.acc >= step) {
-      p.acc -= step;
+    if (o.shotMode === 'B') {
+      // B: 動いた量で数える。
+      // **長く滑らせるほど得**になってしまうので、実機では使いものにならなかった。
+      // 比べるために残してある
+      const step = Math.max(1, o.shotStep);
+      while (p.acc >= step) {
+        p.acc -= step;
+        this._pulse(o.shotCode);
+      }
+      return;
+    }
+    // D: 往復で数える。**向きが反転したときに 1 発**。
+    // 爪を往復させる回数がそのまま連射数になり、一気の一振りは何 px でも 1 発。
+    // ぐるぐる回すのは向きが連続して変わるだけなので、ほとんど出ない
+    this._rubTurn(p, o);
+  }
+
+  /** 向きが反転したかを見て、していたら 1 発 */
+  _rubTurn(p, o) {
+    const dx = p.x - (p.px ?? p.x);
+    const dy = p.y - (p.py ?? p.y);
+    p.px = p.x; p.py = p.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 0.5) return;               // 止まっているうちは何もしない
+    const ux = dx / len, uy = dy / len;
+
+    if (p.vx === 0 && p.vy === 0) {      // 一振り目。向きが決まる
+      p.vx = ux; p.vy = uy; p.stroke = len;
+      return;
+    }
+    const dot = ux * p.vx + uy * p.vy;
+    if (dot >= 0) {                      // 同じ向きへ進んでいる
+      p.stroke += len;
+      // 向きはゆっくり付いていく(曲がりながらこすっても切れないように)
+      p.vx = p.vx * 0.8 + ux * 0.2;
+      p.vy = p.vy * 0.8 + uy * 0.2;
+      const n = Math.hypot(p.vx, p.vy) || 1;
+      p.vx /= n; p.vy /= n;
+      return;
+    }
+    // 反転した。**戻る前に十分こすっていたときだけ**数える(震えを拾わない)
+    if (p.stroke >= Math.max(1, o.shotStep)) {
+      this.rub.turns++;
       this._pulse(o.shotCode);
     }
+    p.vx = ux; p.vy = uy;
+    p.stroke = len;
   }
 
   _shotUp() {

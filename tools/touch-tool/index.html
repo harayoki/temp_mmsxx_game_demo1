@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>touch-tool - タッチ操作の実験台</title>
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
@@ -117,8 +117,19 @@ button {
 import { TouchControls } from '../../engine/util/touch.js';
 import { isMobileLike } from '../../engine/util/device.js';
 
-// ダブルタップの拡大を潰す(user-scalable=no は iOS Safari が無視する)
-document.addEventListener('gesturestart', (e) => e.preventDefault());
+// 指でつまむ拡大を潰す(user-scalable=no は iOS Safari が無視する)
+for (const g of ['gesturestart', 'gesturechange', 'gestureend']) {
+  document.addEventListener(g, (e) => e.preventDefault());
+}
+// **ダブルタップの拡大**は上では止まらない。2 回目のタップの touchend を潰す。
+// ボタンや入力欄の上では潰さない(潰すとクリックが飛ばなくなる)
+let lastTapAt = 0;
+document.addEventListener('touchend', (e) => {
+  if (e.target.closest('button, input, textarea, summary, label')) return;
+  const now = Date.now();
+  if (now - lastTapAt <= 350) e.preventDefault();
+  lastTapAt = now;
+}, { passive: false });
 document.addEventListener('touchmove', (e) => {
   if (e.target.closest('#panel')) return;   // 計器盤の中だけは送れるように
   e.preventDefault();
@@ -218,9 +229,11 @@ const knobsEl = document.getElementById('knobs');
 const modeRow = document.createElement('div');
 modeRow.className = 'row';
 modeRow.innerHTML = '<span style="width:96px">方式</span>'
-  + ['A 区画', 'B 移動量', 'C 出入り'].map((t, i) =>
-      `<label><input type="radio" name="mode" value="${'ABC'[i]}"`
-      + `${touch.opts.shotMode === 'ABC'[i] ? ' checked' : ''}> ${t}</label>`).join(' ');
+  + ['D 往復', 'A 区画', 'B 移動量', 'C 出入り'].map((t) => {
+      const v = t[0];
+      return `<label><input type="radio" name="mode" value="${v}"`
+        + `${touch.opts.shotMode === v ? ' checked' : ''}> ${t}</label>`;
+    }).join(' ');
 knobsEl.appendChild(modeRow);
 modeRow.addEventListener('change', (e) => {
   touch.setOptions({ shotMode: e.target.value });
@@ -347,6 +360,7 @@ function frame() {
   el('maxRate').textContent = st.rub.maxRate;
   el('rub').innerHTML = `PRESS ${st.rub.pressCount} / RELEASE ${st.rub.releaseCount}`
     + ` / 移動 ${Math.round(st.rub.move)}px`
+    + (touch.opts.shotMode === 'D' ? ` / 往復 ${st.rub.turns}` : '')
     + (touch.opts.shotMode === 'A' ? ` / 区画 ${st.rub.cell || '—'}` : '');
 
   // ⑤ 端末・画面
