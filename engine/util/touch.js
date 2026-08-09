@@ -729,7 +729,9 @@ const SHOT_HTML = `
   <div class="mmsxx-touch-note"></div>
   <div class="mmsxx-touch-fire"></div>
   <svg class="mmsxx-touch-gesture" viewBox="0 0 48 48" aria-hidden="true">
-    <path d="M13 35L35 13"/><path d="M26 13h9v9"/><path d="M22 35h-9v-9"/>
+    <g class="mmsxx-touch-sweep">
+      <path d="M13 35L35 13"/><path d="M26 13h9v9"/><path d="M22 35h-9v-9"/>
+    </g>
     <g class="mmsxx-touch-rub">
     <g class="mmsxx-touch-finger" transform="translate(29,26.5) scale(0.46)">
       <rect x="6.2" y="0" width="3.8" height="11.5" rx="1.9"/>
@@ -879,9 +881,13 @@ function injectStyle() {
 }
 /* 指は塗りつぶし。線と同じ白 1 色 */
 .mmsxx-touch-finger { fill: #ffffff; stroke: none; }
-/* **動くのは指だけ。** 矢印は止めておく(両方動くと何を示しているか読めない) */
+/* 指と矢印を**ちょうど逆向き**に動かす。同じ動きに alternate と
+   alternate-reverse を当てると、位相がぴったり反対になる */
 .mmsxx-touch-rub {
   animation: mmsxx-touch-scrub 0.32s ease-in-out infinite alternate;
+}
+.mmsxx-touch-sweep {
+  animation: mmsxx-touch-scrub 0.32s ease-in-out infinite alternate-reverse;
 }
 @keyframes mmsxx-touch-scrub {
   0%   { transform: translate(-4px, 4px); }
