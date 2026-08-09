@@ -58,10 +58,11 @@ const DEFAULTS = {
   // いまの手元の端末を 1(中)として、0.7 なら小さい画面向け、1.5 なら大きい画面向け
   scale: 1,
   deadzone: 5,         // これ未満しか動いていなければ無入力(px。scale が掛かる)
-  dragMax: 120,        // これより離れたら原点を引きずる(px)
+  dragMax: 60,         // これより離れたら原点を引きずる(px)
   hysteresis: 7,       // 区画の境目の重なり(度)。ばたつき止め
   guiRadius: 72,       // 矢印を原点からどれだけ離して置くか(px)。矢印と丸の大きさも連れて変わる
-  shotMode: 'D',       // 'A' 区画割り / 'B' 移動量 / 'C' 出入り / 'D' 往復
+  shotMode: 'D',       // 'D' 往復(既定) / 'A' 区画割り / 'B' 移動量 / 'C' 出入り。
+                       // 既定は D。ほかもゲームによっては使えるので残してある
   shotStep: 14,        // D なら折り返しと認める距離、A なら区画の一辺、B なら 1 発ぶんの移動量(px)
   holdRepeatMs: 0,     // 長押しの連射間隔(ms)。**0 で無し**(連射は腕前のまま)
   shotCode: 'Space',
@@ -603,8 +604,8 @@ export class TouchControls {
     }
     if (o.shotMode === 'B') {
       // B: 動いた量で数える。
-      // **長く滑らせるほど得**になってしまうので、実機では使いものにならなかった。
-      // 比べるために残してある
+      // **長く滑らせるほど得**になってしまうので、このゲームでは使わない。
+      // 別のゲームで欲しくなるかもしれないので残してある
       const step = Math.max(1, this._px(o.shotStep));
       while (p.acc >= step) {
         p.acc -= step;
@@ -806,15 +807,15 @@ function injectStyle() {
    (内側の端が幅の半分より内へ入ると、四隅で重なる) */
 .mmsxx-touch-arrow {
   position: absolute; background: #224466;
-  width: var(--r); height: calc(var(--r) * 0.88);
-  margin: calc(var(--r) * -0.44) 0 0 calc(var(--r) * -0.5);
-  clip-path: polygon(50% 0%, 100% 55%, 72% 55%, 72% 100%, 28% 100%, 28% 55%, 0% 55%);
+  width: calc(var(--r) * 1.2); height: calc(var(--r) * 0.78);
+  margin: calc(var(--r) * -0.39) 0 0 calc(var(--r) * -0.6);
+  clip-path: polygon(50% 0%, 100% 52%, 70% 52%, 70% 100%, 30% 100%, 30% 52%, 0% 52%);
 }
 .mmsxx-touch-arrow.on { background: #ffcc22; }
-.mmsxx-touch-arrow[data-code="ArrowUp"]    { left: 0; top: calc(var(--r) * -0.96); }
-.mmsxx-touch-arrow[data-code="ArrowDown"]  { left: 0; top: calc(var(--r) * 0.96);  transform: rotate(180deg); }
-.mmsxx-touch-arrow[data-code="ArrowLeft"]  { top: 0; left: calc(var(--r) * -0.96); transform: rotate(-90deg); }
-.mmsxx-touch-arrow[data-code="ArrowRight"] { top: 0; left: calc(var(--r) * 0.96);  transform: rotate(90deg); }
+.mmsxx-touch-arrow[data-code="ArrowUp"]    { left: 0; top: calc(var(--r) * -1.01); }
+.mmsxx-touch-arrow[data-code="ArrowDown"]  { left: 0; top: calc(var(--r) * 1.01);  transform: rotate(180deg); }
+.mmsxx-touch-arrow[data-code="ArrowLeft"]  { top: 0; left: calc(var(--r) * -1.01); transform: rotate(-90deg); }
+.mmsxx-touch-arrow[data-code="ArrowRight"] { top: 0; left: calc(var(--r) * 1.01);  transform: rotate(90deg); }
 
 /* ショット。面の横溝で「こする場所」だと見せる */
 .mmsxx-touch-fire {
