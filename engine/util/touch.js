@@ -730,12 +730,14 @@ const SHOT_HTML = `
   <div class="mmsxx-touch-fire"></div>
   <svg class="mmsxx-touch-gesture" viewBox="0 0 48 48" aria-hidden="true">
     <path d="M13 35L35 13"/><path d="M26 13h9v9"/><path d="M22 35h-9v-9"/>
+    <g class="mmsxx-touch-rub">
     <g class="mmsxx-touch-finger" transform="translate(29,26.5) scale(0.46)">
       <rect x="6.2" y="0" width="3.8" height="11.5" rx="1.9"/>
       <circle cx="11" cy="9.4" r="1.9"/>
       <circle cx="13.2" cy="10.8" r="1.8"/>
       <rect x="3.2" y="8.4" width="11.6" height="12" rx="4.4"/>
       <circle cx="3.6" cy="13.8" r="2.4"/>
+    </g>
     </g>
   </svg>
   <div class="mmsxx-touch-callout"></div>
@@ -780,7 +782,9 @@ function injectStyle() {
    点滅は steps(2) でぱっと入れ替える(なめらかに薄くしない。昔の画面の感じ) */
 .mmsxx-touch-hint {
   position: absolute; width: 0; height: 0;
-  left: var(--hx, 50%); top: var(--hy, 50%);
+  /* まだ一度も触っていないときの置き場所。**下限のすこし上**に出す
+     (親指はエリアの下のほうに来るため)。触ったあとは --hx/--hy が入る */
+  left: var(--hx, 50%); top: var(--hy, calc(100% - var(--r) * 2));
   animation: mmsxx-touch-blink 1.4s steps(2, jump-none) infinite;
 }
 @keyframes mmsxx-touch-blink {
@@ -794,7 +798,8 @@ function injectStyle() {
    **一度でも触ったら二度と出さない** */
 .mmsxx-touch-callout {
   position: absolute; transform: translateX(-50%);
-  left: var(--hx, 50%); top: calc(var(--hy, 50%) + var(--r) * 1.5);
+  left: var(--hx, 50%);
+  top: calc(var(--hy, calc(100% - var(--r) * 2)) + var(--r) * 1.5);
   color: #ffffff; font: bold 16px monospace; letter-spacing: 3px; white-space: nowrap;
 }
 /* 触れているあいだと、一度でも触ったあとは出さない。
@@ -871,13 +876,16 @@ function injectStyle() {
   width: calc(var(--btn) * 1.6); height: calc(var(--btn) * 1.6);
   fill: none; stroke: #ffffff; stroke-width: 1.3;
   stroke-linecap: square; stroke-linejoin: miter;
-  animation: mmsxx-touch-scrub 0.32s ease-in-out infinite alternate;
 }
 /* 指は塗りつぶし。線と同じ白 1 色 */
 .mmsxx-touch-finger { fill: #ffffff; stroke: none; }
+/* **動くのは指だけ。** 矢印は止めておく(両方動くと何を示しているか読めない) */
+.mmsxx-touch-rub {
+  animation: mmsxx-touch-scrub 0.32s ease-in-out infinite alternate;
+}
 @keyframes mmsxx-touch-scrub {
-  0%   { transform: translate(-50%, 0) translate(-9%, 9%); }
-  100% { transform: translate(-50%, 0) translate(9%, -9%); }
+  0%   { transform: translate(-4px, 4px); }
+  100% { transform: translate(4px, -4px); }
 }
 .mmsxx-touch-shot.used .mmsxx-touch-gesture { display: none; }
 
