@@ -181,7 +181,7 @@ export class TouchControls {
     this._applyLayout();
     this._applyLabels();
     this._bind(this._dpad, 'dpad');
-    this._bind(this._fire, 'shot');
+    this._bind(this._shot, 'shot');   // **エリア全体**で受ける(丸は絵だけ)
     this._bind(this._pause, 'pause');
     return this;
   }
@@ -220,12 +220,12 @@ export class TouchControls {
    *
    *   touch.setSkin({ fire: `url(${shotPng})`, firePressed: `url(${shotOnPng})` });
    *
-   * fire … こすり面のふだん / firePressed … 撃った瞬間
-   * knob … 指そのものの印 / ring … 原点の下敷き(どちらも既定では何も出ない)
+   * fire … ボタンの丸 / firePressed … 撃った瞬間 / shotArea … ボタンのエリアの背景
+   * knob … 指そのものの印 / ring … 原点の下敷き(いずれも既定では何も出ない)
    */
   setSkin(patch) {
     const map = { fire: '--fire-img', firePressed: '--fire-img-on',
-                  knob: '--knob-img', ring: '--ring-img' };
+                  shotArea: '--shotarea-img', knob: '--knob-img', ring: '--ring-img' };
     for (const [key, prop] of Object.entries(map)) {
       if (!(key in patch)) continue;
       for (const z of this._zones) {
@@ -414,6 +414,8 @@ export class TouchControls {
 
   _bind(el, owner) {
     el.addEventListener('pointerdown', (e) => {
+      // PAUSE の上はショットにしない(同じエリアの中にあるため)
+      if (owner !== 'pause' && e.target.closest('.mmsxx-touch-pause')) return;
       e.preventDefault();
       // 担当は触れた瞬間に決めて、離すまで変えない
       const at = this._pt(e);
@@ -663,17 +665,17 @@ export class TouchControls {
     this.rub.cell = '';
   }
 
-  /** ショットボタンの中に指があるか(滑り出ても担当は変えない) */
+  /** ショットのエリアの中に指があるか(滑り出ても担当は変えない) */
   _inFire(p) {
-    if (!this._fire) return false;
-    const r = this._rectOf(this._fire);
+    if (!this._shot) return false;
+    const r = this._rectOf(this._shot);
     return p.x >= r.left && p.x < r.right && p.y >= r.top && p.y < r.bottom;
   }
 
   /** 区画割り(A)の、いまの区画の名前 */
   _cellOf(p) {
-    if (!this._fire) return '';
-    const r = this._rectOf(this._fire);
+    if (!this._shot) return '';
+    const r = this._rectOf(this._shot);
     const step = Math.max(1, this._px(this.opts.shotStep));
     return Math.floor((p.x - r.left) / step) + ',' + Math.floor((p.y - r.top) / step);
   }
@@ -815,8 +817,8 @@ function injectStyle() {
   position: absolute; background: #224466;
   width: calc(var(--r) * 1.2); height: calc(var(--r) * 0.78);
   margin: calc(var(--r) * -0.39) 0 0 calc(var(--r) * -0.6);
-  /* 幹は 30〜70%(太さそのまま)。傘の張り出しを半分にして 15〜85% にした */
-  clip-path: polygon(50% 0%, 85% 52%, 70% 52%, 70% 100%, 30% 100%, 30% 52%, 15% 52%);
+  /* 幹は 30〜70%(太さそのまま)。傘の張り出しは片側 7.5% まで詰めた */
+  clip-path: polygon(50% 0%, 77.5% 52%, 70% 52%, 70% 100%, 30% 100%, 30% 52%, 22.5% 52%);
 }
 .mmsxx-touch-arrow.on { background: #ffcc22; }
 /* 大きさはそのまま、4 つとも内側へ 20px 寄せる */
@@ -826,25 +828,32 @@ function injectStyle() {
 .mmsxx-touch-arrow[data-code="ArrowRight"] { top: 0; left: calc(var(--r) * 1.01 - 20px);  transform: rotate(90deg); }
 
 /* ショット。面の横溝で「こする場所」だと見せる */
-.mmsxx-touch-fire {
-  /* **エリアの下半分だけ。** 親指の届くところに置く */
-  position: absolute; left: 6px; right: 6px; top: 50%; bottom: 22px;
-  background-color: #aa2222;
+/* ボタンのエリア。**反応するのはこのエリア全体。**
+   背景は既定では何も出さない(setSkin({ shotArea }) で差せる) */
+.mmsxx-touch-shot {
   background-size: 100% 100%; background-repeat: no-repeat;
-  /* 既定は横溝(こする面に見せる)。setSkin() で絵に差し替えられる */
-  background-image: var(--fire-img, repeating-linear-gradient(
-    to bottom, #cc3333 0 6px, #881111 6px 12px));
-  border: 2px solid #ee6666;
+  background-image: var(--shotarea-img, none);
+}
+
+/* ボタンの絵。**指はエリア全体で受けるので、これは見せるだけ**。
+   同系色で少し違う色の枠線を付けた素朴な丸 */
+.mmsxx-touch-fire {
+  position: absolute; left: 50%; bottom: 10%; transform: translateX(-50%);
+  width: 74%; aspect-ratio: 1; max-height: 44%;
+  pointer-events: none; border-radius: 50%;
+  background-color: #aa2222; border: 4px solid #dd5555;
+  background-size: 100% 100%; background-repeat: no-repeat;
+  background-image: var(--fire-img, none);
 }
 .mmsxx-touch-fire.on, .mmsxx-touch-fire.hit {
-  background-image: var(--fire-img-on, var(--fire-img, repeating-linear-gradient(
-    to bottom, #ff8888 0 6px, #cc3333 6px 12px)));
+  background-color: #ff7755; border-color: #ffbbaa;
+  background-image: var(--fire-img-on, var(--fire-img, none));
 }
 /* 1 発ごとの光り。短くぱっと明るくして戻す */
 .mmsxx-touch-fire.hit { animation: mmsxx-touch-flash 140ms steps(2, jump-none); }
 @keyframes mmsxx-touch-flash {
-  0%   { filter: brightness(2.2); border-color: #ffffff; }
-  100% { filter: brightness(1);   border-color: #ee6666; }
+  0%   { filter: brightness(2.4); border-color: #ffffff; }
+  100% { filter: brightness(1);   border-color: #dd5555; }
 }
 .mmsxx-touch-pause {
   position: absolute; left: 6px; right: 6px; top: 22px; height: 44px;
