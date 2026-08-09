@@ -214,10 +214,11 @@ export class TouchControls {
    *   touch.setSkin({ fire: `url(${shotPng})`, firePressed: `url(${shotOnPng})` });
    *
    * fire … こすり面のふだん / firePressed … 撃った瞬間
-   * knob … 指そのものの印(既定では何も出ない)
+   * knob … 指そのものの印 / ring … 原点の下敷き(どちらも既定では何も出ない)
    */
   setSkin(patch) {
-    const map = { fire: '--fire-img', firePressed: '--fire-img-on', knob: '--knob-img' };
+    const map = { fire: '--fire-img', firePressed: '--fire-img-on',
+                  knob: '--knob-img', ring: '--ring-img' };
     for (const [key, prop] of Object.entries(map)) {
       if (!(key in patch)) continue;
       for (const z of this._zones) {
@@ -769,11 +770,14 @@ function injectStyle() {
 .mmsxx-touch-stick {
   position: absolute; display: none; width: 0; height: 0;
 }
+/* 原点の下敷き。**既定では何も出さない。**
+   setSkin({ ring: 'url(...)' }) を渡したときだけ見える */
 .mmsxx-touch-ring {
   position: absolute;
-  left: calc(var(--r) * -0.87); top: calc(var(--r) * -0.87);
-  width: calc(var(--r) * 1.74); height: calc(var(--r) * 1.74);
-  border-radius: 50%; background: rgba(32, 64, 112, 0.35);
+  left: calc(var(--r) * -1); top: calc(var(--r) * -1);
+  width: calc(var(--r) * 2); height: calc(var(--r) * 2);
+  background-size: 100% 100%; background-repeat: no-repeat;
+  background-image: var(--ring-img, none);
 }
 /* 指そのものの印。**既定では何も出さない。**
    絵を差したいときだけ見える(背景を入れれば、その絵が指に付いてくる) */
@@ -785,17 +789,19 @@ function injectStyle() {
 
 /* 押している向きの目印。**太めの矢印をベタ塗りで。**
    上向きの形を 1 つ作って、向きごとに回す */
+/* 上向きの形を 1 つ作って、向きごとに回す。
+   **中心ぎりぎりまで寄せる**ので、外側の端は今までと同じところに来る */
 .mmsxx-touch-arrow {
   position: absolute; background: #224466;
-  width: calc(var(--r) * 0.8); height: calc(var(--r) * 0.8);
-  margin: calc(var(--r) * -0.4) 0 0 calc(var(--r) * -0.4);
-  clip-path: polygon(50% 0%, 100% 58%, 78% 58%, 78% 100%, 22% 100%, 22% 58%, 0% 58%);
+  width: calc(var(--r) * 0.8); height: calc(var(--r) * 1.35);
+  margin: calc(var(--r) * -0.675) 0 0 calc(var(--r) * -0.4);
+  clip-path: polygon(50% 0%, 100% 44%, 76% 44%, 76% 100%, 24% 100%, 24% 44%, 0% 44%);
 }
 .mmsxx-touch-arrow.on { background: #ffcc22; }
-.mmsxx-touch-arrow[data-code="ArrowUp"]    { left: 0; top: calc(var(--r) * -1); }
-.mmsxx-touch-arrow[data-code="ArrowDown"]  { left: 0; top: var(--r);  transform: rotate(180deg); }
-.mmsxx-touch-arrow[data-code="ArrowLeft"]  { top: 0; left: calc(var(--r) * -1); transform: rotate(-90deg); }
-.mmsxx-touch-arrow[data-code="ArrowRight"] { top: 0; left: var(--r);  transform: rotate(90deg); }
+.mmsxx-touch-arrow[data-code="ArrowUp"]    { left: 0; top: calc(var(--r) * -0.725); }
+.mmsxx-touch-arrow[data-code="ArrowDown"]  { left: 0; top: calc(var(--r) * 0.725);  transform: rotate(180deg); }
+.mmsxx-touch-arrow[data-code="ArrowLeft"]  { top: 0; left: calc(var(--r) * -0.725); transform: rotate(-90deg); }
+.mmsxx-touch-arrow[data-code="ArrowRight"] { top: 0; left: calc(var(--r) * 0.725);  transform: rotate(90deg); }
 
 /* ショット。面の横溝で「こする場所」だと見せる */
 .mmsxx-touch-fire {
