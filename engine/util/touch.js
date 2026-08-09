@@ -140,6 +140,18 @@ export class TouchControls {
 
     /** 借りている入れ物(十字・ショットの順) */
     this._zones = [];
+    /** 実際に使っている大きさ。入れ物が狭ければ guiRadius より小さくなる */
+    this._r = this.opts.guiRadius;
+    /** 入れ物の大きさが変わったら測り直す。**次の描き替えまで待つ**
+        (resize は途中の大きさでも飛んでくる) */
+    this._onResize = () => {
+      if (this._resizeWait) return;
+      this._resizeWait = requestAnimationFrame(() => {
+        this._resizeWait = 0;
+        this._applyLayout();
+      });
+    };
+    this._resizeWait = 0;
     this._dpad = this._shot = this._fire = this._pause = this._knob = this._stickEl = null;
     /** 1 コマだけ押すための仕掛け */
     this._pulseDown = new Set();
@@ -193,6 +205,8 @@ export class TouchControls {
     this._applyLayout();
     this._applyLabels();
     this.setSkin(this.skin);
+    addEventListener('resize', this._onResize);
+    addEventListener('orientationchange', this._onResize);
     this._bind(this._dpad, 'dpad');
     this._bind(this._shot, 'shot');   // **エリア全体**で受ける(丸は絵だけ)
     this._bind(this._pause, 'pause');
@@ -212,6 +226,8 @@ export class TouchControls {
   /** 外す。押しっぱなしは全部離してから。**入れ物そのものは消さない**(借り物なので) */
   detach() {
     if (!this._zones.length) return;
+    removeEventListener('resize', this._onResize);
+    removeEventListener('orientationchange', this._onResize);
     this.releaseAll();
     for (const z of this._zones) {
       z.classList.remove('mmsxx-touch-zone', 'mmsxx-touch-dpad', 'mmsxx-touch-shot',
@@ -357,8 +373,21 @@ export class TouchControls {
 
   /** 見た目に関わるつまみを CSS へ流す。**大きさや位置は借りる側が決める** */
   _applyLayout() {
+    // **渡された入れ物に収まる大きさを上限にする。**
+    // 狭いエリアを渡されたとき(小さい端末など)に絵がはみ出さないための保険。
+    // 画面の大きさではなく**入れ物**を見るので、エリアの取りかたを変えても壊れない。
+    //
+    // いちばん大きい絵はボタンの丸で、その幅は (2.8r - 40) * 1.02。
+    // それが入れ物の幅から 8px 引いたぶんに収まるところまで小さくする
+    let r = this.opts.guiRadius;
+    for (const z of this._zones) {
+      const w = z.clientWidth;
+      if (w > 0) r = Math.min(r, ((w - 8) / 1.02 + 40) / 2.8);
+    }
+    /** 実際に使っている大きさ。つまみの値と違うことがある(実験台が読む) */
+    this._r = Math.max(16, Math.round(r));
     // **scale は掛けない。** 見た目の大きさは変えず、判定だけを変えるつまみ
-    for (const z of this._zones) z.style.setProperty('--r', this.opts.guiRadius + 'px');
+    for (const z of this._zones) z.style.setProperty('--r', this._r + 'px');
   }
 
   /** 押しているところを明るくする。**音は鳴らさない** */
@@ -563,8 +592,8 @@ export class TouchControls {
    */
   _fit(x, y, r) {
     // **少しはみ出してよい。** きっちり収めると、端では絵が指から離れすぎる。
-    // ここは絵の話なので scale を掛けない
-    const pad = this.opts.guiRadius * 0.8;
+    // ここは絵の話なので scale を掛けず、実際に使っている大きさで測る
+    const pad = this._r * 0.8;
     const one = (v, size) => (size < pad * 2 ? size / 2 : Math.min(Math.max(v, pad), size - pad));
     return { x: one(x, r.width), y: one(y, r.height) };
   }

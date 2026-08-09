@@ -534,6 +534,10 @@ function frame() {
     `向き ${innerWidth >= innerHeight ? '横' : '縦'} / ${innerWidth}x${innerHeight}`
     + '<br>'
     + `dpr ${devicePixelRatio} / maxTouchPoints ${navigator.maxTouchPoints || 0}<br>`
+    + `PADの大きさ ${touch.opts.guiRadius}`
+    + (touch._r !== touch.opts.guiRadius
+        ? ` <span style="color:#ffcc22">→ 実際 ${touch._r}（エリアが狭いので縮めた）</span>` : '')
+    + '<br>'
     + `isMobileLike ${isMobileLike()}`
     + (forced ? ` <span class="dim">(?device=${forced} で上書き)</span>` : '');
 
