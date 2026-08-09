@@ -489,10 +489,27 @@ export class TouchControls {
   }
 
   _stickUp() {
+    this._moveHint();          // 目印を、いま離した場所へ置いておく
     this.stick.active = false;
     this.stick.sector = -1;
     this._applyDirs([]);
     this._hideRing();
+  }
+
+  /**
+   * 触れていないときの目印を、**最後に使った原点へ移す**。
+   * 次もだいたい同じ場所に指を置くので、そこに出ているほうが探さずに済む。
+   * ただし**エリアからはみ出すぶんは戻す**(欠けた絵が端に貼り付くのを避ける)
+   */
+  _moveHint() {
+    if (!this._dpad) return;
+    const r = this._rectOf(this._dpad);
+    const s = this.stick;
+    // 絵の広がり。矢印の外側までを見る
+    const pad = this.opts.guiRadius * 1.4 * (this.opts.scale || 1);
+    const fit = (v, size) => (size < pad * 2 ? size / 2 : Math.min(Math.max(v, pad), size - pad));
+    this._dpad.style.setProperty('--hx', fit(s.ox - r.left, r.width) + 'px');
+    this._dpad.style.setProperty('--hy', fit(s.oy - r.top, r.height) + 'px');
   }
 
   _hideRing() {
@@ -724,7 +741,8 @@ function injectStyle() {
 /* 触れていないときの目印。**ここを触ればいい**と分かるように、ちかちかさせる。
    点滅は steps(2) でぱっと入れ替える(なめらかに薄くしない。昔の画面の感じ) */
 .mmsxx-touch-hint {
-  position: absolute; left: 50%; top: 50%; width: 0; height: 0;
+  position: absolute; width: 0; height: 0;
+  left: var(--hx, 50%); top: var(--hy, 50%);
   animation: mmsxx-touch-blink 1.4s steps(2, jump-none) infinite;
 }
 @keyframes mmsxx-touch-blink {
@@ -737,8 +755,8 @@ function injectStyle() {
 /* 「ここを触って動かす」の誘い文句。目印のすぐ下に白で出し、
    **一度でも触ったら二度と出さない** */
 .mmsxx-touch-callout {
-  position: absolute; left: 50%; transform: translateX(-50%);
-  top: calc(50% + var(--r) * 1.5);
+  position: absolute; transform: translateX(-50%);
+  left: var(--hx, 50%); top: calc(var(--hy, 50%) + var(--r) * 1.5);
   color: #ffffff; font: bold 16px monospace; letter-spacing: 3px; white-space: nowrap;
 }
 /* 触れているあいだと、一度でも触ったあとは出さない。
