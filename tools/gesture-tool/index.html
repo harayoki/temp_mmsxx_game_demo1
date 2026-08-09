@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<title>gesture-tool - ジェスチャの実験台</title>
+<title>gesture-tool - ジェスチャの実験台（開発中）</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -16,9 +16,16 @@ html, body {
   user-select: none; -webkit-user-select: none;
   -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
 }
+/* **まだ作りかけ**だと分かるようにしておく */
+#wip {
+  position: fixed; left: 0; right: 0; top: 0; z-index: 10;
+  background: repeating-linear-gradient(45deg, #663300 0 12px, #442200 12px 24px);
+  color: #ffcc22; text-align: center; padding: 5px 8px;
+  border-bottom: 2px solid #ffcc22; font-size: 14px; pointer-events: none;
+}
 /* 指を受ける板。ここでジェスチャをする */
 #stage {
-  position: fixed; left: 0; top: 0; right: 45%; bottom: 0;
+  position: fixed; left: 0; top: 34px; right: 45%; bottom: 0;
   touch-action: none; overflow: hidden;
   background:
     repeating-linear-gradient(0deg, #16161f 0 39px, #1c1c28 39px 40px),
@@ -33,7 +40,7 @@ html, body {
 .origin { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; background: #556; }
 
 #panel {
-  position: fixed; top: 0; bottom: 0; left: 55%; right: 0;
+  position: fixed; top: 34px; bottom: 0; left: 55%; right: 0;
   overflow-y: auto; touch-action: pan-y;
   padding: 8px 10px; box-sizing: border-box;
   border-left: 1px solid #333344;
@@ -90,6 +97,8 @@ button {
 </style>
 </head>
 <body>
+
+<div id="wip">⚠ 開発中 — スワイプの詰めは途中です</div>
 
 <div id="stage"><div id="stageHint">ここを指でなぞる<br><span class="dim">PC ではマウスが指 1 本ぶん<br>（ピンチと 3 本指は実機でしか出ない）</span></div></div>
 
