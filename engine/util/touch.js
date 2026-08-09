@@ -815,7 +815,8 @@ function injectStyle() {
   position: absolute; background: #224466;
   width: calc(var(--r) * 1.2); height: calc(var(--r) * 0.78);
   margin: calc(var(--r) * -0.39) 0 0 calc(var(--r) * -0.6);
-  clip-path: polygon(50% 0%, 100% 52%, 70% 52%, 70% 100%, 30% 100%, 30% 52%, 0% 52%);
+  /* 幹は 30〜70%(太さそのまま)。傘の張り出しを半分にして 15〜85% にした */
+  clip-path: polygon(50% 0%, 85% 52%, 70% 52%, 70% 100%, 30% 100%, 30% 52%, 15% 52%);
 }
 .mmsxx-touch-arrow.on { background: #ffcc22; }
 .mmsxx-touch-arrow[data-code="ArrowUp"]    { left: 0; top: calc(var(--r) * -1.01); }
