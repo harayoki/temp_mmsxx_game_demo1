@@ -85,6 +85,13 @@ h2:first-child { margin-top: 0; }
 #log .p { color: #8fc; }
 #log .r { color: #667; }
 
+/* 長押しで出る説明 */
+#knobHint {
+  min-height: 2.6em; margin-top: 6px; padding: 4px 6px;
+  color: #ffcc22; background: #1a1a26; border-left: 3px solid #ffcc22;
+}
+#knobHint:empty { visibility: hidden; }
+
 /* つまみ */
 details { margin-top: 8px; border-top: 1px solid #333344; }
 summary { cursor: pointer; padding: 8px 0; color: #7788aa; }
@@ -151,15 +158,22 @@ button {
   <h2>② 端末・画面</h2>
   <div id="device" class="dim"></div>
 
-  <details>
+  <details open>
     <summary>パラメータ調整</summary>
     <div id="knobs"></div>
-    <div class="row" style="margin-top:6px">
-      <button id="reset">RESET</button>
-      <button id="copy">COPY VALUES</button>
-    </div>
-    <textarea id="values" readonly></textarea>
   </details>
+
+  <details>
+    <summary>GUI調整</summary>
+    <div id="guiKnobs"></div>
+  </details>
+
+  <div id="knobHint"></div>
+  <div class="row" style="margin-top:6px">
+    <button id="reset">RESET</button>
+    <button id="copy">COPY VALUES</button>
+  </div>
+  <textarea id="values" readonly></textarea>
 
   <h2>③ タッチ点 <span class="dim" id="touchCount"></span></h2>
   <div id="touches" class="dim">（触れていません）</div>
@@ -279,16 +293,24 @@ function addLog(kind, code, source) {
 }
 
 // ── つまみ ────────────────────────────────────────────
-// [キー, 表示名, 最小, 最大, 刻み, 器の持ちものか]
+// [キー, 表示名, 最小, 最大, 刻み, 器の持ちものか, どちらの欄か, 長押しで出る説明]
 const KNOBS = [
-  ['dpadZone', '十字の幅%', 10, 45, 1, true],
-  ['deadzone', '不感帯px', 0, 40, 1],
-  ['dragMax', '引きずりpx', 16, 120, 1],
-  ['hysteresis', '重なり度', 0, 20, 1],
-  ['guiRadius', '十字の大きさpx', 16, 120, 1],
-  ['shotZone', 'ショット幅%', 10, 45, 1, true],
-  ['shotStep', 'しきい値px', 4, 80, 1],
-  ['holdRepeatMs', '長押しms(0=無)', 0, 500, 10],
+  ['deadzone', '不感帯px', 0, 40, 1, false, 'param',
+   'これより内側に指があるうちは、どの向きも立たない。指の震えを拾わないための遊び'],
+  ['dragMax', '引きずりpx', 16, 120, 1, false, 'param',
+   '原点からこれ以上離すと、原点のほうが指に引きずられて付いてくる。エリアの端まで行っても操作を続けられる'],
+  ['hysteresis', '重なり度', 0, 20, 1, false, 'param',
+   '8 方向の境目の重なり。大きいほど、斜めと真横のあいだでばたつかない'],
+  ['shotStep', 'しきい値px', 4, 80, 1, false, 'param',
+   'こすりの折り返しと認めるまでに動かす距離。小さいほど小刻みなこすりで撃てるが、震えも拾いやすい'],
+  ['holdRepeatMs', '長押しms(0=無)', 0, 500, 10, false, 'param',
+   '指を置いたままのときに、この間隔で撃つ。0 なら撃たない(連射は腕前のまま)'],
+  ['dpadZone', '十字の幅%', 10, 45, 1, true, 'gui',
+   '十字を置くエリアの幅。画面の幅に対する割合'],
+  ['shotZone', 'ショット幅%', 10, 45, 1, true, 'gui',
+   'ショットを置くエリアの幅。画面の幅に対する割合'],
+  ['guiRadius', '十字の大きさpx', 16, 120, 1, false, 'gui',
+   '原点から矢印までの距離。矢印と丸の大きさもこれに連れて変わる'],
 ];
 
 const knobsEl = document.getElementById('knobs');
@@ -325,7 +347,29 @@ sizeRow.addEventListener('change', (e) => {
 /** つまみの値。器の持ちものと部品の持ちもの、どちらから読むか */
 const valueOf = (key, mine) => (mine ? zone : touch.opts)[key];
 
-for (const [key, name, min, max, step, mine] of KNOBS) {
+/** 長押しで説明を出す。動かしはじめたら引っ込める */
+const hintEl = document.getElementById('knobHint');
+let hintTimer = 0, hintClear = 0;
+function watchHold(el, text) {
+  const stop = () => { clearTimeout(hintTimer); hintTimer = 0; };
+  el.addEventListener('pointerdown', (e) => {
+    const x0 = e.clientX, y0 = e.clientY;
+    stop();
+    hintTimer = setTimeout(() => {
+      hintEl.textContent = text;
+      clearTimeout(hintClear);
+      hintClear = setTimeout(() => { hintEl.textContent = ''; }, 6000);
+    }, 450);
+    const move = (ev) => { if (Math.hypot(ev.clientX - x0, ev.clientY - y0) > 6) stop(); };
+    el.addEventListener('pointermove', move);
+    const off = () => { stop(); el.removeEventListener('pointermove', move); };
+    el.addEventListener('pointerup', off, { once: true });
+    el.addEventListener('pointercancel', off, { once: true });
+  });
+}
+
+const guiKnobsEl = document.getElementById('guiKnobs');
+for (const [key, name, min, max, step, mine, group, hint] of KNOBS) {
   const el = document.createElement('label');
   el.className = 'knob';
   const v0 = valueOf(key, mine);
@@ -341,7 +385,8 @@ for (const [key, name, min, max, step, mine] of KNOBS) {
     else touch.setOptions({ [key]: v });
     showValues();
   });
-  knobsEl.appendChild(el);
+  watchHold(el, `${name}: ${hint}`);
+  (group === 'gui' ? guiKnobsEl : knobsEl).appendChild(el);
 }
 
 // キャッシュに古いものが残るので、v を 1 つ増やして開き直す
