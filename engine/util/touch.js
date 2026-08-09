@@ -789,7 +789,8 @@ function injectStyle() {
 .mmsxx-touch-dpad.holding .mmsxx-touch-callout { display: none; }
 /* ボタン側は場所が動かないので、丸の真ん中に重ねる */
 .mmsxx-touch-shot .mmsxx-touch-callout {
-  left: 50%; top: auto; bottom: 4%;
+  /* 丸のすぐ下。PAD の DRAG ME と同じくらいの近さにする */
+  left: 50%; top: auto; bottom: calc(10% - 1.5em);
 }
 .mmsxx-touch-shot.used .mmsxx-touch-callout { display: none; }
 
@@ -863,14 +864,14 @@ function injectStyle() {
 /* **触れているだけでは色を変えない。** 撃った瞬間だけ、控えめに明るくする
    (黄色にしたり強く光らせたりすると目に障る) */
 .mmsxx-touch-fire.hit {
-  /* **輪はそのまま。中身だけ明るくする** */
-  background-color: #33608f;
+  /* **中身はそのまま。輪だけ黄色にする**(矢印が押されたときと同じ色) */
+  border-color: #ffcc22;
   background-image: var(--fire-img-on, var(--fire-img, none));
   animation: mmsxx-touch-flash 140ms steps(2, jump-none);
 }
 @keyframes mmsxx-touch-flash {
-  0%   { background-color: #4a86c8; }
-  100% { background-color: #33608f; }
+  0%   { border-color: #ffcc22; }
+  100% { border-color: #224466; }
 }
 .mmsxx-touch-pause {
   position: absolute; left: 6px; right: 6px; top: 22px; height: 44px;
