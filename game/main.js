@@ -4880,7 +4880,21 @@ function openShare(after, spec) {
   // (ポーズすると溜めも止まるので、出しているあいだコマは動かない)
   sharePaused = (state === 'play' && !paused);
   if (sharePaused) togglePause();
-  makeShareEl().style.display = 'flex';
+  const el = makeShareEl();
+  el.style.display = 'flex';
+  // **画面を 90 度回して見せているときは、この板も一緒に回す。**
+  // 板は画面の座標のまま置かれるので、回さないとゲームだけ横向き・
+  // 板だけ縦向き、という食い違いになる(実機で横倒しに見えた)。
+  // 器(engine/util/touchgui.js)がやっているのと同じ移しかた
+  if (mmsxx.vdp.rotated) {
+    const vw = window.innerWidth, vh = window.innerHeight;
+    Object.assign(el.style, {
+      width: vh + 'px', height: vw + 'px', inset: 'auto', left: '0', top: '0',
+      transformOrigin: '0 0', transform: `translateX(${vw}px) rotate(90deg)`,
+    });
+  } else {
+    Object.assign(el.style, { inset: '0', width: '', height: '', transform: '' });
+  }
   shareFixed = null;
   shareExtra = null;
   shareBack = SHARE_ONE;
@@ -12879,6 +12893,10 @@ const TG_PICK = 52;
  * (const は巻き上がらない。下に置くと初期化前に触って落ちる)
  */
 let zoomByUser = false;
+/** つまみのボタンを出しているか(遊んでいる最中は出さない) */
+let tuneShown = true;
+/** キーボードのボタンが押せる状態か(打てる場面だけ) */
+let kbdUsable = null;
 const ZOOM_STEP = 1.12;   // 1 回で 1 割ちょっと。押した手応えが分かるくらい
 const ZOOM_MIN = 0.4, ZOOM_MAX = 1;
 /**
@@ -12912,9 +12930,9 @@ const TG = {
     tipEn: 'DRAG UP / DOWN TO PICK A SOUND', tipJa: '上下にドラッグで曲や音を選ぶ' },
   category: { icon: 'leftright', en: 'CATEGORY', ja: 'カテゴリ変更',
     tipEn: 'SWIPE LEFT / RIGHT TO CHANGE CATEGORY', tipJa: '左右にスワイプで種類を変える' },
-  letter: { icon: 'updown', en: 'LETTER', ja: '文字',
+  letter: { icon: 'updown', en: 'LETTER', ja: '文字選択',
     tipEn: 'DRAG UP / DOWN TO CHANGE THE LETTER', tipJa: '上下にドラッグで文字を変える' },
-  cursor: { icon: 'leftright', en: 'CURSOR', ja: '桁',
+  cursor: { icon: 'leftright', en: 'CURSOR', ja: 'カーソル移動',
     tipEn: 'SWIPE LEFT / RIGHT TO MOVE THE CURSOR', tipJa: '左右にスワイプで桁を移る' },
 };
 /**
@@ -12956,6 +12974,10 @@ const OPTBTN = {
   soundStop: { en: 'STOP', run: () => stopSoundTest() },
   // 名前入力の 1 文字消し。左キーは桁を移るだけなので、消す口がここに要る
   del: { en: 'BACK', code: 'Backspace' },
+  // **名前入力の確定。** キーボードの SPACE は「ENTER の枠にいるときだけ」
+  // 効くので、指では枠まで移らないと先へ進めず、行き止まりに見えていた。
+  // ボタンは**どこにいても確定**にする(打ち終わったら押すもの、で通る)
+  submit: { en: 'ENTER', run: () => startSubmit() },
 };
 /** RESET を押して、まだ答えていない状態。ポーズを抜けたら忘れる */
 let resetAsk = false;
@@ -12970,7 +12992,10 @@ function menuGuide() {
   // ポーズ中。**RESET は OPTION ボタン**(打ち込みの Q と同じことをする)
   if (paused) {
     // RESET を押したあとは**聞き返す**。上が捨てるほう、下がやめるほう
-    if (resetAsk) return { left: [], esc: OPTBTN.goTitle, ok: OPTBTN.keepPlaying, opt: null };
+    // **捨てるほうを下、やめるほうを上。** 上は RESUME / RESET を押した指が
+    // そのまま残っている場所なので、そこに「タイトルへ」を置くと押し間違える
+    // (実際そうなった)。取り返しのつかないほうを、指から遠いところへ置く
+    if (resetAsk) return { left: [], esc: OPTBTN.keepPlaying, ok: OPTBTN.goTitle, opt: null };
     return { left: [], ok: null, esc: OK.resume, opt: OPTBTN.reset };
   }
   switch (state) {
@@ -12986,7 +13011,8 @@ function menuGuide() {
       return { left: [], ok: OK.skip, esc: OK.skip };
     case 'entry':
       // 左右で桁と ENTER を選び、上下でその桁の文字を送る
-      return { left: [TG.cursor, TG.letter], ok: OK.enter, esc: OK.cancel, opt: OPTBTN.del };
+      return { left: [TG.cursor, TG.letter],
+        ok: OPTBTN.submit, esc: OK.cancel, opt: OPTBTN.del };
     case 'story':
       return { left: [], ok: OK.next, esc: OK.skip };
     case 'staff':
@@ -13094,6 +13120,10 @@ if (PAD_ON) {
   // **器は画面ぜんぶを覆う**ので、外に置いたままでは指が届かない
   const toolsEl = document.getElementById('tools');
   if (toolsEl && touchGui.toolsSlot) touchGui.toolsSlot.appendChild(toolsEl);
+  // **キーボードは右へ。** 左は十字の居場所。文字を打つのは
+  // 裏技のときだけなので、遊びの手とは反対側でよい
+  const kbd = document.getElementById('keyboard-btn');
+  if (kbd && touchGui.toolsSlotRight) touchGui.toolsSlotRight.appendChild(kbd);
   // **DEV の印は器の外へ出す。** スマホの画面のつもりで見ているところに
   // 開発版の印が居ると、そのぶん置き場所を食うし、写真にも写る。
   // 窓の隅(画角の外)へ逃がす
@@ -13213,6 +13243,7 @@ function drawToolIcons() {
   // 外のボタンで行き先を名乗らない。することは「画面を撮る」
   put('share-btn', ICONS.camera, 7);
   put('os-share', ICONS.share, 7);
+  put('keyboard-btn', ICONS.keyboard, 7);
   // **切り替えのボタンは中の絵だけで状態を出す。**(枠は白いまま。いつでも押せる)
   // 効いていないときは差し色も灰色にして、絵ごとモノクロにする
   put('pixel-fit', ICONS.pixelFit, mmsxx.vdp.pixelPerfect ? 7 : ICON_MONO);
@@ -13257,9 +13288,14 @@ async function setupOsShare() {
   drawToolIcons();
   btn.addEventListener('click', async () => {
     btn.blur();
+    // **絵を取ったら、そのまま止める。** 共有シートが開いているあいだも
+    // ゲームは走り続けるので、実機では戻ってきたときにやられていた。
+    // 撮ったのは押した瞬間の絵なので、止めても写るものは変わらない
+    const wasPaused = paused;
     try {
       const blob = await screenshotBlob();
       if (!blob) return;
+      if (!wasPaused && state === 'play') togglePause();
       await navigator.share({
         files: [new File([blob], 'star-fable.png', { type: 'image/png' })],
         title: 'STAR FABLE',
@@ -13338,10 +13374,39 @@ function updateTouchGui() {
   if (state === 'play' && !paused) {
     touchGui.setMode('game');
     touchGui.setGuide({ left: [], esc: OK.pause, ok: null, opt: null });
+    showTuneButtons(false);
+    showKeyboardButton();
     return;
   }
   touchGui.setMode('menu');
   touchGui.setGuide(menuGuide());
+  showTuneButtons(true);
+  showKeyboardButton();
+}
+
+/**
+ * **大きさとドットのつまみは、遊んでいる最中は出さない。**
+ * 弾を避けている最中に触るものではないし、そのぶん十字の場所を食う。
+ * ポーズやタイトルでは出るので、見比べて決められる
+ */
+function showKeyboardButton() {
+  const el = document.getElementById('keyboard-btn');
+  if (!el) return;
+  // **打てるのは裏技の打ち込みだけ**(ポーズ中)。名前入力は上下左右で選べるので要らない。
+  // 押しても今はまだ何も出さない(ソフトキーボードを呼ぶのは次の宿題)
+  const usable = paused;
+  if (kbdUsable === usable) return;
+  kbdUsable = usable;
+  el.classList.toggle('off', !usable);
+}
+
+function showTuneButtons(on) {
+  if (tuneShown === on) return;
+  tuneShown = on;
+  for (const id of ['zoom-in', 'zoom-out', 'pixel-fit']) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = on ? '' : 'none';
+  }
 }
 
 mmsxx.run(() => {

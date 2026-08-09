@@ -7,6 +7,14 @@
      (engine/util/touchgui.js)。書かないと env() は 0 を返し、
      食われるぶんはブラウザが勝手に空ける代わりに画面がそのぶん狭くなる -->
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- **ホーム画面に追加すると全画面になる。** iPhone の Safari は
+     requestFullscreen() に対応していないので、狭さを何とかする道はこれだけ。
+     アドレスバーとタブが消えるぶん、ゲーム画面が 1 段階大きくなる
+     (docs/SMARTPHONE.md の 7-2 節)。iOS は古い apple-* の指定を見る -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="STAR FABLE">
 <title>STAR FABLE - MSX-like Engine Demo</title>
 <base href="/">
 <meta name="twitter:card" content="summary_large_image">
@@ -59,7 +67,9 @@
     flex-direction: column;
     gap: 8px;
   }
-  #tools button {
+  /* キーボードのボタンは右の空きへ移すので #tools の外に出る。
+     **同じ大きさ・同じ見た目**にするため、こちらにも同じ指定を当てる */
+  #tools button, #keyboard-btn {
     font-size: 20px;
     line-height: 1;
     width: 40px;
@@ -72,11 +82,11 @@
     border: 2px solid #cccccc;
     cursor: pointer;
   }
-  #tools button:hover { border-color: #ffe000; }
+  #tools button:hover, #keyboard-btn:hover { border-color: #ffe000; }
   /* **これ以上押せないボタンは、枠ごと灰色にする。**(＋ / − が端まで来たとき)
      押せないものと押せるものを、まず枠で見分けられるようにする */
-  #tools button.off { filter: grayscale(1) brightness(0.55); cursor: default; }
-  #tools button.off:hover { border-color: #cccccc; }
+  #tools button.off, #keyboard-btn.off { filter: grayscale(1) brightness(0.55); cursor: default; }
+  #tools button.off:hover, #keyboard-btn.off:hover { border-color: #cccccc; }
   /* **切り替えのボタン(ピクセルパーフェクトや音)はいつでも押せる**ので、
      枠は白いまま。**中の絵だけ**を色/モノクロで切り替えて状態を知らせる
      (絵の側は game/main.js が作り直している) */
@@ -138,6 +148,9 @@
     <!-- 画面の大きさ。**遊ぶ人が自分で決められる**ようにしておく。
          機種ごとの空きの取りかたは自動で決めているが、
          好みや持ちかたで合わないことがあるので、逃げ道を用意する -->
+    <!-- 文字を打つ(裏技の打ち込み)。**右の空きへ移す**(game/main.js)。
+         打てる場面でだけ効かせ、それ以外は沈める -->
+    <button id="keyboard-btn" type="button" title="KEYBOARD" aria-label="KEYBOARD"></button>
     <span id="dev-badge">DEV</span>
   </div>
 </div>

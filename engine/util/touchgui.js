@@ -277,6 +277,7 @@ export class TouchGui {
       left: q('.mmsxx-gui-left'), right: q('.mmsxx-gui-right'),
       guideL: q('.mmsxx-gui-guide-left'), guideR: q('.mmsxx-gui-guide-right'),
       btns: q('.mmsxx-gui-btns'), tools: q('.mmsxx-gui-tools'),
+      tools2: q('.mmsxx-gui-tools-right'),
       ok: q('.mmsxx-gui-ok'), esc: q('.mmsxx-gui-esc'), opt: q('.mmsxx-gui-opt'),
       safe: q('.mmsxx-gui-safe'), safearea: q('.mmsxx-gui-safearea'),
       tip: q('.mmsxx-gui-tip'),
@@ -310,7 +311,9 @@ export class TouchGui {
     });
     // 借りているボタン(音の入切など)を押したぶんは、ジェスチャに数えない。
     // **preventDefault はしない**(click が飛ばなくなる)。止めるのは伝わるほうだけ
-    this._el.tools.addEventListener('pointerdown', (e) => e.stopPropagation());
+    for (const el of [this._el.tools, this._el.tools2]) {
+      el.addEventListener('pointerdown', (e) => e.stopPropagation());
+    }
     this._bindTips();
 
     // ジェスチャは setMode() が出し入れする(下の _startGesture を見ること)
@@ -375,6 +378,12 @@ export class TouchGui {
    * **借りたものはこちらで消さない**ので、そのまま入れてよい
    */
   get toolsSlot() { return this._el.tools || null; }
+
+  /**
+   * **右の空きの置き場所**。十字を隠したくないものはこちらへ。
+   * ESC / OPTION の下に来る(ボタンとは別の層なので、押しても十字へ届かない)
+   */
+  get toolsSlotRight() { return this._el.tools2 || null; }
 
   /** 案内の言語を変える */
   setLang(lang) {
@@ -567,7 +576,7 @@ export class TouchGui {
       this._el[name].style.left = plan.left.x + 'px';
       this._el[name].style.width = plan.left.w + 'px';
     }
-    for (const name of ['right', 'guideR', 'btns']) {
+    for (const name of ['right', 'guideR', 'btns', 'tools2']) {
       this._el[name].style.left = plan.right.x + 'px';
       this._el[name].style.width = plan.right.w + 'px';
     }
@@ -579,7 +588,16 @@ export class TouchGui {
     // **十字とショットに「入れ物の幅が変わった」と伝える。**
     // あちらは窓の resize しか見ていないので、こちらが帯の幅を変えたことに
     // 気づけない。取り付けた直後は幅がまだ 0 で、既定の大きさのまま止まる
-    this.touch.setOptions({});
+    // **借りているボタンと十字が重なるぶんを、内側へ逃がす。**
+    // 狭い機種ではボタンが外側の端に縦一列で並ぶので、帯の真ん中に置いた
+    // 十字がその上に掛かる。ボタンの並びを知っているのはこちらなので、
+    // どれだけ逃がすかもこちらで出して渡す
+    // ボタンが縦一列で端に寄るのは、帯が狭いとき(重ねている / 案内が出せない)
+    const tools = this._el.tools.firstElementChild;
+    const stacked = plan.overlap || !plan.guide;
+    this.touch.setOptions({
+      anchorInset: (stacked && tools) ? Math.round(tools.offsetWidth) : 0,
+    });
     this._paintSafeArea(s, w, h);
     // 画角を決め打ちにしているときは、その大きさを枠で見せる
     // (実機では窓がそのまま画角なので、囲むものが無い)
@@ -784,7 +802,7 @@ export class TouchGui {
   _bindTips() {
     // 借りているボタンと、**左右の案内の絵**。
     // 案内は狭い機種で文字を消してしまうので、長押しで読めるようにしておく
-    for (const el of [this._el.tools, this._el.guideL, this._el.guideR]) {
+    for (const el of [this._el.tools, this._el.tools2, this._el.guideL, this._el.guideR]) {
       if (el) this._bindTipsOn(el);
     }
   }
@@ -902,6 +920,8 @@ const ROOT_HTML = `
     <div class="mmsxx-gui-btn mmsxx-gui-ok off"></div>
   </div>
   <div class="mmsxx-gui-tools"></div>
+  <!-- 右にも置き場所を用意する。**十字を隠したくないものはこちら**へ -->
+  <div class="mmsxx-gui-tools mmsxx-gui-tools-right"></div>
   <div class="mmsxx-gui-safearea">
     <i data-edge="left"></i><i data-edge="right"></i>
     <i data-edge="top"></i><i data-edge="bottom"></i>
@@ -1142,6 +1162,9 @@ function injectStyle() {
    2 列に折り返すと帯を広く取ることになり、そのぶん画面が小さくなる */
 .mmsxx-gui.overlap .mmsxx-gui-tools #tools,
 .mmsxx-gui.narrow .mmsxx-gui-tools #tools { flex-direction: column; flex-wrap: nowrap; }
+/* 右のぶんは**いつも縦一列**。ESC / OPTION と同じ列に並ぶので、
+   横へ広げると連射のエリアを削ってしまう */
+.mmsxx-gui-tools-right { justify-content: center; }
 /* 縦 1 列にしたら、**いちばん外側の端へ寄せる**。真ん中に置くと
    そのぶんゲーム画面の側へ出っぱる(ボタンを端へ逃がしたのと同じ理由) */
 .mmsxx-gui.overlap .mmsxx-gui-tools,
@@ -1165,6 +1188,9 @@ function injectStyle() {
 /* **入るだけ横に並べ、入らなくなったら下へ折り返す。**
    幅で場合分けせずに済むので、ボタンが増えても境目の値を足さなくてよい。
    帯が狭いところでは自然と縦積みになる */
+/* 右のぶんは ESC(22) と OPTION(62) の下から。**下の段は遊びのもの**なので、
+   ここも上寄せのまま */
+.mmsxx-gui-tools-right { top: calc(112px + var(--safe-t, 0px)); }
 .mmsxx-gui-tools #tools {
   flex-direction: row; flex-wrap: wrap;
   justify-content: center; align-content: flex-start;
