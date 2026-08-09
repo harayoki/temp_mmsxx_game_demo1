@@ -505,12 +505,20 @@ export class TouchControls {
   _moveHint() {
     if (!this._dpad) return;
     const r = this._rectOf(this._dpad);
-    const s = this.stick;
-    // 絵の広がり。矢印の外側までを見る
+    const at = this._fit(this.stick.ox - r.left, this.stick.oy - r.top, r);
+    this._dpad.style.setProperty('--hx', at.x + 'px');
+    this._dpad.style.setProperty('--hy', at.y + 'px');
+  }
+
+  /**
+   * 絵がエリアからはみ出すぶんを戻す。**入力の原点は動かさない**
+   * (戻した先を原点にすると、触れた瞬間に向きが立ってしまう)。
+   * 端に触れたときだけ、絵が指から少しずれて見える
+   */
+  _fit(x, y, r) {
     const pad = this.opts.guiRadius * 1.4 * (this.opts.scale || 1);
-    const fit = (v, size) => (size < pad * 2 ? size / 2 : Math.min(Math.max(v, pad), size - pad));
-    this._dpad.style.setProperty('--hx', fit(s.ox - r.left, r.width) + 'px');
-    this._dpad.style.setProperty('--hy', fit(s.oy - r.top, r.height) + 'px');
+    const one = (v, size) => (size < pad * 2 ? size / 2 : Math.min(Math.max(v, pad), size - pad));
+    return { x: one(x, r.width), y: one(y, r.height) };
   }
 
   _hideRing() {
@@ -545,8 +553,9 @@ export class TouchControls {
     this._stickEl.style.display = 'block';
     this._knob.style.display = 'block';
     this._dpad.classList.add('holding');   // 目印を引っ込める
-    this._stickEl.style.left = (s.ox - r.left) + 'px';
-    this._stickEl.style.top = (s.oy - r.top) + 'px';
+    const at = this._fit(s.ox - r.left, s.oy - r.top, r);
+    this._stickEl.style.left = at.x + 'px';
+    this._stickEl.style.top = at.y + 'px';
     this._knob.style.left = (s.x - r.left) + 'px';
     this._knob.style.top = (s.y - r.top) + 'px';
   }
