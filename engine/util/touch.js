@@ -730,9 +730,12 @@ const SHOT_HTML = `
   <div class="mmsxx-touch-fire"></div>
   <svg class="mmsxx-touch-gesture" viewBox="0 0 48 48" aria-hidden="true">
     <path d="M13 35L35 13"/><path d="M26 13h9v9"/><path d="M22 35h-9v-9"/>
-    <g class="mmsxx-touch-finger">
-      <rect x="34.4" y="29.5" width="3.2" height="6.5" rx="1.6"/>
-      <rect x="32.4" y="34" width="7.2" height="7" rx="2.4"/>
+    <g class="mmsxx-touch-finger" transform="translate(32,29) scale(0.46)">
+      <rect x="6.2" y="0" width="3.8" height="11.5" rx="1.9"/>
+      <circle cx="11" cy="9.4" r="1.9"/>
+      <circle cx="13.2" cy="10.8" r="1.8"/>
+      <rect x="3.2" y="8.4" width="11.6" height="12" rx="4.4"/>
+      <circle cx="3.6" cy="13.8" r="2.4"/>
     </g>
   </svg>
   <div class="mmsxx-touch-callout"></div>
