@@ -693,23 +693,25 @@ function injectStyle() {
   position: absolute;
   left: calc(var(--r) * -1); top: calc(var(--r) * -1);
   width: calc(var(--r) * 2); height: calc(var(--r) * 2);
-  border: 2px solid #4488cc; background: rgba(32, 64, 112, 0.35);
+  border-radius: 50%; background: rgba(32, 64, 112, 0.35);
 }
 .mmsxx-touch-knob {
   position: absolute; width: 20px; height: 20px; margin: -10px 0 0 -10px;
   background: #66ccff; display: none;
 }
 
-/* 押している向きの目印 */
+/* 押している向きの目印。**太めの矢印をベタ塗りで。**
+   上向きの形を 1 つ作って、向きごとに回す */
 .mmsxx-touch-arrow {
   position: absolute; background: #224466;
-  width: 24px; height: 24px; margin: -12px 0 0 -12px;
+  width: 28px; height: 28px; margin: -14px 0 0 -14px;
+  clip-path: polygon(50% 0%, 100% 55%, 70% 55%, 70% 100%, 30% 100%, 30% 55%, 0% 55%);
 }
 .mmsxx-touch-arrow.on { background: #ffcc22; }
 .mmsxx-touch-arrow[data-code="ArrowUp"]    { left: 0; top: calc(var(--r) * -1); }
-.mmsxx-touch-arrow[data-code="ArrowDown"]  { left: 0; top: var(--r); }
-.mmsxx-touch-arrow[data-code="ArrowLeft"]  { top: 0; left: calc(var(--r) * -1); }
-.mmsxx-touch-arrow[data-code="ArrowRight"] { top: 0; left: var(--r); }
+.mmsxx-touch-arrow[data-code="ArrowDown"]  { left: 0; top: var(--r);  transform: rotate(180deg); }
+.mmsxx-touch-arrow[data-code="ArrowLeft"]  { top: 0; left: calc(var(--r) * -1); transform: rotate(-90deg); }
+.mmsxx-touch-arrow[data-code="ArrowRight"] { top: 0; left: var(--r);  transform: rotate(90deg); }
 
 /* ショット。面の横溝で「こする場所」だと見せる */
 .mmsxx-touch-fire {
