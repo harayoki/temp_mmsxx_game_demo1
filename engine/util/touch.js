@@ -728,11 +728,11 @@ const SHOT_HTML = `
   <div class="mmsxx-touch-title"></div>
   <div class="mmsxx-touch-note"></div>
   <div class="mmsxx-touch-fire"></div>
-  <svg class="mmsxx-touch-gesture" viewBox="0 0 64 48" aria-hidden="true">
-    <path d="M34 38L58 14"/><path d="M50 14h8v8"/><path d="M42 38h-8v-8"/>
+  <svg class="mmsxx-touch-gesture" viewBox="0 0 48 48" aria-hidden="true">
+    <path d="M13 35L35 13"/><path d="M26 13h9v9"/><path d="M22 35h-9v-9"/>
     <g class="mmsxx-touch-finger">
-      <rect x="15" y="6" width="8" height="22" rx="4"/>
-      <rect x="9" y="21" width="20" height="21" rx="7"/>
+      <rect x="34.4" y="29.5" width="3.2" height="6.5" rx="1.6"/>
+      <rect x="32.4" y="34" width="7.2" height="7" rx="2.4"/>
     </g>
   </svg>
   <div class="mmsxx-touch-callout"></div>
@@ -863,9 +863,10 @@ function injectStyle() {
 .mmsxx-touch-gesture {
   --btn: calc(var(--r) * 2.8 - 40px);
   position: absolute; left: 50%; pointer-events: none;
+  transform: translate(-50%, 0);   /* 動きを止めてもずれないよう、ここでも寄せておく */
   bottom: calc(10% - var(--btn) * 0.3);
   width: calc(var(--btn) * 1.6); height: calc(var(--btn) * 1.6);
-  fill: none; stroke: #ffffff; stroke-width: 2.5;
+  fill: none; stroke: #ffffff; stroke-width: 1.8;
   stroke-linecap: square; stroke-linejoin: miter;
   animation: mmsxx-touch-scrub 0.45s ease-in-out infinite alternate;
 }
