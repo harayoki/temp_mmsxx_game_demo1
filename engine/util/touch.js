@@ -65,6 +65,18 @@ const DEFAULTS = {
   pauseCode: 'Escape',
 };
 
+/**
+ * エリアにさりげなく出す文言。**画面に出る文字なので既定は英語**。
+ * 日本語にしたいゲームは labels で丸ごと差し替える
+ */
+const LABELS = {
+  dpadTitle: 'D-PAD',
+  dpadNote: 'DRAG TO MOVE',
+  shotTitle: 'SHOT',
+  shotNote: 'RUB TO FIRE',
+  pause: 'PAUSE',
+};
+
 export class TouchControls {
   /**
    * @param {{
@@ -75,6 +87,7 @@ export class TouchControls {
    *   shotMode?: string, shotStep?: number,
    *   holdRepeatMs?: number, shotCode?: string, pauseCode?: string,
    *   toLocal?: (x:number, y:number) => number[],
+   *   labels?: object,   エリアに出す文言(既定は英語)
    * }} [opts]
    */
   constructor(opts = {}) {
@@ -89,6 +102,8 @@ export class TouchControls {
     this.toLocal = opts.toLocal || null;
     /** つまみ。setOptions() で書き換える */
     this.opts = { ...DEFAULTS, ...opts };
+    /** 文言。**渡されたぶんだけ差し替える**(全部書かなくてよい) */
+    this.labels = { ...LABELS, ...(opts.labels || {}) };
 
     /** いま押していることになっている code */
     this.down = new Set();
@@ -153,6 +168,7 @@ export class TouchControls {
     this._stickEl = this._dpad.querySelector('.mmsxx-touch-stick');
 
     this._applyLayout();
+    this._applyLabels();
     this._bind(this._dpad, 'dpad');
     this._bind(this._fire, 'shot');
     this._bind(this._pause, 'pause');
@@ -182,8 +198,28 @@ export class TouchControls {
 
   /** つまみを変える。**動かしたまま効く** */
   setOptions(patch) {
+    if (patch && patch.labels) this.setLabels(patch.labels);
     Object.assign(this.opts, patch);
     this._applyLayout();
+  }
+
+  /** 文言を差し替える。渡したものだけ変わる */
+  setLabels(patch) {
+    Object.assign(this.labels, patch);
+    this._applyLabels();
+  }
+
+  _applyLabels() {
+    if (!this._dpad) return;
+    const put = (zone, sel, text) => {
+      const el = zone.querySelector(sel);
+      if (el) el.textContent = text || '';
+    };
+    put(this._dpad, '.mmsxx-touch-title', this.labels.dpadTitle);
+    put(this._dpad, '.mmsxx-touch-note', this.labels.dpadNote);
+    put(this._shot, '.mmsxx-touch-title', this.labels.shotTitle);
+    put(this._shot, '.mmsxx-touch-note', this.labels.shotNote);
+    put(this._shot, '.mmsxx-touch-pause', this.labels.pause);
   }
 
   /** 押しっぱなしを全部離す(画面が非アクティブになったときなど) */
@@ -594,14 +630,18 @@ const ARROWS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']
 
 /** 十字の入れ物の中身 */
 const DPAD_HTML = `
+  <div class="mmsxx-touch-title"></div>
+  <div class="mmsxx-touch-note"></div>
   <div class="mmsxx-touch-hint">${ARROWS}</div>
   <div class="mmsxx-touch-stick"><div class="mmsxx-touch-ring"></div>${ARROWS}</div>
   <div class="mmsxx-touch-knob"></div>`;
 
 /** ショットの入れ物の中身 */
 const SHOT_HTML = `
+  <div class="mmsxx-touch-title"></div>
+  <div class="mmsxx-touch-note"></div>
   <div class="mmsxx-touch-fire"></div>
-  <div class="mmsxx-touch-pause">PAUSE</div>`;
+  <div class="mmsxx-touch-pause"></div>`;
 
 let styled = false;
 
@@ -619,6 +659,17 @@ function injectStyle() {
   touch-action: none; user-select: none; -webkit-touch-callout: none;
   image-rendering: pixelated;
 }
+
+/* エリアの名前と使いかた。**さりげなく**出す。指の邪魔をしないよう素通しにする */
+.mmsxx-touch-title, .mmsxx-touch-note {
+  position: absolute; left: 0; right: 0; text-align: center;
+  pointer-events: none; color: #667; font: 11px monospace; letter-spacing: 1px;
+  white-space: nowrap; overflow: hidden;
+}
+.mmsxx-touch-title { top: 4px; }
+.mmsxx-touch-note { bottom: 4px; color: #556; }
+/* ショット側は下に PAUSE があるので、その上へ逃がす */
+.mmsxx-touch-shot .mmsxx-touch-note { bottom: 56px; }
 
 /* 触れていないときの目印。**ここを触ればいい**と分かるように、ちかちかさせる。
    点滅は steps(2) でぱっと入れ替える(なめらかに薄くしない。昔の画面の感じ) */
@@ -662,7 +713,7 @@ function injectStyle() {
 
 /* ショット。面の横溝で「こする場所」だと見せる */
 .mmsxx-touch-fire {
-  position: absolute; left: 6px; right: 6px; top: 6px; bottom: 64px;
+  position: absolute; left: 6px; right: 6px; top: 22px; bottom: 78px;
   background: #aa2222;
   background-image: repeating-linear-gradient(
     to bottom, #cc3333 0 6px, #881111 6px 12px);

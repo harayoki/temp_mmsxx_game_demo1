@@ -204,8 +204,8 @@ function layout() {
     touch.toLocal = null;
   }
   document.getElementById('rotState').textContent =
-    manual === null ? `自動（いま ${rotated ? '回している' : '回していない'}）`
-                    : `手で ${rotated ? '回した' : '戻した'}`;
+    `向き: ${rotated ? '90度回している' : 'そのまま'}`
+    + `（${manual === null ? '自動で判定' : '手で指定'}）`;
   syncPanel();
 }
 
