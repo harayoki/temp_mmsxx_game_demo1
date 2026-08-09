@@ -819,10 +819,11 @@ function injectStyle() {
   clip-path: polygon(50% 0%, 85% 52%, 70% 52%, 70% 100%, 30% 100%, 30% 52%, 15% 52%);
 }
 .mmsxx-touch-arrow.on { background: #ffcc22; }
-.mmsxx-touch-arrow[data-code="ArrowUp"]    { left: 0; top: calc(var(--r) * -1.01); }
-.mmsxx-touch-arrow[data-code="ArrowDown"]  { left: 0; top: calc(var(--r) * 1.01);  transform: rotate(180deg); }
-.mmsxx-touch-arrow[data-code="ArrowLeft"]  { top: 0; left: calc(var(--r) * -1.01); transform: rotate(-90deg); }
-.mmsxx-touch-arrow[data-code="ArrowRight"] { top: 0; left: calc(var(--r) * 1.01);  transform: rotate(90deg); }
+/* 大きさはそのまま、4 つとも内側へ 20px 寄せる */
+.mmsxx-touch-arrow[data-code="ArrowUp"]    { left: 0; top: calc(var(--r) * -1.01 + 20px); }
+.mmsxx-touch-arrow[data-code="ArrowDown"]  { left: 0; top: calc(var(--r) * 1.01 - 20px);  transform: rotate(180deg); }
+.mmsxx-touch-arrow[data-code="ArrowLeft"]  { top: 0; left: calc(var(--r) * -1.01 + 20px); transform: rotate(-90deg); }
+.mmsxx-touch-arrow[data-code="ArrowRight"] { top: 0; left: calc(var(--r) * 1.01 - 20px);  transform: rotate(90deg); }
 
 /* ショット。面の横溝で「こする場所」だと見せる */
 .mmsxx-touch-fire {
