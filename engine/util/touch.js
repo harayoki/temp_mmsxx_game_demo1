@@ -866,8 +866,10 @@ function injectStyle() {
 /* 輪と中身を同じ色にして、あいだに隙間を空ける。
    隙間は padding、輪は border。background-clip で中身だけを塗る */
 .mmsxx-touch-fire {
+  /* **大きさは PAD に合わせる**(矢印の外端までと同じ差し渡し)。
+     指を受けるのはエリア全体なので、この大きさは見た目だけの話 */
   position: absolute; left: 50%; bottom: 10%; transform: translateX(-50%);
-  width: 74%; aspect-ratio: 1; max-height: 44%;
+  width: calc(var(--r) * 2.8 - 40px); height: calc(var(--r) * 2.8 - 40px);
   box-sizing: border-box; pointer-events: none; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   border: 9px solid #224466;    /* 輪 */
