@@ -837,7 +837,8 @@ function injectStyle() {
   /* 幹は 30〜70%(太さそのまま)。傘の張り出しは片側 7.5% まで詰めた */
   clip-path: polygon(50% 0%, 77.5% 52%, 70% 52%, 70% 100%, 30% 100%, 30% 52%, 22.5% 52%);
 }
-.mmsxx-touch-arrow.on { background: #ffcc22; }
+/* 押されたときの黄色。**輝度を 8 割に落としてある**(素の #ffcc22 は目に痛い) */
+.mmsxx-touch-arrow.on { background: #cca31b; }
 /* 大きさはそのまま、4 つとも内側へ 20px 寄せる */
 .mmsxx-touch-arrow[data-code="ArrowUp"]    { left: 0; top: calc(var(--r) * -1.01 + 20px); }
 .mmsxx-touch-arrow[data-code="ArrowDown"]  { left: 0; top: calc(var(--r) * 1.01 - 20px);  transform: rotate(180deg); }
@@ -898,7 +899,7 @@ function injectStyle() {
   animation: mmsxx-touch-flash 120ms steps(2, jump-none);
 }
 @keyframes mmsxx-touch-flash {
-  0%   { border-color: #ffcc22; }
+  0%   { border-color: #cca31b; }
   100% { border-color: #224466; }
 }
 .mmsxx-touch-pause {
