@@ -85,6 +85,7 @@ const LABELS = {
   dpadCallout: 'DRAG ME',   // 一度でも触れば消える誘い文句
   shotTitle: 'SHOT',
   shotNote: 'RUB TO FIRE',
+  shotCallout: 'SCRUB ME',   // 一度でも触れば消える誘い文句
   pause: 'PAUSE',
 };
 
@@ -252,6 +253,7 @@ export class TouchControls {
     put(this._dpad, '.mmsxx-touch-callout', this.labels.dpadCallout);
     put(this._shot, '.mmsxx-touch-title', this.labels.shotTitle);
     put(this._shot, '.mmsxx-touch-note', this.labels.shotNote);
+    put(this._shot, '.mmsxx-touch-callout', this.labels.shotCallout);
     put(this._shot, '.mmsxx-touch-pause', this.labels.pause);
   }
 
@@ -573,6 +575,7 @@ export class TouchControls {
   // ── こすり打ち ────────────────────────────────────────
 
   _shotDown(p, e) {
+    this._shot.classList.add('used');   // 誘い文句は一度触ったら消す
     this.rub.move = 0;
     p.acc = 0;
     p.vx = 0; p.vy = 0; p.stroke = 0;
@@ -721,6 +724,7 @@ const SHOT_HTML = `
   <div class="mmsxx-touch-title"></div>
   <div class="mmsxx-touch-note"></div>
   <div class="mmsxx-touch-fire"></div>
+  <div class="mmsxx-touch-callout"></div>
   <div class="mmsxx-touch-pause"></div>`;
 
 let styled = false;
@@ -783,6 +787,11 @@ function injectStyle() {
    **点滅はしない**(目印の外に置いてあるため) */
 .mmsxx-touch-dpad.used .mmsxx-touch-callout,
 .mmsxx-touch-dpad.holding .mmsxx-touch-callout { display: none; }
+/* ボタン側は場所が動かないので、丸の真ん中に重ねる */
+.mmsxx-touch-shot .mmsxx-touch-callout {
+  left: 50%; top: auto; bottom: 4%;
+}
+.mmsxx-touch-shot.used .mmsxx-touch-callout { display: none; }
 
 /* 十字。**触れたところが原点**で、絵ごとそこへ移る。
    四角 4 つを、原点から一定の距離(--r)に置く */
@@ -837,23 +846,31 @@ function injectStyle() {
 
 /* ボタンの絵。**指はエリア全体で受けるので、これは見せるだけ**。
    同系色で少し違う色の枠線を付けた素朴な丸 */
+/* 輪と中身を同じ色にして、あいだに隙間を空ける。
+   隙間は padding、輪は border。background-clip で中身だけを塗る */
 .mmsxx-touch-fire {
   position: absolute; left: 50%; bottom: 10%; transform: translateX(-50%);
   width: 74%; aspect-ratio: 1; max-height: 44%;
-  pointer-events: none; border-radius: 50%;
-  background-color: #aa2222; border: 4px solid #dd5555;
+  box-sizing: border-box; pointer-events: none; border-radius: 50%;
+  border: 9px solid #224466;    /* 輪 */
+  padding: 11px;                /* 隙間 */
+  background-color: #224466;    /* 中身。矢印のふだんの色と同じ */
+  background-clip: content-box;
+  background-origin: content-box;
   background-size: 100% 100%; background-repeat: no-repeat;
   background-image: var(--fire-img, none);
 }
-.mmsxx-touch-fire.on, .mmsxx-touch-fire.hit {
-  background-color: #ff7755; border-color: #ffbbaa;
+/* **触れているだけでは色を変えない。** 撃った瞬間だけ、控えめに明るくする
+   (黄色にしたり強く光らせたりすると目に障る) */
+.mmsxx-touch-fire.hit {
+  /* **輪はそのまま。中身だけ明るくする** */
+  background-color: #33608f;
   background-image: var(--fire-img-on, var(--fire-img, none));
+  animation: mmsxx-touch-flash 140ms steps(2, jump-none);
 }
-/* 1 発ごとの光り。短くぱっと明るくして戻す */
-.mmsxx-touch-fire.hit { animation: mmsxx-touch-flash 140ms steps(2, jump-none); }
 @keyframes mmsxx-touch-flash {
-  0%   { filter: brightness(2.4); border-color: #ffffff; }
-  100% { filter: brightness(1);   border-color: #dd5555; }
+  0%   { background-color: #4a86c8; }
+  100% { background-color: #33608f; }
 }
 .mmsxx-touch-pause {
   position: absolute; left: 6px; right: 6px; top: 22px; height: 44px;
