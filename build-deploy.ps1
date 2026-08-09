@@ -81,6 +81,32 @@ if (Test-Path (Join-Path $root 'functions')) {
 if ($Local) { $buildName = 'local'; $devFlag = 'true' }
 else        { $buildName = 'web';   $devFlag = 'false' }
 if ($LogoTrap) { $trapFlag = 'true' } else { $trapFlag = 'false' }
+
+# Cloudflare Web Analytics のビーコン。**公開版にだけ入れる**。
+# 手元用(-Local)に入れると、開発中の行き来まで数字に混ざるうえ、
+# 確かめるたびに外へ通信が出る。ソースの index.html は目印だけを持っていて、
+# ここで差し替える。だから素のまま開いても通信しない。
+#
+# トークンは公開値(配ったページの HTML に載る)。伏せる必要はない。
+# 数えているのは msxpoi1.pages.dev のページ閲覧だけで、個人は追わない
+$analyticsToken = 'e1cb3cc6aef749b6812c5ae37b3cbc87'
+$analyticsMark = '<!-- MMSXX-WEB-ANALYTICS -->'
+$indexPath = Join-Path $deploy 'index.html'
+# **Get-Content -Raw で読んではいけない。** PowerShell 5.1 は BOM の無い
+# UTF-8 を ANSI(日本語環境では 932)として読むので、日本語が全部壊れる。
+# 読み書きとも .NET 側で UTF-8 を明示する
+$indexHtml = [System.IO.File]::ReadAllText($indexPath, [System.Text.Encoding]::UTF8)
+# **目印が無いまま黙って進めない。** 気づかないうちに数字が取れなくなる
+if ($indexHtml -notlike "*$analyticsMark*") {
+  throw "index.html に $analyticsMark が見つかりません"
+}
+if ($Local) { $beacon = '' }
+else {
+  $beacon = "<script type='module' src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{`"token`": `"$analyticsToken`"}'></script>"
+}
+$indexHtml = $indexHtml.Replace($analyticsMark, $beacon)
+# BOM を付けず、改行(CRLF)もそのまま残す
+[System.IO.File]::WriteAllText($indexPath, $indexHtml, (New-Object System.Text.UTF8Encoding($false)))
 # ビルド番号は build-number.txt に持っていて、ふだんは**ビルドするたびに 1 つ増える**。
 # ゲームの版は v1.00.<ビルド番号> になる。
 #
