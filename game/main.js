@@ -13656,10 +13656,12 @@ const A2HS_TEXT = {
     en: 'The address bar and tabs go away, so the game gets bigger.',
   },
   // **iOS は絵で言う。** 共有ボタンは端末の向きで場所が変わるので、
-  // 「下の」「右上の」とは書かない(横持ちだと嘘になる)
+  // 「下の」「右上の」とは書かない(横持ちだと嘘になる)。
+  // **探すものは絵で見せる**(前後の文のあいだに挟む)。
+  // 「□に↑」と字で言うより、同じ形が出ているほうが早い
   ios: {
-    ja: '共有ボタン（□に↑）を押して、「ホーム画面に追加」を選んでください。',
-    en: 'Tap the Share button (a box with an arrow) and pick "Add to Home Screen".',
+    ja: ['共有ボタン ', ' を押して、「ホーム画面に追加」を選んでください。'],
+    en: ['Tap the Share button ', ' and pick "Add to Home Screen".'],
   },
   // Android。**イベントが来るまでの あいだだけ**出す(来たらボタンに替わる)
   other: {
@@ -13674,6 +13676,23 @@ const A2HS_TEXT = {
 function a2hsText(key) {
   const v = A2HS_TEXT[key];
   return (TG_LANG === 'ja' ? v.ja : v.en) || v.en;
+}
+
+/**
+ * **iOS の共有ボタンの絵**(箱から矢が上へ)。文の中へ挟んで使う。
+ * 絵は借りているボタンと同じ並びから作るので、画面の中の絵と顔がそろう
+ */
+function shareGlyph() {
+  const el = document.createElement('span');
+  // **字と同じ高さ**にして、文のあいだに座らせる
+  el.style.cssText = 'display:inline-block;width:1.4em;height:1.4em;'
+    + 'vertical-align:-0.35em;background-repeat:no-repeat;'
+    + 'background-position:center;background-size:contain;image-rendering:pixelated';
+  try {
+    el.style.backgroundImage =
+      `url("${iconDataURL(mmsxx, ICONS.share, { body: ICON_BODY, accent: 7, scale: 2, key: 'a2hs-share' })}")`;
+  } catch (e) { el.textContent = '[↑]'; }   // 絵が作れない環境では字で
+  return el;
 }
 
 function openHomeInstall() {
@@ -13713,8 +13732,16 @@ function openHomeInstall() {
   line(a2hsText('why'), { color: '#bbbbcc', marginBottom: '12px' });
   // iOS は自分で登録できないので、やりかたを常設で出す。
   // Android も**イベントが来るまではこちら**(来たら下のボタンが増える)
-  line(a2hsText(isIOS() ? 'ios' : 'other'), { color: '#bbbbcc', marginBottom: '12px' })
-    .id = 'a2hs-how';
+  const how = line('', { color: '#bbbbcc', marginBottom: '12px' });
+  how.id = 'a2hs-how';
+  if (isIOS()) {
+    // 探してもらうものを**そのままの形で**挟む。絵はエンジンの持ちもの
+    // (engine/util/icons.js)なので、画面の中の絵と顔がそろう
+    const [head, tail] = A2HS_TEXT.ios[TG_LANG === 'ja' ? 'ja' : 'en'];
+    how.append(head, shareGlyph(), tail);
+  } else {
+    how.textContent = a2hsText('other');
+  }
 
   const row = document.createElement('div');
   Object.assign(row.style, {
