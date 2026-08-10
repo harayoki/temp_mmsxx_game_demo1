@@ -139,14 +139,18 @@
   #tools #pad-sense {
     width: auto;
     height: auto;
-    padding: 5px 8px;
-    font: 12px/1 var(--mmsxx-gui-font, monospace);
+    padding: 6px 8px;
+    /* **8 の倍数にする。** ドット絵の書体は決まった大きさでしか揃わない */
+    font: 16px/1.4 var(--mmsxx-gui-font, monospace);
     letter-spacing: 0;
     color: #ffffff;
     background: #2a2a3c;
     border: 2px solid #ffffff;
     background-image: none;
-    white-space: nowrap;
+    /* **2 行で出す。** 上に何のつまみかを書かないと、
+       段の名前(HIGH)だけでは何が HIGH なのか分からない */
+    white-space: pre;
+    text-align: center;
   }
   /* **キーボードだけ横に長い。** ここは右の空きに 1 つで立っていて、
      十字や連射のように場所を覚えて押すものでもない。

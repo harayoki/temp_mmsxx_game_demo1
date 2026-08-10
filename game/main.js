@@ -13607,10 +13607,11 @@ function applyPadSense(n, tell) {
   padSense = ((n % PAD_SENSE.length) + PAD_SENSE.length) % PAD_SENSE.length;
   const s = PAD_SENSE[padSense];
   if (touchGui) touchGui.touch.setOptions({ stickFullSpeed: s.full, stickMinSpeed: s.min });
-  // **ボタンそのものに いまの段を書く。** 絵では 3 段のどれなのかを表せないし、
-  // 何のつまみなのかも伝わらなかった
+  // **ボタンそのものに 2 行で書く。** 絵では 3 段のどれなのかを表せないし、
+  // 段の名前だけでは「何が HIGH なのか」が分からなかった。
+  // 上の行で何のつまみかを言い、下の行にいまの段を出す
   const el = document.getElementById('pad-sense');
-  if (el) el.textContent = 'PAD ' + s.name;
+  if (el) el.textContent = 'PAD RESPONSE\n' + s.name;
   // 押したときは画面にも出す(ポーズ中なので弾の邪魔にもならない)
   if (tell) showNotice('PAD: ' + s.name);
   if (DEVICE) return;
