@@ -320,6 +320,12 @@ export class TouchGui {
     this.viewAngle = opts.viewAngle || (() => (this.isRotated() ? 90 : 0));
     this.onPress = opts.onPress || null;
     this.onRelease = opts.onRelease || null;
+    /**
+     * **倒している向きと強さの知らせ先**(x, y。どちらも -1〜1)。
+     * 8 方向のキーとは別の口で、遊びの最中の移動に使う。
+     * 倒すのをやめたら (0, 0) が来る
+     */
+    this.onStick = opts.onStick || null;
     this.opts = { ...DEFAULTS, ...opts };
 
     /** 'game' か 'menu'。取り付けた直後は menu(タイトルから始まるため) */
@@ -334,6 +340,9 @@ export class TouchGui {
     this.touch = new TouchControls({
       onPress: (code, source) => this._press(code, source),
       onRelease: (code, source) => this._release(code, source),
+      // **倒している向きと強さは素通し**(8 方向のキーとは別の口)。
+      // 読むかどうかはゲームが決める
+      onStick: (x, y) => { if (this.onStick) this.onStick(x, y); },
       // **遊んでいる最中のこのボタンは「PAUSE」**(touch.js の既定のまま)。
       // メニューでは同じ場所に ESC のボタンが来て、そちらは場面ごとに
       // BACK / CANCEL / RESUME と書き換わる。**どちらもすることを書く**。

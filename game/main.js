@@ -12918,6 +12918,9 @@ const gamepad = createGamepad({
   // **離すほうは常に流す**。切り替わった拍子に押しっぱなしが残らないように
   press: (code) => { if (padEnabled) mmsxx.input.press(code, 'pad'); },
   release: (code) => mmsxx.input.release(code),
+  // **倒し量もそのまま流す**(4 方向のキーとは別の口)。
+  // 読むのは遊びの最中だけ。メニューは今までどおり矢印で動く
+  onStick: (x, y) => { if (padEnabled) mmsxx.input.setStick('pad', x, y); },
   map: PAD_MAP,
 });
 
@@ -13219,6 +13222,9 @@ if (PAD_ON) {
       mmsxx.input.press(code, source);
     },
     onRelease: (code) => mmsxx.input.release(code),
+    // **倒している向きと強さも流す**(8 方向のキーとは別の口)。
+    // 読むのは遊びの最中だけ。メニューは今までどおり矢印で動く
+    onStick: (x, y) => mmsxx.input.setStick('touch', x, y),
     // **置いたままなら、キーボードの SPACE を押しっぱなしにしたのと同じ。**
     // 触れた 1 発のあとは何も起きない、では指を離す理由が分からない。
     // 押しっぱなしに何をさせるか(ゆっくりの自動連射)を決めているのは

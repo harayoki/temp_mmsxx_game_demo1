@@ -42,6 +42,8 @@ const RAPID_CODE = 'Space';
  * @param {(code: string) => void} opt.press 押されたときに呼ばれる
  * @param {(code: string) => void} opt.release 離されたときに呼ばれる
  * @param {number} [opt.deadzone] スティックの遊び(既定 0.5)。機種で癖が違うので外から変えられる
+ * @param {(x:number, y:number) => void} [opt.onStick] **倒し量をそのまま知らせる先**。
+ *   4 方向のキーとは別の口で、遊びの最中の移動に使う(倒し量が消えない)
  * @param {'both'|'dpad'|'axes'} [opt.mode] 十字と軸のどちらを見るか(既定 both = どちらでも動く)
  * @param {number} [opt.rapid] 連射の間隔コマ数。0 で連射なし(既定 0)
  * @param {Record<number, string>} [opt.map] ボタン番号 → キーのコード
@@ -51,6 +53,7 @@ export function createGamepad(opt) {
     press: opt.press,
     release: opt.release,
     deadzone: opt.deadzone === undefined ? 0.5 : opt.deadzone,
+    onStick: opt.onStick || null,
     mode: opt.mode || 'both',
     rapid: opt.rapid || 0,
     map: opt.map || STANDARD_MAP,
@@ -139,6 +142,19 @@ export function createGamepad(opt) {
       else if (x >= dz) set.add('ArrowRight');
       if (y <= -dz) set.add('ArrowUp');
       else if (y >= dz) set.add('ArrowDown');
+      // **倒し量もそのまま知らせる**(8 方向のキーとは別の口)。
+      // 上の 4 つは 4 方向に潰しているので、**そこでは倒し量が消える**。
+      // 遊びの最中の移動はこちらを読めば、そっと動かすこともできる。
+      // 遊びの無いところ(deadzone の内側)は 0 に倒しておく
+      if (gp.onStick) {
+        const len = Math.hypot(x, y);
+        if (len <= dz) gp.onStick(0, 0);
+        else {
+          // 遊びのぶんを引いて、残りを 0〜1 に伸ばし直す
+          const t = Math.min(1, (len - dz) / (1 - dz));
+          gp.onStick((x / len) * t, (y / len) * t);
+        }
+      }
     }
     return set;
   };

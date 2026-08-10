@@ -27,6 +27,11 @@ export class Input {
     this.held = new Map();
     /** @type {Set<string>} 何で操作されたか('key' / 'touch' / 'pad') */
     this.usedSources = new Set();
+    // 倒した向きと強さ(下の setStick / stick を見ること)
+    this._stickFrom = '';
+    this._stickPower = 0;
+    this._stickX = 0;
+    this._stickY = 0;
     this.onFirstInput = onFirstInput;
 
     window.addEventListener('keydown', (e) => {
@@ -68,6 +73,8 @@ export class Input {
   clear() {
     this.down.clear();
     this.held.clear();
+    this._stickFrom = '';
+    this._stickPower = 0;
   }
 
   /**
@@ -81,6 +88,93 @@ export class Input {
 
   /** 控えを捨てる。**1 プレイごとに数え直す**ときに呼ぶ(clear() では消さない) */
   forgetUsedInputs() { this.usedSources.clear(); }
+
+  // ── 倒した向きと強さ ──────────────────────────────────
+  //
+  // **矢印キーとは別の口。** 遊びの最中の「どちらへ、どれだけ」を、
+  // どの機器からも**同じ形**で受け取るためのもの。
+  //
+  //   キーボード    … 押している矢印から 8 方向。強さは 1(倒し量が無いので)
+  //   タッチの十字  … 指の動く向きと速さ
+  //   ゲームパッド  … 軸の角度と倒し量
+  //
+  // **矢印キーは今までどおり出続ける。** メニュー・名前入力・ページ送りは
+  // あちらで動いているので、こちらは**足すだけ**で置き換えではない。
+  // 使うのは遊びの最中だけ、というのがいまの決め(docs/SMARTPHONE.md)。
+  //
+  // **吸着(4 / 8 / 16 方向へ丸める)はここではやらない。** 機器は生の角度を
+  // 置いていき、**いくつに丸めるかは読む側が決める**。遊びによって
+  // ちょうどよい粗さが違うし、同じ遊びでも場面で変えたくなる
+
+  /**
+   * **機器が、いま倒している向きと強さを置いていく。**
+   * 毎コマ呼ぶこと(呼ばれなくなったら倒していない扱いになる)。
+   * @param {string} source 'touch' / 'pad' など
+   * @param {number} x 右が +。-1〜1
+   * @param {number} y 下が +。-1〜1
+   */
+  setStick(source, x, y) {
+    const s = Math.min(1, Math.hypot(x, y));
+    // **倒すのをやめたら 0 を置きにくること。** こちらでは減らさない
+    // (機器ごとに「いつ 0 になるか」が違う。指は止まったとき、パッドは離したとき)
+    if (s <= 0) {
+      if (this._stickFrom === source) { this._stickFrom = ''; this._stickPower = 0; }
+      return;
+    }
+    // **強く倒しているほうが勝つ。** 指とパッドを同時に触ることは無いが、
+    // 片方が 0 を置き続けているだけ、ということはある
+    if (this._stickFrom && this._stickFrom !== source && s <= this._stickPower) return;
+    this._stickFrom = source;
+    this._stickPower = s;
+    this._stickX = x;
+    this._stickY = y;
+  }
+
+  /**
+   * **いま倒している向きと強さ**。遊びの最中の移動はこれを読む。
+   *
+   *   const st = input.stick(8);
+   *   if (st.strength) {
+   *     player.x += Math.cos(st.rad) * spd * st.strength;
+   *     player.y += Math.sin(st.rad) * spd * st.strength;
+   *   }
+   *
+   * **倒し量のあるほうが勝つ。** 矢印キーを見るのは、どの機器も倒していない
+   * ときだけ。**タッチもパッドも、倒しながら矢印キーも出している**ので
+   * (メニューがそちらで動いているため)、キーを先に見ると
+   * **自分が出した矢印で自分の倒し量が消える**。実際そうなった
+   *
+   * @param {number} [snap] 何方向へ丸めるか(4 / 8 / 16)。0 で丸めない
+   * @returns {{ angle:number, rad:number, strength:number, sector:number, source:string }}
+   *   angle は度(0 = 右、時計回り)。倒していなければ strength は 0
+   */
+  stick(snap = 0) {
+    let x = 0, y = 0, source = '';
+    if (this._stickFrom) {
+      x = this._stickX; y = this._stickY; source = this._stickFrom;
+    } else {
+      if (this.down.has('ArrowLeft')) x -= 1;
+      if (this.down.has('ArrowRight')) x += 1;
+      if (this.down.has('ArrowUp')) y -= 1;
+      if (this.down.has('ArrowDown')) y += 1;
+      // **キーは倒し量を持たない。** 斜めでも長さ 1 にそろえる
+      if (x || y) {
+        const n = Math.hypot(x, y);
+        x /= n; y /= n;
+        source = 'key';
+      }
+    }
+    const strength = Math.min(1, Math.hypot(x, y));
+    if (!strength) return { angle: 0, rad: 0, strength: 0, sector: -1, source: '' };
+    let angle = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+    let sector = -1;
+    if (snap > 0) {
+      const step = 360 / snap;
+      sector = Math.round(angle / step) % snap;
+      angle = sector * step;
+    }
+    return { angle, rad: angle * Math.PI / 180, strength, sector, source };
+  }
 
   /** キーが押されているか */
   isDown(code) { return this.down.has(code); }

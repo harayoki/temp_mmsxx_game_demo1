@@ -110,6 +110,12 @@ const DEFAULTS = {
    * 0.06 で秒速 60px ほど。指を置いたままでも、わずかな震えでは向きが立たない
    */
   stickMinSpeed: 0.06,
+  /**
+   * ('move' のとき)**これだけ速ければ、いっぱいに倒したことにする**(px/ms)。
+   * 0.5 で秒速 500px ほど。倒し量(strength)を作るためだけの値で、
+   * **8 方向のキーには関わらない**(あちらは向きだけ見る)
+   */
+  stickFullSpeed: 0.5,
   hysteresis: 7,       // 区画の境目の重なり(度)。ばたつき止め
   guiRadius: 72,       // PAD の大きさ(px)。**入れ物が測れないときだけ**使う。
                        // ふだんは下の areaRatio から決まる
@@ -188,6 +194,14 @@ export class TouchControls {
   constructor(opts = {}) {
     this.onPress = opts.onPress || null;
     this.onRelease = opts.onRelease || null;
+    /**
+     * **倒している向きと強さを知らせる先**(x, y。どちらも -1〜1)。
+     * 8 方向のキーとは**別の口**で、遊びの最中の移動に使う。
+     * 倒すのをやめたら (0, 0) が来る。
+     *
+     *   onStick: (x, y) => mmsxx.input.setStick('touch', x, y),
+     */
+    this.onStick = opts.onStick || null;
     /**
      * 画面の座標を、パッドを載せている入れ物の座標へ移す。
      * **画面を 90 度回して見せているときに要る**(SMARTPHONE.md 7 節)。
@@ -712,6 +726,7 @@ export class TouchControls {
     else s.sector = this._sectorOf(s.deg, s.sector);
 
     this._applyDirs(s.sector < 0 ? [] : SECTOR_KEYS[s.sector]);
+    this._reportStick();
     this._showRing();
   }
 
@@ -767,6 +782,37 @@ export class TouchControls {
       s.sector = this._sectorOf(s.deg, s.sector);
     }
     this._applyDirs(s.sector < 0 ? [] : SECTOR_KEYS[s.sector]);
+    this._reportStick();
+  }
+
+  /**
+   * **倒している向きと強さを知らせる**(8 方向のキーとは別の口)。
+   *
+   * 丸めた向きではなく**生の向き**を出す。いくつの方向へ丸めるかは
+   * 読む側が決める(engine/input.js の stick(snap))。
+   *
+   * 強さは速さから作る。`stickMinSpeed` を 0、`stickFullSpeed` を 1 とした
+   * ところに置くので、**ゆっくり動かせば弱く、速く動かせば強く**なる。
+   * 触れたところからの決めかた('origin')では、原点からの距離で作る
+   */
+  _reportStick() {
+    if (!this.onStick) return;
+    const s = this.stick;
+    if (!s.active) { this.onStick(0, 0); return; }
+    let x = 0, y = 0;
+    if (this.opts.stickMode === 'move') {
+      const lo = this.opts.stickMinSpeed;
+      const hi = Math.max(lo + 0.001, this.opts.stickFullSpeed);
+      const t = Math.min(1, Math.max(0, (s.speed - lo) / (hi - lo)));
+      if (t > 0 && s.speed > 0) { x = (s.vx / s.speed) * t; y = (s.vy / s.speed) * t; }
+    } else {
+      // 倒し量は原点からの距離。**dragMax を上限**にする(0 なら絵の大きさで)
+      const max = this._px(this.opts.dragMax) || this._r * 1.2;
+      const t = Math.min(1, Math.max(0, (s.dist - this._px(this.opts.deadzone))
+        / Math.max(1, max - this._px(this.opts.deadzone))));
+      if (t > 0 && s.dist > 0) { x = (s.dx / s.dist) * t; y = (s.dy / s.dist) * t; }
+    }
+    this.onStick(x, y);
   }
 
   /**
@@ -796,6 +842,9 @@ export class TouchControls {
     this.stick.sector = -1;
     this.stick.vx = 0; this.stick.vy = 0; this.stick.speed = 0;
     this._applyDirs([]);
+    // **倒すのをやめたことを必ず知らせる。** 置きっぱなしにすると、
+    // 指を離しても自機が進み続ける
+    this._reportStick();
     this._hideRing();
   }
 
