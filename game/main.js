@@ -360,6 +360,24 @@ const BGP_FRONT = 3;   // 敵・ボスなど: 背景オブジェクトより手�
 // ここに名前が無い絵は BG(横 8 ドット 2 色)として読む
 // スプライトとして持ちつつ、BG にも置く絵。`名前 + 'BG'` で BG 用の型が作られる
 const BG_TWINS = new Set(['weight16t']);
+/**
+ * **色を置き換えて描く絵**(エンディングの 1 枚絵。GAME_DATA.duo の相手)。
+ *
+ * この絵の色番号は**色そのものではなく目印**で、描くときに colorMap で
+ * 実際の色へ置き換える(1 ライン おきに 2 通り使い分けて中間色を作る)。
+ *
+ * **だから埋め色で塗ってはいけない。** エンジンは「1 ドットでも絵のあるマスは
+ * 残りを埋め色(1)で塗る」という実機の見えかたを焼き込むが、ここでは
+ * **その 1 が目印の 1 として読まれ、別の色に化ける**。
+ * 実際、透けているはずの周りが pilot では 7000 ドット以上 塗られて、
+ * それが colorMap で 5 や 14 に置き換わっていた(エンディングの 4 枚が全部おかしかった)。
+ *
+ * 埋め色に 0(透明)を渡すと、塗るところが無くなって焼き込みが素通りする
+ */
+const BG_NO_FILL = new Set([
+  'earthBig', 'endBase', 'pilot',
+  'endRift', 'endRift0', 'endRift1', 'endRift2',
+]);
 const SPRITE_COLORS = {
   player: 2, bossEye: 1, bossEye2: 1, octoMouth: 1, ufoGuard: 1, item: 1, star: 1,
   bomb: 1, speedUp: 1, rapidUp: 1, oneUp: 1,
@@ -414,7 +432,10 @@ for (const [name, im] of Object.entries(GAME_DATA.images)) {
   if (SPRITE_COLORS[name]) {
     SPRITE_SYMBOLS[name] = mmsxx.spriteSymbol(raw, { name, colors: SPRITE_COLORS[name] });
   } else {
-    BG_SYMBOLS[name] = mmsxx.bgSymbol(raw, { name });
+    // 色を置き換えて描く絵は埋めない(上の BG_NO_FILL を見ること)
+    BG_SYMBOLS[name] = BG_NO_FILL.has(name)
+      ? mmsxx.bgSymbol(raw, { name, backdrop: 0 })
+      : mmsxx.bgSymbol(raw, { name });
   }
   // スプライトの絵を BG にも置きたいときは、BG 用の型も作る(図鑑の大きい絵)
   if (BG_TWINS.has(name)) BG_SYMBOLS[name + 'BG'] = mmsxx.bgSymbol(raw, { name: name + '(BG)' });
@@ -1968,14 +1989,14 @@ const SPEED_TABLE = [1.5, 2.0, 2.6];
 
 /**
  * **何方向へ丸めるか。** 0 で丸めない(なめらかに 360 度)。
- * `?snap=0` `?snap=4` `?snap=16` で見比べられる。
+ * `?snap=4` `?snap=8` `?snap=16` で見比べられる。
  *
- * **いまは 8(昔の 8 方向レバーと同じ)を試している最中。**
- * なめらかに動けることと、決まった向きへ吸い付くことのどちらが
- * この遊びに合うかは、実機で触って決める
+ * **既定は 0 = 丸めない。** 指もアナログスティックも 360 度どこへでも向けられる
+ * ので、そこを 8 方向へ落とすと せっかくの向きを捨てることになる。
+ * キーボードは押せる向きが 8 つしか無いので、丸めなくても 8 方向のまま
  */
 const MOVE_SNAP = [0, 4, 8, 16].includes(Number(OPT.get('snap')))
-  ? Number(OPT.get('snap')) : 8;
+  ? Number(OPT.get('snap')) : 0;
 /**
  * **倒し量を速さに掛けるか。** 既定で掛ける。
  *

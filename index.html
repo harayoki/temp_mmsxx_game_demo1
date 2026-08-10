@@ -56,6 +56,28 @@
     align-items: center;
     justify-content: center;
     flex-direction: column;
+    /* **二度たたきの拡大を止める。** 連射ボタンを何度か叩いただけで
+       画面が拡大してしまっていた(iOS の double-tap zoom)。
+       manipulation は はじく / つまむ は残したまま、二度たたきの拡大だけ切る */
+    touch-action: manipulation;
+    /* 横向きにしたときに字だけ大きくされるのを止める(ドット絵の升目がずれる) */
+    -webkit-text-size-adjust: 100%;
+  }
+  /* **指で遊ぶあいだは、文字を選ばせない。**
+     十字をいじっていると、そのうち字が青く反転して選択になってしまう。
+     長押しの吹き出し(コピー / 調べる)も出さない。
+     **選ばせたいのは重ねて出す板の中だけ** — あそこはシェアの文言を
+     つまんで持っていく場所なので、下の行で戻している */
+  body.touch-gui, body.touch-gui * {
+    user-select: none; -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body.touch-gui #share, body.touch-gui #share *,
+  body.touch-gui #a2hs, body.touch-gui #a2hs *,
+  body.touch-gui .pad-notice, body.touch-gui .pad-notice *,
+  body.touch-gui #soft-keys, body.touch-gui #soft-keys * {
+    user-select: text; -webkit-user-select: text; -webkit-touch-callout: default;
   }
   canvas {
     image-rendering: pixelated;
