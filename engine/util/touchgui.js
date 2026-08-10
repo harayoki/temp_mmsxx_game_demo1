@@ -1058,8 +1058,14 @@ export class TouchGui {
     // そのあとの pointerup / pointercancel は**器へ付け替えられて**しまい、
     // 押された案内の絵にも借りものボタンにも来ない。
     // 来ないままだと札が出しっぱなしになり、**画面を移っても前の場面の説明が
-    // 残る**(そう見えていたのは これ)。窓ぜんぶで受けて必ず引っ込める
-    for (const type of ['pointerup', 'pointercancel', 'pointerleave']) {
+    // 残る**。窓ぜんぶで受けて必ず引っ込める(attach の _endTip)
+    //
+    // **pointerleave はここで見ない。** 器に捕まえられた瞬間、
+    // 押した相手は指の通り道から外れたことになって leave が飛んでくる。
+    // これを「指が離れた」と数えると、**案内の絵では長押しが必ず打ち切られ、
+    // 説明がいつまでも出なかった**(借りものボタンは器へ渡していないので無事だった)。
+    // 指が滑って外れたぶんも、離すまでは読ませたままでよい
+    for (const type of ['pointerup', 'pointercancel']) {
       host.addEventListener(type, () => { stop(); setTimeout(hide, 900); });
     }
     // 長押しのあとの click は握りつぶす(読んだだけで押されては困る)
