@@ -37,7 +37,7 @@ import { useUAParser, isMobileLike } from '../engine/util/device.js';
 import { createGamepad } from '../engine/util/gamepad.js';
 // スマホのタッチ操作。十字とショット・ジェスチャの見分け・案内の出し分けをまとめた器。
 // こちらもキーのコードへ変換して Input へ流すので、遊びのコードは変えなくてよい
-import { TouchGui } from '../engine/util/touchgui.js';
+import { TouchGui, viewTransform } from '../engine/util/touchgui.js';
 // PC の窓の中に実機と同じ画角を作るための、機種ごとの数字(?device= で選ぶ)
 import { DEVICES, findDevice } from '../engine/util/devices.js';
 // キャンバスの上に重ねる知らせ(読ませてゲームを止める)
@@ -60,6 +60,7 @@ import { gameStop } from './console-stop.js';
 //   ?mute=1         … 音を消した状態で始める
 //   ?volume=70      … 音の大きさ(0〜100。曲も効果音もまとめて動く)
 //   ?mode=hard      … 始めかたを選ぶ(normal / hard / bossrush / staff / sound / chars)
+//   ?turn=180       … 画面を上下逆さにして始める(ポーズ中のボタンと同じ)
 //
 // **開発版だけ効くもの**(公開版は URL に何を書いても無視する):
 //
@@ -113,6 +114,16 @@ const mmsxx = new MMSXXEngine(document.getElementById('screen'), {
 });
 /** 開発用の機能を出すか。細かい出し分けはこれを見て決める */
 const DEV = mmsxx.dev;
+
+// **上下を逆さにして始める口**(?turn=180)。
+// ふだんはポーズ中のボタンで回すが、写真を撮るときや、
+// 回した状態から始まる見えかたを確かめたいときのために URL でも入れられる。
+// **?rotate= は先客(消える順の回しかた)** なので、名前を分けてある。
+// 数字は 0 か 180 だけ。90 度は無い(縦横の食い違いは自動で合わせている)
+if (OPT.get('turn') === '180') {
+  mmsxx.vdp.upsideDown = true;
+  mmsxx.vdp.refitCss();
+}
 
 // ゲームの設定。進みぐあいや遊んだ記録とは別に持つ(消したい単位が違う)
 const settings = new SaveGroup('starfable-settings', {
@@ -4864,6 +4875,28 @@ function stepShareShot(d) {
 }
 
 /**
+ * **画面を回して見せているときは、この板も一緒に回す。**
+ * 板は画面の座標のまま置かれるので、回さないとゲームだけ横向き・
+ * 板だけ縦向き、という食い違いになる(実機で横倒しに見えた)。
+ * 器(engine/util/touchgui.js)がやっているのと同じ移しかたで、
+ * **同じ関数を借りる**。ここに式を写すと、片方だけ直して食い違う
+ */
+function fitShareEl() {
+  if (!shareEl) return;
+  const angle = mmsxx.vdp.viewAngle;
+  if (!angle) {
+    Object.assign(shareEl.style, { inset: '0', width: '', height: '', transform: '' });
+    return;
+  }
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const v = viewTransform(angle, vw, vh);
+  Object.assign(shareEl.style, {
+    width: v.w + 'px', height: v.h + 'px', inset: 'auto', left: '0', top: '0',
+    transformOrigin: '0 0', transform: v.css,
+  });
+}
+
+/**
  * シェアのダイアログを出す。
  * @param {() => void} [after] 閉じたあとにやること(ランクインのときの続き)
  * @param {{back?:number, shot?:HTMLCanvasElement}} [spec] 見せる絵。
@@ -4882,19 +4915,7 @@ function openShare(after, spec) {
   if (sharePaused) togglePause();
   const el = makeShareEl();
   el.style.display = 'flex';
-  // **画面を 90 度回して見せているときは、この板も一緒に回す。**
-  // 板は画面の座標のまま置かれるので、回さないとゲームだけ横向き・
-  // 板だけ縦向き、という食い違いになる(実機で横倒しに見えた)。
-  // 器(engine/util/touchgui.js)がやっているのと同じ移しかた
-  if (mmsxx.vdp.rotated) {
-    const vw = window.innerWidth, vh = window.innerHeight;
-    Object.assign(el.style, {
-      width: vh + 'px', height: vw + 'px', inset: 'auto', left: '0', top: '0',
-      transformOrigin: '0 0', transform: `translateX(${vw}px) rotate(90deg)`,
-    });
-  } else {
-    Object.assign(el.style, { inset: '0', width: '', height: '', transform: '' });
-  }
+  fitShareEl();
   shareFixed = null;
   shareExtra = null;
   shareBack = SHARE_ONE;
@@ -12897,6 +12918,8 @@ let zoomByUser = false;
 let tuneShown = true;
 /** キーボードのボタンが押せる状態か(打てる場面だけ) */
 let kbdUsable = null;
+/** 180 度のボタンを出しているか(ポーズ中だけ) */
+let rotateShown = null;
 const ZOOM_STEP = 1.12;   // 1 回で 1 割ちょっと。押した手応えが分かるくらい
 const ZOOM_MIN = 0.4, ZOOM_MAX = 1;
 /**
@@ -13041,8 +13064,10 @@ let touchGui = null;
 if (PAD_ON) {
   touchGui = new TouchGui({
     canvas: document.getElementById('screen'),
-    // 回しているかどうかを知っているのはエンジン(engine/video.js)
+    // 回しているかどうかを知っているのはエンジン(engine/video.js)。
+    // **角度で渡す**(0/90/180/270)。180 度は下の rotate-btn で入る
     isRotated: () => mmsxx.vdp.rotated,
+    viewAngle: () => mmsxx.vdp.viewAngle,
     // **第 2 引数の種別をそのまま流す**。付け忘れが起きないよう素通しにする
     // (engine/input.js の usedInputs。ランキングへ操作方法として載る)
     onPress: (code, source) => {
@@ -13055,6 +13080,11 @@ if (PAD_ON) {
       mmsxx.input.press(code, source);
     },
     onRelease: (code) => mmsxx.input.release(code),
+    // **置いたままなら、キーボードの SPACE を押しっぱなしにしたのと同じ。**
+    // 触れた 1 発のあとは何も起きない、では指を離す理由が分からない。
+    // 押しっぱなしに何をさせるか(ゆっくりの自動連射)を決めているのは
+    // ゲーム側なので、キーボードと指で答えが変わらない
+    touch: { holdFire: true },
     lang: TG_LANG,
     // 強制したときだけ、器も同じ画角に区切る(canvas 側は下の fitSize)
     frame: DEVICE ? () => DEVICE : null,
@@ -13196,6 +13226,8 @@ function bindZoomButtons() {
   }
   bind('zoom-in', ZOOM_STEP);
   bind('zoom-out', 1 / ZOOM_STEP);
+  bindRotateButton();
+  bindKeyboardButton();
 
   // **ドットをそろえるかどうか**。既定は「置けるだけ大きく」だが、
   // ドットのガタつきが気になる人のために、整数倍へ切り下げる道も残す
@@ -13223,6 +13255,43 @@ function bindZoomButtons() {
 }
 
 /**
+ * **画面を 180 度回す。**
+ *
+ * 縦横の食い違いは engine/video.js が勝手に合わせているので、
+ * 遊ぶ人に選ばせる意味があるのは「上下どちらを手前にするか」だけ。
+ * 寝ころんで遊ぶときや、ホームバー・ノッチが指の側に来てしまうときに使う。
+ *
+ * **回すところが 4 つある**(canvas / 器 / 点 / 指の動き)ので、
+ * 向きそのものはエンジンが 1 つだけ持ち(vdp.viewAngle)、
+ * 器はそれを見て付いてくる。ここでするのは「裏返して測り直させる」だけ
+ */
+function turnScreen180() {
+  mmsxx.vdp.upsideDown = !mmsxx.vdp.upsideDown;
+  mmsxx.vdp.refitCss();
+  if (touchGui) touchGui.layout();
+  // シェアの板も画面の座標のまま置かれているので、開いていれば一緒に回す
+  if (shareOpen) fitShareEl();
+}
+
+function bindRotateButton() {
+  const el = document.getElementById('rotate-btn');
+  if (el) el.addEventListener('click', () => { el.blur(); turnScreen180(); });
+}
+
+/**
+ * 内容とは関わりのないボタンなので、**ポーズ中だけ**出す。
+ * タイトルや一覧にも置くと、選ぶことの多い画面に用の無い絵が増える
+ */
+function showRotateButton() {
+  const el = document.getElementById('rotate-btn');
+  if (!el) return;
+  const on = paused;
+  if (rotateShown === on) return;
+  rotateShown = on;
+  el.style.display = on ? '' : 'none';
+}
+
+/**
  * 借りているボタンの絵を、**画面のスプライトと同じ並び**から作って貼る
  * (engine/util/icons.js)。絵文字や SVG で描くと、canvas の中と外で
  * 字形が食い違う
@@ -13244,6 +13313,7 @@ function drawToolIcons() {
   put('share-btn', ICONS.camera, 7);
   put('os-share', ICONS.share, 7);
   put('keyboard-btn', ICONS.keyboard, 7);
+  put('rotate-btn', ICONS.rotate180, 7);
   // **切り替えのボタンは中の絵だけで状態を出す。**(枠は白いまま。いつでも押せる)
   // 効いていないときは差し色も灰色にして、絵ごとモノクロにする
   put('pixel-fit', ICONS.pixelFit, mmsxx.vdp.pixelPerfect ? 7 : ICON_MONO);
@@ -13376,12 +13446,14 @@ function updateTouchGui() {
     touchGui.setGuide({ left: [], esc: OK.pause, ok: null, opt: null });
     showTuneButtons(false);
     showKeyboardButton();
+    showRotateButton();
     return;
   }
   touchGui.setMode('menu');
   touchGui.setGuide(menuGuide());
   showTuneButtons(true);
   showKeyboardButton();
+  showRotateButton();
 }
 
 /**
@@ -13392,12 +13464,161 @@ function updateTouchGui() {
 function showKeyboardButton() {
   const el = document.getElementById('keyboard-btn');
   if (!el) return;
-  // **打てるのは裏技の打ち込みだけ**(ポーズ中)。名前入力は上下左右で選べるので要らない。
-  // 押しても今はまだ何も出さない(ソフトキーボードを呼ぶのは次の宿題)
+  // **打てるのは裏技の打ち込みだけ**(ポーズ中)。名前入力は上下左右で選べるので要らない
   const usable = paused;
   if (kbdUsable === usable) return;
   kbdUsable = usable;
   el.classList.toggle('off', !usable);
+  // **打てない場面へ移ったら焦点を外す。** 置いたままだと、ソフトキーボードが
+  // 出っぱなしになるうえ、外付けのキーボードを繋いでいる人の矢印キーが
+  // 隠し入力欄に吸われる(名前入力で桁が動かなくなる)
+  if (!usable) blurSoftKeys();
+}
+
+// ---- ソフトキーボード(裏技の打ち込み) ----
+//
+// スマホには打つところが無いので、**隠した入力欄に焦点を当てて OS のキーボードを
+// 呼び、来た文字をキーの押下に化かして** mmsxx.input へ流す。
+// ゲーム側は今までどおり wasPressed('KeyA') を見ていればよく、
+// **打ち込みのしくみを 2 つ持たずに済む**。
+//
+// ## 文字は input から取る。keydown は当てにしない
+//
+// Android のソフトキーボードは keydown を 229(処理中)で寄こすので、
+// **どのキーかは分からない**。実際に入った文字が読めるのは input のほう。
+// 外付けのキーボードから来たぶんだけは、エンジンが window で拾う道が
+// もともとあるので、こちらは黙って譲る(でないと 2 回入る)。
+//
+// ## 詰め物を入れておく
+//
+// 値を空のままにしておくと、**BACKSPACE が飛んでこない**
+// (消すものが無い、と見なされる)。空白を何個か入れておいて、
+// **減ったら BACKSPACE、増えたぶんが打たれた文字**、と長さで見分ける。
+
+/** 隠し入力欄に入れておく詰め物。**減ったら消された**と分かる */
+const SOFT_FILL = '        ';
+/** 隠し入力欄。**初めて押されたときに作る**(要らない人には作らない) */
+let softInput = null;
+/**
+ * 打たれたぶんを溜めておく列。**1 コマに 1 つずつ流す**。
+ * まとめて press すると、ゲームは 1 コマぶんしか読めないので取りこぼす
+ * (貼り付けのように何文字も一度に来ることがある)
+ */
+const softQueue = [];
+/** 前のコマで押したキー。次のコマの頭で離す */
+let softHeld = null;
+/** 直前に本物のキー入力が来たか(外付けのキーボード。二重に入れないための印) */
+let softRealKey = false;
+
+/** 文字を、エンジンが知っているキーの名前へ直す。**知らない字は捨てる** */
+function softKeyCode(ch) {
+  if (ch >= 'A' && ch <= 'Z') return 'Key' + ch;
+  if (ch >= 'a' && ch <= 'z') return 'Key' + ch.toUpperCase();
+  if (ch >= '0' && ch <= '9') return 'Digit' + ch;
+  // 名前に使える記号(game/main.js の updateNameEntry と同じ並び)
+  return { ' ': 'Space', '-': 'Minus', ',': 'Comma', '.': 'Period',
+    '?': 'Slash', '!': 'Backslash' }[ch] || '';
+}
+
+/**
+ * **1 コマに 1 つずつキーを流す。** 遊びのループの頭で呼ぶこと。
+ * 押したものは**次のコマの頭で離す**(押してすぐ離すと、
+ * ゲーム側の wasPressed() が拾えない)
+ */
+function pumpSoftKeys() {
+  if (softHeld) { mmsxx.input.release(softHeld); softHeld = null; }
+  const code = softQueue.shift();
+  if (!code) return;
+  // 種別は 'touch'。画面の上のキーボードなので、遊びかたとしては指の操作
+  mmsxx.input.press(code, 'touch');
+  softHeld = code;
+}
+
+/** 隠し入力欄を作る(1 度だけ) */
+function makeSoftInput() {
+  if (softInput) return softInput;
+  const el = document.createElement('input');
+  el.type = 'text';
+  el.id = 'soft-keys';
+  el.setAttribute('autocomplete', 'off');
+  el.setAttribute('autocorrect', 'off');
+  el.setAttribute('spellcheck', 'false');
+  // 裏技の語も名前も**大文字**なので、はじめから大文字で出させる
+  el.setAttribute('autocapitalize', 'characters');
+  el.setAttribute('aria-hidden', 'true');
+  el.tabIndex = -1;
+  // **見えないが「無い」ことにはしない。** display:none や visibility:hidden の
+  // 相手には焦点が当たらず、キーボードが出てこない。
+  // 字の大きさを 16px 以上にしておくのは、**iOS が寄っていくのを止める**ため
+  el.style.cssText = 'position:fixed;left:0;bottom:0;width:1px;height:1px;'
+    + 'padding:0;border:0;opacity:0.01;z-index:-1;font-size:16px;'
+    + 'background:transparent;color:transparent;caret-color:transparent';
+  el.value = SOFT_FILL;
+  // **外付けのキーボードから来たぶんは譲る。** エンジンが window で
+  // 拾っているので、ここでも入れると 1 文字が 2 回入る。
+  // Android のソフトキーボードは 229 で寄こすので、そちらは譲らない
+  el.addEventListener('keydown', (e) => {
+    softRealKey = e.keyCode !== 229 && (e.key.length === 1
+      || e.key === 'Backspace' || e.key === 'Enter');
+  });
+  el.addEventListener('input', () => {
+    const v = el.value;
+    resetSoftInput();
+    if (softRealKey) { softRealKey = false; return; }
+    if (v.length > SOFT_FILL.length) {
+      // **増えたぶんが打たれた文字。** 貼り付けで何文字も来ることもある
+      for (const ch of v.slice(SOFT_FILL.length)) {
+        const code = softKeyCode(ch);
+        if (code) softQueue.push(code);
+      }
+    } else if (v.length < SOFT_FILL.length) {
+      softQueue.push('Backspace');
+    }
+  });
+  // **改行と 1 文字消しは、ここで拾わない。** どちらもソフトキーボードから
+  // 本物の keydown('Enter' / 'Backspace')で飛んでくるので、
+  // エンジンが window で拾う道に乗る。ここでも入れると 2 回効いてしまう。
+  // 飛んでこない機種のぶんは、上の input が長さの増減で拾う
+  document.body.appendChild(el);
+  softInput = el;
+  return el;
+}
+
+/** 詰め物を入れ直して、カーソルをうしろへ戻す */
+function resetSoftInput() {
+  if (!softInput) return;
+  softInput.value = SOFT_FILL;
+  try { softInput.setSelectionRange(SOFT_FILL.length, SOFT_FILL.length); } catch (e) { /* 古い環境 */ }
+}
+
+/** ソフトキーボードを呼ぶ / しまう */
+function toggleSoftKeys() {
+  const el = makeSoftInput();
+  if (document.activeElement === el) { blurSoftKeys(); return; }
+  resetSoftInput();
+  // **押されたその場で focus() を呼ぶ**こと。あとから(タイマや await の先で)
+  // 呼んでも、iOS は「人が触った」と見なさずキーボードを出さない
+  el.focus({ preventScroll: true });
+  resetSoftInput();
+}
+
+function blurSoftKeys() {
+  if (softInput && document.activeElement === softInput) softInput.blur();
+}
+
+function bindKeyboardButton() {
+  const el = document.getElementById('keyboard-btn');
+  if (!el) return;
+  // **PC には要らない。** 打つところが最初からある
+  if (!PAD_ON) { el.style.display = 'none'; return; }
+  // **pointerdown ではなく click。** pointerdown で焦点を当てても、
+  // そのあとの既定の動きで焦点が外れてしまう
+  el.addEventListener('click', () => {
+    if (el.classList.contains('off')) return;
+    // 指で触ったこの機会に、音も解禁しておく(engine.js は keydown でしかやらない)
+    mmsxx.audio.unlock();
+    toggleSoftKeys();
+  });
 }
 
 function showTuneButtons(on) {
@@ -13410,6 +13631,9 @@ function showTuneButtons(on) {
 }
 
 mmsxx.run(() => {
+  // ソフトキーボードで打たれたぶんを 1 コマに 1 つ流す。**パッドより先**に
+  // 置くのは、どちらも「ゲームが読む前に入れる」ものだから(順は問わない)
+  pumpSoftKeys();
   // **ゲームが入力を読む前に**パッドを流し込む。
   // エンジンは update() のあとで endFrame() を呼ぶので、押したそのコマで効く
   gamepad.poll();

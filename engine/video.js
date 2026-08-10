@@ -290,6 +290,23 @@ export class VDP {
      * 画面に対する割合なので、**機種が変わっても同じ見えかた**になる
      */
     this.zoom = 1;
+    /**
+     * **上下を逆さに見せるか**(180 度)。寝ころんで遊ぶときや、
+     * ノッチ・ホームバーが指の側に来てしまうときに、持ち替える代わりに回す。
+     *
+     * 90 度は入口を用意しない。**縦横の食い違いは自動で合わせている**ので、
+     * 遊ぶ人に選ばせる意味があるのは「上下どちらを手前にするか」だけ。
+     *
+     * これを変えたら refitCss() を呼ぶこと。**見た目の向き(viewAngle)が変わる**ので、
+     * canvas の外に重ねているもの(engine/util/touchgui.js)も一緒に回す必要がある
+     */
+    this.upsideDown = false;
+    /**
+     * **いま何度回して見せているか**(0 / 90 / 180 / 270)。_applyCssSize が入れる。
+     * canvas の外に重ねるものは、これと同じだけ回さないと
+     * 見えている場所と触った場所がずれる
+     */
+    this.viewAngle = 0;
     this.ctx = canvas.getContext('2d');
     this.ctx.imageSmoothingEnabled = false;
 
@@ -940,20 +957,27 @@ export class VDP {
       // 幅いっぱいに引き伸ばされて まだらにならないよう、上限も外す
       st.maxWidth = 'none';
       st.maxHeight = 'none';
+      // **見た目の向きは、自動の 90 度と、遊ぶ人が決める 180 度の足し算。**
+      // 別々に掛けると、どちらの向きで数えているのか分からなくなるので、
+      // ここで 1 つの角度にまとめてしまう。外へも viewAngle として出す
+      const angle = ((rot ? 90 : 0) + (this.upsideDown ? 180 : 0)) % 360;
       // 回すときは、回した見た目で真ん中に来るように置き直す。
       // (回転は見た目だけで、置き場所の大きさは変わらないため)
       if (rot) {
         st.position = 'fixed';
         st.left = '50%';
         st.top = '50%';
-        st.transform = 'translate(-50%, -50%) rotate(90deg)';
+        st.transform = `translate(-50%, -50%) rotate(${angle}deg)`;
       } else {
         st.position = '';
         st.left = '';
         st.top = '';
-        st.transform = '';
+        // **180 度だけなら置き直さなくてよい。** 回す軸は canvas の真ん中
+        // (transform-origin の既定)なので、その場でひっくり返るだけ
+        st.transform = angle ? `rotate(${angle}deg)` : '';
       }
       this.rotated = rot;
+      this.viewAngle = angle;
       return;
     }
     st.width = (ow * n) + 'px';

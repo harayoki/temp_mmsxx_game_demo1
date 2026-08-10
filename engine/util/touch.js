@@ -105,6 +105,19 @@ const DEFAULTS = {
                        // 既定は D。ほかもゲームによっては使えるので残してある
   shotStep: 14,        // D なら折り返しと認める距離、A なら区画の一辺、B なら 1 発ぶんの移動量(px)
   holdRepeatMs: 0,     // 長押しの連射間隔(ms)。**0 で無し**(連射は腕前のまま)
+  /**
+   * **指を置いているあいだ、キーを押しっぱなしにするか。**
+   *
+   * true にすると、こすり打ちが**キーボードのボタンと同じ土俵**に乗る。
+   * 置いたままなら「押しっぱなし」、こすればそのぶん押し直し、になる。
+   * ゲーム側が押しっぱなしに何をさせるか(ゆっくりの自動連射など)は
+   * ゲームの決めごとなので、**ここでは間隔を持たない**
+   * (holdRepeatMs はこちらで間隔を決めてしまうので、別のもの)。
+   *
+   * false(既定)は今までどおり、触れた 1 発とこすったぶんだけ。
+   * **'C'(出入り)には効かない**。あちらはもともと押しっぱなしで動く
+   */
+  holdFire: false,
   shotCode: 'Space',
   pauseCode: 'Escape',
 };
@@ -179,6 +192,8 @@ export class TouchControls {
     };
     this._resizeWait = 0;
     this._dpad = this._shot = this._fire = this._pause = this._knob = this._stickEl = null;
+    /** 指を受けるだけの入れ物(絵は持たない)。attach で渡されたときだけ */
+    this._dpadCatch = this._shotCatch = null;
     /** 1 コマだけ押すための仕掛け */
     this._pulseDown = new Set();
     this._pulseQueue = new Map();
@@ -201,7 +216,14 @@ export class TouchControls {
    * 横画面の左右の空きをどう取るかはゲームごとに違うので、ここでは決めない。
    * 渡された入れ物いっぱいに広がる
    *
-   * @param {{ dpad: HTMLElement, shot: HTMLElement }} areas
+   * `dpadCatch` / `shotCatch` は**指を受けるだけの、絵の無い入れ物**(省いてよい)。
+   * 十字は「触れたところが原点」、こすりは「触れてから動かした量」なので、
+   * **受ける場所を広げても操作の中身は変わらない**。
+   * 絵はあくまで dpad / shot の入れ物の中に出るので、
+   * **広げたぶんはゲーム画面に何も足さない**(狙いはそこ)。
+   *
+   * @param {{ dpad: HTMLElement, shot: HTMLElement,
+   *           dpadCatch?: HTMLElement, shotCatch?: HTMLElement }} areas
    */
   attach(areas) {
     if (this._zones.length) this.detach();
@@ -212,7 +234,13 @@ export class TouchControls {
 
     this._dpad = areas.dpad;
     this._shot = areas.shot;
+    // **絵を持つのはこの 2 つだけ。** 大きさの計算(_applyLayout)も
+    // 場所の計算(_rectOf)も、ここを見ている
     this._zones = [this._dpad, this._shot];
+    // 指を受けるだけの入れ物。**_zones には入れない**
+    // (入れると絵の大きさの計算に混ざり、中身も上書きされる)
+    this._dpadCatch = areas.dpadCatch || null;
+    this._shotCatch = areas.shotCatch || null;
     this._dpad.classList.add('mmsxx-touch-zone', 'mmsxx-touch-dpad');
     this._shot.classList.add('mmsxx-touch-zone', 'mmsxx-touch-shot');
     this._dpad.innerHTML = DPAD_HTML;
@@ -236,6 +264,8 @@ export class TouchControls {
     this._bind(this._dpad, 'dpad');
     this._bind(this._shot, 'shot');   // **エリア全体**で受ける(丸は絵だけ)
     this._bind(this._pause, 'pause');
+    if (this._dpadCatch) this._bind(this._dpadCatch, 'dpad');
+    if (this._shotCatch) this._bind(this._shotCatch, 'shot');
     return this;
   }
 
@@ -263,8 +293,15 @@ export class TouchControls {
       for (const prop of Object.values(SKIN_VARS)) z.style.removeProperty(prop);
       for (const prop of ['--r', '--hx', '--hy']) z.style.removeProperty(prop);
     }
+    for (const c of this._catches()) c.style.display = '';
     this._zones = [];
+    this._dpadCatch = this._shotCatch = null;
     this._dpad = this._shot = this._fire = this._pause = this._knob = this._stickEl = null;
+  }
+
+  /** 指を受けるだけの入れ物。渡されたぶんだけ */
+  _catches() {
+    return [this._dpadCatch, this._shotCatch].filter(Boolean);
   }
 
   /** 出し入れ */
@@ -274,6 +311,9 @@ export class TouchControls {
   set visible(v) {
     if (!v) this.releaseAll();
     for (const z of this._zones) z.style.display = v ? '' : 'none';
+    // **受けるだけの入れ物も一緒に消す。** 残すと、メニューで払ったつもりの指を
+    // 十字やショットが横取りしてしまう(絵は出ていないので、何が起きたのか分からない)
+    for (const c of this._catches()) c.style.display = v ? '' : 'none';
   }
 
   /** つまみを変える。**動かしたまま効く** */
@@ -496,6 +536,21 @@ export class TouchControls {
     this._runPulses();
   }
 
+  /**
+   * **押しっぱなしのまま、もう 1 回押したことにする**(holdFire のとき)。
+   *
+   * 押しっぱなしにしていると `_pulse` は素通りしてしまう(もう押しているので)。
+   * かといって離してしまうと、押しっぱなしが切れる。
+   * **同じ tick の中で離して押し直す**と、ゲームがコマの頭で読むころには
+   * 「押しっぱなしのまま、押した瞬間でもある」になっている
+   * (キーボードで連打したときと同じ形)
+   */
+  _retrigger(code) {
+    if (!this.down.has(code)) { this._pulse(code); return; }
+    this._release(code);
+    this._press(code);
+  }
+
   _runPulses() {
     if (this._pulseRaf) return;
     this._pulseRaf = requestAnimationFrame(() => {
@@ -699,10 +754,20 @@ export class TouchControls {
     p.cell = this._cellOf(p);
     this.rub.cell = p.cell;
     this.rub.turns = 0;
-    // どの方式でも、触れた瞬間に 1 発は出る
-    if (this.opts.shotMode === 'C') this._press(this.opts.shotCode);
+    // どの方式でも、触れた瞬間に 1 発は出る。
+    // **holdFire なら、そのまま押しっぱなしにする**(離すまで下ろさない)
+    if (this.opts.shotMode === 'C' || this.opts.holdFire) this._press(this.opts.shotCode);
     else this._pulse(this.opts.shotCode);
     this._startHold();
+  }
+
+  /**
+   * **こすって出す 1 発。** 押しっぱなしにしているかどうかで押しかたが変わるので、
+   * 数えかた(A / B / D)の側からはこれだけを呼ぶ
+   */
+  _rubFire() {
+    if (this.opts.holdFire) this._retrigger(this.opts.shotCode);
+    else this._pulse(this.opts.shotCode);
   }
 
   _shotMove(p, dist) {
@@ -725,7 +790,7 @@ export class TouchControls {
       if (cell !== p.cell) {
         p.cell = cell;
         this.rub.cell = cell;
-        this._pulse(o.shotCode);
+        this._rubFire();
       }
       return;
     }
@@ -736,7 +801,7 @@ export class TouchControls {
       const step = Math.max(1, this._px(o.shotStep));
       while (p.acc >= step) {
         p.acc -= step;
-        this._pulse(o.shotCode);
+        this._rubFire();
       }
       return;
     }
@@ -772,7 +837,7 @@ export class TouchControls {
     // 反転した。**戻る前に十分こすっていたときだけ**数える(震えを拾わない)
     if (p.stroke >= Math.max(1, this._px(o.shotStep))) {
       this.rub.turns++;
-      this._pulse(o.shotCode);
+      this._rubFire();
     }
     p.vx = ux; p.vy = uy;
     p.stroke = len;
@@ -784,11 +849,18 @@ export class TouchControls {
     this.rub.cell = '';
   }
 
-  /** ショットのエリアの中に指があるか(滑り出ても担当は変えない) */
+  /**
+   * ショットのエリアの中に指があるか(滑り出ても担当は変えない)。
+   * **受けるだけの入れ物も中のうち。** ここを外すと、広げた側でこすっても
+   * 触れた 1 発しか出ない(数えるのをやめてしまう)
+   */
   _inFire(p) {
-    if (!this._shot) return false;
-    const r = this._rectOf(this._shot);
-    return p.x >= r.left && p.x < r.right && p.y >= r.top && p.y < r.bottom;
+    for (const el of [this._shot, this._shotCatch]) {
+      if (!el) continue;
+      const r = this._rectOf(el);
+      if (p.x >= r.left && p.x < r.right && p.y >= r.top && p.y < r.bottom) return true;
+    }
+    return false;
   }
 
   /** 区画割り(A)の、いまの区画の名前 */

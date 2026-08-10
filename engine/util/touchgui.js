@@ -123,6 +123,83 @@ export function planSideLayout(m) {
   };
 }
 
+// ── 画面の向き ──────────────────────────────────────────
+//
+// **回すところが 4 つある**(canvas / 器 / 点 / 指の動き)ので、
+// 向きの計算はここへまとめる。ばらばらに書くと、
+// **見えている場所と触った場所がずれる**のに気づきにくい。
+//
+//   角度 = engine/video.js の viewAngle(0 / 90 / 180 / 270)
+//   器の左上を原点に、器を angle だけ回すと画面にぴたりと重なる
+//
+// 下の 4 つは**同じ 1 つの変換**を、置き場所・大きさ・点・動きの
+// それぞれの言葉で言い直したもの。**直すときは 4 つまとめて**見ること。
+
+/** 角度を 0 / 90 / 180 / 270 のどれかへ丸める */
+export function normAngle(a) {
+  return ((Math.round((a || 0) / 90) * 90) % 360 + 360) % 360;
+}
+
+/**
+ * 器の大きさと、画面に重ねるための CSS。
+ * `transform-origin: 0 0` で使うこと(回してから、原点を画面の隅へ運ぶ)
+ * @param {number} angle 0 / 90 / 180 / 270
+ * @param {number} vw 画面(置ける場所)の幅
+ * @param {number} vh 同じく高さ
+ * @returns {{ w:number, h:number, css:string }} w/h は**回す前**の器の大きさ
+ */
+export function viewTransform(angle, vw, vh) {
+  switch (normAngle(angle)) {
+    case 90: return { w: vh, h: vw, css: `translateX(${vw}px) rotate(90deg)` };
+    case 180: return { w: vw, h: vh, css: `translate(${vw}px, ${vh}px) rotate(180deg)` };
+    case 270: return { w: vh, h: vw, css: `translateY(${vh}px) rotate(270deg)` };
+    default: return { w: vw, h: vh, css: 'none' };
+  }
+}
+
+/**
+ * **画面の点を器の点へ戻す**(viewTransform の逆)。
+ * 渡す x / y は、画面(置ける場所)の左上から数えた値
+ * @returns {number[]} [x, y]
+ */
+export function viewToLocal(angle, vw, vh, x, y) {
+  switch (normAngle(angle)) {
+    case 90: return [y, vw - x];
+    case 180: return [vw - x, vh - y];
+    case 270: return [vh - y, x];
+    default: return [x, y];
+  }
+}
+
+/**
+ * **画面の動きを器の動きへ戻す。** 点とは違って、原点を運ぶぶんは要らない
+ * (向きだけ戻す)
+ */
+export function turnDelta(angle, dx, dy) {
+  switch (normAngle(angle)) {
+    case 90: return { dx: dy, dy: -dx };
+    case 180: return { dx: -dx, dy: -dy };
+    case 270: return { dx: -dy, dy: dx };
+    default: return { dx, dy };
+  }
+}
+
+/**
+ * **端末に食われるぶんを器の向きへ移す。** env() は画面の向きで返ってくるので、
+ * 回して見せているときは上下左右も一緒に回さないと、
+ * くびれていない側を空けることになる
+ * @param {{left:number,right:number,top:number,bottom:number}} ins 画面の向きで
+ * @returns {{left:number,right:number,top:number,bottom:number}} 器の向きで
+ */
+export function turnInsets(angle, ins) {
+  switch (normAngle(angle)) {
+    case 90: return { left: ins.top, right: ins.bottom, top: ins.right, bottom: ins.left };
+    case 180: return { left: ins.right, right: ins.left, top: ins.bottom, bottom: ins.top };
+    case 270: return { left: ins.bottom, right: ins.top, top: ins.left, bottom: ins.right };
+    default: return { ...ins };
+  }
+}
+
 const DEFAULTS = {
   /** 一覧の送り。指がこれだけ動くたびに上下キーを 1 回(px) */
   scrollStep: 26,
@@ -153,6 +230,17 @@ const DEFAULTS = {
    * 十字の差し渡し(guiRadius の 2 倍)に、指ぶんの余りを足した値
    */
   minSide: 128,
+  /**
+   * **十字と連射の絵を、ゲーム画面へどれだけかぶせるか**(画面の幅に対する割合)。
+   *
+   * 帯の幅ぶんしか使わないと、空きの狭い機種では絵が小さくなりすぎる。
+   * GUI は半透明なので、少しかぶせても下の弾と自機は透けて見える。
+   * **かぶせるのはこの 2 つだけ。** 案内の文字や借りものボタンは帯の中のままで、
+   * あちらを画面へ出すと読むものと遊ぶものが重なって、どちらも読めなくなる。
+   *
+   * 0 で今までどおり(帯の中に収める)
+   */
+  padBleed: 0.25,
   /**
    * **案内を出すのに要る空き**(px)。これを割ったら文字は出さない。
    * 隙間が無いところへ無理に出すと、ゲーム画面に文字が重なって
@@ -209,6 +297,7 @@ export class TouchGui {
    * @param {{
    *   canvas: HTMLCanvasElement,
    *   isRotated?: () => boolean,
+   *   viewAngle?: () => number,   見た目の向き(0/90/180/270)。**あればこちらが勝つ**
    *   onPress?:   (code:string, source:string) => void,
    *   onRelease?: (code:string, source:string) => void,
    *   scrollStep?: number, flickMinDist?: number,
@@ -220,6 +309,9 @@ export class TouchGui {
   constructor(opts = {}) {
     this.canvas = opts.canvas || null;
     this.isRotated = opts.isRotated || (() => false);
+    // **向きは角度で受け取るのが本筋**だが、90 度しか無かったころの
+    // isRotated だけでも動くようにしておく(他のゲームが呼んでいる)
+    this.viewAngle = opts.viewAngle || (() => (this.isRotated() ? 90 : 0));
     this.onPress = opts.onPress || null;
     this.onRelease = opts.onRelease || null;
     this.opts = { ...DEFAULTS, ...opts };
@@ -275,6 +367,7 @@ export class TouchGui {
     const q = (sel) => root.querySelector(sel);
     this._el = {
       left: q('.mmsxx-gui-left'), right: q('.mmsxx-gui-right'),
+      catchL: q('.mmsxx-gui-catch-left'), catchR: q('.mmsxx-gui-catch-right'),
       guideL: q('.mmsxx-gui-guide-left'), guideR: q('.mmsxx-gui-guide-right'),
       btns: q('.mmsxx-gui-btns'), tools: q('.mmsxx-gui-tools'),
       tools2: q('.mmsxx-gui-tools-right'),
@@ -282,12 +375,15 @@ export class TouchGui {
       safe: q('.mmsxx-gui-safe'), safearea: q('.mmsxx-gui-safearea'),
       tip: q('.mmsxx-gui-tip'),
     };
-    this.touch.attach({ dpad: this._el.left, shot: this._el.right });
+    this.touch.attach({
+      dpad: this._el.left, shot: this._el.right,
+      dpadCatch: this._el.catchL, shotCatch: this._el.catchR,
+    });
     // **触りはじめたら薄くしていく。** 場所を覚えるまでは見えていてほしいが、
     // 覚えたあとは弾を隠すだけの邪魔もの。触れている＝分かっている合図。
     // **キーが立ったかではなく、指が触れたかで数える**
     // (十字は触れただけでは向きが立たないので、キーで数えると取りこぼす)
-    for (const z of [this._el.left, this._el.right]) {
+    for (const z of [this._el.left, this._el.right, this._el.catchL, this._el.catchR]) {
       z.addEventListener('pointerdown', () => {
         this._touchedAt = performance.now();
         this._root.classList.remove('attention');
@@ -315,6 +411,16 @@ export class TouchGui {
       el.addEventListener('pointerdown', (e) => e.stopPropagation());
     }
     this._bindTips();
+    // 上を見ること。**指を離したら、どこで離されようと必ず引っ込める。**
+    // 札は押した相手のものだが、離したことを知らせてくるのは器のほうなので、
+    // 窓で受けるのがいちばん確か
+    this._endTip = () => {
+      if (this._tipTimer) { clearTimeout(this._tipTimer); this._tipTimer = 0; }
+      setTimeout(() => this._hideTip(), 900);
+    };
+    for (const type of ['pointerup', 'pointercancel']) {
+      window.addEventListener(type, this._endTip);
+    }
 
     // ジェスチャは setMode() が出し入れする(下の _startGesture を見ること)
 
@@ -359,6 +465,12 @@ export class TouchGui {
     this._stopGesture();
     if (this._blinkTimer) clearInterval(this._blinkTimer);
     this._blinkTimer = 0;
+    this._hideTip();
+    if (this._endTip) {
+      for (const type of ['pointerup', 'pointercancel']) {
+        window.removeEventListener(type, this._endTip);
+      }
+    }
     this.touch.detach();
     window.removeEventListener('resize', this._relayout);
     window.removeEventListener('orientationchange', this._relayout);
@@ -385,6 +497,35 @@ export class TouchGui {
    */
   get toolsSlotRight() { return this._el.tools2 || null; }
 
+  /**
+   * **十字とショットに添える文言を書き替える**(`RUB TO FIRE` / `DRAG TO MOVE` など)。
+   *
+   *   gui.setPadLabels({ shotNote: 'RUB OR HOLD', dpadNote: 'DRAG TO MOVE' });
+   *
+   * 渡したぶんだけ差し替わる(全部書かなくてよい)。使える名前は
+   * engine/util/touch.js の LABELS:
+   *
+   *   dpadTitle / dpadNote / dpadCallout / shotTitle / shotNote / shotCallout
+   *
+   * **touch.setLabels() を直に呼ばないこと。** こちらは狭い機種で文言を
+   * 引っ込めている(_showPadLabels)ので、直に書くと引っ込めたはずのものが
+   * 復活したり、広くなったときに前の文言へ戻ったりする。
+   * ここへ渡せば、引っ込めているあいだは覚えておいて、戻すときに反映される
+   */
+  setPadLabels(patch) {
+    if (!patch) return this;
+    if (!this._padLabels) {
+      // 取り付ける前。**下の TouchControls へ直に入れておく**
+      // (attach がそれを控えるので、あとから引っ込めても戻ってくる)
+      this.touch.setLabels(patch);
+      return this;
+    }
+    Object.assign(this._padLabels, patch);
+    // 引っ込めているあいだは覚えるだけ。戻すのは _showPadLabels(true)
+    if (this._padLabelsOn) this.touch.setLabels(patch);
+    return this;
+  }
+
   /** 案内の言語を変える */
   setLang(lang) {
     this.opts.lang = lang;
@@ -408,6 +549,8 @@ export class TouchGui {
     this.mode = next;
     this.releaseAll();
     if (!this._root) return;
+    // 出しているものが丸ごと入れ替わるので、説明の札も残さない
+    this._hideTip();
     this._modeShown = next;
     // **ポーズやタイトルを通るたびに、濃さを最初へ戻す。**
     // 手を止めた人には、もう一度はっきり見えたほうがよい
@@ -476,6 +619,10 @@ export class TouchGui {
     const key = JSON.stringify([this.opts.lang, g]);
     if (key === this._guideKey) return;
     this._guideKey = key;
+    // **できることが変わったら、出ている説明は前の場面のもの。**
+    // 説明を出したまま画面が移ることは実際にある(長押ししたまま
+    // 払う、押している最中に自分でない理由で画面が変わる、など)
+    this._hideTip();
     this._el.guideL.innerHTML = g.left.map((it) => guideItemHTML(it, this.opts.lang)).join('');
     this._el.guideR.innerHTML = g.right.map((it) => guideItemHTML(it, this.opts.lang)).join('');
     // **中の文言は場面ごとに変わる**(START / つぎへ / もどる ...)。
@@ -499,7 +646,9 @@ export class TouchGui {
    */
   layout() {
     if (!this._root || !this.canvas) return;
-    const rot = !!this.isRotated();
+    // **canvas と同じ角度で回す。** ここがずれると、見えている場所と
+    // 触った場所が食い違う(上の「画面の向き」の節を見ること)
+    const angle = normAngle(this.viewAngle());
     // 決め打ちの画角があれば、その大きさで窓の真ん中に置く
     // (canvas 側も同じ大きさに収まっている。engine/video.js の fitSize)
     const box = this.opts.frame ? this.opts.frame() : null;
@@ -507,18 +656,20 @@ export class TouchGui {
     const vh = box ? box.h : window.innerHeight;
     const ox = box ? Math.round((window.innerWidth - vw) / 2) : 0;
     const oy = box ? Math.round((window.innerHeight - vh) / 2) : 0;
-    // 回すと、器の縦と横が入れ替わる
-    const w = rot ? vh : vw, h = rot ? vw : vh;
+    // 回すと、器の縦と横が入れ替わる(90 / 270 のとき)
+    const view = viewTransform(angle, vw, vh);
+    const w = view.w, h = view.h;
     const st = this._root.style;
     st.left = ox + 'px';
     st.top = oy + 'px';
     st.width = w + 'px';
     st.height = h + 'px';
-    // 原点を右上へ運んでから時計回りに 90 度(canvas の回りかたと同じ)
-    st.transform = rot ? `translateX(${vw}px) rotate(90deg)` : 'none';
+    st.transform = view.css;
     // 画面の点を器の点へ戻す(上の変換の逆)。十字はこれを使って当たりを取る。
     // **回っていなければ変換は要らない**(どちらも画面の座標のまま)
-    this.touch.toLocal = rot ? (x, y) => [y - oy, vw - (x - ox)] : null;
+    this.touch.toLocal = angle
+      ? (x, y) => viewToLocal(angle, vw, vh, x - ox, y - oy)
+      : null;
 
     // **端末に食われるぶん**(ノッチ・ホームバー・URL バー)を器の向きへ移す。
     // env() は画面の向きで返ってくるので、90 度回して見せているときは
@@ -530,9 +681,7 @@ export class TouchGui {
     const guard = Math.max(0, this.opts.edgeGuard || 0);
     ins.left += guard;
     ins.right += guard;
-    const s = rot
-      ? { left: ins.top, right: ins.bottom, top: ins.right, bottom: ins.left }
-      : ins;
+    const s = turnInsets(angle, ins);
     this._root.style.setProperty('--safe-t', s.top + 'px');
     this._root.style.setProperty('--safe-b', s.bottom + 'px');
     this._applyFontSize();
@@ -572,14 +721,38 @@ export class TouchGui {
     // **下の段は遊びのもの。** 右下は連射ボタン、左下は十字が来るところなので、
     // 借りているボタン(音の入切など)は**上の段**へ回す。
     // 右上は ESC が座っているので、こちらは左上
-    for (const name of ['left', 'guideL', 'tools']) {
+    for (const name of ['guideL', 'tools']) {
       this._el[name].style.left = plan.left.x + 'px';
       this._el[name].style.width = plan.left.w + 'px';
     }
-    for (const name of ['right', 'guideR', 'btns', 'tools2']) {
+    for (const name of ['guideR', 'btns', 'tools2']) {
       this._el[name].style.left = plan.right.x + 'px';
       this._el[name].style.width = plan.right.w + 'px';
     }
+    // **十字と連射だけは、ゲーム画面へ少しかぶせる。**
+    // 帯の幅ぶんしか無いと絵が小さく、指を置きにいくのに狙いが要る。
+    // GUI は半透明なので、下の弾も自機も透けて見える。
+    // **かぶせるのはこの 2 つだけ**(案内・借りものボタン・OK / ESC は帯の中のまま)。
+    // かぶせるのは案内が読めなくなるからではなく、**指のためなので、
+    // 空きが足りているかどうかに関わらず いつもかぶせる**
+    const bleed = Math.round(cw * Math.max(0, this.opts.padBleed || 0));
+    const zoneL = { x: plan.left.x, w: plan.left.w + bleed };
+    const zoneR = { x: plan.right.x - bleed, w: plan.right.w + bleed };
+    for (const [name, z] of [['left', zoneL], ['right', zoneR]]) {
+      this._el[name].style.left = z.x + 'px';
+      this._el[name].style.width = z.w + 'px';
+    }
+    // **指を下ろせる場所は、左右とも真ん中まで。**
+    // 十字は「触れたところが原点」、こすりは「触れてから動かした量」なので、
+    // **広げても操作の中身は変わらない**(絵は上の帯の中に出るだけで、
+    // ここには何も足さない)。ゲーム画面は器の真ん中にあるので、真ん中 = w / 2
+    const mid = Math.round(w / 2);
+    const put = (el, from, to) => {
+      el.style.left = from + 'px';
+      el.style.width = Math.max(0, to - from) + 'px';
+    };
+    put(this._el.catchL, zoneL.x + zoneL.w, mid);
+    put(this._el.catchR, mid, zoneR.x);
     // 案内は**隙間があるときだけ**。十字とショットが自分で出している
     // 名前や使いかたの文字も、同じときに引っ込める
     // (重なっているところへ文字を足すと、ゲーム画面も文字も読めなくなる)
@@ -595,6 +768,15 @@ export class TouchGui {
     // ボタンが縦一列で端に寄るのは、帯が狭いとき(重ねている / 案内が出せない)
     const tools = this._el.tools.firstElementChild;
     const stacked = plan.overlap || !plan.guide;
+    // **右の借りものボタンは、ESC / OPTION と同じ列に立てる。**
+    // 狭い機種ではボタンが外側の端へ逃げるので、帯の真ん中に置いたままだと
+    // こちらだけゲーム画面の側へ出っぱる。**ボタンの箱をそのまま借りる**
+    // (幅を数字で持つと、CSS の min-width を変えたときに片方だけ取り残される)
+    const esc = this._el.esc;
+    if (stacked && esc && esc.offsetWidth) {
+      this._el.tools2.style.left = (plan.right.x + esc.offsetLeft) + 'px';
+      this._el.tools2.style.width = esc.offsetWidth + 'px';
+    }
     this.touch.setOptions({
       anchorInset: (stacked && tools) ? Math.round(tools.offsetWidth) : 0,
     });
@@ -713,7 +895,7 @@ export class TouchGui {
 
   /** 画面の上の動きを、遊びの上の動きへ直す(回しているぶんを戻す) */
   _turn(dx, dy) {
-    return this.isRotated() ? { dx: dy, dy: -dx } : { dx, dy };
+    return turnDelta(this.viewAngle(), dx, dy);
   }
 
   /**
@@ -807,13 +989,22 @@ export class TouchGui {
     }
   }
 
+  /**
+   * **長押しの説明を引っ込める。** 出しっぱなしにしない口を 1 つにまとめてある。
+   * 出した札は**その場面のもの**なので、画面が変わったら残してはいけない
+   */
+  _hideTip() {
+    if (this._tipTimer) clearTimeout(this._tipTimer);
+    this._tipTimer = 0;
+    if (this._el.tip) this._el.tip.classList.remove('on');
+  }
+
   _bindTipsOn(host) {
     const tip = this._el.tip;
     if (!tip) return;
-    let timer = 0;
     let held = false;
     const hide = () => { tip.classList.remove('on'); };
-    const stop = () => { if (timer) clearTimeout(timer); timer = 0; };
+    const stop = () => this._hideTip();
 
     host.addEventListener('pointerdown', (e) => {
       const el = e.target.closest('button, [data-tip], [title]');
@@ -821,8 +1012,8 @@ export class TouchGui {
       if (!text) return;
       held = false;
       stop();
-      timer = setTimeout(() => {
-        timer = 0;
+      this._tipTimer = setTimeout(() => {
+        this._tipTimer = 0;
         held = true;
         tip.textContent = text;
         // **押したものの高さに出す。** 画面の下に固定して出していたときは、
@@ -847,6 +1038,12 @@ export class TouchGui {
         tip.classList.add('on');
       }, this.opts.tipHoldMs);
     });
+    // **指を離したことは、押した相手には届かないことがある。**
+    // メニューでは器(gesture.js)が pointerdown で setPointerCapture するので、
+    // そのあとの pointerup / pointercancel は**器へ付け替えられて**しまい、
+    // 押された案内の絵にも借りものボタンにも来ない。
+    // 来ないままだと札が出しっぱなしになり、**画面を移っても前の場面の説明が
+    // 残る**(そう見えていたのは これ)。窓ぜんぶで受けて必ず引っ込める
     for (const type of ['pointerup', 'pointercancel', 'pointerleave']) {
       host.addEventListener(type, () => { stop(); setTimeout(hide, 900); });
     }
@@ -907,6 +1104,13 @@ export class TouchGui {
 // ── DOM と CSS ──────────────────────────────────────────
 
 const ROOT_HTML = `
+  <!-- **指を受けるだけの場所**。絵は持たない(engine/util/touch.js の
+       dpadCatch / shotCatch)。帯の幅だけだと指を下ろせるところが狭いので、
+       左は十字、右はショットが、それぞれ**ゲーム画面の真ん中まで**受ける。
+       **いちばん下に置く**ので、この上に載っているボタンや案内の絵のほうが
+       先に指を取る -->
+  <div class="mmsxx-gui-catch-left"></div>
+  <div class="mmsxx-gui-catch-right"></div>
   <div class="mmsxx-gui-left"></div>
   <div class="mmsxx-gui-right"></div>
   <div class="mmsxx-gui-guide mmsxx-gui-guide-left"></div>
@@ -1067,6 +1271,13 @@ function injectStyle() {
   position: absolute; pointer-events: auto;
   top: var(--safe-t, 0px); bottom: var(--safe-b, 0px);
 }
+/* **指を受けるだけの場所。** 何も見せない。
+   ゲーム画面の上に被るので、**触れたことが分かる印も出さない**
+   (弾を隠さないため)。出し入れは touch.js の visible がやる */
+.mmsxx-gui-catch-left, .mmsxx-gui-catch-right {
+  position: absolute; pointer-events: auto; background: none;
+  top: var(--safe-t, 0px); bottom: var(--safe-b, 0px);
+}
 
 /* 案内。**メニューのときだけ**出す。指の邪魔をしないよう素通しにする */
 .mmsxx-gui-guide {
@@ -1169,6 +1380,12 @@ function injectStyle() {
    そのぶんゲーム画面の側へ出っぱる(ボタンを端へ逃がしたのと同じ理由) */
 .mmsxx-gui.overlap .mmsxx-gui-tools,
 .mmsxx-gui.narrow .mmsxx-gui-tools { justify-content: flex-start; }
+/* **右のぶんは逆。** 上の行は名前が同じなので右の列にも当たってしまい、
+   ボタン(ESC / OPTION)が外側の端へ逃げているのに、こちらだけ内側 =
+   ゲーム画面の側へ寄っていた(キーボードのボタンが画面に掛かっていたのはこれ)。
+   置き場所は layout() が ESC の箱に合わせるので、ここは真ん中でよい */
+.mmsxx-gui.overlap .mmsxx-gui-tools-right,
+.mmsxx-gui.narrow .mmsxx-gui-tools-right { justify-content: center; }
 .mmsxx-gui-btn.on { background: #8888aa; color: #111122; }
 /* 効かない場面。**消さずに沈める** */
 .mmsxx-gui-btn.off { opacity: 0.3; }

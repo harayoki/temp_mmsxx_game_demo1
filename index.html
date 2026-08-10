@@ -65,30 +65,38 @@
   #tools {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    /* **ボタンどうしの間も詰める。** 絵を小さくしたのは場所を空けるためなので、
+       まわりの余白を残したままでは取り分が減らない */
+    gap: 4px;
   }
   /* キーボードのボタンは右の空きへ移すので #tools の外に出る。
      **同じ大きさ・同じ見た目**にするため、こちらにも同じ指定を当てる */
+  /* **囲みは付けない。** ゲームの道具であって画面の一部ではないので、
+     枠と地の色まで置くと、そのぶん前へ出て弾を隠す。絵だけで足りる。
+     **絵のまわりの余白も、絵と一緒に詰める**(7px → 3px)。
+     はじめは箱を 40px のまま残したが、**場所を空けるのが狙い**なので、
+     まわりが空いたままでは取り分が減らない。
+     ここから先は押しやすさとの兼ね合いなので、実機で触って決めること */
   #tools button, #keyboard-btn {
     font-size: 20px;
     line-height: 1;
-    width: 40px;
-    height: 40px;
+    width: 32px;
+    height: 32px;
     padding: 0;
     color: #e8e8e8;
-    background: #202020 no-repeat center;
-    background-size: 32px 32px;
+    background: none no-repeat center;
+    background-size: 26px 26px;
     image-rendering: pixelated;
-    border: 2px solid #cccccc;
+    border: 0;
     cursor: pointer;
   }
-  #tools button:hover, #keyboard-btn:hover { border-color: #ffe000; }
-  /* **これ以上押せないボタンは、枠ごと灰色にする。**(＋ / − が端まで来たとき)
-     押せないものと押せるものを、まず枠で見分けられるようにする */
+  /* 枠が無いので、指した合図は**明るさ**で出す(PC で触るときのため) */
+  #tools button:hover, #keyboard-btn:hover { filter: brightness(1.4); }
+  /* **これ以上押せないボタンは灰色に沈める。**(＋ / − が端まで来たとき) */
   #tools button.off, #keyboard-btn.off { filter: grayscale(1) brightness(0.55); cursor: default; }
-  #tools button.off:hover, #keyboard-btn.off:hover { border-color: #cccccc; }
-  /* **切り替えのボタン(ピクセルパーフェクトや音)はいつでも押せる**ので、
-     枠は白いまま。**中の絵だけ**を色/モノクロで切り替えて状態を知らせる
+  #tools button.off:hover, #keyboard-btn.off:hover { filter: grayscale(1) brightness(0.55); }
+  /* **切り替えのボタン(ピクセルパーフェクトや音)はいつでも押せる。**
+     **中の絵だけ**を色/モノクロで切り替えて状態を知らせる
      (絵の側は game/main.js が作り直している) */
   #dev-badge {
     display: none;
@@ -140,6 +148,11 @@
     <button id="zoom-in" type="button" title="SCREEN BIGGER"></button>
     <button id="zoom-out" type="button" title="SCREEN SMALLER"></button>
     <button id="pixel-fit" type="button" title="PIXEL PERFECT"></button>
+    <!-- 画面を 180 度回す。**ポーズ中だけ出す**(game/main.js)。
+         寝ころんで遊ぶときや、ホームバーが指の側に来てしまうときのため。
+         90 度は要らない(縦横の食い違いはエンジンが自動で合わせる) -->
+    <button id="rotate-btn" type="button" title="TURN SCREEN 180"
+            aria-label="TURN SCREEN 180" style="display:none"></button>
     <button id="share-btn" type="button" title="SCREENSHOT" aria-label="SCREENSHOT"></button>
     <!-- OS へ画像を渡す。**渡せる環境でだけ出す**(game/main.js が判定する)。
          Firefox など navigator.share の無いところでは最初から出さない -->
