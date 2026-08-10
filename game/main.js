@@ -63,6 +63,8 @@ import { gameStop } from './console-stop.js';
 //   ?volume=70      … 音の大きさ(0〜100。曲も効果音もまとめて動く)
 //   ?mode=hard      … 始めかたを選ぶ(normal / hard / bossrush / staff / sound / chars)
 //   ?turn=180       … 画面を上下逆さにして始める(ポーズ中のボタンと同じ)
+//   ?a2hs=1         … ホームに置くことを勧める 1 枚を、もう一度出す
+//                     (ふだんは 1 回断られたら二度と出さない)
 //
 // **開発版だけ効くもの**(公開版は URL に何を書いても無視する):
 //
@@ -13621,10 +13623,23 @@ function setupHomeInstall() {
   });
   // 出すのは**ふつうに web で開いたスマホ**だけ
   if (IS_STANDALONE || !PAD_ON) return;
-  // 断られたぶんは覚えている。**確認モード(?device=)では覚えない**
-  // (機種を渡り歩くたびに出ないと、並びが確かめられない)
-  if (!DEVICE && settings.get('a2hsDone')) return;
+  // 断られたぶんは覚えていて、二度と出さない
+  if (!a2hsAlways() && settings.get('a2hsDone')) return;
   openHomeInstall();
+}
+
+/**
+ * **断られたことを覚えないでおく場面。** そのぶん毎回出る。
+ *
+ *   ?device=<機種> … 機種を渡り歩いて並びを見るとき
+ *   手元(localhost) … PC でスマホの大きさに合わせて確かめるとき。
+ *                     **1 回断ったら二度と見られない**のでは確かめようがない
+ *   ?a2hs=1        … 実機で もう一度 見たいとき(覚えたぶんを飛ばす)
+ *
+ * 公開したものでは効かない(どれも当たらない)ので、遊ぶ人には 1 回きりのまま
+ */
+function a2hsAlways() {
+  return !!DEVICE || RECORD_HOST || OPT.get('a2hs') === '1';
 }
 
 /** iOS(Safari)か。**やりかたの説明を出す相手** */
@@ -13767,7 +13782,7 @@ function closeHomeInstall(remember) {
   if (!a2hsEl) return;
   a2hsEl.remove();
   a2hsEl = null;
-  if (!remember || DEVICE) return;
+  if (!remember || a2hsAlways()) return;
   settings.set('a2hsDone', true);
   settings.flush();
 }
