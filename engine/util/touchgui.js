@@ -777,12 +777,18 @@ export class TouchGui {
     // **真ん中では割らない。** 十字は画面を見ながら大きく動かすもので、
     // ショットは端で小さくこするもの。要る広さが違う(既定は十字に 75%)
     const mid = Math.round(w * Math.min(0.95, Math.max(0.05, this.opts.catchSplit)));
-    const zoneL = { x: plan.left.x, w: plan.left.w + bleed };
     // **ショットの帯は分け目より左へは出さない。**
     // 帯(絵のほう)も指を受けるので、かぶせたぶんが分け目を越えると
     // **そこから先はショットが取ってしまい、分け目を決めた意味が無くなる**
+    const rightEdge = plan.right.x + plan.right.w;
     const rx = Math.max(mid, plan.right.x - bleed);
-    const zoneR = { x: rx, w: plan.right.x + plan.right.w - rx };
+    // **左右の帯は同じ幅にそろえる。**
+    // 分け目で右だけ切り詰めると、そのぶん左が広いままになり、
+    // **十字と連射で絵の置き場所が食い違って見える**(実機でそう見えた)。
+    // 狭いほうに合わせて、左右それぞれ**外側の端から**取り直す
+    const zw = Math.min(plan.left.w + bleed, rightEdge - rx);
+    const zoneL = { x: plan.left.x, w: zw };
+    const zoneR = { x: rightEdge - zw, w: zw };
     for (const [name, z] of [['left', zoneL], ['right', zoneR]]) {
       this._el[name].style.left = z.x + 'px';
       this._el[name].style.width = z.w + 'px';
