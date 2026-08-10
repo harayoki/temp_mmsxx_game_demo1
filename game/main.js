@@ -13167,6 +13167,9 @@ const OK = {
   pause: 'PAUSE',
   resume: 'RESUME',
   stop: 'STOP',
+  // 記録を送るところ。**送り直すか / あきらめるか**を聞いている場面
+  retry: 'RETRY',
+  no: 'NO',
 };
 /**
  * **ESC の下の OPTION ボタン**。場面ごとに割り当てが変わる 3 つめ。
@@ -13223,6 +13226,16 @@ function menuGuide() {
       // 左右で桁と ENTER を選び、上下でその桁の文字を送る
       return { left: [TG.cursor, TG.letter],
         ok: OPTBTN.submit, esc: OK.cancel, opt: OPTBTN.del };
+    // **記録を送っているところ。** ここを書き忘れていて、下の default
+    // (何も押せない)に落ちていた。**キーボードなら SPACE で進めるのに、
+    // 指では押すものが 1 つも無く、ランキングに載ったあとタイトルへ戻れなかった**
+    case 'submitting':
+      // 送れなかったので「もう一度送るか」を聞いている
+      if (submitAsk) return { left: [], ok: OK.retry, esc: OK.no };
+      // 知らせ(送れた / 手元だけ)を読み終わるのを待っている。**どちらでも進む**
+      if (submitWaitKey) return { left: [], ok: OK.next, esc: OK.next };
+      // 送っている最中。返事が来るまでは触らせない
+      return { left: [], ok: null, esc: null };
     case 'story':
       return { left: [], ok: OK.next, esc: OK.skip };
     case 'staff':
