@@ -64,6 +64,9 @@ import { gameStop } from './console-stop.js';
 //   ?mode=hard      … 始めかたを選ぶ(normal / hard / bossrush / staff / sound / chars)
 //   ?turn=180       … 画面を上下逆さにして始める(ポーズ中のボタンと同じ)
 //   ?stick=origin   … 十字の向きを「触れたところから」で決める(既定は指の動く向き)
+//   ?snap=8         … 自機の向きを何方向へ丸めるか(0 / 4 / 8 / 16。既定 0 = 丸めない)
+//   ?power=1        … 倒し量を速さに掛ける(既定は掛けない = 倒していれば全速)
+//   ?gain=1.41      … 自機の速さの倍率(0.5〜2。既定 1)。前の「斜めの速さ」に合わせる用
 //   ?a2hs=1         … ホームに置くことを勧める 1 枚を、もう一度出す
 //                     (ふだんは 1 回断られたら二度と出さない)
 //                     ios / android / add と書くと、その見えかたで出る
@@ -1947,6 +1950,44 @@ function breakRocket(r) {
 
 // 移動速度は 3 段階。初期値は控えめで、スピードアップで速くなる
 const SPEED_TABLE = [1.5, 2.0, 2.6];
+
+// ---- 自機の動かしかた(遊びの最中だけ) ----
+//
+// **向きと強さは 1 つの口から読む**(engine/input.js の stick)。
+// キーボードもタッチもパッドも同じ形で返ってくるので、ここは 1 通りで済む。
+// メニューは今までどおり矢印キーで動く(あちらは別の話)。
+//
+// **軸ごとに足すのをやめた。** 前は x と y に別々に足していたので、
+// 斜めだけ √2 倍 速かった。向きが 8 つしか無いうちは気づきにくいが、
+// 丸めを細かくすると「向きによって速さが違う」が効いてくる。
+//
+// **まずは素のまま**(どの向きも同じ速さ、丸めなし、倒し量も見ない)で見る。
+// 前の斜めの速さに合わせたければ、全体へ √2 を掛ければよい
+// (?gain=1.41)。どちらが良いかは実機で触って決める
+
+/**
+ * **何方向へ丸めるか。** 0 で丸めない(なめらかに 360 度)。
+ * `?snap=4` `?snap=8` `?snap=16` で見比べられる
+ */
+const MOVE_SNAP = [0, 4, 8, 16].includes(Number(OPT.get('snap')))
+  ? Number(OPT.get('snap')) : 0;
+/**
+ * **倒し量を速さに掛けるか。** 既定は掛けない(倒していれば常に全速)。
+ * `?power=1` で掛かるようになり、そっと動かすことができる。
+ * キーボードは倒し量を持たない(常に 1)ので、掛けても不利にはならない
+ */
+const MOVE_ANALOG = OPT.get('power') === '1';
+/**
+ * **全体の速さの倍率。** 既定は 1(どの向きも SPEED_TABLE のまま)。
+ *
+ * 軸ごとに足していたころは斜めだけ √2 倍 速かったので、
+ * その速さに合わせたいときは `?gain=1.41` にする。
+ * 0.5〜2 のあいだだけ受ける(打ち間違いで動けなくならないように)
+ */
+const MOVE_GAIN = (() => {
+  const v = Number(OPT.get('gain'));
+  return (v >= 0.5 && v <= 2) ? v : 1;
+})();
 let speedLevel = 1;
 const AUTO_FIRE_INTERVAL = 20; // 押しっぱなし時の連射間隔(フレーム)
 let volleySeq = 0;
@@ -8760,10 +8801,14 @@ function updatePlay() {
     if (invincible > 0) invincible--;
   } else if (state === 'play') {
     const spd = SPEED_TABLE[speedLevel - 1];
-    if (mmsxx.input.isDown('ArrowLeft')) player.x -= spd;
-    if (mmsxx.input.isDown('ArrowRight')) player.x += spd;
-    if (mmsxx.input.isDown('ArrowUp')) player.y -= spd;
-    if (mmsxx.input.isDown('ArrowDown')) player.y += spd;
+    // 向きと強さは 1 つの口から(上の「自機の動かしかた」を見ること)
+    const st = mmsxx.input.stick(MOVE_SNAP);
+    if (st.strength > 0) {
+      const power = MOVE_ANALOG ? st.strength : 1;
+      const v = spd * MOVE_GAIN * power;
+      player.x += Math.cos(st.rad) * v;
+      player.y += Math.sin(st.rad) * v;
+    }
     player.x = Math.max(0, Math.min(SCREEN_W - 16, player.x));
     player.y = Math.max(20, Math.min(SCREEN_H - 18, player.y));
     if (invincible > 0) {
