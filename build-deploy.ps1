@@ -40,11 +40,13 @@ New-Item -ItemType Directory -Force $deploy | Out-Null
 Copy-Item (Join-Path $root 'index.html') $deploy
 # SNS に貼られたときの画像。**一番上に置く**(index.html と同じ高さ)
 Copy-Item (Join-Path $root 'default-og-image.png') $deploy
-# ホーム画面に置くアイコン(tools/makeicons.mjs が作る)。
-# **まだ HTML からは参照していない**が、入れておかないと
-# マニフェストを足した日に「アイコンだけ 404」になる
+# ホーム画面に置くアイコン(tools/makeicons.mjs が作る)と、その置き場所を書いた札。
+# **どちらか片方だけだとインストールできない**(札はアイコンを名指ししている)
 if (Test-Path (Join-Path $root 'icons')) {
   Copy-Item -Recurse (Join-Path $root 'icons') (Join-Path $deploy 'icons')
+}
+if (Test-Path (Join-Path $root 'manifest.webmanifest')) {
+  Copy-Item (Join-Path $root 'manifest.webmanifest') $deploy
 }
 Copy-Item -Recurse (Join-Path $root 'engine') (Join-Path $deploy 'engine')
 Copy-Item -Recurse (Join-Path $root 'game') (Join-Path $deploy 'game')

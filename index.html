@@ -15,6 +15,17 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="STAR FABLE">
+<!-- **ホーム画面に置いたときの姿。** Android はこれを見る(iOS は上の apple-*)。
+     **画面の向き(orientation)は書かない。** 書くと端末が実際に回ってしまい、
+     縦持ちのときに canvas を 90 度回して見せている今の作りと二重になる
+     (engine/video.js の _applyCssSize)。
+     Service Worker は置かない。**インストールの要件からは外れている**
+     (Chrome 108 / デスクトップ 112 以降)し、オフライン対応もしない -->
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#000000">
+<!-- アイコンは tools/makeicons.mjs が自機のドット絵から作る -->
+<link rel="icon" href="/icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
 <title>STAR FABLE - MSX-like Engine Demo</title>
 <base href="/">
 <meta name="twitter:card" content="summary_large_image">

@@ -140,6 +140,9 @@ const settings = new SaveGroup('starfable-settings', {
   pixelFit: { type: T.FLAG, label: 'PIXEL PERFECT' },
   // 触ったことがあるかの印。**既定が入りなので、値だけでは切ったのか未設定か分からない**
   pixelFitSet: { type: T.FLAG, label: 'PIXEL PERFECT SET' },
+  // ホーム画面に置くことを勧める 1 枚を、もう出したか。
+  // **勧誘は 1 回で十分**なので、断られたぶんも「出した」に数える
+  a2hsDone: { type: T.FLAG, label: 'HOME SCREEN ASKED' },
 });
 // 前に音を消したままなら、消した状態で始める。
 // **?mute= は次の行で効く**ので、URL で指定したぶんが優先される
@@ -4964,16 +4967,22 @@ function stepShareShot(d) {
  * 器(engine/util/touchgui.js)がやっているのと同じ移しかたで、
  * **同じ関数を借りる**。ここに式を写すと、片方だけ直して食い違う
  */
-function fitShareEl() {
-  if (!shareEl) return;
+function fitShareEl() { fitOverlayEl(shareEl); }
+
+/**
+ * 画面いっぱいに重ねる板を、**ゲームと同じ向きへ回す**。
+ * シェアの板とホームに勧める板の 2 つが使う(どちらも同じ理由で回す)
+ */
+function fitOverlayEl(el) {
+  if (!el) return;
   const angle = mmsxx.vdp.viewAngle;
   if (!angle) {
-    Object.assign(shareEl.style, { inset: '0', width: '', height: '', transform: '' });
+    Object.assign(el.style, { inset: '0', width: '', height: '', transform: '' });
     return;
   }
   const vw = window.innerWidth, vh = window.innerHeight;
   const v = viewTransform(angle, vw, vh);
-  Object.assign(shareEl.style, {
+  Object.assign(el.style, {
     width: v.w + 'px', height: v.h + 'px', inset: 'auto', left: '0', top: '0',
     transformOrigin: '0 0', transform: v.css,
   });
@@ -13014,7 +13023,10 @@ const PAD_ON = isMobileLike() || OPT.get('pad') === '1' || !!DEVICE;
  * **?lang=ja / ?lang=en で決め打ちにできる**(両方の見えかたを撮るため。
  * ふだんはブラウザの希望どおりで、知らない値は無視する)
  */
-const TG_LANG = testLang(['ja'], 'en');
+// **'en' も受け付ける一覧に入れておくこと。** testLang は「用意していない言葉は
+// 無視する」ので、['ja'] だけにしていると **?lang=en が知らない値として捨てられ**、
+// ブラウザの希望(日本語)へ落ちていた。日本語の端末で英語の見えかたが撮れない
+const TG_LANG = testLang(['ja', 'en'], 'en');
 /** 左の空きに出す案内。上下と左右で 1 つずつ */
 // **用事だけを書く。** 「スワイプで」「ドラッグで」は要らない。
 // 下敷きの矢印が向きを言っているし、そこを払うより先に指が動くことはない。
@@ -13303,6 +13315,9 @@ if (PAD_ON) {
 // スマホ用の分岐の中に入れていたせいで、PC ではボタンが空のままだった
 bindZoomButtons();
 setupOsShare();
+// **ホームに勧める 1 枚はここでは呼ばない。** 中で見ている IS_STANDALONE は
+// もっと下で作る const で、**const は巻き上がらない**(初期化前に触ると落ちる)。
+// 呼ぶのはその節の終わり
 
 /**
  * **画面の大きさを遊ぶ人が決める**(左上の ＋ / −)。
@@ -13550,6 +13565,215 @@ function updateShareOsBtn() {
     mark.dataset.ready = '1';
   } catch (e) { shareOsBtn.textContent = 'SHARE'; }
 }
+
+// ---- ホーム画面に置いてもらう ----
+//
+// **ホームのアイコンから開くと、アドレスバーとタブが消えて画面が広くなる。**
+// 縦に 100px 以上 空くので、ゲーム画面が 1 段階 大きくなる。勧める理由はそこ。
+//
+// ## 出すのは「ふつうに web で開いたスマホ」だけ
+//
+// すでにホームから開いている人には用が無いし、PC にも要らない。
+//
+// ## Android と iOS で道が違う
+//
+//   Android … `beforeinstallprompt` を捕まえておいて、ボタンから prompt() を呼ぶ。
+//             **押されたその場で呼ぶこと**(あとから呼ぶと効かない)
+//   iOS     … サイト側から登録画面は開けない。**やりかたを書いて見せるだけ**
+//
+// ## ボタンは「来てから」生やす
+//
+// **`beforeinstallprompt` は開いた直後には飛んでこない。**
+// Chrome は「1 回は触った」「30 秒ほど見た」あたりを満たすまで出さないので、
+// 初回に出す 1 枚の中では、まだ来ていないのがふつう。
+// なので**やりかたの説明を常設にして、イベントが来たらボタンが増える**形にする。
+// どのみち iOS でも Firefox でも すでに入っていても来ないので、
+// 「来ていない場合」の道は必ず要る。
+
+/** ホーム画面のアイコンから開いているか(そのときは勧めない) */
+const IS_STANDALONE = (() => {
+  try {
+    if (window.matchMedia('(display-mode: standalone)').matches) return true;
+  } catch (e) { /* 古い環境では見ない */ }
+  return window.navigator.standalone === true;   // iOS はこちら
+})();
+/** 捕まえた `beforeinstallprompt`。**押されるまで持っておく** */
+let installPrompt = null;
+/** 出している板 */
+let a2hsEl = null;
+
+/**
+ * **ホームに置くことを勧める 1 枚。** 初回に 1 度だけ。
+ * 断られたら覚えて、二度と出さない(勧誘は 1 回で十分)
+ */
+function setupHomeInstall() {
+  // **イベントの受けは、板を出すかどうかと別に必ず付ける。**
+  // 30 秒ほど遊んだあとに飛んでくるので、そのとき板が出ていれば
+  // ボタンを生やす。出ていなければ、次に出したときに使う
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();          // ブラウザが勝手に出すバーは止める
+    installPrompt = e;
+    showInstallButton();
+  });
+  window.addEventListener('appinstalled', () => {
+    installPrompt = null;
+    closeHomeInstall(true);
+  });
+  // 出すのは**ふつうに web で開いたスマホ**だけ
+  if (IS_STANDALONE || !PAD_ON) return;
+  // 断られたぶんは覚えている。**確認モード(?device=)では覚えない**
+  // (機種を渡り歩くたびに出ないと、並びが確かめられない)
+  if (!DEVICE && settings.get('a2hsDone')) return;
+  openHomeInstall();
+}
+
+/** iOS(Safari)か。**やりかたの説明を出す相手** */
+function isIOS() {
+  try {
+    return Bowser.parse(navigator.userAgent).os.name === 'iOS';
+  } catch (e) { return false; }
+}
+
+const A2HS_TEXT = {
+  title: { ja: 'ホーム画面に追加すると', en: 'ADD TO HOME SCREEN' },
+  why: {
+    ja: 'アドレスバーとタブが消えて、ゲーム画面が大きくなります。',
+    en: 'The address bar and tabs go away, so the game gets bigger.',
+  },
+  // **iOS は絵で言う。** 共有ボタンは端末の向きで場所が変わるので、
+  // 「下の」「右上の」とは書かない(横持ちだと嘘になる)
+  ios: {
+    ja: '共有ボタン（□に↑）を押して、「ホーム画面に追加」を選んでください。',
+    en: 'Tap the Share button (a box with an arrow) and pick "Add to Home Screen".',
+  },
+  // Android。**イベントが来るまでの あいだだけ**出す(来たらボタンに替わる)
+  other: {
+    ja: 'ブラウザのメニューから「アプリをインストール」を選んでください。',
+    en: 'Open the browser menu and pick "Install app".',
+  },
+  add: { ja: 'ホームに追加', en: 'ADD' },
+  later: { ja: 'このまま遊ぶ', en: 'PLAY HERE' },
+};
+
+/** その人の言葉で 1 つ取り出す */
+function a2hsText(key) {
+  const v = A2HS_TEXT[key];
+  return (TG_LANG === 'ja' ? v.ja : v.en) || v.en;
+}
+
+function openHomeInstall() {
+  if (a2hsEl) return;
+  const el = document.createElement('div');
+  el.id = 'a2hs';
+  Object.assign(el.style, {
+    position: 'fixed', inset: '0', zIndex: '9997', display: 'flex',
+    alignItems: 'center', justifyContent: 'center',
+    background: 'rgba(0,0,0,0.78)',
+  });
+  const box = document.createElement('div');
+  Object.assign(box.style, {
+    font: 'clamp(14px, var(--mmsxx-gui-font-size, 16px), 24px) var(--mmsxx-gui-font, monospace)',
+    color: '#e8e8e8', textAlign: 'center', lineHeight: '1.5',
+    background: '#101010', border: '2px solid #cccccc',
+    padding: '16px 18px', maxWidth: '88vw', maxHeight: '92vh',
+    boxSizing: 'border-box', overflowY: 'auto',
+  });
+  const line = (text, css) => {
+    const d = document.createElement('div');
+    d.textContent = text;
+    if (css) Object.assign(d.style, css);
+    box.appendChild(d);
+    return d;
+  };
+  // アイコンを見せる。**これがホームに並ぶ**、が一目で分かる
+  const icon = document.createElement('img');
+  icon.src = '/icons/icon-192.png';
+  icon.alt = '';
+  Object.assign(icon.style, {
+    width: '64px', height: '64px', imageRendering: 'pixelated',
+    display: 'block', margin: '0 auto 10px',
+  });
+  box.appendChild(icon);
+  line(a2hsText('title'), { color: '#ffe000', marginBottom: '6px' });
+  line(a2hsText('why'), { color: '#bbbbcc', marginBottom: '12px' });
+  // iOS は自分で登録できないので、やりかたを常設で出す。
+  // Android も**イベントが来るまではこちら**(来たら下のボタンが増える)
+  line(a2hsText(isIOS() ? 'ios' : 'other'), { color: '#bbbbcc', marginBottom: '12px' })
+    .id = 'a2hs-how';
+
+  const row = document.createElement('div');
+  Object.assign(row.style, {
+    display: 'flex', gap: '10px', justifyContent: 'center',
+    alignItems: 'center', flexWrap: 'wrap', marginTop: '4px',
+  });
+  // **Android の登録ボタン。** イベントが来るまでは出さない
+  const add = document.createElement('button');
+  add.type = 'button';
+  add.id = 'a2hs-add';
+  add.textContent = a2hsText('add');
+  Object.assign(add.style, {
+    font: 'inherit', color: '#111122', background: '#ffe000',
+    border: '2px solid #ffe000', padding: '10px 20px', cursor: 'pointer',
+    display: 'none',
+  });
+  add.addEventListener('click', async () => {
+    if (!installPrompt) return;
+    const p = installPrompt;
+    installPrompt = null;                 // 1 つの合図は 1 回しか使えない
+    try { await p.prompt(); } catch (e) { /* 断られただけ */ }
+    closeHomeInstall(true);
+  });
+  // **このまま遊ぶは目立たせない。** 枠だけの控えめなボタン
+  const later = document.createElement('button');
+  later.type = 'button';
+  later.textContent = a2hsText('later');
+  Object.assign(later.style, {
+    font: 'inherit', color: '#9a9aa8', background: 'transparent',
+    border: '2px solid #55556a', padding: '10px 16px', cursor: 'pointer',
+  });
+  later.addEventListener('click', () => closeHomeInstall(true));
+  row.append(add, later);
+  box.appendChild(row);
+
+  // **裏で人かどうかを見ている件は、ここで断っておく。**
+  // 記録を送るときに Turnstile を通すので、その表記の置き場所がこの 1 枚
+  // (スマホでは canvas の下の文字を消しているため、ほかに出す場所が無い)
+  const note = document.createElement('div');
+  Object.assign(note.style, { marginTop: '14px', fontSize: '0.72em', color: '#7a7a88' });
+  note.innerHTML = 'Protected by Cloudflare Turnstile — '
+    + '<a href="https://www.cloudflare.com/turnstile-privacy-policy/" target="_blank"'
+    + ' rel="noopener" style="color:#8fa2d8">Privacy Addendum</a>';
+  box.appendChild(note);
+
+  el.appendChild(box);
+  document.body.appendChild(el);
+  a2hsEl = el;
+  fitOverlayEl(el);
+  showInstallButton();
+}
+
+/** イベントが来ていればボタンを生やす。**来ていなければ説明だけのまま** */
+function showInstallButton() {
+  const add = a2hsEl && a2hsEl.querySelector('#a2hs-add');
+  if (!add) return;
+  add.style.display = installPrompt ? '' : 'none';
+  // ボタンが出たら、やりかたの説明はもう要らない(押せば済むので)
+  const how = a2hsEl.querySelector('#a2hs-how');
+  if (how) how.style.display = installPrompt ? 'none' : '';
+}
+
+/** 板をしまう。`remember` なら二度と出さない */
+function closeHomeInstall(remember) {
+  if (!a2hsEl) return;
+  a2hsEl.remove();
+  a2hsEl = null;
+  if (!remember || DEVICE) return;
+  settings.set('a2hsDone', true);
+  settings.flush();
+}
+
+// **ここで呼ぶ。** 上の const(IS_STANDALONE)より前では触れない
+setupHomeInstall();
 
 /** 端まで来た ＋ / − を灰色にする。**枠ごと**沈めて、押せないことを見せる */
 function updateZoomButtons() {

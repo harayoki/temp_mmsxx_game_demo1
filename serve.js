@@ -19,6 +19,8 @@ const MIME = {
   '.js': 'text/javascript; charset=utf-8',
   '.mjs': 'text/javascript; charset=utf-8',
   '.json': 'application/json',
+  // ホーム画面に置くときの札。**種別が違うと読んでもらえない**
+  '.webmanifest': 'application/manifest+json',
   '.png': 'image/png',
   '.gif': 'image/gif',
   '.webm': 'video/webm',
