@@ -148,6 +148,9 @@ const settings = new SaveGroup('starfable-settings', {
   pixelFit: { type: T.FLAG, label: 'PIXEL PERFECT' },
   // 触ったことがあるかの印。**既定が入りなので、値だけでは切ったのか未設定か分からない**
   pixelFitSet: { type: T.FLAG, label: 'PIXEL PERFECT SET' },
+  // 十字の効きぐあい(0 = にぶい / 1 = ふつう / 2 = びんかん)と、決めたことがあるかの印
+  padSense: { type: T.NUMBER, min: 0, max: 2, digits: 0, label: 'PAD SENSITIVITY' },
+  padSenseSet: { type: T.FLAG, label: 'PAD SENSITIVITY SET' },
   // ホーム画面に置くことを勧める 1 枚を、もう出したか。
   // **勧誘は 1 回で十分**なので、断られたぶんも「出した」に数える
   a2hsDone: { type: T.FLAG, label: 'HOME SCREEN ASKED' },
@@ -13110,6 +13113,29 @@ let tuneShown = true;
 let kbdUsable = null;
 /** 180 度のボタンを出しているか(ポーズ中だけ) */
 let rotateShown = null;
+/** 効きぐあいのボタンを出しているか(ポーズ中だけ) */
+let padSenseShown = null;
+/**
+ * **十字の効きぐあい**(ポーズ中に切り替える)。
+ *
+ * 指をどれだけ動かせば自機が全速になるか、を段で選ぶ。
+ * **速いほど「ちょっと動かしただけで自機が付いてくる」**が、
+ * そのぶん止めたいところで行き過ぎる。好みが分かれるので遊ぶ人に決めてもらう。
+ *
+ * **自機の最高速は どの段でも同じ**(上げると記録の公平さに触るため)。
+ * 変えているのは「全速に届くまでの指の速さ」だけ。
+ *
+ * **宣言はここ。** 使うのは下の bindPadSenseButton() だが、あちらは
+ * bindZoomButtons() から呼ばれるので、**それより前に置く**
+ * (const は巻き上がらない。下に置くと初期化前に触って落ちる)
+ */
+const PAD_SENSE = [
+  { name: 'LOW', full: 0.20, min: 0.05 },
+  { name: 'NORMAL', full: 0.10, min: 0.03 },
+  { name: 'HIGH', full: 0.05, min: 0.02 },
+];
+/** いまの段。**まん中から始める** */
+let padSense = 1;
 const ZOOM_STEP = 1.12;   // 1 回で 1 割ちょっと。押した手応えが分かるくらい
 const ZOOM_MIN = 0.4, ZOOM_MAX = 1;
 /**
@@ -13445,6 +13471,7 @@ function bindZoomButtons() {
   bind('zoom-out', 1 / ZOOM_STEP);
   bindRotateButton();
   bindKeyboardButton();
+  bindPadSenseButton();
 
   // **ドットをそろえるかどうか**。既定は「置けるだけ大きく」だが、
   // ドットのガタつきが気になる人のために、整数倍へ切り下げる道も残す
@@ -13495,6 +13522,43 @@ function bindRotateButton() {
   if (el) el.addEventListener('click', () => { el.blur(); turnScreen180(); });
 }
 
+/** 段を当てる。**部品へ流して、覚えて、画面に出す** */
+function applyPadSense(n, tell) {
+  padSense = ((n % PAD_SENSE.length) + PAD_SENSE.length) % PAD_SENSE.length;
+  const s = PAD_SENSE[padSense];
+  if (touchGui) touchGui.touch.setOptions({ stickFullSpeed: s.full, stickMinSpeed: s.min });
+  // **段は絵では見せない。** 3 本の棒で段まで表すと絵が小さすぎて読めないので、
+  // 押したときに画面へ字で出す(ポーズ中なので弾の邪魔にもならない)
+  if (tell) showNotice('PAD: ' + s.name);
+  if (DEVICE) return;
+  settings.set('padSense', padSense);
+  settings.set('padSenseSet', true);
+  settings.flush();
+}
+
+function bindPadSenseButton() {
+  const el = document.getElementById('pad-sense');
+  if (!el) return;
+  // **PC には要らない。** 十字が出ないので効きようがない
+  if (!PAD_ON) { el.style.display = 'none'; return; }
+  el.addEventListener('click', () => { el.blur(); applyPadSense(padSense + 1, true); });
+  // 前に決めた段があれば、それで始める
+  if (!DEVICE && settings.get('padSenseSet')) applyPadSense(settings.get('padSense'), false);
+}
+
+/**
+ * 効きぐあいのボタンも**ポーズ中だけ**。
+ * 遊んでいる最中に触るものではないし、そのぶん十字の場所を食う
+ */
+function showPadSenseButton() {
+  const el = document.getElementById('pad-sense');
+  if (!el) return;
+  const on = paused;
+  if (padSenseShown === on) return;
+  padSenseShown = on;
+  el.style.display = on ? '' : 'none';
+}
+
 /**
  * 内容とは関わりのないボタンなので、**ポーズ中だけ**出す。
  * タイトルや一覧にも置くと、選ぶことの多い画面に用の無い絵が増える
@@ -13532,6 +13596,7 @@ function drawToolIcons() {
   // **横長のボタンには横長の絵。** 16x16 を引き伸ばすとキーが長方形になって崩れる
   put('keyboard-btn', ICONS.keyboardWide, 7);
   put('rotate-btn', ICONS.rotate180, 7);
+  put('pad-sense', ICONS.sensitivity, 7);
   // **切り替えのボタンは中の絵だけで状態を出す。**(枠は白いまま。いつでも押せる)
   // 効いていないときは差し色も灰色にして、絵ごとモノクロにする
   put('pixel-fit', ICONS.pixelFit, mmsxx.vdp.pixelPerfect ? 7 : ICON_MONO);
@@ -13978,6 +14043,7 @@ function updateTouchGui() {
     showTuneButtons(false);
     showKeyboardButton();
     showRotateButton();
+    showPadSenseButton();
     return;
   }
   touchGui.setMode('menu');
@@ -13985,6 +14051,7 @@ function updateTouchGui() {
   showTuneButtons(true);
   showKeyboardButton();
   showRotateButton();
+  showPadSenseButton();
 }
 
 /**
