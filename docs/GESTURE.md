@@ -14,7 +14,35 @@
 
 ## 0. いま要るのはこれだけ
 
-**指のイベントを拾って返す、それだけの口。** 使うのは次の 8 つ。
+### 実機の指だけを拾う
+
+```js
+import { createGesture } from './engine/util/gesture.js';
+
+const g = createGesture({
+  el: 指を受ける要素,                 // 大きさと場所は渡す側が決める
+  onGesture: (e) => {
+    if (e.source !== 'touch') return;   // ← 実機の指だけ。マウス・ペンは捨てる
+    if (e.type === 'flick') turnPage(e.dir);        // 払った。1 回だけ
+    if (e.type === 'swipe') scrollBy(-e.dy);        // 引きずり中。続けて来る
+  },
+});
+
+g.detach();   // 要らなくなったら
+```
+
+- **`e.source` で選り分ける。** `'touch'` が実機の指、`'mouse'` / `'pen'` はそれ以外
+- **`flick`** … `dir` が `'up'` / `'down'` / `'left'` / `'right'`。離した瞬間に 1 回
+- **`swipe`** … `dir` と `dx` / `dy`（前回からの差）、`totalX` / `totalY`（触れてからの差）。
+  動いているあいだ続けて
+- ほかに `tap` / `longpress` / `pinch` / `down` / `up` も来る。
+  **上の `if` に書かなければ無視される**
+- 渡す要素に **`touch-action: none`** を当てること。これが無いとブラウザが先に
+  指を持っていく（[SMARTPHONE.md](SMARTPHONE.md) の 8 節）
+
+しきい値を変えたいときは `g.setOptions({ flickMinSpeed: 0.7 })`。いつ呼んでも効く。
+
+### 使うのは次の 8 つ
 
 | | 上 | 下 | 左 | 右 |
 |---|---|---|---|---|
