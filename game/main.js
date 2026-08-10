@@ -13607,8 +13607,11 @@ function applyPadSense(n, tell) {
   padSense = ((n % PAD_SENSE.length) + PAD_SENSE.length) % PAD_SENSE.length;
   const s = PAD_SENSE[padSense];
   if (touchGui) touchGui.touch.setOptions({ stickFullSpeed: s.full, stickMinSpeed: s.min });
-  // **段は絵では見せない。** 3 本の棒で段まで表すと絵が小さすぎて読めないので、
-  // 押したときに画面へ字で出す(ポーズ中なので弾の邪魔にもならない)
+  // **ボタンそのものに いまの段を書く。** 絵では 3 段のどれなのかを表せないし、
+  // 何のつまみなのかも伝わらなかった
+  const el = document.getElementById('pad-sense');
+  if (el) el.textContent = 'PAD ' + s.name;
+  // 押したときは画面にも出す(ポーズ中なので弾の邪魔にもならない)
   if (tell) showNotice('PAD: ' + s.name);
   if (DEVICE) return;
   settings.set('padSense', padSense);
@@ -13622,8 +13625,9 @@ function bindPadSenseButton() {
   // **PC には要らない。** 十字が出ないので効きようがない
   if (!PAD_ON) { el.style.display = 'none'; return; }
   el.addEventListener('click', () => { el.blur(); applyPadSense(padSense + 1, true); });
-  // 前に決めた段があれば、それで始める
-  if (!DEVICE && settings.get('padSenseSet')) applyPadSense(settings.get('padSense'), false);
+  // 前に決めた段があれば、それで始める。**無くてもボタンには字を入れる**
+  applyPadSense((!DEVICE && settings.get('padSenseSet')) ? settings.get('padSense') : padSense,
+    false);
 }
 
 /**
@@ -13680,7 +13684,7 @@ function drawToolIcons() {
   // **横長のボタンには横長の絵。** 16x16 を引き伸ばすとキーが長方形になって崩れる
   put('keyboard-btn', ICONS.keyboardWide, 7);
   put('rotate-btn', ICONS.rotate180, 7);
-  put('pad-sense', ICONS.sensitivity, 7);
+  // pad-sense は字のボタン(絵は入れない)。中身は applyPadSense が書く
   // **切り替えのボタンは中の絵だけで状態を出す。**(枠は白いまま。いつでも押せる)
   // 効いていないときは差し色も灰色にして、絵ごとモノクロにする
   put('pixel-fit', ICONS.pixelFit, mmsxx.vdp.pixelPerfect ? 7 : ICON_MONO);
