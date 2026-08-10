@@ -306,6 +306,12 @@ const KNOBS = [
    '原点からこれ以上離すと、原点のほうが指に引きずられて付いてくる。エリアの端まで行っても操作を続けられる'],
   ['hysteresis', '重なり度', 0, 20, 1, false, 'param',
    '8 方向の境目の重なり。大きいほど、斜めと真横のあいだでばたつかない'],
+  ['stickSmoothMs', '動きのならしms', 5, 200, 5, false, 'param',
+   '「動きの向き」のとき、指の速さをどれだけならすか。'
+   + '小さいほど機敏だが震えを拾って向きがばたつく。大きいほど落ち着くが折り返しがもたつく'],
+  ['stickMinSpeed', '止まる速さ', 0.01, 0.4, 0.01, false, 'param',
+   '「動きの向き」のとき、これより遅ければ止まっていることにする(px/ms)。'
+   + '0.06 で秒速 60px ほど。大きくすると、ゆっくり動かしても止まったままになる'],
   ['shotStep', 'しきい値px', 4, 80, 1, false, 'param',
    'こすりの折り返しと認めるまでに動かす距離。小さいほど小刻みなこすりで撃てるが、震えも拾いやすい'],
   ['holdRepeatMs', '長押しms(0=無)', 0, 500, 10, false, 'param',
@@ -337,6 +343,24 @@ showHintOn(modeRow.querySelector('span'), modeRow,
   + 'A 区画=区画をまたぐたび。B 移動量=動いた距離ぶん(一気に滑らせると出すぎる)。C 出入り=面に出入りするたび');
 modeRow.addEventListener('change', (e) => {
   touch.setOptions({ shotMode: e.target.value });
+  showValues();
+});
+
+// 十字の向きの決めかた。**手ざわりが丸ごと変わる**ので、見比べられるようにする
+const stickRow = document.createElement('div');
+stickRow.className = 'row';
+stickRow.innerHTML = '<span style="width:96px">十字</span>'
+  + [['move', '動きの向き'], ['origin', '触れた点から']].map(([v, t]) =>
+      `<label><input type="radio" name="stick" value="${v}"`
+      + `${touch.opts.stickMode === v ? ' checked' : ''}> ${t}</label>`).join(' ');
+knobsEl.appendChild(stickRow);
+showHintOn(stickRow.querySelector('span'), stickRow,
+  '十字: 向きの決めかた。動きの向き=いま指が動いているほうへ進む。'
+  + '折り返しがその場でつながり、指を止めれば止まる。'
+  + '触れた点から=触れたところを原点にした倒しかたで決める。'
+  + 'まっすぐ走り続ける遊び向きだが、折り返すには原点をまたぐまで戻す必要がある');
+stickRow.addEventListener('change', (e) => {
+  touch.setOptions({ stickMode: e.target.value });
   showValues();
 });
 
@@ -442,7 +466,7 @@ document.getElementById('copy').addEventListener('click', () => {
 function showValues() {
   const o = { ...zone, ...touch.opts };
   valuesEl.value = '{\n'
-    + [...KNOBS.map(([k]) => k), 'shotMode', 'side', 'scale']
+    + [...KNOBS.map(([k]) => k), 'shotMode', 'stickMode', 'side', 'scale']
         .map(k => `  ${k}: ${typeof o[k] === 'string' ? `'${o[k]}'` : o[k]},`)
         .join('\n')
     + '\n}';
@@ -512,12 +536,18 @@ function frame() {
 
   // ④ 相対十字
   const s = st.stick;
+  // **決めかたで読むものが違う。** 原点を持たない「動きの向き」では、
+  // 原点も距離も意味が無い(出すのは指の速さ)
   el('stick').innerHTML = !s.active ? '<span class="dim">（触れていません）</span>'
-    : `原点 ${Math.round(s.ox)},${Math.round(s.oy)}<br>`
-      + `指 &nbsp;&nbsp;${Math.round(s.x)},${Math.round(s.y)}<br>`
-      + `差 &nbsp;&nbsp;${Math.round(s.dx)},${Math.round(s.dy)} `
-      + `距離 ${s.dist.toFixed(1)} 角度 ${s.deg.toFixed(0)}度<br>`
-      + `区画 ${s.sector < 0 ? '<span class="dim">なし（不感帯）</span>' : s.sector}`;
+    : touch.opts.stickMode === 'move'
+      ? `指 &nbsp;&nbsp;${Math.round(s.x)},${Math.round(s.y)}<br>`
+        + `速さ ${s.speed.toFixed(3)} px/ms 角度 ${s.deg.toFixed(0)}度<br>`
+        + `区画 ${s.sector < 0 ? '<span class="dim">なし（止まっている）</span>' : s.sector}`
+      : `原点 ${Math.round(s.ox)},${Math.round(s.oy)}<br>`
+        + `指 &nbsp;&nbsp;${Math.round(s.x)},${Math.round(s.y)}<br>`
+        + `差 &nbsp;&nbsp;${Math.round(s.dx)},${Math.round(s.dy)} `
+        + `距離 ${s.dist.toFixed(1)} 角度 ${s.deg.toFixed(0)}度<br>`
+        + `区画 ${s.sector < 0 ? '<span class="dim">なし（不感帯）</span>' : s.sector}`;
 
   // ① こすり打ち
   el('rate').textContent = st.rub.rate;
