@@ -65,6 +65,8 @@ import { gameStop } from './console-stop.js';
 //   ?turn=180       … 画面を上下逆さにして始める(ポーズ中のボタンと同じ)
 //   ?a2hs=1         … ホームに置くことを勧める 1 枚を、もう一度出す
 //                     (ふだんは 1 回断られたら二度と出さない)
+//                     ios / android / add と書くと、その見えかたで出る
+//                     (手元で 3 通りを見比べるため)
 //
 // **開発版だけ効くもの**(公開版は URL に何を書いても無視する):
 //
@@ -13629,21 +13631,36 @@ function setupHomeInstall() {
 }
 
 /**
+ * **見えかたを決め打ちにする口**(`?a2hs=`)。**手元で 3 通りを見比べるため**。
+ *
+ *   ?a2hs=1       … 覚えたぶんを飛ばして、いつもどおりの見えかたで出す
+ *   ?a2hs=ios     … iOS の見えかた(共有ボタンの絵入りの説明)
+ *   ?a2hs=android … Android の、**まだ合図が来ていない**見えかた(説明だけ)
+ *   ?a2hs=add     … Android の、**合図が来たあと**の見えかた(登録ボタンが出る)
+ *
+ * `add` の登録ボタンは**本物の合図が無ければ何もしない**(閉じるだけ)。
+ * PC の Chrome には合図が飛んでこないので、並びを見るためだけのもの
+ */
+const A2HS_LOOK = OPT.get('a2hs') || '';
+
+/**
  * **断られたことを覚えないでおく場面。** そのぶん毎回出る。
  *
  *   ?device=<機種> … 機種を渡り歩いて並びを見るとき
  *   手元(localhost) … PC でスマホの大きさに合わせて確かめるとき。
  *                     **1 回断ったら二度と見られない**のでは確かめようがない
- *   ?a2hs=1        … 実機で もう一度 見たいとき(覚えたぶんを飛ばす)
+ *   ?a2hs=<なにか>  … 実機で もう一度 見たいとき
  *
  * 公開したものでは効かない(どれも当たらない)ので、遊ぶ人には 1 回きりのまま
  */
 function a2hsAlways() {
-  return !!DEVICE || RECORD_HOST || OPT.get('a2hs') === '1';
+  return !!DEVICE || RECORD_HOST || !!A2HS_LOOK;
 }
 
 /** iOS(Safari)か。**やりかたの説明を出す相手** */
 function isIOS() {
+  if (A2HS_LOOK === 'ios') return true;
+  if (A2HS_LOOK === 'android' || A2HS_LOOK === 'add') return false;
   try {
     return Bowser.parse(navigator.userAgent).os.name === 'iOS';
   } catch (e) { return false; }
@@ -13759,7 +13776,8 @@ function openHomeInstall() {
     display: 'none',
   });
   add.addEventListener('click', async () => {
-    if (!installPrompt) return;
+    // 合図が無いのに出ているのは ?a2hs=add のときだけ。閉じるだけにする
+    if (!installPrompt) { closeHomeInstall(true); return; }
     const p = installPrompt;
     installPrompt = null;                 // 1 つの合図は 1 回しか使えない
     try { await p.prompt(); } catch (e) { /* 断られただけ */ }
@@ -13798,10 +13816,12 @@ function openHomeInstall() {
 function showInstallButton() {
   const add = a2hsEl && a2hsEl.querySelector('#a2hs-add');
   if (!add) return;
-  add.style.display = installPrompt ? '' : 'none';
+  // ?a2hs=add のときは、合図が無くても出す(手元で並びを見るため)
+  const on = !!installPrompt || A2HS_LOOK === 'add';
+  add.style.display = on ? '' : 'none';
   // ボタンが出たら、やりかたの説明はもう要らない(押せば済むので)
   const how = a2hsEl.querySelector('#a2hs-how');
-  if (how) how.style.display = installPrompt ? 'none' : '';
+  if (how) how.style.display = on ? 'none' : '';
 }
 
 /** 板をしまう。`remember` なら二度と出さない */
