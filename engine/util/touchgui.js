@@ -267,6 +267,12 @@ const DEFAULTS = {
   fontUnit: 8,
   /** 長押しと認めるまで(ms)。短いと、ふつうに押しただけで説明が出る */
   tipHoldMs: 450,
+  /**
+   * **説明の札を、押しているものからどれだけ離すか**(px)。
+   * 重ねて出すと、長押ししている指がその札を隠してしまう。
+   * 指 1 本ぶん逃がす
+   */
+  tipGap: 14,
   /** これだけ触られなかったら、また光らせる(ms) */
   idleMs: 4000,
   /** 案内に出す文字の言語。'ja' か 'en' */
@@ -1029,8 +1035,13 @@ export class TouchGui {
           y += n.offsetTop;
         }
         tip.style.bottom = 'auto';
-        tip.style.transform = 'translate(-50%, -50%)';
-        tip.style.top = Math.round(y + el.offsetHeight / 2) + 'px';
+        tip.style.transform = 'translate(-50%, 0)';
+        // **押しているものの上へ逃がす。** 真ん中に重ねて出していたときは、
+        // 読ませたい札を長押ししている指がそのまま隠していた。
+        // 上に入らないもの(いちばん上のボタン)だけ下へ回す
+        const gap = Math.round(this.opts.tipGap || 0);
+        const above = y - gap - tip.offsetHeight;
+        tip.style.top = Math.round(above >= 0 ? above : y + el.offsetHeight + gap) + 'px';
         // **横も押したものに合わせる。** 器の真ん中に出していたので、
         // 左の帯を押しているのに札はゲーム画面の上、という離れかたをしていた。
         // ただし札のほうが帯より広いことがあるので、器からははみ出させない
@@ -1348,8 +1359,10 @@ function injectStyle() {
      帯いっぱいまで育てる(**そこまで長い文言は書かないのが本筋**) */
   position: absolute; left: 50%; transform: translateX(-50%);
   width: max-content; min-width: 62%; max-width: calc(100% - 4px);
-  /* **枠だけ濃いめ。** 中身は沈めて、輪郭で「ボタンがある」と分からせる */
-  background: rgba(51, 51, 68, 0.55); border: 2px solid #aab; color: #ccccdd;
+  /* **枠だけ濃いめ。** 中身は沈めて、輪郭で「ボタンがある」と分からせる。
+     **効く場面では明るく。** 沈めた off との差が枠の濃さだけだと、
+     どちらの状態なのかがゲーム画面の上では読み取れなかった */
+  background: rgba(64, 64, 88, 0.62); border: 2px solid #ccd0e0; color: #ffffff;
   font: var(--mmsxx-gui-font-size, 16px) var(--mmsxx-gui-font, monospace); letter-spacing: 0;
   display: flex; align-items: center; justify-content: center;
   box-sizing: border-box;

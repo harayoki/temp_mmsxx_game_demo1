@@ -84,6 +84,33 @@ const DEFAULTS = {
   // 引きずると、指を大きく動かしたときに原点が付いてきて「戻す量」が変わる。
   // 避けゲーでは、触れたところが最後まで真ん中でいてくれるほうが読みやすい
   dragMax: 0,
+  /**
+   * **向きの決めかた。** ゲームによって合う合わないがあるので、丸ごと替えられる。
+   *
+   *   'origin' … **触れたところからの向き**(既定。今までの決めかた)。
+   *              スティックを倒しているのに近い。倒した向きを保てるので、
+   *              まっすぐ走り続ける遊びに向く。
+   *              **弱点は折り返し。** 右へ 60px 出したところから左へ行くには、
+   *              原点をまたぐまでの 60px を戻さないと左が立たない
+   *   'move'   … **いま指が動いている向き**をそのまま読む。
+   *              折り返しはその場でつながり、**指を止めれば止まる**。
+   *              避けゲーのように、細かく行き来する遊びに向く
+   *
+   * どちらが良いかは遊びしだいなので、決めるのは借りる側
+   * (tools/touch-tool/ で実機で触って選ぶ)
+   */
+  stickMode: 'origin',
+  /**
+   * ('move' のとき)**指の速さのならしかた**(ms)。
+   * 小さいほど指なりに機敏だが、震えを拾って向きがばたつく。
+   * 大きいほど落ち着くが、折り返しがもたつく
+   */
+  stickSmoothMs: 40,
+  /**
+   * ('move' のとき)**これより遅ければ止まっていることにする**(px/ms)。
+   * 0.06 で秒速 60px ほど。指を置いたままでも、わずかな震えでは向きが立たない
+   */
+  stickMinSpeed: 0.06,
   hysteresis: 7,       // 区画の境目の重なり(度)。ばたつき止め
   guiRadius: 72,       // PAD の大きさ(px)。**入れ物が測れないときだけ**使う。
                        // ふだんは下の areaRatio から決まる
@@ -182,7 +209,13 @@ export class TouchControls {
     this.pointers = new Map();
 
     /** 相対十字の様子(touch-tool が読む) */
-    this.stick = { active: false, ox: 0, oy: 0, x: 0, y: 0, dx: 0, dy: 0, dist: 0, deg: 0, sector: -1 };
+    // vx / vy / speed は 'move' のときの、ならした指の速さ(px/ms)
+    this.stick = { active: false, ox: 0, oy: 0, x: 0, y: 0, dx: 0, dy: 0, dist: 0, deg: 0, sector: -1,
+      vx: 0, vy: 0, speed: 0 };
+    /** ('move' のとき)最後に速さを測った時刻 */
+    this._sampleAt = 0;
+    /** ('move' のとき)指が止まったことに気づくための見張り */
+    this._coast = 0;
     /** こすり打ちの様子(touch-tool が読む) */
     this.rub = { pressCount: 0, releaseCount: 0, move: 0, rate: 0, maxRate: 0, cell: '', turns: 0 };
 
@@ -380,7 +413,9 @@ export class TouchControls {
     this._pulseDown.clear();
     this._pulseQueue.clear();
     this._stopHold();
+    this._stopCoast();
     this.stick.active = false;
+    this.stick.vx = 0; this.stick.vy = 0; this.stick.speed = 0;
     this._hideRing();
     this._paint();
   }
@@ -646,10 +681,15 @@ export class TouchControls {
     s.ox = p.x; s.oy = p.y;
     s.x = p.x; s.y = p.y;
     s.dx = 0; s.dy = 0; s.dist = 0; s.deg = 0; s.sector = -1;
+    // 'move' 用。**触れただけでは向きを立てない**(動きはまだ 0)
+    s.vx = 0; s.vy = 0; s.speed = 0;
+    this._sampleAt = performance.now();
     this._showRing();
+    if (this.opts.stickMode === 'move') this._startCoast();
   }
 
   _stickMove(p) {
+    if (this.opts.stickMode === 'move') { this._stickMoveDirect(p); return; }
     const s = this.stick;
     s.x = p.x; s.y = p.y;
     let dx = s.x - s.ox;
@@ -676,9 +716,86 @@ export class TouchControls {
     this._showRing();
   }
 
+  // ── 相対十字('move' = 指の動く向きをそのまま読む) ──────
+  //
+  // **原点を持たない。** 触れたところは覚えず、いま動いている向きだけを見る。
+  // 折り返しは戻る距離を待たずにその場でつながり、**指を止めれば止まる**。
+  //
+  // 速さは**ならしてから**使う。1 回ぶんの pointermove をそのまま読むと、
+  // 指の震えと OS の間引きで向きがばたつく。
+  //
+  // **止まったことは、動きが来ないことでは分からない。**
+  // 指を置いたままだと pointermove がもう飛んでこないので、
+  // 「最後に動いてから経った時間」で減らしにいく(_startCoast)。
+
+  _stickMoveDirect(p) {
+    const s = this.stick;
+    const dx = p.x - s.x, dy = p.y - s.y;
+    s.x = p.x; s.y = p.y;
+    this._decay(performance.now(), dx, dy);
+    this._applyStickSpeed();
+    this._showRing();
+  }
+
+  /**
+   * 速さを時間ぶん減らし、来ていれば新しい動きを混ぜる。
+   * **経った時間で減らす**ので、pointermove の来かたが端末で違っても同じに効く
+   * @param {number} now いまの時刻(ms)
+   * @param {number} [dx] このぶん動いた(来ていなければ 0)
+   * @param {number} [dy] 同上
+   */
+  _decay(now, dx = 0, dy = 0) {
+    const s = this.stick;
+    const dt = Math.min(100, Math.max(1, now - this._sampleAt));
+    this._sampleAt = now;
+    // ならしの強さ。**時定数で書く**ので、間隔がばらついても効きが変わらない
+    const tau = Math.max(1, this.opts.stickSmoothMs);
+    const keep = Math.exp(-dt / tau);
+    s.vx = s.vx * keep + (dx / dt) * (1 - keep);
+    s.vy = s.vy * keep + (dy / dt) * (1 - keep);
+    s.speed = Math.hypot(s.vx, s.vy);
+  }
+
+  /** ならした速さから向きを決めて、キーへ流す */
+  _applyStickSpeed() {
+    const s = this.stick;
+    // **見えているもの(dx/dy/dist)も速さで埋める。** touch-tool が読む
+    s.dx = s.vx; s.dy = s.vy; s.dist = s.speed;
+    if (s.speed < this.opts.stickMinSpeed) {
+      s.sector = -1;
+    } else {
+      s.deg = (Math.atan2(s.vy, s.vx) * 180 / Math.PI + 360) % 360;
+      s.sector = this._sectorOf(s.deg, s.sector);
+    }
+    this._applyDirs(s.sector < 0 ? [] : SECTOR_KEYS[s.sector]);
+  }
+
+  /**
+   * **指が止まったことに気づくための見張り。**
+   * 置いたままだと pointermove は来ないので、こちらから時間ぶん減らしにいく。
+   * 十分遅くなったら向きを落とす(そこで自機も止まる)
+   */
+  _startCoast() {
+    this._stopCoast();
+    const tick = () => {
+      if (!this.stick.active) { this._coast = 0; return; }
+      this._decay(performance.now());
+      this._applyStickSpeed();
+      this._coast = requestAnimationFrame(tick);
+    };
+    this._coast = requestAnimationFrame(tick);
+  }
+
+  _stopCoast() {
+    if (this._coast) cancelAnimationFrame(this._coast);
+    this._coast = 0;
+  }
+
   _stickUp() {
+    this._stopCoast();
     this.stick.active = false;
     this.stick.sector = -1;
+    this.stick.vx = 0; this.stick.vy = 0; this.stick.speed = 0;
     this._applyDirs([]);
     this._hideRing();
   }

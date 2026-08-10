@@ -4476,6 +4476,7 @@ let shareHiScore = false;   // ランクインで出したか(文言が変わる
 let shareMovie = null;      // Blob。まだ録れていなければ null
 let shareMovieKind = 'mp4'; // 落とすときの拡張子
 let shareMovieBtn = null;   // 「動画を保存」のボタン(録れていないときは隠す)
+let shareSaveBtn = null;    // 「絵を保存」のボタン(スマホでは出さない)
 // **直前の画面はエンジンが溜めている**。色番号のまま持つので、
 // 60fps で 3 秒でも 9MB ほどで収まる(1 コマ 51.6KB)。
 // 溜めはじめはゲームを始めるとき。何秒ぶん持つかはゲームが決める。
@@ -4776,10 +4777,17 @@ function makeShareEl() {
       + 'background-size:contain;image-rendering:pixelated',
   }));
   // いま板に載っている 1 枚を手元へ落とす。**ALT+S(クリップボード)の代わり**に、
-  // キーボードの無い端末でも絵を持ち出せるようにするためのもの
-  mkBtn('SAVE IMAGE', () => saveShareImage());
-  // 動画は録れているときだけ出す(始めてすぐやられると溜まっていない)
-  shareMovieBtn = mkBtn('SAVE VIDEO', () => saveShareMovie());
+  // キーボードの無い端末でも絵を持ち出せるようにするためのもの。
+  // **スマホでは出さない。** 隣の共有シートから「写真に保存」が選べるので、
+  // 同じことをするボタンが 2 つ並ぶことになる
+  shareSaveBtn = mkBtn('SAVE IMAGE', () => saveShareImage());
+  if (PAD_ON) shareSaveBtn.style.display = 'none';
+  // 動画は録れているときだけ出す(始めてすぐやられると溜まっていない)。
+  // **スマホでは共有シートへ渡す。** 文言は「保存」のままでよい
+  // (シートの中に「ビデオを保存」がある)。**渡すのは動画のファイル**で、
+  // 隣の共有ボタンが渡す絵とは別物なので、行き先を取り違えないこと
+  shareMovieBtn = mkBtn('SAVE VIDEO',
+    () => (PAD_ON ? osShareMovie() : saveShareMovie()));
   box.appendChild(row);
   // **とじるは右上の赤い ×。**
   // 下の列に置くと、送り先の X のすぐ隣に「閉じる」が並んで紛らわしい
@@ -5299,6 +5307,28 @@ function saveShareMovie() {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 10000);
   shareStatusEl.textContent = 'VIDEO SAVED';
+}
+
+/**
+ * **録ってある動画を OS の共有シートへ渡す**(スマホ)。
+ *
+ * 渡すのは**動画のファイル**。すぐ隣にある共有ボタンは**絵**を渡すので、
+ * 同じシートが開いても中身は別。取り違えると、動画のつもりで
+ * 静止画が送られる(見た目では気づけない)。
+ * 渡せない環境では、今までどおり手元へ落とす
+ */
+async function osShareMovie() {
+  if (!shareMovie) return;
+  const name = `starfable-${Date.now()}.${shareMovieKind}`;
+  const type = shareMovie.type || (shareMovieKind === 'mp4' ? 'video/mp4' : 'video/webm');
+  const file = new File([shareMovie], name, { type });
+  try {
+    if (!navigator.share || !navigator.canShare || !navigator.canShare({ files: [file] })) {
+      saveShareMovie();   // 渡せない端末では落とすほうへ
+      return;
+    }
+    await navigator.share({ files: [file], title: 'STAR FABLE' });
+  } catch (e) { /* 取り消されただけのことが多い。何も知らせない */ }
 }
 
 /** ダイアログを閉じて、元の状態へ戻す */
@@ -13176,7 +13206,15 @@ if (PAD_ON) {
     // 触れた 1 発のあとは何も起きない、では指を離す理由が分からない。
     // 押しっぱなしに何をさせるか(ゆっくりの自動連射)を決めているのは
     // ゲーム側なので、キーボードと指で答えが変わらない
-    touch: { holdFire: true },
+    touch: {
+      holdFire: true,
+      // **向きの決めかたを ?stick= で選べるようにする**(実機で見比べるため)。
+      //   origin … 触れたところからの向き(既定。今までの手ざわり)
+      //   move   … いま指が動いている向き。折り返しがその場でつながり、
+      //            指を止めれば止まる
+      // どちらを既定にするかは、実機で触ってから決める
+      stickMode: OPT.get('stick') === 'move' ? 'move' : 'origin',
+    },
     lang: TG_LANG,
     // 強制したときだけ、器も同じ画角に区切る(canvas 側は下の fitSize)
     frame: DEVICE ? () => DEVICE : null,
@@ -13607,46 +13645,49 @@ function showKeyboardButton() {
   if (kbdUsable === usable) return;
   kbdUsable = usable;
   el.classList.toggle('off', !usable);
-  // **打てない場面へ移ったら焦点を外す。** 置いたままだと、ソフトキーボードが
-  // 出っぱなしになるうえ、外付けのキーボードを繋いでいる人の矢印キーが
-  // 隠し入力欄に吸われる(名前入力で桁が動かなくなる)
-  if (!usable) blurSoftKeys();
+  // **打てない場面へ移ったら板ごとしまう。** 出しっぱなしにすると、
+  // ゲームが動いている上にキーボードが載ったままになる。
+  // 打ちかけのぶんは**流さない**(打ち終わっていないものを勝手に入れない)
+  if (!usable) closeSoftKeys(false);
 }
 
 // ---- ソフトキーボード(裏技の打ち込み) ----
 //
-// スマホには打つところが無いので、**隠した入力欄に焦点を当てて OS のキーボードを
-// 呼び、来た文字をキーの押下に化かして** mmsxx.input へ流す。
-// ゲーム側は今までどおり wasPressed('KeyA') を見ていればよく、
-// **打ち込みのしくみを 2 つ持たずに済む**。
+// スマホには打つところが無いので、**ふつうのテキスト欄を画面に重ねて出し**、
+// そこへ焦点を当てて OS のキーボードを呼ぶ。
+// **打っているあいだ、ゲームには何も入れない。** 打ち終わって OK を押したときに、
+// 欄の中身から使える字を前から拾い、まとめてキーの押下に化かして流す。
 //
-// ## 文字は input から取る。keydown は当てにしない
+// ## なぜ「打つたびに流す」のをやめたか
 //
-// Android のソフトキーボードは keydown を 229(処理中)で寄こすので、
-// **どのキーかは分からない**。実際に入った文字が読めるのは input のほう。
-// 外付けのキーボードから来たぶんだけは、エンジンが window で拾う道が
-// もともとあるので、こちらは黙って譲る(でないと 2 回入る)。
+// はじめは隠し欄の値の増減を見て 1 文字ずつ流していたが、**iOS で 1 文字打つと
+// 3 文字ほど入った**。予測変換や大文字化が値をまるごと書き替えるので、
+// 「増えたぶん = 打たれた字」が成り立たない。
+// **Android の挙動を手元で確かめられない以上、機種ごとの癖に賭ける作りにしない。**
+// 欄を見せて最後に 1 回だけ読めば、途中で何が起きていようと結果は同じになる。
 //
-// ## 詰め物を入れておく
+// ## 欄は回さない
 //
-// 値を空のままにしておくと、**BACKSPACE が飛んでこない**
-// (消すものが無い、と見なされる)。空白を何個か入れておいて、
-// **減ったら BACKSPACE、増えたぶんが打たれた文字**、と長さで見分ける。
+// 画面を 90 度回して見せていても、**この欄だけは端末の向きのまま**置く。
+// OS のキーボードは端末の向きで出てくるので、欄だけ回すと
+// 打つところと打つ道具が食い違う。**打つときは端末を横に持つ**のが正しい姿で、
+// そうすれば回転そのものが外れて全部そろう。
 
-/** 隠し入力欄に入れておく詰め物。**減ったら消された**と分かる */
-const SOFT_FILL = '        ';
-/** 隠し入力欄。**初めて押されたときに作る**(要らない人には作らない) */
-let softInput = null;
 /**
  * 打たれたぶんを溜めておく列。**1 コマに 1 つずつ流す**。
  * まとめて press すると、ゲームは 1 コマぶんしか読めないので取りこぼす
- * (貼り付けのように何文字も一度に来ることがある)
  */
 const softQueue = [];
 /** 前のコマで押したキー。次のコマの頭で離す */
 let softHeld = null;
-/** 直前に本物のキー入力が来たか(外付けのキーボード。二重に入れないための印) */
-let softRealKey = false;
+/** 打ち込みの板(入力欄と OK)。**初めて押されたときに作る** */
+let softPanel = null;
+let softInput = null;
+/**
+ * **何文字まで拾うか。** 打ち終わった中身から前へ数えて、ここで切る。
+ * 名前は 5 文字(NAME_MAX)、裏技の語は 12 文字(typed の持ちぶんと同じ)
+ */
+function softLimit() { return state === 'entry' ? NAME_MAX : 12; }
 
 /** 文字を、エンジンが知っているキーの名前へ直す。**知らない字は捨てる** */
 function softKeyCode(ch) {
@@ -13672,76 +13713,97 @@ function pumpSoftKeys() {
   softHeld = code;
 }
 
-/** 隠し入力欄を作る(1 度だけ) */
-function makeSoftInput() {
-  if (softInput) return softInput;
+/**
+ * 打ち込みの板を作る(1 度だけ)。**入力欄と OK だけ**。
+ *
+ * **画面の上のほうに置く。** ソフトキーボードは下半分を覆うので、
+ * 下に置くと自分が打っているものが見えない
+ */
+function makeSoftPanel() {
+  if (softPanel) return softPanel;
+  const box = document.createElement('div');
+  box.id = 'soft-keys';
+  // **器の外に置く。** 器は画面を回して見せているときに一緒に回るが、
+  // OS のキーボードは端末の向きで出てくるので、ここが回ると食い違う
+  box.style.cssText = 'position:fixed;left:50%;top:8px;transform:translateX(-50%);'
+    + 'z-index:9999;display:none;gap:8px;align-items:center;'
+    + 'padding:8px;background:#101010;border:2px solid #cccccc';
   const el = document.createElement('input');
   el.type = 'text';
-  el.id = 'soft-keys';
   el.setAttribute('autocomplete', 'off');
   el.setAttribute('autocorrect', 'off');
   el.setAttribute('spellcheck', 'false');
   // 裏技の語も名前も**大文字**なので、はじめから大文字で出させる
   el.setAttribute('autocapitalize', 'characters');
-  el.setAttribute('aria-hidden', 'true');
-  el.tabIndex = -1;
-  // **見えないが「無い」ことにはしない。** display:none や visibility:hidden の
-  // 相手には焦点が当たらず、キーボードが出てこない。
-  // 字の大きさを 16px 以上にしておくのは、**iOS が寄っていくのを止める**ため
-  el.style.cssText = 'position:fixed;left:0;bottom:0;width:1px;height:1px;'
-    + 'padding:0;border:0;opacity:0.01;z-index:-1;font-size:16px;'
-    + 'background:transparent;color:transparent;caret-color:transparent';
-  el.value = SOFT_FILL;
-  // **外付けのキーボードから来たぶんは譲る。** エンジンが window で
-  // 拾っているので、ここでも入れると 1 文字が 2 回入る。
-  // Android のソフトキーボードは 229 で寄こすので、そちらは譲らない
-  el.addEventListener('keydown', (e) => {
-    softRealKey = e.keyCode !== 229 && (e.key.length === 1
-      || e.key === 'Backspace' || e.key === 'Enter');
-  });
-  el.addEventListener('input', () => {
-    const v = el.value;
-    resetSoftInput();
-    if (softRealKey) { softRealKey = false; return; }
-    if (v.length > SOFT_FILL.length) {
-      // **増えたぶんが打たれた文字。** 貼り付けで何文字も来ることもある
-      for (const ch of v.slice(SOFT_FILL.length)) {
-        const code = softKeyCode(ch);
-        if (code) softQueue.push(code);
-      }
-    } else if (v.length < SOFT_FILL.length) {
-      softQueue.push('Backspace');
-    }
-  });
-  // **改行と 1 文字消しは、ここで拾わない。** どちらもソフトキーボードから
-  // 本物の keydown('Enter' / 'Backspace')で飛んでくるので、
-  // エンジンが window で拾う道に乗る。ここでも入れると 2 回効いてしまう。
-  // 飛んでこない機種のぶんは、上の input が長さの増減で拾う
-  document.body.appendChild(el);
+  el.setAttribute('enterkeyhint', 'done');
+  // **字は 16px 以上。** これを割ると iOS が焦点を当てたときに画面へ寄っていく
+  el.style.cssText = 'font:16px monospace;letter-spacing:2px;width:9em;'
+    + 'padding:6px 8px;background:#202020;border:2px solid #8888aa;color:#ffffff';
+  // **打っているあいだ、キーはゲームへ流さない。** エンジンは window で
+  // keydown を拾っているので、止めないと打った字がそのまま操作になる
+  // (裏技の打ち込みが二重に入り、矢印は自機を動かしてしまう)
+  for (const type of ['keydown', 'keyup', 'keypress']) {
+    el.addEventListener(type, (e) => {
+      e.stopPropagation();
+      if (type === 'keydown' && e.key === 'Enter') { e.preventDefault(); closeSoftKeys(true); }
+    });
+  }
+  const ok = document.createElement('button');
+  ok.type = 'button';
+  ok.textContent = 'OK';
+  ok.style.cssText = 'font:16px monospace;padding:6px 14px;'
+    + 'background:#333344;border:2px solid #aabbcc;color:#ffffff;cursor:pointer';
+  ok.addEventListener('click', () => closeSoftKeys(true));
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.textContent = '×';
+  cancel.setAttribute('aria-label', 'CANCEL');
+  cancel.style.cssText = 'font:16px monospace;padding:6px 12px;'
+    + 'background:#202020;border:2px solid #aaaaaa;color:#ff6a6a;cursor:pointer';
+  cancel.addEventListener('click', () => closeSoftKeys(false));
+  box.append(el, ok, cancel);
+  document.body.appendChild(box);
+  softPanel = box;
   softInput = el;
-  return el;
+  return box;
 }
 
-/** 詰め物を入れ直して、カーソルをうしろへ戻す */
-function resetSoftInput() {
-  if (!softInput) return;
-  softInput.value = SOFT_FILL;
-  try { softInput.setSelectionRange(SOFT_FILL.length, SOFT_FILL.length); } catch (e) { /* 古い環境 */ }
-}
-
-/** ソフトキーボードを呼ぶ / しまう */
+/** 打ち込みの板を出す / しまう */
 function toggleSoftKeys() {
-  const el = makeSoftInput();
-  if (document.activeElement === el) { blurSoftKeys(); return; }
-  resetSoftInput();
+  if (softPanel && softPanel.style.display === 'flex') { closeSoftKeys(false); return; }
+  const box = makeSoftPanel();
+  softInput.value = '';
+  box.style.display = 'flex';
   // **押されたその場で focus() を呼ぶ**こと。あとから(タイマや await の先で)
   // 呼んでも、iOS は「人が触った」と見なさずキーボードを出さない
-  el.focus({ preventScroll: true });
-  resetSoftInput();
+  softInput.focus({ preventScroll: true });
 }
 
-function blurSoftKeys() {
-  if (softInput && document.activeElement === softInput) softInput.blur();
+/**
+ * 板をしまう。`commit` なら**中身をゲームへ流す**。
+ *
+ * 流すのは**前から数えて使える字だけ**。予測変換で余計なものが混じっていても、
+ * ここで落ちる。**打っている途中は何も流していない**ので、
+ * 機種ごとの癖に関わらず、入るのはここで読んだものだけになる
+ */
+function closeSoftKeys(commit) {
+  if (!softPanel || softPanel.style.display !== 'flex') return;
+  const raw = commit ? softInput.value : '';
+  softPanel.style.display = 'none';
+  softInput.blur();
+  if (!raw) return;
+  const max = softLimit();
+  let n = 0;
+  for (const ch of raw.toUpperCase()) {
+    if (n >= max) break;
+    const code = softKeyCode(ch);
+    if (!code) continue;      // 使えない字は黙って捨てる
+    softQueue.push(code);
+    n++;
+  }
+  // **裏技は確定まで面倒を見る。** RETURN を押す口が指では無いので、
+  // 打ち終わり = 確定でよい。名前入力は GUI に ENTER があるので送らない
+  if (n && state !== 'entry') softQueue.push('Enter');
 }
 
 function bindKeyboardButton() {
