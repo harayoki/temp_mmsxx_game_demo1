@@ -37,7 +37,9 @@ import { useUAParser, isMobileLike } from '../engine/util/device.js';
 import { createGamepad } from '../engine/util/gamepad.js';
 // スマホのタッチ操作。十字とショット・ジェスチャの見分け・案内の出し分けをまとめた器。
 // こちらもキーのコードへ変換して Input へ流すので、遊びのコードは変えなくてよい
-import { TouchGui, viewTransform } from '../engine/util/touchgui.js';
+import { TouchGui, viewTransform, turnDelta } from '../engine/util/touchgui.js';
+// シェアの板の上でコマを選ぶ横払い。見分けそのものはこの部品にまかせる
+import { createGesture } from '../engine/util/gesture.js';
 // PC の窓の中に実機と同じ画角を作るための、機種ごとの数字(?device= で選ぶ)
 import { DEVICES, findDevice } from '../engine/util/devices.js';
 // キャンバスの上に重ねる知らせ(読ませてゲームを止める)
@@ -4453,7 +4455,14 @@ let shareHold = -1;
 let shareHintEl = null;     // 何コマめかの案内を出すところ
 let shareLeftBtn = null;    // 古いほうへ送る矢印
 let shareRightBtn = null;   // 新しいほうへ送る矢印
-let shareSendBtn = null;    // POST TO X のボタン(出したときはここを選んでおく)
+let shareSendBtn = null;    // X へ出すボタン(出したときはここを選んでおく)
+/** 絵の上を横へ払ったぶんの溜め(px)。**しきい値を超えたぶんだけコマを送る** */
+let shareSwipeAcc = 0;
+/** 1 コマ送るのに要る指の移動(px)。細かいほうがよい(コマは何十枚もある) */
+const SHARE_SWIPE_STEP = 18;
+let shareOsBtn = null;      // OS へ渡すボタン(X の隣。渡せる環境でだけ出す)
+/** OS へ画像を渡せる環境か。**起動時に 1 枚作って聞いてみた答え**(下の setupOsShare) */
+let osShareOK = false;
 // 板の中で押せるもの。**左右で選び、SPACE で実行、ESC でとじる**。
 // マウスなら、そのまま押しても同じ(押したものが選ばれた状態になる)
 let shareItems = [];        // 並び順。{ el, run, repeat }
@@ -4580,7 +4589,7 @@ const SHARE_TEXTS = {
  */
 function shareTextLines() {
   const meta = snsShareMetadata();
-  const t = SHARE_TEXTS[testLang(SNS_LANGS) || 'en'] || SHARE_TEXTS.en;
+  const t = SHARE_TEXTS[testLang(SNS_LANGS_OPT) || 'en'] || SHARE_TEXTS.en;
   const text = meta.templateKey.startsWith('high-score') ? t.high(meta.values) : t.playing();
   return text.split('\n');
 }
@@ -4614,6 +4623,8 @@ function makeShareEl() {
     padding: '10px 14px', lineHeight: '1.35',
     maxWidth: '96vw', maxHeight: '96vh', boxSizing: 'border-box',
     overflowY: 'auto',
+    // 右上の「とじる」を置くための土台
+    position: 'relative',
   });
   // 押せるものを 1 つ作る。作った順が**左右で選ぶときの並び**になる
   const mkItem = (fn, repeat = false) => {
@@ -4643,8 +4654,39 @@ function makeShareEl() {
     gap: '8px', marginBottom: '6px',
   });
   const shot = document.createElement('div');
-  Object.assign(shot.style, { lineHeight: '0' });
+  Object.assign(shot.style, { lineHeight: '0', touchAction: 'none' });
   shareShotBox = shot;
+  // **絵の上を横へ払うとコマを選べる。** 案内は出さない
+  // (矢印が両脇に出ているので、動かせることは見れば分かる)。
+  // 見分けを付けるのは**絵の上だけ**。板ぜんぶに付けると、
+  // 下のボタンを押した指まで捕まえてしまい、押しても効かなくなる
+  // (gesture.js は pointerdown で setPointerCapture する)
+  createGesture({
+    el: shot,
+    onGesture: (e) => {
+      if (e.fingers > 1) return;
+      if (e.type === 'down') { shareSwipeAcc = 0; return; }
+      if (e.type !== 'swipe') return;
+      // 画面を回して見せているぶんを戻す(器がやっているのと同じ)
+      const d = turnDelta(mmsxx.vdp.viewAngle, e.dx, e.dy);
+      const total = turnDelta(mmsxx.vdp.viewAngle, e.totalX, e.totalY);
+      // 縦に払ったぶんは相手にしない(板を上下に振っただけで送らない)
+      if (Math.abs(total.dy) > Math.abs(total.dx)) return;
+      // **指に付いてくる送り。** 何十コマもあるので、1 回 1 コマでは足りない。
+      // 払った量ぶん送る(左へ払うと新しいほうへ。器の左右の決めごとと同じ)
+      shareSwipeAcc += d.dx;
+      while (shareSwipeAcc <= -SHARE_SWIPE_STEP) {
+        shareSwipeAcc += SHARE_SWIPE_STEP;
+        setShareZone('frame');
+        stepShareShot(-1);
+      }
+      while (shareSwipeAcc >= SHARE_SWIPE_STEP) {
+        shareSwipeAcc -= SHARE_SWIPE_STEP;
+        setShareZone('frame');
+        stepShareShot(1);
+      }
+    },
+  });
 
   /** 矢印。押しっぱなしのときは、少し待ってから送り続ける(キーと同じ間合い) */
   const mkArrow = (label, fn) => {
@@ -4705,24 +4747,57 @@ function makeShareEl() {
     return b;
   };
   // X(旧 Twitter)へ出す口。絵と値を投稿サーバへ送り、下書きを開く。
-  // 絵は**公式の素材が要る**(自分で描いた × 印は「閉じる」に見えてしまう)ので、
-  // それが来るまでは文字で置いておく。ほかの SNS もここへ並べる
   // **X の公式マークをそのまま使う。** 送り先の名前は、その先の見た目と
-  // そろっていないと迷わせる(ドット絵に描き起こすと別の何かに見える)
-  shareSendBtn = mkBtn('POST TO ', () => postShareToX());
+  // そろっていないと迷わせる(ドット絵に描き起こすと別の何かに見える)。
+  // **文字は添えない。** マークだけで送り先は分かるし、隣に OS へ渡す口が
+  // 並ぶので、絵が 2 つ並んだほうが「行き先を選ぶところ」だと読める
+  shareSendBtn = mkBtn('', () => postShareToX());
   shareSendBtn.insertAdjacentHTML('beforeend',
-    '<svg viewBox="0 0 24 24" width="1em" height="1em" aria-label="X" role="img"'
-    + ' style="vertical-align:-0.12em;margin-left:0.15em">'
+    '<svg viewBox="0 0 24 24" width="1.15em" height="1.15em" aria-label="X" role="img"'
+    + ' style="vertical-align:-0.16em">'
     + '<path fill="currentColor" d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17'
     + 'l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161'
     + ' 17.52h1.833L7.084 4.126H5.117z"/></svg>');
+  // **OS へ渡す口(共有シート)。X の隣に並べる。**
+  // スマホでは表にボタンを出さず、カメラを押してここへ来てもらう。
+  // 撮ってから行き先を選ぶ、という順のほうが迷わないし、
+  // 遊んでいる最中の画面にボタンが 1 つ減る。
+  // **出せる環境でだけ出す**(下の setupOsShare が確かめて印を立てる)
+  shareOsBtn = mkBtn('', () => osShareImage());
+  shareOsBtn.style.display = 'none';
+  shareOsBtn.setAttribute('aria-label', 'SHARE IMAGE');
+  // **絵は子の箱に敷く。** ボタンそのものへ敷くと、選んだ印を塗るときに
+  // background の一括指定で消えてしまう(paintShareItem)
+  // **一括指定の background は使わない。** あれは background-image に none を
+  // 立ててしまうので、「もう絵が入っているか」を見るときに入っていることになる
+  shareOsBtn.appendChild(Object.assign(document.createElement('span'), {
+    style: 'display:inline-block;width:1.15em;height:1.15em;vertical-align:-0.16em;'
+      + 'background-repeat:no-repeat;background-position:center;'
+      + 'background-size:contain;image-rendering:pixelated',
+  }));
   // いま板に載っている 1 枚を手元へ落とす。**ALT+S(クリップボード)の代わり**に、
   // キーボードの無い端末でも絵を持ち出せるようにするためのもの
   mkBtn('SAVE IMAGE', () => saveShareImage());
   // 動画は録れているときだけ出す(始めてすぐやられると溜まっていない)
   shareMovieBtn = mkBtn('SAVE VIDEO', () => saveShareMovie());
-  mkBtn('CLOSE', () => closeShare());
   box.appendChild(row);
+  // **とじるは右上の赤い ×。**
+  // 下の列に置くと、送り先の X のすぐ隣に「閉じる」が並んで紛らわしい
+  // (どちらも 1 文字の記号に見える)。窓を閉じる印が右上なのは世の中の決まりでもあり、
+  // どけたぶん下の列が空いて、行き先のボタンを並べる幅ができる。
+  // **並び(左右で選ぶ順)では最後のまま。** 作る順を変えていないので、
+  // キーだけで使う人の道順は今までどおり
+  const closeBtn = mkItem(() => closeShare());
+  closeBtn.textContent = '×';
+  closeBtn.setAttribute('aria-label', 'CLOSE');
+  Object.assign(closeBtn.style, {
+    position: 'absolute', right: '4px', top: '4px',
+    padding: '2px 10px', lineHeight: '1',
+    // **赤いのは字だけ。** 枠と地は他のボタンと同じにしておかないと、
+    // 選んでいる印(枠と地を塗る)がここだけ出なくなる
+    color: '#ff6a6a',
+  });
+  box.appendChild(closeBtn);
   el.appendChild(box);
   document.body.appendChild(el);
   shareEl = el;
@@ -4915,6 +4990,9 @@ function openShare(after, spec) {
   if (sharePaused) togglePause();
   const el = makeShareEl();
   el.style.display = 'flex';
+  // **板ができるのは初めて開いたとき**なので、出し入れはここで決める
+  // (起動時の setupOsShare はまだ板が無く、印を立てるだけ)
+  updateShareOsBtn();
   fitShareEl();
   shareFixed = null;
   shareExtra = null;
@@ -5029,6 +5107,15 @@ async function getSnsClient() {
 // オランダは英語がよく通じるので、あえて英語のままにしている)。
 //   例) 日本語で遊んでいる人 … 'high-score-ja'
 const SNS_LANGS = ['ja', 'es', 'pt'];
+/**
+ * **`?lang=` で選べる言葉。** SNS_LANGS に 'en' を足したもの。
+ *
+ * SNS_LANGS は「**サーバに札がある言葉**」の一覧なので en は入っていない
+ * (英語は札の名前に何も付けない、が英語)。それをそのまま `?lang=` の
+ * 受け付け一覧に使っていたので、**`?lang=en` が知らない値として捨てられ**、
+ * ブラウザの希望(日本語)へ落ちていた。**確かめる側は en も選べないと困る**
+ */
+const SNS_LANGS_OPT = [...SNS_LANGS, 'en'];
 
 /**
  * **確かめるための言語の上書き**。`?lang=ja` のように書くと、
@@ -5047,10 +5134,15 @@ function testLang(supported, fallback = '') {
   return pickLanguage(supported, fallback);
 }
 
-/** 札の名前。その人の言葉があれば後ろに付ける(見分けはエンジンの部品にまかせる) */
+/**
+ * 札の名前。その人の言葉があれば後ろに付ける(見分けはエンジンの部品にまかせる)。
+ * **?lang= もここへ効かせる。** 板に出る文言と投稿されるカードは
+ * 同じところから作っているので、片方だけ上書きが効くとちぐはぐになる
+ * (`?lang=en` は札に何も付かない = 英語のカード)
+ */
 function snsTemplateKey(base) {
-  const lang = pickLanguage(SNS_LANGS);
-  return lang ? base + '-' + lang : base;
+  const lang = testLang(SNS_LANGS_OPT);
+  return (lang && SNS_LANGS.includes(lang)) ? base + '-' + lang : base;
 }
 
 function snsShareMetadata() {
@@ -13336,42 +13428,88 @@ function screenshotBlob() {
 }
 
 /**
- * **OS へ画像を渡すボタン**(箱から矢印)。共有シートが開き、
- * そこから「写真に保存」も「送る」も選べる。
+ * **いまの画面を OS の共有シートへ渡す**(「写真に保存」も「送る」もその先で選ぶ)。
  *
- * **出すかどうかは環境の名前で決めない。** 実際に PNG を 1 枚作って
+ * 入口は 2 つ。**PC は表のボタン**(#os-share)、**スマホはシェアの板の中**
+ * (X の隣)。どちらから来ても同じことをする
+ */
+async function osShareImage() {
+  // **渡せない環境では何もしない。** PC ではボタンを出しっぱなしにしてあるので
+  // (見た目を手元で確かめるため)、ここへ来ることがある。
+  // 先に返さないと、渡せないのにゲームだけ止まってしまう
+  if (!navigator.share) return;
+  // **絵を取ったら、そのまま止める。** 共有シートが開いているあいだも
+  // ゲームは走り続けるので、実機では戻ってきたときにやられていた。
+  // 撮ったのは押した瞬間の絵なので、止めても写るものは変わらない
+  const wasPaused = paused;
+  try {
+    const blob = await screenshotBlob();
+    if (!blob) return;
+    if (!wasPaused && state === 'play') togglePause();
+    await navigator.share({
+      files: [new File([blob], 'star-fable.png', { type: 'image/png' })],
+      title: 'STAR FABLE',
+    });
+  } catch (e) { /* 取り消されただけのことが多い。何も知らせない */ }
+}
+
+/**
+ * **OS へ画像を渡す口を用意する**(箱から矢印)。
+ *
+ * **出せるかどうかは環境の名前で決めない。** 実際に PNG を 1 枚作って
  * `canShare({files})` に聞く。これなら Windows / Mac / スマホの別も、
  * ブラウザの別(Firefox には無い)も、こちらが表を持たずに済む。
- * 聞けるのは**ファイルを 1 つ用意してから**なので、起動時に 1 回だけ試す
+ * 聞けるのは**ファイルを 1 つ用意してから**なので、起動時に 1 回だけ試す。
+ *
+ * **どこへ出すかは端末で分ける。**
+ *   PC     … 今までどおり表のボタン(#os-share)
+ *   スマホ … 表には出さず、**カメラを押して開く板の中**(X の隣)。
+ *            遊んでいる最中の画面からボタンが 1 つ減るし、
+ *            「撮ってから行き先を選ぶ」という順のほうが迷わない
  */
 async function setupOsShare() {
   const btn = document.getElementById('os-share');
   if (!btn || !navigator.share || !navigator.canShare) return;
-  let file;
   try {
     const blob = await screenshotBlob();
     if (!blob) return;
-    file = new File([blob], 'star-fable.png', { type: 'image/png' });
-    if (!navigator.canShare({ files: [file] })) return;   // 渡せない環境
+    if (!navigator.canShare({ files: [new File([blob], 'star-fable.png', { type: 'image/png' })] })) {
+      return;   // 渡せない環境
+    }
   } catch (e) { return; }
+  osShareOK = true;
+  if (PAD_ON) {
+    // スマホ。表のボタンは出さないまま、板の中のぶんに絵を入れておく
+    updateShareOsBtn();
+    return;
+  }
   btn.style.display = '';
   drawToolIcons();
-  btn.addEventListener('click', async () => {
-    btn.blur();
-    // **絵を取ったら、そのまま止める。** 共有シートが開いているあいだも
-    // ゲームは走り続けるので、実機では戻ってきたときにやられていた。
-    // 撮ったのは押した瞬間の絵なので、止めても写るものは変わらない
-    const wasPaused = paused;
-    try {
-      const blob = await screenshotBlob();
-      if (!blob) return;
-      if (!wasPaused && state === 'play') togglePause();
-      await navigator.share({
-        files: [new File([blob], 'star-fable.png', { type: 'image/png' })],
-        title: 'STAR FABLE',
-      });
-    } catch (e) { /* 取り消されただけのことが多い。何も知らせない */ }
-  });
+  btn.addEventListener('click', () => { btn.blur(); osShareImage(); });
+}
+
+/**
+ * 板の中の「OS へ渡す」ボタンを出す / 隠す。**スマホなら いつでも出す**。
+ *
+ * 出すのは**渡せる環境**か、**手元で機種を真似ているとき**。
+ * あとのほうは、PC の localhost に ?device= を付けて見えかたを確かめる場面のこと。
+ * PC のブラウザは画像を渡せないことが多く、そこだけボタンが消えていては
+ * 並びが確かめられない。**押しても何も起きないだけ**(osShareImage が先に返る)。
+ * 絵は借りているボタンと同じ並びから作る(engine/util/icons.js)
+ */
+function updateShareOsBtn() {
+  if (!shareOsBtn) return;
+  const on = PAD_ON && (osShareOK || (RECORD_HOST && !!DEVICE));
+  shareOsBtn.style.display = on ? '' : 'none';
+  const mark = shareOsBtn.firstElementChild;
+  // 絵を入れるのは 1 度だけ。**入れたかどうかは印で持つ**
+  // (background-image を見ると、敷いていなくても 'none' が返って入っていることになる)
+  if (!on || !mark || mark.dataset.ready) return;
+  try {
+    mark.style.backgroundImage =
+      `url("${iconDataURL(mmsxx, ICONS.share, { body: ICON_BODY, accent: 7, scale: 2, key: 'share-os' })}")`;
+    mark.dataset.ready = '1';
+  } catch (e) { shareOsBtn.textContent = 'SHARE'; }
 }
 
 /** 端まで来た ＋ / − を灰色にする。**枠ごと**沈めて、押せないことを見せる */
