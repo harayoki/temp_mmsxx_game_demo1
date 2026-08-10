@@ -64,6 +64,7 @@ import { gameStop } from './console-stop.js';
 //   ?mode=hard      … 始めかたを選ぶ(normal / hard / bossrush / staff / sound / chars)
 //   ?turn=180       … 画面を上下逆さにして始める(ポーズ中のボタンと同じ)
 //   ?stick=origin   … 十字の向きを「触れたところから」で決める(既定は指の動く向き)
+//   ?areas=1        … 指を受ける場所を色分けして見せる(十字 = 青 / ショット = 赤)
 //   ?snap=8         … 自機の向きを何方向へ丸めるか(0 / 4 / 8 / 16。既定 0 = 丸めない)
 //   ?power=0        … 倒し量を速さに掛けない(既定は掛ける = そっと動かせば ゆっくり)
 //   ?gain=1.41      … 自機の速さの倍率(0.5〜2。既定 1)。前の「斜めの速さ」に合わせる用
@@ -13395,6 +13396,9 @@ if (PAD_ON) {
   mmsxx.vdp.refitCss();
 
   touchGui.attach();
+  // **?areas=1 で受け場所を色分けして見せる。** 絵の外まで受けているので、
+  // 見た目からは境目が分からない。効く / 効かないを追うときの最初の一手
+  if (OPT.get('areas') === '1') touchGui.showAreas(true);
   // **撃ちかたを裏返したので、文言も合わせる。**
   // 触ると撃つのではなく、こすると速くなる(触っていないあいだも出ている)
   touchGui.setPadLabels({ shotNote: 'RUB TO RAPID FIRE' });

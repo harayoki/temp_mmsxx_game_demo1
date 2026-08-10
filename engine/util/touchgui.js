@@ -549,6 +549,17 @@ export class TouchGui {
     return this;
   }
 
+  /**
+   * **どの指がどこで受けられるかを色で見せる**(確かめるときだけ)。
+   *
+   * 十字とショットは絵の外まで受けているので、**見た目からは境目が分からない**。
+   * 「ここは効くはずなのに効かない」を追うときは、まずこれを出すこと
+   */
+  showAreas(on) {
+    if (this._root) this._root.classList.toggle('areas', !!on);
+    return this;
+  }
+
   /** 案内の言語を変える */
   setLang(lang) {
     this.opts.lang = lang;
@@ -1315,6 +1326,34 @@ function injectStyle() {
   position: absolute; pointer-events: auto;
   top: var(--safe-t, 0px); bottom: var(--safe-b, 0px);
 }
+/* **受け場所を色で見せる**(showAreas。確かめるときだけ)。
+   絵の外まで受けているので、ふだんは境目が見えない。
+   色は「十字 = 青 / ショット = 赤」で、**絵のある帯は濃く、受けるだけは薄く**。
+   名前も隅に出す(どれがどれか、色だけでは覚えられない) */
+.mmsxx-gui.areas .mmsxx-gui-left,
+.mmsxx-gui.areas .mmsxx-gui-catch-left { background: rgba(64, 132, 255, 0.30); }
+.mmsxx-gui.areas .mmsxx-gui-catch-left { background: rgba(64, 132, 255, 0.13); }
+.mmsxx-gui.areas .mmsxx-gui-right { background: rgba(255, 72, 72, 0.30); }
+.mmsxx-gui.areas .mmsxx-gui-catch-right { background: rgba(255, 72, 72, 0.13); }
+.mmsxx-gui.areas .mmsxx-gui-left,
+.mmsxx-gui.areas .mmsxx-gui-right,
+.mmsxx-gui.areas .mmsxx-gui-catch-left,
+.mmsxx-gui.areas .mmsxx-gui-catch-right {
+  outline: 1px dashed rgba(255, 255, 255, 0.55); outline-offset: -1px;
+}
+.mmsxx-gui.areas .mmsxx-gui-left::after,
+.mmsxx-gui.areas .mmsxx-gui-right::after,
+.mmsxx-gui.areas .mmsxx-gui-catch-left::after,
+.mmsxx-gui.areas .mmsxx-gui-catch-right::after {
+  position: absolute; left: 2px; top: 2px; pointer-events: none;
+  font: 12px/1.2 monospace; color: #ffffff; text-shadow: 0 0 3px #000000;
+  white-space: pre;
+}
+.mmsxx-gui.areas .mmsxx-gui-left::after { content: 'PAD'; }
+.mmsxx-gui.areas .mmsxx-gui-catch-left::after { content: 'PAD\\A(catch)'; }
+.mmsxx-gui.areas .mmsxx-gui-right::after { content: 'SHOT'; }
+.mmsxx-gui.areas .mmsxx-gui-catch-right::after { content: 'SHOT\\A(catch)'; }
+
 /* **指を受けるだけの場所。** 何も見せない。
    ゲーム画面の上に被るので、**触れたことが分かる印も出さない**
    (弾を隠さないため)。出し入れは touch.js の visible がやる */
