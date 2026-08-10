@@ -13640,13 +13640,17 @@ function showPadSenseButton() {
 }
 
 /**
- * 内容とは関わりのないボタンなので、**ポーズ中だけ**出す。
- * タイトルや一覧にも置くと、選ぶことの多い画面に用の無い絵が増える
+ * **ポーズ中とタイトルで出す。**
+ *
+ * 持ちかたを決めるのは遊びはじめる前なので、**タイトルにも要る**
+ * (ポーズまで来ないと回せないのでは、最初のひと勝負を遠回りして遊ぶことになる)。
+ * 遊んでいる最中は出さない。弾を避けている最中に触るものではないし、
+ * そのぶん十字の場所を食う
  */
 function showRotateButton() {
   const el = document.getElementById('rotate-btn');
   if (!el) return;
-  const on = paused;
+  const on = paused || state === 'title';
   if (rotateShown === on) return;
   rotateShown = on;
   el.style.display = on ? '' : 'none';
