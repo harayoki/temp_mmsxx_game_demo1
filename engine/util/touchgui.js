@@ -242,6 +242,14 @@ const DEFAULTS = {
    */
   padBleed: 0.25,
   /**
+   * **指を受ける場所の分け目**(器の幅に対する割合)。
+   * ここより左が十字、右がショット。
+   *
+   * 真ん中で割らないのは、**要る広さが違う**から。十字は画面を見ながら
+   * 大きく動かすので広いほうがよく、ショットは端で小さくこするだけで足りる
+   */
+  catchSplit: 0.75,
+  /**
    * **案内を出すのに要る空き**(px)。これを割ったら文字は出さない。
    * 隙間が無いところへ無理に出すと、ゲーム画面に文字が重なって
    * どちらも読めなくなる。**操作の案内は出せるときだけでよい**
@@ -751,17 +759,23 @@ export class TouchGui {
     // かぶせるのは案内が読めなくなるからではなく、**指のためなので、
     // 空きが足りているかどうかに関わらず いつもかぶせる**
     const bleed = Math.round(cw * Math.max(0, this.opts.padBleed || 0));
+    // **指を下ろせる場所の分け目。ここより左が十字、右がショット。**
+    // 十字は「触れたところが原点」、こすりは「触れてから動かした量」なので、
+    // **広げても操作の中身は変わらない**(絵は帯の中に出るだけで、
+    // 受けるだけの場所には何も足さない)。
+    // **真ん中では割らない。** 十字は画面を見ながら大きく動かすもので、
+    // ショットは端で小さくこするもの。要る広さが違う(既定は十字に 75%)
+    const mid = Math.round(w * Math.min(0.95, Math.max(0.05, this.opts.catchSplit)));
     const zoneL = { x: plan.left.x, w: plan.left.w + bleed };
-    const zoneR = { x: plan.right.x - bleed, w: plan.right.w + bleed };
+    // **ショットの帯は分け目より左へは出さない。**
+    // 帯(絵のほう)も指を受けるので、かぶせたぶんが分け目を越えると
+    // **そこから先はショットが取ってしまい、分け目を決めた意味が無くなる**
+    const rx = Math.max(mid, plan.right.x - bleed);
+    const zoneR = { x: rx, w: plan.right.x + plan.right.w - rx };
     for (const [name, z] of [['left', zoneL], ['right', zoneR]]) {
       this._el[name].style.left = z.x + 'px';
       this._el[name].style.width = z.w + 'px';
     }
-    // **指を下ろせる場所は、左右とも真ん中まで。**
-    // 十字は「触れたところが原点」、こすりは「触れてから動かした量」なので、
-    // **広げても操作の中身は変わらない**(絵は上の帯の中に出るだけで、
-    // ここには何も足さない)。ゲーム画面は器の真ん中にあるので、真ん中 = w / 2
-    const mid = Math.round(w / 2);
     const put = (el, from, to) => {
       el.style.left = from + 'px';
       el.style.width = Math.max(0, to - from) + 'px';

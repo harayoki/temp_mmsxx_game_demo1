@@ -177,6 +177,20 @@ const DEFAULTS = {
    * **'C'(出入り)には効かない**。あちらはもともと押しっぱなしで動く
    */
   holdFire: false,
+  /**
+   * **触っていないあいだ、キーを押しっぱなしにするか**(holdFire の逆)。
+   *
+   * true にすると、**何もしていないときが「撃っている」**になる。
+   *
+   *   指を置いていない … 押しっぱなし(ゲーム側のゆっくりの自動連射)
+   *   置いて動かさない … 撃たない(**止めるために触る**)
+   *   こする          … そのぶん押し直す(今までどおり)
+   *
+   * 撃ちっぱなしが基本の遊びで、**撃たないことのほうが珍しい**ときに向く。
+   * 指はふだん自由で、止めたいときだけ置けばよい。
+   * **holdFire より優先する**(同時に立てても、こちらが勝つ)
+   */
+  idleFire: false,
   shotCode: 'Space',
   pauseCode: 'Escape',
 };
@@ -387,6 +401,8 @@ export class TouchControls {
     // **受けるだけの入れ物も一緒に消す。** 残すと、メニューで払ったつもりの指を
     // 十字やショットが横取りしてしまう(絵は出ていないので、何が起きたのか分からない)
     for (const c of this._catches()) c.style.display = v ? '' : 'none';
+    // 出したら「撃っている」状態から始める / しまったら押しっぱなしを解く
+    this._applyIdleFire();
   }
 
   /** つまみを変える。**動かしたまま効く** */
@@ -394,6 +410,8 @@ export class TouchControls {
     if (patch && patch.labels) this.setLabels(patch.labels);
     Object.assign(this.opts, patch);
     this._applyLayout();
+    // 撃ちかたを変えられたぶんを、いまの指の様子に合わせ直す
+    this._applyIdleFire();
   }
 
   /**
@@ -950,10 +968,17 @@ export class TouchControls {
     p.cell = this._cellOf(p);
     this.rub.cell = p.cell;
     this.rub.turns = 0;
-    // どの方式でも、触れた瞬間に 1 発は出る。
-    // **holdFire なら、そのまま押しっぱなしにする**(離すまで下ろさない)
-    if (this.opts.shotMode === 'C' || this.opts.holdFire) this._press(this.opts.shotCode);
-    else this._pulse(this.opts.shotCode);
+    if (this.opts.idleFire) {
+      // **触っていないあいだが「撃っている」。** だから触ったら止める。
+      // ここで 1 発 出してしまうと、止めようとして撃つことになる
+      this._release(this.opts.shotCode);
+    } else if (this.opts.shotMode === 'C' || this.opts.holdFire) {
+      // **holdFire なら、そのまま押しっぱなしにする**(離すまで下ろさない)
+      this._press(this.opts.shotCode);
+    } else {
+      // どの方式でも、触れた瞬間に 1 発は出る
+      this._pulse(this.opts.shotCode);
+    }
     this._startHold();
   }
 
@@ -962,7 +987,8 @@ export class TouchControls {
    * 数えかた(A / B / D)の側からはこれだけを呼ぶ
    */
   _rubFire() {
-    if (this.opts.holdFire) this._retrigger(this.opts.shotCode);
+    // idleFire のあいだは押していない(触っているので)。ふつうに 1 発ずつでよい
+    if (this.opts.holdFire && !this.opts.idleFire) this._retrigger(this.opts.shotCode);
     else this._pulse(this.opts.shotCode);
   }
 
@@ -1043,6 +1069,25 @@ export class TouchControls {
     this._release(this.opts.shotCode);
     this._stopHold();
     this.rub.cell = '';
+    // 指が離れた = また「撃っている」状態へ戻る(idleFire のとき)
+    this._applyIdleFire();
+  }
+
+  /**
+   * **触っていないあいだ押しっぱなしにする**(idleFire)。
+   *
+   * 押し直すきっかけは 3 つ。**指が離れたとき**・**出し入れしたとき**・
+   * **つまみが変わったとき**。どれか 1 つでも抜けると、
+   * 撃ちっぱなしのまま止まらなくなったり、逆に永久に撃たなくなったりする。
+   *
+   * **出ていないあいだは押さない。** メニューでも押しっぱなしにすると、
+   * SPACE が押されたままになって選ぶ操作が壊れる
+   */
+  _applyIdleFire() {
+    if (!this.opts.idleFire) return;
+    const touching = [...this.pointers.values()].some((p) => p.owner === 'shot');
+    if (touching || !this.visible) this._release(this.opts.shotCode);
+    else this._press(this.opts.shotCode);
   }
 
   /**

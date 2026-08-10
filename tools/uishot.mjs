@@ -91,7 +91,9 @@ for (const key of keys) {
     const notch = args.notch && d.notch ? `&notch=${args.notch}` : '';
     for (const lang of langs) {
       const q = lang ? `&lang=${lang}` : '';
-      const url = `${args.url || 'http://localhost:8080'}/?device=${key}${notch}${q}${sc.q}`;
+      // **ホームに置くことを勧める札は出さない。** 手元では毎回出る作りなので、
+      // 付けないと どの写真にも かぶってしまう
+      const url = `${args.url || 'http://localhost:8080'}/?device=${key}${notch}${q}${sc.q}&a2hs=off`;
       const file = path.join(outDir, `${key}-${sc.id}${lang ? '-' + lang : ''}.png`);
       await shoot(url, d.w + MARGIN, d.h + MARGIN, file);
       console.log(`${key.padEnd(7)} ${sc.id.padEnd(5)} ${(lang || 'auto').padEnd(4)} `
