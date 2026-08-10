@@ -57,8 +57,10 @@
     justify-content: center;
     flex-direction: column;
     /* **二度たたきの拡大を止める。** 連射ボタンを何度か叩いただけで
-       画面が拡大してしまっていた(iOS の double-tap zoom)。
-       manipulation は はじく / つまむ は残したまま、二度たたきの拡大だけ切る */
+       画面が拡大してしまっていた(iOS の「二度たたきで拡大」)。
+       manipulation は**指で送る(スクロール)のと、二本指で広げる拡大は残したまま**、
+       二度たたきの拡大だけを切る。none にすると二本指の拡大まで消えるので、
+       読みづらいときに広げる逃げ道が無くなる */
     touch-action: manipulation;
     /* 横向きにしたときに字だけ大きくされるのを止める(ドット絵の升目がずれる) */
     -webkit-text-size-adjust: 100%;
