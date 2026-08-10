@@ -779,6 +779,10 @@ export class TouchGui {
     }
     this.touch.setOptions({
       anchorInset: (stacked && tools) ? Math.round(tools.offsetWidth) : 0,
+      // **絵の大きさは、かぶせる前の帯の幅で決める。**
+      // 入れ物の幅をそのまま使うと、かぶせたぶんだけ十字も連射の丸も育つ。
+      // 広げたのは指を受けるためなので、絵は帯なりの大きさで据え置く
+      areaWidth: bleed ? Math.min(plan.left.w, plan.right.w) : 0,
     });
     this._paintSafeArea(s, w, h);
     // 画角を決め打ちにしているときは、その大きさを枠で見せる

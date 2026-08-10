@@ -90,6 +90,15 @@ const DEFAULTS = {
   // **入れ物の幅の何割を絵にするか。** 狭いエリアでは小さく、広いエリアでは大きく。
   // 指の大きさは端末によらず同じなので、広いところで小さいままだと押しにくい
   areaRatio: 0.8,
+  /**
+   * **大きさを決めるのに使う幅**(px)。0 なら入れ物の幅をそのまま使う(既定)。
+   *
+   * 入れ物をゲーム画面へかぶせて広げると、そのぶん絵まで育ってしまう。
+   * **広げたのは指を受けるためで、絵を大きくしたいわけではない**ので、
+   * かぶせる前の幅をここへ渡せば、絵の大きさは据え置きになる
+   * (置き場所は入れ物の真ん中のままなので、かぶせたぶんは横へ寄る)
+   */
+  areaWidth: 0,
   minRadius: 44,       // これより小さくはしない(指で押せなくなる)
   maxRadius: 120,      // これより大きくはしない(px での歯止め)
   /**
@@ -452,7 +461,8 @@ export class TouchControls {
     const o = this.opts;
     let r = null;
     for (const z of this._zones) {
-      const w = z.clientWidth;
+      // **かぶせて広げたぶんは数えない**(areaWidth。0 なら入れ物のまま)
+      const w = o.areaWidth > 0 ? o.areaWidth : z.clientWidth;
       if (w > 0) {
         const fit = ((w * o.areaRatio) / 1.02 + 40) / 2.8;
         r = r === null ? fit : Math.min(r, fit);
