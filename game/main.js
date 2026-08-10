@@ -13442,7 +13442,8 @@ function drawToolIcons() {
   // 外のボタンで行き先を名乗らない。することは「画面を撮る」
   put('share-btn', ICONS.camera, 7);
   put('os-share', ICONS.share, 7);
-  put('keyboard-btn', ICONS.keyboard, 7);
+  // **横長のボタンには横長の絵。** 16x16 を引き伸ばすとキーが長方形になって崩れる
+  put('keyboard-btn', ICONS.keyboardWide, 7);
   put('rotate-btn', ICONS.rotate180, 7);
   // **切り替えのボタンは中の絵だけで状態を出す。**(枠は白いまま。いつでも押せる)
   // 効いていないときは差し色も灰色にして、絵ごとモノクロにする
@@ -13736,9 +13737,33 @@ function makeSoftPanel() {
   // 裏技の語も名前も**大文字**なので、はじめから大文字で出させる
   el.setAttribute('autocapitalize', 'characters');
   el.setAttribute('enterkeyhint', 'done');
+  // **英数字のキーボードを出させる。** 既定のままだと、日本語の入力に
+  // 設定している端末では かな が出てくる(打っても 1 字も入らないので途方に暮れる)。
+  // inputmode は「どの並びのキーボードを出すか」の希望で、
+  // **かなへ切り替えることは止められない**。止めるのは下の間引き
+  el.setAttribute('inputmode', 'email');
+  el.setAttribute('lang', 'en');
   // **字は 16px 以上。** これを割ると iOS が焦点を当てたときに画面へ寄っていく
   el.style.cssText = 'font:16px monospace;letter-spacing:2px;width:9em;'
     + 'padding:6px 8px;background:#202020;border:2px solid #8888aa;color:#ffffff';
+  // **打ったそばから、使える字だけに間引く。**
+  //
+  // かなへ切り替えられたら inputmode では止められないので、
+  // **入った字のほうを落とす**。ゲームが受け取れない字は欄にも残さない、
+  // で通しておけば、**見えているものがそのまま入る**(最後に黙って
+  // 消えるのがいちばん分かりにくい)。
+  // 大文字に直すのもここ。裏技の語も名前も大文字なので、
+  // 打ちながら見えているものと入るものをそろえる
+  el.addEventListener('input', () => {
+    const kept = [...el.value.toUpperCase()]
+      .filter((ch) => softKeyCode(ch))
+      .slice(0, softLimit())
+      .join('');
+    if (kept === el.value) return;
+    el.value = kept;
+    // カーソルは末尾へ。**間引いたあとの位置は当てにならない**
+    try { el.setSelectionRange(kept.length, kept.length); } catch (e) { /* 古い環境 */ }
+  });
   // **打っているあいだ、キーはゲームへ流さない。** エンジンは window で
   // keydown を拾っているので、止めないと打った字がそのまま操作になる
   // (裏技の打ち込みが二重に入り、矢印は自機を動かしてしまう)
