@@ -242,13 +242,14 @@ const DEFAULTS = {
    */
   padBleed: 0.25,
   /**
-   * **指を受ける場所の分け目**(器の幅に対する割合)。
-   * ここより左が十字、右がショット。
+   * **連射の丸のまわりに足す、受け場所の余白**(px)。
    *
-   * 真ん中で割らないのは、**要る広さが違う**から。十字は画面を見ながら
-   * 大きく動かすので広いほうがよく、ショットは端で小さくこするだけで足りる
+   * 受けるのは丸のまわりの四角だけで、**残りは全部 十字**。
+   * 十字は指がずれていくので広さが要るが、連射は同じところを
+   * こすり続けるので要らない。少しだけ余白を持たせて、
+   * 狙いが甘くても押せるようにする
    */
-  catchSplit: 0.75,
+  shotHitPad: 16,
   /**
    * **案内を出すのに要る空き**(px)。これを割ったら文字は出さない。
    * 隙間が無いところへ無理に出すと、ゲーム画面に文字が重なって
@@ -593,8 +594,9 @@ export class TouchGui {
     const game = next === 'game';
     this.touch.visible = game;
     // **出してから測り直させる。** 隠れているあいだ入れ物の幅は 0 なので、
-    // そのとき測った大きさは既定値へ落ちている(小さくならない原因だった)
-    if (game) this.touch.setOptions({});
+    // そのとき測った大きさは既定値へ落ちている(小さくならない原因だった)。
+    // 連射の受け場所も丸を測って決めているので、ここで取り直す
+    if (game) { this.touch.setOptions({}); this._fitShotHit(); }
     this._root.classList.toggle('menu', !game);
     // ゲーム中は器を素通しにして、十字とショットの入れ物だけが指を受ける。
     // メニューでは器ぜんぶで受ける(canvas の上を払っても効く)
@@ -770,35 +772,22 @@ export class TouchGui {
     // かぶせるのは案内が読めなくなるからではなく、**指のためなので、
     // 空きが足りているかどうかに関わらず いつもかぶせる**
     const bleed = Math.round(cw * Math.max(0, this.opts.padBleed || 0));
-    // **指を下ろせる場所の分け目。ここより左が十字、右がショット。**
-    // 十字は「触れたところが原点」、こすりは「触れてから動かした量」なので、
-    // **広げても操作の中身は変わらない**(絵は帯の中に出るだけで、
-    // 受けるだけの場所には何も足さない)。
-    // **真ん中では割らない。** 十字は画面を見ながら大きく動かすもので、
-    // ショットは端で小さくこするもの。要る広さが違う(既定は十字に 75%)
-    const mid = Math.round(w * Math.min(0.95, Math.max(0.05, this.opts.catchSplit)));
-    // **ショットの帯は分け目より左へは出さない。**
-    // 帯(絵のほう)も指を受けるので、かぶせたぶんが分け目を越えると
-    // **そこから先はショットが取ってしまい、分け目を決めた意味が無くなる**
+    // **左右の帯は同じ幅。** 片方だけ広いと、十字と連射で絵の置き場所が
+    // 食い違って見える(実機でそう見えた)。外側の端からそれぞれ同じだけ取る
     const rightEdge = plan.right.x + plan.right.w;
-    const rx = Math.max(mid, plan.right.x - bleed);
-    // **左右の帯は同じ幅にそろえる。**
-    // 分け目で右だけ切り詰めると、そのぶん左が広いままになり、
-    // **十字と連射で絵の置き場所が食い違って見える**(実機でそう見えた)。
-    // 狭いほうに合わせて、左右それぞれ**外側の端から**取り直す
-    const zw = Math.min(plan.left.w + bleed, rightEdge - rx);
+    const zw = plan.left.w + bleed;
     const zoneL = { x: plan.left.x, w: zw };
     const zoneR = { x: rightEdge - zw, w: zw };
     for (const [name, z] of [['left', zoneL], ['right', zoneR]]) {
       this._el[name].style.left = z.x + 'px';
       this._el[name].style.width = z.w + 'px';
     }
-    const put = (el, from, to) => {
-      el.style.left = from + 'px';
-      el.style.width = Math.max(0, to - from) + 'px';
-    };
-    put(this._el.catchL, zoneL.x + zoneL.w, mid);
-    put(this._el.catchR, mid, zoneR.x);
+    // **十字は帯の外もぜんぶ受ける。** 連射の丸のまわり(下で置く四角)だけは
+    // あちらが取るが、それ以外は右の端まで十字のもの。
+    // **指がずれるのは十字だけ**だから。連射は同じところを こすり続けるので
+    // 広い受け場所が要らない
+    this._el.catchL.style.left = (zoneL.x + zoneL.w) + 'px';
+    this._el.catchL.style.width = Math.max(0, w - (zoneL.x + zoneL.w)) + 'px';
     // 案内は**隙間があるときだけ**。十字とショットが自分で出している
     // 名前や使いかたの文字も、同じときに引っ込める
     // (重なっているところへ文字を足すと、ゲーム画面も文字も読めなくなる)
@@ -830,10 +819,44 @@ export class TouchGui {
       // 広げたのは指を受けるためなので、絵は帯なりの大きさで据え置く
       areaWidth: bleed ? Math.min(plan.left.w, plan.right.w) : 0,
     });
+    this._fitShotHit();
     this._paintSafeArea(s, w, h);
     // 画角を決め打ちにしているときは、その大きさを枠で見せる
     // (実機では窓がそのまま画角なので、囲むものが無い)
     this._root.classList.toggle('framed', !!box);
+  }
+
+  /**
+   * **連射の受け場所を、丸のまわりの四角だけにする。**
+   *
+   * 十字は「触れたところが原点」なので指が上下左右へずれていくが、
+   * **連射は同じところを こすり続ける**ので、広い受け場所が要らない。
+   * 丸のまわりだけ取って、**残りは全部 十字に渡す**ほうが指に優しい。
+   *
+   * 場所は**丸そのものを測って**決める。同じ式を書き写すと、
+   * touch.js 側の見た目を変えたときにここだけ取り残される。
+   *
+   * **絵が出ているときにしか測れない。** 隠れているあいだ大きさは 0 なので、
+   * モードを切り替えて出したあとにも呼ぶこと(呼び忘れると受け場所が 0 のまま、
+   * 連射がどこを押しても効かなくなる)
+   */
+  _fitShotHit() {
+    const hit = this._el.catchR;
+    const zone = this._el.right;
+    const fire = this.touch._fire;
+    if (!hit || !zone) return;
+    if (!fire || !fire.offsetWidth) { hit.style.width = '0px'; hit.style.height = '0px'; return; }
+    const m = Math.max(0, Math.round(this.opts.shotHitPad || 0));
+    // **offsetLeft は当てにならない。** 丸は translateX(-50%) で置かれていて、
+    // offsetLeft は動かす前の値なので、見た目より右半分ぶんずれる。
+    // **帯の中での差**で取る(向きが回っていても、差なら同じ意味になる)
+    const zr = this.touch._rectOf(zone);
+    const fr = this.touch._rectOf(fire);
+    hit.style.left = Math.round(zone.offsetLeft + (fr.left - zr.left) - m) + 'px';
+    hit.style.top = Math.round(zone.offsetTop + (fr.top - zr.top) - m) + 'px';
+    hit.style.width = Math.round(fr.width + m * 2) + 'px';
+    hit.style.height = Math.round(fr.height + m * 2) + 'px';
+    hit.style.bottom = 'auto';
   }
 
   /**
@@ -1329,9 +1352,15 @@ function injectStyle() {
    指を受けるところには それぞれ auto を書いておく。
    上下は食われるぶんだけ内側へ寄せる(ホームバーは指を吸う) */
 .mmsxx-gui-left, .mmsxx-gui-right {
-  position: absolute; pointer-events: auto;
+  position: absolute;
   top: var(--safe-t, 0px); bottom: var(--safe-b, 0px);
 }
+/* 十字は帯ぜんぶで受ける(指がずれていくので) */
+.mmsxx-gui-left { pointer-events: auto; }
+/* **連射の帯は受けない。** 受けるのは丸のまわりの四角だけ
+   (.mmsxx-gui-catch-right。場所は layout の _fitShotHit が決める)。
+   帯そのものは絵を置くためだけに残してある */
+.mmsxx-gui-right { pointer-events: none; }
 /* **受け場所を色で見せる**(showAreas。確かめるときだけ)。
    絵の外まで受けているので、ふだんは境目が見えない。
    色は「十字 = 青 / ショット = 赤」で、**絵のある帯は濃く、受けるだけは薄く**。
@@ -1358,14 +1387,21 @@ function injectStyle() {
 .mmsxx-gui.areas .mmsxx-gui-left::after { content: 'PAD'; }
 .mmsxx-gui.areas .mmsxx-gui-catch-left::after { content: 'PAD\\A(catch)'; }
 .mmsxx-gui.areas .mmsxx-gui-right::after { content: 'SHOT'; }
-.mmsxx-gui.areas .mmsxx-gui-catch-right::after { content: 'SHOT\\A(catch)'; }
+.mmsxx-gui.areas .mmsxx-gui-catch-right::after { content: 'SHOT\\Aここだけ'; }
+/* 受けない帯は、受ける場所と見分けがつくように塗らない(枠だけ) */
+.mmsxx-gui.areas .mmsxx-gui-right { background: rgba(255, 72, 72, 0.10); }
 
 /* **指を受けるだけの場所。** 何も見せない。
    ゲーム画面の上に被るので、**触れたことが分かる印も出さない**
    (弾を隠さないため)。出し入れは touch.js の visible がやる */
-.mmsxx-gui-catch-left, .mmsxx-gui-catch-right {
+.mmsxx-gui-catch-left {
   position: absolute; pointer-events: auto; background: none;
   top: var(--safe-t, 0px); bottom: var(--safe-b, 0px);
+}
+/* 連射の受け場所。**丸のまわりの四角だけ**。上下も layout が決めるので、
+   ここでは帯のように伸ばさない */
+.mmsxx-gui-catch-right {
+  position: absolute; pointer-events: auto; background: none;
 }
 
 /* 案内。**メニューのときだけ**出す。指の邪魔をしないよう素通しにする */
