@@ -13395,6 +13395,9 @@ if (PAD_ON) {
   mmsxx.vdp.refitCss();
 
   touchGui.attach();
+  // **撃ちかたを裏返したので、文言も合わせる。**
+  // 触ると撃つのではなく、こすると速くなる(触っていないあいだも出ている)
+  touchGui.setPadLabels({ shotNote: 'RUB TO RAPID FIRE' });
   // 音の入切とシェアのボタンは、器の右の空きへ移す。
   // **器は画面ぜんぶを覆う**ので、外に置いたままでは指が届かない
   const toolsEl = document.getElementById('tools');

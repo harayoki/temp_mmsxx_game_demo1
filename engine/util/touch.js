@@ -577,7 +577,14 @@ export class TouchControls {
     for (const arrow of this._dpad.querySelectorAll('.mmsxx-touch-stick .mmsxx-touch-arrow')) {
       arrow.classList.toggle('on', this.down.has(arrow.dataset.code));
     }
-    if (this._fire) this._fire.classList.toggle('on', this.down.has(this.opts.shotCode));
+    // **押しっぱなしの明かりは、撃ちっぱなしの遊びでは出さない。**
+    // idleFire では触っていないあいだが押しっぱなしなので、点けると
+    // 遊んでいるあいだ ずっと光ることになる(こすりが効いた合図が埋もれる)。
+    // 光らせるのは 1 発ぶんが出たときの ぱっとした明滅だけ(_flashFire)
+    if (this._fire) {
+      this._fire.classList.toggle('on',
+        !this.opts.idleFire && this.down.has(this.opts.shotCode));
+    }
     if (this._pause) this._pause.classList.toggle('on', this.down.has(this.opts.pauseCode));
   }
 
@@ -587,7 +594,7 @@ export class TouchControls {
     if (this.down.has(code)) return;
     this.down.add(code);
     if (this.onPress) this.onPress(code, SOURCE);
-    if (code === this.opts.shotCode) { this._countShot(); this._flashFire(); }
+    if (code === this.opts.shotCode) this._countShot();
     this._paint();
   }
 
@@ -626,6 +633,10 @@ export class TouchControls {
   _pulse(code) {
     if (this._pulseDown.has(code) || this.down.has(code)) return;
     this._press(code);
+    // **光るのは 1 発ぶんが出たときだけ。** 押しっぱなし(_press だけ)では光らせない。
+    // 撃ちっぱなしが既定の遊び(idleFire)では、押しっぱなしで光らせると
+    // 遊んでいるあいだ ずっと点いていて、こすりが効いたことが分からなくなる
+    if (code === this.opts.shotCode) this._flashFire();
     this._pulseDown.add(code);
     this._runPulses();
   }
@@ -643,6 +654,7 @@ export class TouchControls {
     if (!this.down.has(code)) { this._pulse(code); return; }
     this._release(code);
     this._press(code);
+    if (code === this.opts.shotCode) this._flashFire();   // 1 発ぶん出た
   }
 
   _runPulses() {
