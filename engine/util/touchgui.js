@@ -274,6 +274,11 @@ const DEFAULTS = {
    * 8x12 の書体に差し替えるなら 12 にする
    */
   fontUnit: 8,
+  /**
+   * **押せるようになったボタンが光る長さ**(ms)。CSS の keyframes と合わせること。
+   * 場所を動かさない決めなので、**変わったことに気づく手がかりが色しか無い**
+   */
+  wakeMs: 1000,
   /** 長押しと認めるまで(ms)。短いと、ふつうに押しただけで説明が出る */
   tipHoldMs: 450,
   /**
@@ -561,6 +566,12 @@ export class TouchGui {
     return this;
   }
 
+  /**
+   * **撃ちっぱなしを言い直す**(touch.js の idleFire)。**毎コマ呼ぶこと**。
+   * 受け取る側が入力を捨てても(画面が非アクティブ・知らせを閉じた)、次のコマで戻る
+   */
+  keepFire() { this.touch.keepFire(); return this; }
+
   /** 案内の言語を変える */
   setLang(lang) {
     this.opts.lang = lang;
@@ -669,9 +680,31 @@ export class TouchGui {
     // 場所は動かないまま「いまは使えない」が伝わる
     for (const [key, el] of [['ok', this._el.ok], ['esc', this._el.esc], ['opt', this._el.opt]]) {
       const v = g[key];
+      // **押せるようになった瞬間だけ、ひととき光らせる。**
+      // 場所は動かさない決めなので、**変わったことに気づく手がかりが色しか無い**。
+      // 沈んでいた箱に字が入っても、目を向けていなければ見落とす
+      const woke = !!v && el.classList.contains('off');
       el.classList.toggle('off', !v);
       el.textContent = pickText(v, this.opts.lang);
+      if (woke) this._wake(el);
     }
+  }
+
+  /**
+   * **押せるようになったことを 1 秒だけ光って知らせる。**
+   * 光り終わったら印を外す(付けっぱなしにすると、次に光らない)
+   */
+  _wake(el) {
+    el.classList.remove('wake');
+    void el.offsetWidth;   // ここで巻き戻さないと、続けて変わったときに光り直さない
+    el.classList.add('wake');
+    // **終わりは時間で見る。** animationend を待つと、画面が背面にいるあいだは
+    // アニメが止まっていて飛んでこず、**印が付いたまま**になる
+    if (el._wakeTimer) clearTimeout(el._wakeTimer);
+    el._wakeTimer = setTimeout(() => {
+      el._wakeTimer = 0;
+      el.classList.remove('wake');
+    }, this.opts.wakeMs);
   }
 
   // ── 置き場所 ──────────────────────────────────────────
@@ -1313,8 +1346,12 @@ function injectStyle() {
 /* **GUI はいつも半透明。** 重なっていないときも薄くしておく。
    道具であってゲームの絵ではないので、前へ出てこないほうがよい。
    重ねているときはさらに薄くして、下の弾と自機が透けるようにする */
+/* **ボタンは薄くしない。** ここに入れていたせいで、START や RESUME まで
+   72% の濃さで出ていて、実機では**押すところだと気づけなかった**
+   (「ゲームを始めるのも迷った」)。薄くしてよいのは、場所を覚えたあとは
+   邪魔になるもの(十字・ショット・案内の絵)だけ */
 .mmsxx-gui-left, .mmsxx-gui-right,
-.mmsxx-gui-guide, .mmsxx-gui-btns {
+.mmsxx-gui-guide {
   opacity: var(--gui-alpha, 0.72);
   /* 薄くなるのは**じわりと**。ぱっと変わると目を引いてしまう */
   transition: opacity 400ms linear;
@@ -1469,10 +1506,10 @@ function injectStyle() {
      帯いっぱいまで育てる(**そこまで長い文言は書かないのが本筋**) */
   position: absolute; left: 50%; transform: translateX(-50%);
   width: max-content; min-width: 62%; max-width: calc(100% - 4px);
-  /* **枠だけ濃いめ。** 中身は沈めて、輪郭で「ボタンがある」と分からせる。
-     **効く場面では明るく。** 沈めた off との差が枠の濃さだけだと、
-     どちらの状態なのかがゲーム画面の上では読み取れなかった */
-  background: rgba(64, 64, 88, 0.62); border: 2px solid #ccd0e0; color: #ffffff;
+  /* **効く場面ははっきり出す。** 半透明にしていたころは、実機で
+     「押すところだ」と気づけなかった。地は透かさず、枠は白、字も白。
+     沈めた off(下)との差が一目で分かる濃さにする */
+  background: #2a2a3c; border: 2px solid #ffffff; color: #ffffff;
   font: var(--mmsxx-gui-font-size, 16px) var(--mmsxx-gui-font, monospace); letter-spacing: 0;
   display: flex; align-items: center; justify-content: center;
   box-sizing: border-box;
@@ -1486,8 +1523,16 @@ function injectStyle() {
 /* **その場かぎりの 3 つめ。** ESC のすぐ下に居座る。
    使わない場面でも箱は残す(位置を覚えたままにするため) */
 .mmsxx-gui-opt { top: 62px; }
-/* OK は箱を大きく取る。**字は ESC と同じ大きさ**(画面の中の字に合わせてある) */
-.mmsxx-gui-ok { bottom: 10%; padding-top: 14px; padding-bottom: 14px; }
+/* OK は箱を大きく取る。**字は ESC と同じ大きさ**(画面の中の字に合わせてある)。
+   **ここだけ色を変える。** 先へ進む口はいつもこれなので、
+   ほかのボタンと同じ顔にしておくと、初めての人が どれを押すか迷う
+   (実機で「ゲームを始めるのも迷った」) */
+.mmsxx-gui-ok {
+  bottom: 10%; padding-top: 14px; padding-bottom: 14px;
+  background: #ffe000; border-color: #ffe000; color: #111122;
+}
+/* 沈めるときは色も戻す(押せないのに目立つのがいちばん困る) */
+.mmsxx-gui-ok.off { background: #2a2a3c; border-color: #ffffff; color: #ffffff; }
 /* **横が窮屈な機種では左右も詰める。** 端の 6px と字の左右の余白を削って、
    長い文言(GO TITLE など)が入るところまで幅を稼ぐ */
 /* **狭いところでは外側の端へ寄せる。** 真ん中に置くとゲーム画面の側へ
@@ -1513,6 +1558,16 @@ function injectStyle() {
    置き場所は layout() が ESC の箱に合わせるので、ここは真ん中でよい */
 .mmsxx-gui.overlap .mmsxx-gui-tools-right,
 .mmsxx-gui.narrow .mmsxx-gui-tools-right { justify-content: center; }
+/* **押せるようになった直後の 1 秒。** ぱっぱっと 4 回 明るくして目を向けさせる。
+   なめらかに明滅させず steps で切り替えるのは、昔の画面の感じに寄せるため
+   (光るのは明るさだけ。地や枠の色は触らないので、押されたときの見た目と
+   けんかしない) */
+@keyframes mmsxx-gui-btn-wake {
+  0%   { filter: brightness(1); }
+  50%  { filter: brightness(2.2); }
+  100% { filter: brightness(1); }
+}
+.mmsxx-gui-btn.wake { animation: mmsxx-gui-btn-wake 0.25s steps(2, jump-none) 4; }
 .mmsxx-gui-btn.on { background: #8888aa; color: #111122; }
 /* 効かない場面。**消さずに沈める** */
 .mmsxx-gui-btn.off { opacity: 0.3; }

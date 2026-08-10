@@ -1097,10 +1097,24 @@ export class TouchControls {
    */
   _applyIdleFire() {
     if (!this.opts.idleFire) return;
+    const code = this.opts.shotCode;
     const touching = [...this.pointers.values()].some((p) => p.owner === 'shot');
-    if (touching || !this.visible) this._release(this.opts.shotCode);
-    else this._press(this.opts.shotCode);
+    if (touching || !this.visible) { this._release(code); return; }
+    if (!this.down.has(code)) { this._press(code); return; }
+    // **押しているつもりでも、受け取る側が忘れていることがある。**
+    // 画面が非アクティブになったときや、知らせの札を閉じたときに
+    // 入力はまとめて捨てられる(engine/input.js の clear)。
+    // こちらの控えは「押している」ままなので、_press は素通りしてしまい、
+    // **一度ボタンを触るまで撃ちっぱなしが戻らなかった**。
+    // 数え直さずに、押していることだけ言い直す
+    if (this.onPress) this.onPress(code, SOURCE);
   }
+
+  /**
+   * **撃ちっぱなしを言い直す**(idleFire のとき)。毎コマ呼んでよい。
+   * 受け取る側が入力を捨てても、次のコマで戻る
+   */
+  keepFire() { this._applyIdleFire(); }
 
   /**
    * ショットのエリアの中に指があるか(滑り出ても担当は変えない)。

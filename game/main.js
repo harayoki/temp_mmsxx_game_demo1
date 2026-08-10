@@ -152,9 +152,6 @@ const settings = new SaveGroup('starfable-settings', {
   // 十字の効きぐあい(0 = にぶい / 1 = ふつう / 2 = びんかん)と、決めたことがあるかの印
   padSense: { type: T.NUMBER, min: 0, max: 2, digits: 0, label: 'PAD SENSITIVITY' },
   padSenseSet: { type: T.FLAG, label: 'PAD SENSITIVITY SET' },
-  // ホーム画面に置くことを勧める 1 枚を、もう出したか。
-  // **勧誘は 1 回で十分**なので、断られたぶんも「出した」に数える
-  a2hsDone: { type: T.FLAG, label: 'HOME SCREEN ASKED' },
 });
 // 前に音を消したままなら、消した状態で始める。
 // **?mute= は次の行で効く**ので、URL で指定したぶんが優先される
@@ -13427,6 +13424,21 @@ if (PAD_ON) {
 }
 // **PC でも要る。** 大きさもドットのそろえかたも、指で触る端末だけの話ではない。
 // スマホ用の分岐の中に入れていたせいで、PC ではボタンが空のままだった
+// **最初のひと触りで音を解禁する。**
+//
+// ブラウザは「人が触った」合図が 1 回ないと音を出さない。エンジンがそれを
+// やっているのは keydown のときだけで、指で遊ぶ端末はその道を通らない。
+//
+// **払っただけでは数えてもらえない。** iOS が人の操作と数えるのは
+// 押した / 離した の瞬間だけで、指を滑らせているあいだ(pointermove)は
+// 数に入らない。メニューはスワイプで動かすので、キーが立つのを待っていると
+// **どこかを一度 叩くまで音が出ないまま**になる(実機でそうなっていた)。
+// だから押した瞬間そのもので通す。**何度呼んでも害は無い**
+// (もう鳴らせる状態なら、エンジン側で素通りする)
+for (const type of ['pointerdown', 'pointerup']) {
+  window.addEventListener(type, () => mmsxx.audio.unlock(), { capture: true, passive: true });
+}
+
 bindZoomButtons();
 setupOsShare();
 // **ホームに勧める 1 枚はここでは呼ばない。** 中で見ている IS_STANDALONE は
@@ -13770,15 +13782,16 @@ function setupHomeInstall() {
   });
   window.addEventListener('appinstalled', () => {
     installPrompt = null;
-    closeHomeInstall(true);
+    closeHomeInstall();
   });
   // **?a2hs=off は出さない。** 手元では毎回出るようにしてあるので、
   // 写真を撮るとき(npm run uishot)に必ずかぶってしまう
   if (A2HS_LOOK === 'off') return;
-  // 出すのは**ふつうに web で開いたスマホ**だけ
+  // 出すのは**ふつうに web で開いたスマホ**だけ。
+  // **断られても覚えない。** 開くたびに出す。
+  // 置いてもらえたら standalone になって、そこで自然に出なくなる
+  // (「もう勧めるな」と言われる前に、勧める理由のほうが消える)
   if (IS_STANDALONE || !PAD_ON) return;
-  // 断られたぶんは覚えていて、二度と出さない
-  if (!a2hsAlways() && settings.get('a2hsDone')) return;
   openHomeInstall();
 }
 
@@ -13795,20 +13808,6 @@ function setupHomeInstall() {
  * PC の Chrome には合図が飛んでこないので、並びを見るためだけのもの
  */
 const A2HS_LOOK = OPT.get('a2hs') || '';
-
-/**
- * **断られたことを覚えないでおく場面。** そのぶん毎回出る。
- *
- *   ?device=<機種> … 機種を渡り歩いて並びを見るとき
- *   手元(localhost) … PC でスマホの大きさに合わせて確かめるとき。
- *                     **1 回断ったら二度と見られない**のでは確かめようがない
- *   ?a2hs=<なにか>  … 実機で もう一度 見たいとき
- *
- * 公開したものでは効かない(どれも当たらない)ので、遊ぶ人には 1 回きりのまま
- */
-function a2hsAlways() {
-  return !!DEVICE || RECORD_HOST || !!A2HS_LOOK;
-}
 
 /** iOS(Safari)か。**やりかたの説明を出す相手** */
 function isIOS() {
@@ -13930,11 +13929,11 @@ function openHomeInstall() {
   });
   add.addEventListener('click', async () => {
     // 合図が無いのに出ているのは ?a2hs=add のときだけ。閉じるだけにする
-    if (!installPrompt) { closeHomeInstall(true); return; }
+    if (!installPrompt) { closeHomeInstall(); return; }
     const p = installPrompt;
     installPrompt = null;                 // 1 つの合図は 1 回しか使えない
     try { await p.prompt(); } catch (e) { /* 断られただけ */ }
-    closeHomeInstall(true);
+    closeHomeInstall();
   });
   // **このまま遊ぶは目立たせない。** 枠だけの控えめなボタン
   const later = document.createElement('button');
@@ -13944,7 +13943,7 @@ function openHomeInstall() {
     font: 'inherit', color: '#9a9aa8', background: 'transparent',
     border: '2px solid #55556a', padding: '10px 16px', cursor: 'pointer',
   });
-  later.addEventListener('click', () => closeHomeInstall(true));
+  later.addEventListener('click', () => closeHomeInstall());
   row.append(add, later);
   box.appendChild(row);
 
@@ -13977,14 +13976,11 @@ function showInstallButton() {
   if (how) how.style.display = on ? 'none' : '';
 }
 
-/** 板をしまう。`remember` なら二度と出さない */
-function closeHomeInstall(remember) {
+/** 板をしまう。**断られたことは覚えない**(次に開いたらまた出す) */
+function closeHomeInstall() {
   if (!a2hsEl) return;
   a2hsEl.remove();
   a2hsEl = null;
-  if (!remember || a2hsAlways()) return;
-  settings.set('a2hsDone', true);
-  settings.flush();
 }
 
 // **ここで呼ぶ。** 上の const(IS_STANDALONE)より前では触れない
