@@ -114,14 +114,26 @@ const DEFAULTS = {
   stickMinSpeed: 0.03,
   /**
    * ('move' のとき)**これだけ速ければ、いっぱいに倒したことにする**(px/ms)。
-   * 0.25 で秒速 250px ほど。倒し量(strength)を作るためだけの値で、
+   * 倒し量(strength)を作るためだけの値で、
    * **8 方向のキーには関わらない**(あちらは向きだけ見る)。
+   * 0.10 で秒速 100px ほど — **指をほんの少し動かせば もう全速**。
    *
-   * **自機の最高速は指よりずっと遅い**(1 コマ 1.5 ドット = 秒速 90 ドット。
-   * 画面の倍率を掛けても指の速さには届かない)ので、ここを高くすると
-   * ふつうに払っただけでは全速に届かず、余計に置いていかれる
+   * **小さく動かしたぶんを増幅するためのつまみ。** ここを高くすると、
+   * ゆっくり動かしているあいだ自機がもたついて指から離れていく。
+   * 低くするほど機敏になるが、下げすぎると倒し量の刻みが無くなって
+   * 入 / 切 と変わらなくなる(stickMinSpeed との差が幅になる)
    */
-  stickFullSpeed: 0.25,
+  stickFullSpeed: 0.10,
+  /**
+   * ('move' のとき)**倒し量の上限**。
+   *
+   * **1 のまま = 自機の最高速は上がらない。** 速く払っても、自機はいつもの
+   * 最高速までしか出ない(指のほうが速いので、そこは置いていかれる)。
+   *
+   * 1 より大きくすると最高速そのものが上がるが、**キーボードは常に 1** なので
+   * 指だけ速くなる。記録の公平さに触るので、上げるなら承知のうえで
+   */
+  stickMaxPower: 1,
   hysteresis: 7,       // 区画の境目の重なり(度)。ばたつき止め
   guiRadius: 72,       // PAD の大きさ(px)。**入れ物が測れないときだけ**使う。
                        // ふだんは下の areaRatio から決まる
@@ -809,7 +821,10 @@ export class TouchControls {
     if (this.opts.stickMode === 'move') {
       const lo = this.opts.stickMinSpeed;
       const hi = Math.max(lo + 0.001, this.opts.stickFullSpeed);
-      const t = Math.min(1, Math.max(0, (s.speed - lo) / (hi - lo)));
+      // **1 で頭打ちにしない。** 速く払ったぶんは、そのまま自機の速さにする
+      // (止めるのは stickMaxPower。上のつまみの説明を見ること)
+      const cap = Math.max(1, this.opts.stickMaxPower || 1);
+      const t = Math.min(cap, Math.max(0, (s.speed - lo) / (hi - lo)));
       if (t > 0 && s.speed > 0) { x = (s.vx / s.speed) * t; y = (s.vy / s.speed) * t; }
     } else {
       // 倒し量は原点からの距離。**dragMax を上限**にする(0 なら絵の大きさで)

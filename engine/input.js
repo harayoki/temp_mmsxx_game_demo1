@@ -110,11 +110,14 @@ export class Input {
    * **機器が、いま倒している向きと強さを置いていく。**
    * 毎コマ呼ぶこと(呼ばれなくなったら倒していない扱いになる)。
    * @param {string} source 'touch' / 'pad' など
-   * @param {number} x 右が +。-1〜1
-   * @param {number} y 下が +。-1〜1
+   * **1 を超えてもよい。** 機器によっては「いっぱいに倒した」より速く
+   * 動かせる(指がその例。自機の最高速より速く払える)。
+   * どこで頭を打たせるかは機器の側の決めごとで、ここでは切り詰めない
+   * @param {number} x 右が +
+   * @param {number} y 下が +
    */
   setStick(source, x, y) {
-    const s = Math.min(1, Math.hypot(x, y));
+    const s = Math.hypot(x, y);
     // **倒すのをやめたら 0 を置きにくること。** こちらでは減らさない
     // (機器ごとに「いつ 0 になるか」が違う。指は止まったとき、パッドは離したとき)
     if (s <= 0) {
@@ -146,7 +149,8 @@ export class Input {
    *
    * @param {number} [snap] 何方向へ丸めるか(4 / 8 / 16)。0 で丸めない
    * @returns {{ angle:number, rad:number, strength:number, sector:number, source:string }}
-   *   angle は度(0 = 右、時計回り)。倒していなければ strength は 0
+   *   angle は度(0 = 右、時計回り)。倒していなければ strength は 0。
+   *   **strength は 1 を超えることがある**(指は自機の最高速より速く払える)
    */
   stick(snap = 0) {
     let x = 0, y = 0, source = '';
@@ -164,7 +168,9 @@ export class Input {
         source = 'key';
       }
     }
-    const strength = Math.min(1, Math.hypot(x, y));
+    // **1 で切り詰めない。** 機器が 1 より大きく返してくることがある
+    // (指は自機の最高速より速く払える)。頭打ちは機器の側で決める
+    const strength = Math.hypot(x, y);
     if (!strength) return { angle: 0, rad: 0, strength: 0, sector: -1, source: '' };
     let angle = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
     let sector = -1;
