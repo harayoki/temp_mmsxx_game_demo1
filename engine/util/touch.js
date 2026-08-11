@@ -87,18 +87,18 @@ const DEFAULTS = {
   /**
    * **向きの決めかた。** ゲームによって合う合わないがあるので、丸ごと替えられる。
    *
-   *   'move'   … **いま指が動いている向き**をそのまま読む(既定)。
-   *              折り返しはその場でつながり、**指を止めれば止まる**。
-   *              避けゲーのように、細かく行き来する遊びに向く
-   *   'origin' … **触れたところからの向き**。スティックを倒しているのに近い。
+   *   'origin' … **触れたところからの向き**(既定)。スティックを倒しているのに近い。
    *              倒した向きを保てるので、まっすぐ走り続ける遊びに向く。
    *              **弱点は折り返し。** 右へ 60px 出したところから左へ行くには、
    *              原点をまたぐまでの 60px を戻さないと左が立たない
+   *   'move'   … **いま指が動いている向き**をそのまま読む。
+   *              折り返しはその場でつながり、**指を止めれば止まる**。
+   *              避けゲーのように、細かく行き来する遊びに向く
    *
    * どちらが良いかは遊びしだいなので、替えられるようにしてある
    * (tools/touch-tool/ で実機で触って選ぶ)
    */
-  stickMode: 'move',
+  stickMode: 'origin',
   /**
    * ('move' のとき)**指の速さのならしかた**(ms)。
    * 小さいほど指なりに機敏だが、震えを拾って向きがばたつく。
@@ -134,6 +134,14 @@ const DEFAULTS = {
    * 指だけ速くなる。記録の公平さに触るので、上げるなら承知のうえで
    */
   stickMaxPower: 1,
+  /**
+   * ('origin' のとき)**原点からこれだけ離したら、いっぱいに倒したことにする**(px)。
+   * 0 なら絵の大きさから決める(半径の 1.2 倍)。
+   *
+   * 小さいほど「ちょっと倒せば全速」。**dragMax とは別**にしてある —
+   * あちらは原点を引きずりはじめる距離で、役目が違う
+   */
+  stickFullDist: 0,
   hysteresis: 7,       // 区画の境目の重なり(度)。ばたつき止め
   guiRadius: 72,       // PAD の大きさ(px)。**入れ物が測れないときだけ**使う。
                        // ふだんは下の areaRatio から決まる
@@ -857,10 +865,11 @@ export class TouchControls {
       const t = Math.min(cap, Math.max(0, (s.speed - lo) / (hi - lo)));
       if (t > 0 && s.speed > 0) { x = (s.vx / s.speed) * t; y = (s.vy / s.speed) * t; }
     } else {
-      // 倒し量は原点からの距離。**dragMax を上限**にする(0 なら絵の大きさで)
-      const max = this._px(this.opts.dragMax) || this._r * 1.2;
-      const t = Math.min(1, Math.max(0, (s.dist - this._px(this.opts.deadzone))
-        / Math.max(1, max - this._px(this.opts.deadzone))));
+      // 倒し量は**原点からの距離**。不感帯を 0、stickFullDist を 1 とする。
+      // stickFullDist が 0 なら絵の大きさから決める(触ってすぐ全開にならない程度)
+      const dead = this._px(this.opts.deadzone);
+      const full = this._px(this.opts.stickFullDist) || this._r * 1.2;
+      const t = Math.min(1, Math.max(0, (s.dist - dead) / Math.max(1, full - dead)));
       if (t > 0 && s.dist > 0) { x = (s.dx / s.dist) * t; y = (s.dy / s.dist) * t; }
     }
     this.onStick(x, y);
