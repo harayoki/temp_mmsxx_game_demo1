@@ -13491,6 +13491,26 @@ for (const type of ['pointerdown', 'pointerup']) {
   window.addEventListener(type, () => mmsxx.audio.unlock(), { capture: true, passive: true });
 }
 
+// **二度たたきの拡大を潰す。**
+//
+// `touch-action` では止まらない(iOS の癖)。連射ボタンを何度か叩いただけで
+// 画面が拡大してしまい、しかも縮めかたが分からない、という状態になっていた。
+// **2 回目のタップの touchend を潰す**のが、いまのところ唯一 効く手
+// (tools/touch-tool/ で先に確かめてある)。
+//
+// **ボタンや入力欄の上では潰さない。** 潰すと click が飛ばなくなって、
+// 音の入切もシェアも押せなくなる。
+//
+// なお**指 3 本のタップで起きる拡大は OS のもの**(アクセシビリティのズーム)で、
+// ページ側からは止められない。あちらはもう一度 3 本指で叩けば戻る
+let lastTapAt = 0;
+window.addEventListener('touchend', (e) => {
+  if (e.target.closest && e.target.closest('button, input, textarea, summary, label, a')) return;
+  const now = Date.now();
+  if (now - lastTapAt <= 350) e.preventDefault();
+  lastTapAt = now;
+}, { passive: false });
+
 bindZoomButtons();
 setupOsShare();
 // **ホームに勧める 1 枚はここでは呼ばない。** 中で見ている IS_STANDALONE は
