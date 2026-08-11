@@ -2018,7 +2018,15 @@ const MOVE_GAIN = (() => {
   return (v >= 0.5 && v <= 2) ? v : 1;
 })();
 let speedLevel = 1;
-const AUTO_FIRE_INTERVAL = 20; // 押しっぱなし時の連射間隔(フレーム)
+/**
+ * **押しっぱなしのときの連射間隔**(コマ)。
+ *
+ * 20 コマ(毎秒 3 発)だったのを **1.5 倍の速さ**にした。
+ * 指で遊ぶときは、こすらないかぎりこの速さが出るぶんの全部なので、
+ * ここが遅いと**こすり続けないと戦えない**遊びになってしまう。
+ * キーボードで押しっぱなしにしている人にも同じだけ効く
+ */
+const AUTO_FIRE_INTERVAL = 13;
 let volleySeq = 0;
 let volleys = new Map(); // volley ID -> 残っている弾数
 let lastShotFrame = -999;
@@ -14136,6 +14144,10 @@ function updateTouchGui() {
   // 器に一本化してあるので、メニューのときと大きさも位置もそろう
   if (state === 'play' && !paused) {
     touchGui.setMode('game');
+    // **撃ちっぱなしを毎コマ言い直す。** 受け取る側が入力を捨てても
+    // (画面が非アクティブになった・知らせの札を閉じた)、次のコマで戻る。
+    // これが無いと、一度 連射ボタンを触るまで撃ちっぱなしが返ってこなかった
+    touchGui.keepFire();
     touchGui.setGuide({ left: [], esc: OK.pause, ok: null, opt: null });
     showTuneButtons(false);
     showKeyboardButton();
