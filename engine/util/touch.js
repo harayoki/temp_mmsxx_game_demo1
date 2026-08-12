@@ -1587,7 +1587,7 @@ function injectStyle() {
   --box: calc((var(--r) * 2.8 - 40px) * 1.6);
   --arrow: calc(var(--box) * 34 / 48);
   --btn: calc(var(--box) * 34 / 48 * 0.9);
-  position: absolute; left: 50%; pointer-events: none;
+  position: absolute; left: calc(50% + var(--shot-shift, 0px)); pointer-events: none;
   transform: translate(-50%, 0);   /* 動きを止めてもずれないよう、ここでも寄せておく */
   bottom: calc(10% - (var(--box) - var(--btn)) / 2);
   width: var(--box); height: var(--box);
@@ -1636,7 +1636,10 @@ function injectStyle() {
   /* **十字と同じ高さまで下げる。** あちらは _anchor() で --r の 0.3 ぶん
      下げてあるので、こちらも同じだけ下げる。そろえないと、下の説明文字との
      間隔が左右で違って見える */
-  position: absolute; left: 50%; bottom: calc(10% - var(--r) * 0.3);
+  /* **外側へ寄せるぶん**(--shot-shift)。器が帯のかぶせ量から決めて渡す。
+     真ん中のままだと、かぶせたぶん丸がゲーム画面に掛かる */
+  position: absolute; left: calc(50% + var(--shot-shift, 0px));
+  bottom: calc(10% - var(--r) * 0.3);
   transform: translateX(-50%);
   /* 絵の矢印の 9 割 …… から **さらに 8 掛け**。
      叩いて動かす遊びかたでは、こするのは「あれば効く」ものになったので、
