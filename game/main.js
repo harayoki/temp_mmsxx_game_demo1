@@ -576,9 +576,9 @@ const MODES = [
   { id: 'stats', name: 'STATISTICS' },
 ];
 // 手元の開発中だけ「シーン選択」を足す(公開版では出ない)
-if (DEV) MODES.push({ id: 'scene', name: 'SCENE SELECT', dev: true });
+if (DEV) MODES.push({ id: 'scene', name: 'SCENE SEL', dev: true });
 // 進みぐあいの印をその場で変える画面(これも公開版では出ない)
-if (DEV) MODES.push({ id: 'devset', name: 'DEV SETTINGS', dev: true });
+if (DEV) MODES.push({ id: 'devset', name: 'DEV SETTING', dev: true });
 let modeIndex = 0;
 const gameMode = () => MODES[modeIndex].id;
 /** NORMAL: 敵の手数を減らし、残機を増やし、即死をなくす(HARD はこれが無い) */
@@ -13666,7 +13666,12 @@ if (PAD_ON) {
   // **パッドレスでは十字を出さない**(仕様の 1 節)。
   // 絵と当たりが消えて指がうしろへ抜けるので、canvas を直に叩けるようになる。
   // 連射の四角はそのまま残る
-  if (PADLESS) touchGui.touch.dpadOn = false;
+  if (PADLESS) {
+    touchGui.touch.dpadOn = false;
+    // **連射の受け場所をゲーム画面から外す。** 掛かったままだと、
+    // そこを叩いても行き先が置けない(押したのに動かない場所ができる)
+    touchGui.setOptions({ shotHitOffCanvas: true });
+  }
   if (DEVICE) showDeviceLinks();
   restoreZoom();
 }
@@ -14053,6 +14058,7 @@ function drawToolIcons() {
   // **横長のボタンには横長の絵。** 16x16 を引き伸ばすとキーが長方形になって崩れる
   put('keyboard-btn', ICONS.keyboardWide, 7);
   put('rotate-btn', ICONS.rotate180, 7);
+  put('howto-btn', ICONS.help, 7);
   // 段を選ぶボタンは字のボタン(絵は入れない)。engine/util/stepper.js が書く
   // **切り替えのボタンは中の絵だけで状態を出す。**(枠は白いまま。いつでも押せる)
   // 効いていないときは差し色も灰色にして、絵ごとモノクロにする

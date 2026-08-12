@@ -251,6 +251,19 @@ const DEFAULTS = {
    */
   shotHitPad: 16,
   /**
+   * **連射の受け場所をゲーム画面に掛けない。**
+   *
+   * 丸の絵は帯からゲーム画面へ少しはみ出して置いてある(padBleed)ので、
+   * 受け場所もそのぶん画面へ掛かる。十字で遊ぶあいだは害が無い
+   * (画面の上を触っても、もともと何も起きない)。
+   *
+   * **画面を叩いて動かす遊びかた(パッドレス)では困る。**
+   * 掛かっているところを叩くと、行き先が置けずに連射だけが効く —
+   * 押したのに動かない場所が画面の中にできてしまう。
+   * 立てると、受け場所を画面の外側へ切り詰める(絵は動かさない)
+   */
+  shotHitOffCanvas: false,
+  /**
    * **案内を出すのに要る空き**(px)。これを割ったら文字は出さない。
    * 隙間が無いところへ無理に出すと、ゲーム画面に文字が重なって
    * どちらも読めなくなる。**操作の案内は出せるときだけでよい**
@@ -714,6 +727,15 @@ export class TouchGui {
   // ── 置き場所 ──────────────────────────────────────────
 
   /**
+   * つまみを変える。**変えたぶんは測り直す**(置き場所に関わるものが多い)。
+   * 中の TouchControls のつまみは `gui.touch.setOptions()` へ
+   */
+  setOptions(patch) {
+    Object.assign(this.opts, patch || {});
+    this.layout();
+  }
+
+  /**
    * canvas の外側に合わせる。**回っているときは器ごと回す**。
    * canvas を回しているのは engine/video.js で、こちらはそれに従うだけ
    */
@@ -889,9 +911,24 @@ export class TouchGui {
     // **帯の中での差**で取る(向きが回っていても、差なら同じ意味になる)
     const zr = this.touch._rectOf(zone);
     const fr = this.touch._rectOf(fire);
-    hit.style.left = Math.round(zone.offsetLeft + (fr.left - zr.left) - m) + 'px';
+    let left = zone.offsetLeft + (fr.left - zr.left) - m;
+    let width = fr.width + m * 2;
+    // **ゲーム画面には掛けない**(上の shotHitOffCanvas を見ること)。
+    // 画面の右端より内側にはみ出したぶんを、左から削る
+    if (this.opts.shotHitOffCanvas && this.canvas) {
+      const cr = this.touch._rectOf(this.canvas);
+      const edge = zone.offsetLeft + (cr.right - zr.left);
+      if (left < edge) {
+        // **削りきってしまわない。** 帯そのものが画面に食われている機種では
+        // 残りが無くなるので、丸の右半分ぶんは必ず残す
+        const keep = Math.max(0, left + width - Math.max(edge, left + width - fr.width / 2));
+        width = Math.max(fr.width / 2, keep);
+        left = left + (fr.width + m * 2) - width;
+      }
+    }
+    hit.style.left = Math.round(left) + 'px';
     hit.style.top = Math.round(zone.offsetTop + (fr.top - zr.top) - m) + 'px';
-    hit.style.width = Math.round(fr.width + m * 2) + 'px';
+    hit.style.width = Math.round(width) + 'px';
     hit.style.height = Math.round(fr.height + m * 2) + 'px';
     hit.style.bottom = 'auto';
   }
@@ -1539,10 +1576,23 @@ function injectStyle() {
 .mmsxx-gui-ok.off { background: #2a2a3c; border-color: #ffffff; color: #ffffff; }
 /* **選んだものの名前を出す場面だけ大きく**(タイトル)。
    ここは「何を選んだか」を読ませる場所でもあるので、字が小さいと
-   画面の中の並びと見比べることになる。**8 の倍数**(16 -> 24)にする */
+   画面の中の並びと見比べることになる。**8 の倍数**(16 -> 24)にする。
+
+   **選ぶものによって箱の大きさは変えない。** 名前の長さはまちまちなので、
+   字なりに伸ばすと**選ぶたびに押す場所が動く**(指が場所を覚えられない)。
+   幅は帯いっぱいに決め打ちし、高さも 2 行ぶんで取っておく。
+   入りきらない長い名前は、中で折り返して収める */
 .mmsxx-gui-ok.big {
   font-size: calc(var(--mmsxx-gui-font-size, 16px) * 1.5);
-  padding-top: 18px; padding-bottom: 18px;
+  width: calc(100% - 4px);
+  min-width: 0;
+  /* **1 行に収まる名前しか置かない**ので、高さも 1 行ぶんで決め打ちにする
+     (借りる側の決めごと。長い名前は短く書く — SCENE SEL / DEV SETTING)。
+     折り返させると、そこだけ背が高くなって大きさが動く */
+  min-height: calc(1.2em + 24px);
+  line-height: 1.2;
+  padding-top: 10px; padding-bottom: 10px;
+  white-space: nowrap;
 }
 /* **横が窮屈な機種では左右も詰める。** 端の 6px と字の左右の余白を削って、
    長い文言(GO TITLE など)が入るところまで幅を稼ぐ */
