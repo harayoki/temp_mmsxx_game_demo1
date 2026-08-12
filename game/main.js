@@ -14600,16 +14600,44 @@ function howToArtImg(a) {
     // スプライトとして取り出せないので、同じ見た目の丸をここで作る。
     // **色と厚みはあちらに合わせること**(離れると、案内と実物が別ものに見える)
     if (a.fire) {
-      const d = document.createElement('div');
       const px = a.size || 80;
-      Object.assign(d.style, {
+      const box = document.createElement('div');
+      Object.assign(box.style, {
         position: 'absolute', left: (a.l || 50) + '%', top: (a.t || 50) + '%',
-        transform: 'translate(-50%, -50%)',
-        width: px + 'px', height: px + 'px', boxSizing: 'border-box',
+        transform: 'translate(-50%, -50%)', width: px + 'px', height: px + 'px',
+      });
+      const ring = document.createElement('div');
+      Object.assign(ring.style, {
+        position: 'absolute', inset: '0', boxSizing: 'border-box',
         borderRadius: '50%', border: `${Math.round(px * 0.1)}px solid #224466`,
         background: '#3d5f96',
       });
-      return d;
+      box.appendChild(ring);
+      // **指と矢印は、出ているものをそのまま複製する。**
+      // 描き直すと実物と別ものになるうえ、あちらを直したときに
+      // こちらだけ古いまま残る。動き(こする仕草)も付いてくる。
+      // 絵の中でボタンが占めるのは 48 のうち 34x0.9 = 30.6 なので、
+      // こちらの丸に合わせるにはその割合ぶん大きくする
+      const live = touchGui && touchGui.touch && touchGui.touch._shot
+        && touchGui.touch._shot.querySelector('.mmsxx-touch-gesture');
+      if (live) {
+        const g = live.cloneNode(true);
+        const w = Math.round(px * 48 / (34 * 0.9));
+        Object.assign(g.style, {
+          position: 'absolute', left: '50%', top: '50%', bottom: 'auto',
+          transform: 'translate(-50%, -50%)', width: w + 'px', height: w + 'px',
+        });
+        // **一度きりのお手本は止める。**
+        // 実物のほうは 6 秒かけて 2 通りのこすりかたを見せてから消えるが
+        // (way-a / way-b が forwards で 0 になる)、案内では出しっぱなしにしたい。
+        // 見せるのは往復のほうだけ。**中の指の動きは残す**(あちらは無限に続く)
+        const w1 = g.querySelector('.mmsxx-touch-way1');
+        const w2 = g.querySelector('.mmsxx-touch-way2');
+        if (w1) { w1.style.animation = 'none'; w1.style.opacity = '1'; }
+        if (w2) w2.style.display = 'none';
+        box.appendChild(g);
+      }
+      return box;
     }
     const img = document.createElement('img');
     if (a.icon) {
