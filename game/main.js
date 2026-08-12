@@ -13399,8 +13399,9 @@ const OK = {
    * **毎コマ呼ばれる**ので、関数のまま持っておく
    */
   pick: () => MODES[modeIndex].name,
-  // **名前入力では BACK と書かない。** 左キーが「桁を戻す」なので、
-  // BACK だと 1 文字戻ると読める。ここは打つのをやめて出ていくほう
+  // **やめる**。いまは OPTBTN.keepPlaying(ポーズの聞き返し)だけが使う。
+  // **名前入力では使わない** — あちらは画面の中が ESC:SKIP と書いているので、
+  // ボタンも SKIP に揃えてある(CANCEL だと「打ったぶんを取り消す」とも読める)
   cancel: 'CANCEL',
   pause: 'PAUSE',
   resume: 'RESUME',
@@ -13471,9 +13472,12 @@ function menuGuide() {
       // 残すのは下の 1 つ。**する事は先へ進むこと**なので OK と書く
       return { left: [], ok: OK.ok, esc: null };
     case 'entry':
-      // 左右で桁と ENTER を選び、上下でその桁の文字を送る
+      // 左右で桁と ENTER を選び、上下でその桁の文字を送る。
+      // **画面の中の案内と同じ言葉にする**(あちらは ESC:SKIP)。
+      // CANCEL だと「打ったぶんを取り消す」とも読めるが、するのは
+      // 名前を付けずに先へ行くこと
       return { left: [TG.cursor, TG.letter],
-        ok: OPTBTN.submit, esc: OK.cancel, opt: OPTBTN.del };
+        ok: OPTBTN.submit, esc: OK.skip, opt: OPTBTN.del };
     // **記録を送っているところ。** ここを書き忘れていて、下の default
     // (何も押せない)に落ちていた。**キーボードなら SPACE で進めるのに、
     // 指では押すものが 1 つも無く、ランキングに載ったあとタイトルへ戻れなかった**
@@ -13658,6 +13662,11 @@ if (PAD_ON) {
   // 裏技のときだけなので、遊びの手とは反対側でよい
   const kbd = document.getElementById('keyboard-btn');
   if (kbd && touchGui.toolsSlotRight) touchGui.toolsSlotRight.appendChild(kbd);
+  // **遊びかたの ? もキーボードの隣へ。**
+  // 左の列は道具(音・大きさ・写真)が並ぶところで、? はその仲間ではない。
+  // どちらも「読む・打つ」ための口なので、右にまとめるほうが探しやすい
+  const howto = document.getElementById('howto-btn');
+  if (howto && touchGui.toolsSlotRight) touchGui.toolsSlotRight.appendChild(howto);
   // **DEV の印は器の外へ出す。** スマホの画面のつもりで見ているところに
   // 開発版の印が居ると、そのぶん置き場所を食うし、写真にも写る。
   // 窓の隅(画角の外)へ逃がす
