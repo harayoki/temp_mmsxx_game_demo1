@@ -47,6 +47,25 @@ if (Test-Path (Join-Path $root 'icons')) {
 }
 if (Test-Path (Join-Path $root 'manifest.webmanifest')) {
   Copy-Item (Join-Path $root 'manifest.webmanifest') $deploy
+  # **開発版だけ、ホームからの起動に ?rank=dev を付ける。**
+  #
+  # ホームに追加すると、立ち上がる先は start_url になる ──
+  # **付けていた引数は保存されない**。開発版は ?rank=dev が無いと
+  # 記録の宛先が手元(localStorage)のままなので、ホームから遊んだぶんは
+  # 開発用サーバへ 1 件も飛ばなかった(Safari で URL を叩けば通るのに、
+  # ホームからだと通らない、という食い違いになっていた)。
+  # **公開版はそのまま**(あちらは URL に何を書いても本番へ繋ぐ)
+  #
+  # **読み書きは .NET に任せる。** Get-Content / Set-Content は 5.1 だと
+  # UTF-8 を ANSI として読み書きするので、**日本語の説明文が化ける**
+  # (実際そうなった)。BOM も付けない(付けると読み手によっては嫌がる)
+  if ($Local) {
+    $mf = Join-Path $deploy 'manifest.webmanifest'
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    $text = [System.IO.File]::ReadAllText($mf, $utf8)
+    $text = $text.Replace('"start_url": "/"', '"start_url": "/?rank=dev"')
+    [System.IO.File]::WriteAllText($mf, $text, $utf8)
+  }
 }
 Copy-Item -Recurse (Join-Path $root 'engine') (Join-Path $deploy 'engine')
 Copy-Item -Recurse (Join-Path $root 'game') (Join-Path $deploy 'game')
