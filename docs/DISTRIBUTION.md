@@ -4,6 +4,35 @@ STAR FABLE をどこに置くか、置くと何が起きるかを整理したも
 2026-08-08 時点の見立て。**数字はどれも概算**で、実測ではない。
 本気で比べるときは Similarweb などで見直すこと。
 
+## 上げかた(Cloudflare Pages)
+
+**この 2 行を直に叩く。** `deploy-pages.bat dev` でも同じことをするが、
+最後に `pause` が入っているので、自動で呼ぶと止まったまま返ってこない。
+
+### DEV(確認用。`dev.msxpoi1.pages.dev`)
+
+```
+powershell -ExecutionPolicy Bypass -File build-deploy.ps1 -Local
+npx -y wrangler@4 pages deploy deploy-local --project-name msxpoi1 --branch dev --commit-dirty=true
+```
+
+`-Local` は `dev: true` のまま固める。**シーン選択・`mmsxxDebug` などの
+開発用の口が残る**ので、実機で中を覗きながら詰められる。
+**難読化は掛けない**(掛けると覗けなくなる)。
+
+**DEV は Cloudflare Access の内側**にある。上げたあとの目視は人がやること。
+
+### 本番(`msxpoi1.pages.dev`)
+
+```
+powershell -ExecutionPolicy Bypass -File build-deploy.ps1 -Obfuscate
+npx -y wrangler@4 pages deploy deploy --project-name msxpoi1 --branch main --commit-dirty=true
+```
+
+**`-Obfuscate` は必須**。素のまま上げないこと(付け忘れると開発用の口が
+そのまま読める形で公開される)。出来るフォルダも ZIP も DEV とは別
+(`deploy/` と `star-fable-deploy.zip`)。
+
 ## このゲームの性質(置き場所を選ぶ前提)
 
 - **ビルドが要らない静的ファイルの塊**。フォルダごと静的ホスティングに置けば動く
