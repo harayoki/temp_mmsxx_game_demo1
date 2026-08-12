@@ -22,8 +22,10 @@
 //   2. **追従**(`follow`)… 輪から出たぶんも、一気には動かず割合で寄る。
 //      速く払っても、狙いの点はなめらかな弧を描いて付いてくる
 //
-// 指を離すと、狙いの点は**最後に指がいたところ**へ寄せきってから止まる
-// (離した拍子に手前で止まらない)。
+// **指を離したら、その場で止まる。** 線も消える。
+// 最後に指がいたところまで寄せきる作りも試したが、
+// 離したあとに自機がひとりでに動くと、**止めたつもりが止まっていない**。
+// 指を離す = 手を離す、で通したほうが読める。
 //
 // ## 道は残さない
 //
@@ -64,7 +66,7 @@ const D2R = Math.PI / 180;
 export function createTrace(opts = {}) {
   const o = Object.assign({}, DEFAULTS, opts);
 
-  /** 'idle'(何もしていない) / 'draw'(指を置いている) / 'auto'(離したあとの寄せ) */
+  /** 'idle'(何もしていない) / 'draw'(指を置いている) */
   let state = 'idle';
   /** いま指がいるところ(ドット) */
   let fx = 0, fy = 0;
@@ -96,13 +98,11 @@ export function createTrace(opts = {}) {
     },
 
     /**
-     * 指が離れた。**最後に指がいたところまでは寄せきる。**
-     * ここで止めると、遅れているぶんだけ手前で止まってしまう
+     * 指が離れた。**その場で止まる。**
+     * 遅れているぶん、狙いの点までは行き着かないままになるが、
+     * **離したのに動き続けるほうが困る**(止めたつもりが止まらない)
      */
-    up() {
-      if (state !== 'draw') return;
-      state = 'auto';
-    },
+    up() { stop(); },
 
     /** 指が消えた(着信など)。離したのと同じ扱いでよい */
     cancel() { this.up(); },
@@ -121,11 +121,7 @@ export function createTrace(opts = {}) {
       // ---- 1. 狙いの点を、指のほうへ遅れて寄せる ----
       const dx = fx - ax, dy = fy - ay;
       const d = Math.hypot(dx, dy);
-      if (state === 'auto') {
-        // 離したあとは輪を外して、最後の場所まで寄せきる
-        ax += dx * o.follow;
-        ay += dy * o.follow;
-      } else if (d > o.lazyRadius) {
+      if (d > o.lazyRadius) {
         // **輪から出たぶんだけ**を、割合で詰める。
         // 輪の中の震えはここへ来ないので、まるごと消える
         const k = ((d - o.lazyRadius) / d) * o.follow;
@@ -136,11 +132,7 @@ export function createTrace(opts = {}) {
       // ---- 2. 自機は狙いの点を向く ----
       const sx = ax - selfX, sy = ay - selfY;
       const dist = Math.hypot(sx, sy);
-      if (dist <= o.arrive) {
-        // 離したあとで、指のいたところまで来たら終わり
-        if (state === 'auto' && d <= o.arrive) stop();
-        return { x: 0, y: 0 };
-      }
+      if (dist <= o.arrive) return { x: 0, y: 0 };
       const deg = Math.atan2(sy, sx) / D2R;
       const h = deg * D2R;
       return { x: Math.cos(h), y: Math.sin(h) };
