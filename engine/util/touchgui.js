@@ -717,8 +717,8 @@ export class TouchGui {
     // 説明を出したまま画面が移ることは実際にある(長押ししたまま
     // 払う、押している最中に自分でない理由で画面が変わる、など)
     this._hideTip();
-    this._el.guideL.innerHTML = g.left.map((it) => guideItemHTML(it, this.opts.lang)).join('');
-    this._el.guideR.innerHTML = g.right.map((it) => guideItemHTML(it, this.opts.lang)).join('');
+    this._el.guideL.innerHTML = g.left.map((it, i) => guideItemHTML(it, this.opts.lang, i)).join('');
+    this._el.guideR.innerHTML = g.right.map((it, i) => guideItemHTML(it, this.opts.lang, i)).join('');
     // **中の文言は場面ごとに変わる**(START / つぎへ / もどる ...)。
     // 変わるのは文字だけで、**場所と大きさは動かさない**。
     // 使えない場面では沈めるが、消しはしない(指が覚えた位置を残す)
@@ -1351,8 +1351,17 @@ function pickText(v, lang) {
  * **出たり入ったりが忙しく**、そのたびに残ったほうの位置も動いていた。
  * 枠は据え置きにして、使えないときは**文字を消して絵を沈める**
  */
-function guideItemHTML(item, lang) {
-  if (!item) return '<div class="mmsxx-gui-item off"></div>';
+function guideItemHTML(item, lang, slot) {
+  // **空の枠にも同じ矢印を出す。** 塗りつぶした四角を置くと、
+  // 沈んでいるのではなく**何かが乗っている**ように見える。
+  // 絵を残したまま うんと沈めれば、「ここは同じ用事だが、いまは効かない」が伝わる。
+  // どちらの矢印かは枠の位置で決まっている(1 つ目は左右、2 つ目は上下)
+  if (!item) {
+    const back = ICONS[slot === 0 ? 'leftright' : 'updown'] || '';
+    return '<div class="mmsxx-gui-item off">'
+      + `<svg class="mmsxx-gui-icon" viewBox="0 0 48 48" aria-hidden="true">${back}</svg>`
+      + '</div>';
+  }
   const icon = ICONS[item.icon] || '';
   const text = pickText(item, lang);
   // **長押しで出すぶんは、見えている文字より詳しくてよい。**
@@ -1568,14 +1577,12 @@ function injectStyle() {
 .mmsxx-gui-item {
   display: grid; place-items: center; width: 100%; pointer-events: auto;
 }
-/* **出ているが使えない枠。** 中身は空で、絵も文字も持たない。
-   場所だけ取っておくので、使えるようになっても位置が動かない。
-   高さは絵と同じだけ取る(空にすると潰れて、そのぶん上下がずれる) */
-.mmsxx-gui-item.off {
-  width: 100%; max-width: 96px; aspect-ratio: 1;
-  background: rgba(0, 0, 0, 0.28);
-  pointer-events: none;
-}
+/* **出ているが使えない枠。** 絵は残して、うんと沈める。
+   **塗りつぶさない** — 地を塗ると、沈んでいるのではなく
+   何かが乗っているように見える(実機でそう見えた)。
+   場所だけは取っておくので、使えるようになっても位置が動かない */
+.mmsxx-gui-item.off { pointer-events: none; }
+.mmsxx-gui-item.off .mmsxx-gui-icon { opacity: 0.14; }
 .mmsxx-gui-icon, .mmsxx-gui-item .mmsxx-gui-label { grid-area: 1 / 1; }
 /* 下敷きのシルエット。**沈めておく**(主役は上の文字) */
 .mmsxx-gui-icon {
