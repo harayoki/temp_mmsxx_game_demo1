@@ -14495,16 +14495,18 @@ const HOWTO_PAGES = [
     },
   },
   {
-    title: { ja: 'いきさきを ためる', en: 'ROUTE' },
+    title: { ja: 'めぐる', en: 'TOUR' },
     body: {
-      ja: '行き先は 1〜3 つまで置けます(ポーズ中の TARGETS)。\n'
-        + '置いた順に通っていきます。\n'
-        + '大きく引きずると、先に置いたぶんは消えます。\n'
-        + '画面の外をタップすると、全部消えます。',
-      en: 'Place 1 to 3 targets (TARGETS while paused).\n'
-        + 'Your ship visits them in order.\n'
-        + 'Drag far to drop the earlier ones.\n'
-        + 'Tap outside the screen to clear them all.',
+      ja: 'ターゲットの数をふやすと、\n'
+        + '自機が順番にめぐるようになります。\n'
+        + 'さきまわりの操作ができるので、\n'
+        + '慣れたらやってみよう。\n'
+        + '数はポーズ中の TARGETS で選べます。',
+      en: 'Raise the number of targets and your ship\n'
+        + 'visits them in order.\n'
+        + 'It lets you plan a move ahead,\n'
+        + 'so try it once you are used to the game.\n'
+        + 'Pick the number with TARGETS while paused.',
     },
   },
   {
