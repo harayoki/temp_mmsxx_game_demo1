@@ -80,11 +80,19 @@ const DEFAULTS = {
    */
   maxPoints: 2,
   /**
-   * **1 秒で曲がれる上限**(度/秒)。
-   * **コマ落ちしても曲がりすぎないように**、経った時間で掛ける。
-   * 上げるほど指なりに曲がるが、上げすぎると真後ろへもその場で裏返る
+   * **1 秒で曲がれる上限**(度/秒)。**0 で頭打ちなし**(既定)。
+   *
+   * 0 のときは、いつでも行き先をまっすぐ向く。
+   * **このゲームは十字でもパッドでも向きがその場で変わる**ので、
+   * ここだけ乗り物のように曲がると、行き先で曲がりきれずに
+   * **行き過ぎて弧を描く**(切り替わりで はっきり見えた)。
+   *
+   * 乗り物らしい重さが欲しいゲームでは 200〜400 あたりを入れる。
+   * そのときは `passBy` も一緒に見ること —
+   * **曲がれないほど、行き先のまわりを回りやすくなる**。
+   * 入れるなら経った時間で掛かるので、コマ落ちしても曲がりすぎない
    */
-  turnRate: 300,
+  turnRate: 0,
 };
 
 const D2R = Math.PI / 180;
@@ -242,11 +250,16 @@ export function createPadless(opts = {}) {
       }
       lastDist = dist;
 
-      // 行き先へ向きを寄せる。**その場では飛ばさない**(コマ落ちでも同じ)
+      // 行き先を向く。**頭打ちが無ければ、その場でまっすぐ向く**
       const want = Math.atan2(t.y - selfY, t.x - selfX) / D2R;
-      const off = wrapDeg(want - heading);
-      const cap = o.turnRate * dt;
-      heading = wrapDeg(heading + (Math.abs(off) <= cap ? off : Math.sign(off) * cap));
+      if (o.turnRate > 0) {
+        // 頭打ちがあるときだけ、少しずつ寄せる(経った時間で掛ける)
+        const off = wrapDeg(want - heading);
+        const cap = o.turnRate * dt;
+        heading = wrapDeg(heading + (Math.abs(off) <= cap ? off : Math.sign(off) * cap));
+      } else {
+        heading = want;
+      }
       const h = heading * D2R;
       return { x: Math.cos(h), y: Math.sin(h) };
     },
