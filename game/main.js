@@ -1989,14 +1989,20 @@ const SPEED_TABLE = [1.5, 2.0, 2.6];
 
 /**
  * **何方向へ丸めるか。** 0 で丸めない(なめらかに 360 度)。
- * `?snap=4` `?snap=8` `?snap=16` で見比べられる。
+ * `?snap=0` `?snap=4` `?snap=8` `?snap=16` で見比べられる。
  *
  * **既定は 0 = 丸めない。** 指もアナログスティックも 360 度どこへでも向けられる
  * ので、そこを 8 方向へ落とすと せっかくの向きを捨てることになる。
- * キーボードは押せる向きが 8 つしか無いので、丸めなくても 8 方向のまま
+ * キーボードは押せる向きが 8 つしか無いので、丸めなくても 8 方向のまま。
+ * (いちど 8 を既定にして実機で見比べたが、0 のままでよいと決めた)
  */
-const MOVE_SNAP = [0, 4, 8, 16].includes(Number(OPT.get('snap')))
-  ? Number(OPT.get('snap')) : 0;
+const MOVE_SNAP = (() => {
+  const raw = OPT.get('snap');
+  const v = Number(raw);
+  // **付いていないとき**と**知らない値**を分けて見る
+  // (0 は Number(null) と同じになるので、素通しでは「切った」と区別できない)
+  return (raw != null && [0, 4, 8, 16].includes(v)) ? v : 0;
+})();
 /**
  * **倒し量を速さに掛けるか。** 既定で掛ける。
  *
@@ -13196,6 +13202,49 @@ const PAD_SENSE = [
   { name: 'NORMAL', full: 0.10, min: 0.03 },
   { name: 'HIGH', full: 0.05, min: 0.02 },
 ];
+/**
+ * **効きぐあい(PAD RESPONSE)のボタンを出すか。** いまは出さない。
+ *
+ * 上の表が書き換えるのは `stickFullSpeed` / `stickMinSpeed` の 2 つで、
+ * **どちらも `stickMode: 'move'` のときしか読まれない**。
+ * いまの既定は `'origin'`(原点からの距離で倒し量を作る)なので、
+ * **押しても札の字が変わるだけで、効きぐあいは何も動かない**。
+ * 実測でも LOW と HIGH で出る値が 1 つも違わなかった。
+ *
+ * **表と applyPadSense() は残してある**(いまはどこからも呼んでいない)。
+ * `move` を既定へ戻したときや、`origin` で効くつまみ
+ * (`stickFullDist` / `stickCurve` / `dragMax`)を動かす形へ書き替えたときに、
+ * この旗を見て出し直す。
+ * **ポーズ中のボタンそのものは、いま下の切り返しの段が使っている**ので、
+ * 両方を出したいならボタンをもう 1 つ増やすことになる
+ */
+const PAD_SENSE_ON = false;
+
+/**
+ * **切り返しの段。** ポーズ中のボタンで選ぶ。
+ *
+ * 折り返しを見分ける角度(`stickFlipAngle`)と、
+ * 折り返しと見なすのに要る 1 回ぶんの動き(`stickFlipMove`)を組で動かす。
+ * **どちらも上げるほど、裏返るのが遅く・重くなる**。
+ *
+ *   angle … いま出している向きから何度開いたら折り返しと決めるか。
+ *           小さいほど、少し斜めへ振っただけで裏返る
+ *   move  … その 1 回で何 px 動いていたら見るか。
+ *           小さいほど、そっと戻しただけでも裏返る
+ *
+ * OFF は仕掛けそのものを切る(昔どおり原点をまたぐまで逆を向かない)。
+ *
+ * **既定は FIRM。** 120 度 / 3px(= NORMAL)では早すぎるという声だったので、
+ * ひとつ重いほうから始める
+ */
+const PAD_FLIP = [
+  { name: 'OFF', angle: 0, move: 3 },
+  { name: 'QUICK', angle: 100, move: 2 },
+  { name: 'NORMAL', angle: 120, move: 3 },
+  { name: 'FIRM', angle: 145, move: 6 },
+];
+/** いまの段。**重いほうから始める**(上の説明を見ること) */
+let padFlip = 3;
 /** いまの段。**まん中から始める** */
 let padSense = 1;
 const ZOOM_STEP = 1.12;   // 1 回で 1 割ちょっと。押した手応えが分かるくらい
@@ -13421,16 +13470,10 @@ if (PAD_ON) {
         const v = Number(OPT.get('curve'));
         return (v >= 0.2 && v <= 4) ? { stickCurve: v } : {};
       })(),
-      /**
-       * **折り返しと決める角度**(`?flip=`。既定 120 度)。
-       * `?flip=0` で切ると、昔どおり原点をまたぐまで逆を向かない。
-       * 下げるほど裏返りやすい(90 度あたりから、円を描いただけで裏返る)
-       */
-      ...(() => {
-        const v = Number(OPT.get('flip'));
-        return (OPT.get('flip') != null && Number.isFinite(v)
-          && (v === 0 || (v >= 60 && v <= 180))) ? { stickFlipAngle: v } : {};
-      })(),
+      // **折り返しの段(`?flip=`)はここでは見ない。**
+      // ポーズ中のボタンが持ち主で、立ち上げのときに applyPadFlip() が
+      // 当て直す(startPadFlip() が ?flip= を先に見る)。
+      // ここでも入れると、同じ値の持ち主が 2 つになって食い違う
     },
     lang: TG_LANG,
     // 強制したときだけ、器も同じ画角に区切る(canvas 側は下の fitSize)
@@ -13688,6 +13731,33 @@ function applyPadSense(n, tell) {
   settings.flush();
 }
 
+/** 切り返しの段を当てる。**部品へ流して、覚えて、画面に出す** */
+function applyPadFlip(n, tell) {
+  padFlip = ((n % PAD_FLIP.length) + PAD_FLIP.length) % PAD_FLIP.length;
+  const s = PAD_FLIP[padFlip];
+  if (touchGui) {
+    touchGui.touch.setOptions({ stickFlipAngle: s.angle, stickFlipMove: s.move });
+  }
+  // **ボタンそのものに 2 行で書く。** 絵では 4 段のどれなのかを表せないし、
+  // 段の名前だけでは「何が FIRM なのか」が分からない。
+  // 上の行で何のつまみかを言い、下の行にいまの段を出す
+  const el = document.getElementById('pad-sense');
+  if (el) el.textContent = 'TURN BACK\n' + s.name;
+  // 押したときは画面にも出す(ポーズ中なので弾の邪魔にもならない)
+  if (tell) showNotice('TURN: ' + s.name);
+  if (DEVICE) return;
+  settings.set('padFlip', padFlip);
+  settings.set('padFlipSet', true);
+  settings.flush();
+}
+
+/**
+ * **ポーズ中のつまみのボタン。** いまは切り返しの段が使っている
+ * (効きぐあいのほうは PAD_SENSE_ON を見ること)。
+ *
+ * `?flip=` が付いていたら**そちらを先に立てる**。近い段を選ぶので、
+ * 表に無い数字を渡しても一番近いところから始まる
+ */
 function bindPadSenseButton() {
   const el = document.getElementById('pad-sense');
   const row = document.getElementById('pad-sense-row');
@@ -13702,19 +13772,33 @@ function bindPadSenseButton() {
     const r = el.getBoundingClientRect();
     // 幅が測れないとき(隠れている最中など)は今までどおり次へ送る
     const back = r.width > 0 && (e.clientX - r.left) < r.width / 2;
-    applyPadSense(padSense + (back ? -1 : 1), true);
+    applyPadFlip(padFlip + (back ? -1 : 1), true);
   });
   for (const [id, step] of [['pad-sense-prev', -1], ['pad-sense-next', 1]]) {
     const b = document.getElementById(id);
-    if (b) b.addEventListener('click', () => { b.blur(); applyPadSense(padSense + step, true); });
+    if (b) b.addEventListener('click', () => { b.blur(); applyPadFlip(padFlip + step, true); });
   }
-  // 前に決めた段があれば、それで始める。**無くてもボタンには字を入れる**
-  applyPadSense((!DEVICE && settings.get('padSenseSet')) ? settings.get('padSense') : padSense,
-    false);
+  applyPadFlip(startPadFlip(), false);
+}
+
+/** どの段から始めるか。**?flip= → 前に決めた段 → 既定** の順に見る */
+function startPadFlip() {
+  const raw = OPT.get('flip');
+  const v = Number(raw);
+  if (raw != null && Number.isFinite(v)) {
+    // 一番近い段を選ぶ(表に無い数字でも、どこかからは始められるように)
+    let at = 0;
+    for (let i = 1; i < PAD_FLIP.length; i++) {
+      if (Math.abs(PAD_FLIP[i].angle - v) < Math.abs(PAD_FLIP[at].angle - v)) at = i;
+    }
+    return at;
+  }
+  if (!DEVICE && settings.get('padFlipSet')) return settings.get('padFlip');
+  return padFlip;
 }
 
 /**
- * 効きぐあいのボタンも**ポーズ中だけ**。
+ * つまみのボタンも**ポーズ中だけ**。
  * 遊んでいる最中に触るものではないし、そのぶん十字の場所を食う
  */
 function showPadSenseButton() {
