@@ -80,8 +80,15 @@ export function createTrace(opts = {}) {
   let index = 0;
   /** 前のコマの距離。**離れはじめたか**を見るためだけに持つ */
   let lastDist = Infinity;
-  /** 道なりの長さ(ドット)。**上限の見張りに使う** */
+  /**
+   * **指が実際に動いた長さ**(ドット)。上限の見張りに使う。
+   *
+   * 拾った点どうしの距離では数えない ── `minStep` に満たない動きが
+   * まるごと抜けるので、**こまかく引くほど長く引けて**しまう
+   */
   let length = 0;
+  /** 前に指を見た場所。上の長さを実寸で数えるために持つ */
+  let rawX = 0, rawY = 0;
   /** 最後に指が触れた時刻(ms)。**時間で片付ける**のに使う */
   let touchedAt = 0;
 
@@ -128,21 +135,28 @@ export function createTrace(opts = {}) {
       index = 0;
       lastDist = Infinity;
       length = 0;
+      rawX = x; rawY = y;
       touchedAt = now();
       state = 'draw';
     },
 
-    /** 指が動いた。**minStep ドット進むごとに 1 点**拾う */
+    /**
+     * 指が動いた。**minStep ドット進むごとに 1 点**拾う。
+     *
+     * 長さは**指が実際に動いたぶん**で数える(拾った点の数ではない)。
+     * 点の間隔で数えていたころは、こまかく行き来しながら引くと
+     * 上限に当たらず、いくらでも長い道が引けた
+     */
     move(x, y) {
       if (state !== 'draw') return;
-      const last = points[points.length - 1];
-      const d = Math.hypot(x - last.x, y - last.y);
-      if (d < o.minStep) return;
-      // **上限まで来たら、それ以上は伸ばさない。** 指は動いてよい
-      if (o.maxLength > 0 && length + d > o.maxLength) return;
-      points.push({ x, y });
-      length += d;
+      length += Math.hypot(x - rawX, y - rawY);
+      rawX = x; rawY = y;
       touchedAt = now();
+      // **上限まで来たら、それ以上は伸ばさない。** 指は動いてよい
+      if (o.maxLength > 0 && length > o.maxLength) return;
+      const last = points[points.length - 1];
+      if (Math.hypot(x - last.x, y - last.y) < o.minStep) return;
+      points.push({ x, y });
     },
 
     /** 指が離れた。**道はそのまま残る**(たどりはじめる) */
