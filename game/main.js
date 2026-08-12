@@ -1221,23 +1221,11 @@ const aimSps = [];
 // 指が通ったところをなぞるだけなので、回転も倍率も考えずに済む
 // (画面が 90 度 回っていても、指の跡は指の跡のまま)。
 
-/**
- * **引ける道の長さ**(速さ 1 あたりのドット)。
- * 速さの表(SPEED_TABLE)は 1〜2 ドット/コマほどなので、
- * 200 なら 200〜400 ドット ── 画面の対角(320 ドット)の前後になる
- */
-const TRACE_LEN_PER_SPEED = 200;
-/** 引き終わってから道が消えるまで(ms)。やられたあとに残さないため */
-const TRACE_EXPIRE_MS = 4000;
-/** 道の絵に使う、画面の点の列。**中身は engine/util/trace.js の点と同じ数** */
-const traceScreen = [];
-/** 道を引く SVG(要るときに作る) */
+/** 線を引く SVG(要るときに作る) */
 let tracePathEl = null;
-/** 最後に指が道を触った時刻(ms)。**上の見張り**が使う */
-let traceTouchedAt = 0;
 
 /**
- * ゲームのドットを、道の絵に使う窓の点へ。
+ * ゲームのドットを、線の絵に使う窓の点へ。
  * **丸めたあとのドットを渡すこと**(自機が行ける範囲に収まっている)
  */
 function traceDot(x, y) {
@@ -1245,10 +1233,23 @@ function traceDot(x, y) {
   return [at.x, at.y];
 }
 
-/** 道の絵を引き直す。**点が増えたときと、道を捨てたときに呼ぶ** */
+/**
+ * **自機と指のあいだの線を引き直す。毎コマ呼ぶ。**
+ *
+ * 引いているあいだだけ出す 1 本の線。道は残さない
+ * (自機そのものが筆先なので、通ったところは自機が居たところ)
+ */
 function paintTracePath() {
+  const at = (traceOn && traceMove) ? traceMove.finger : null;
+  // **自機が点滅していても線は出す。** やられたあとの無敵のあいだ、
+  // player.visible は 4 コマごとに落ちる。そこで線まで消すと、
+  // 引いている最中に線が点滅した(実際そうなった)
+  const show = at && player && state === 'play' && !paused;
+  if (!show) {
+    if (tracePathEl) tracePathEl.setAttribute('d', '');
+    return;
+  }
   if (!tracePathEl) {
-    if (!traceScreen.length) return;   // 出すものが無いうちは作らない
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     // **名前を付けておく。** 絵のボタンにも SVG があるので、
     // 探すときに取り違えないように
@@ -1259,86 +1260,36 @@ function paintTracePath() {
       + 'pointer-events:none;z-index:9');
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     path.setAttribute('fill', 'none');
-    // **緑。** 赤い十字(始点と終点)とはっきり分ける。
-    // 道は「これから通るところ」で、印は「端」なので、別の色にする
     path.setAttribute('stroke', '#3ee06e');
     path.setAttribute('stroke-width', '3');
     path.setAttribute('stroke-linecap', 'round');
-    path.setAttribute('stroke-linejoin', 'round');
-    // **半分だけ透かす。** 道はゲームの絵ではなく指の跡なので、
-    // 下の弾と自機が透けて見えるほうがよい(点滅も試したが目に障った)
+    // **半分だけ透かす。** 線はゲームの絵ではなく指の跡なので、
+    // 下の弾と自機が透けて見えるほうがよい
     path.setAttribute('opacity', '0.5');
     svg.appendChild(path);
     document.body.appendChild(svg);
     tracePathEl = path;
   }
-  // **通ったところは消す。** 残しておくと、どこまで走ったのか
-  // 見て取れない(引いた線が全部そこに在るだけになる)。
-  // 画面の点の列は部品の点と同じ並びなので、番号でそのまま切れる
-  // **道そのものが捨てられていたら、絵も出さない。**
-  // time で消えたぶん(trace の expireMs)は中で stop() が呼ばれて
-  // 番号も 0 に戻るので、そのままだと**引いた線が丸ごと出直す**。
-  // 実機で「軌跡が消えないで残る」となっていたのはこれ
-  if (traceOn && traceMove && traceMove.state === 'idle') traceScreen.length = 0;
-  const from = (traceOn && traceMove) ? Math.min(traceMove.index, traceScreen.length) : 0;
-  const left = traceScreen.slice(from);
-  // **線は自機から始める。** 引きはじめた場所に印は置かず、
-  // **自機からそこまで線を引く**(どこから走り出すのかが線で分かる)。
-  // 自機はドットで持っているので、窓の点へ戻してもらう
-  if (left.length && player && player.visible) {
-    const at = mmsxx.vdp.screenToPoint(player.x + 8, player.y + 8);
-    left.unshift([at.x, at.y]);
-  }
-  tracePathEl.setAttribute('d', smoothPath(left));
+  const a = traceDot(player.x + 8, player.y + 8);
+  const b = traceDot(at.x, at.y);
+  tracePathEl.setAttribute('d', 'M' + a[0] + ',' + a[1] + 'L' + b[0] + ',' + b[1]);
+}
+
+/** 線を消す */
+function clearTracePath() {
+  if (tracePathEl) tracePathEl.setAttribute('d', '');
 }
 
 /**
- * 点の列を**なめらかな線**にする(SVG の d)。
- *
- * 折れ線のままだと、指の拾い(minStep)ごとに角が立つ。
- * **隣り合う点の中点を通る二次曲線**でつなぐと、点そのものは
- * 制御点になって角が取れる(古くからある平滑化のやりかた)
- */
-function smoothPath(pts) {
-  if (!pts.length) return '';
-  if (pts.length === 1) return 'M' + pts[0][0] + ',' + pts[0][1];
-  let d = 'M' + pts[0][0] + ',' + pts[0][1];
-  for (let i = 1; i < pts.length - 1; i++) {
-    const mx = (pts[i][0] + pts[i + 1][0]) / 2;
-    const my = (pts[i][1] + pts[i + 1][1]) / 2;
-    d += 'Q' + pts[i][0] + ',' + pts[i][1] + ' ' + mx + ',' + my;
-  }
-  const last = pts[pts.length - 1];
-  d += 'L' + last[0] + ',' + last[1];
-  return d;
-}
-
-/** 前に描いたときの番号。**進んだときだけ引き直す**(毎コマ書き替えない) */
-let tracePaintedAt = -1;
-
-/**
- * **残っている道を片付ける。毎コマ呼ぶ。**
- *
- * 消す仕掛けは engine/util/trace.js が持っているが、あれを回すのは
- * 遊びの最中だけ。**やられた直後・ポーズ・タイトル**では回らないので、
- * ここで同じことを見る。時間で消えるのも、なぞる番でなくなったのも同じ
+ * **残っている線を片付ける。毎コマ呼ぶ。**
+ * 引いていないのに線が残っていることがないように
  */
 function sweepTracePath() {
-  if (!traceScreen.length) return;
-  const gone = !traceMove || !traceOn || traceMove.state === 'idle'
-    || state !== 'play' || paused
-    // 引き終わってから一定の時間で消える(trace の expireMs と同じ長さ)
-    || (traceMove.state === 'auto' && performance.now() - traceTouchedAt > TRACE_EXPIRE_MS);
-  if (gone) {
-    if (traceMove) traceMove.stop();
+  if (!traceMove || !traceOn || traceMove.state === 'idle'
+      || state !== 'play' || paused) {
+    if (traceMove && !traceOn) traceMove.stop();
     clearTracePath();
   }
-}
-
-/** 道を捨てる。**制御と絵の両方**(片方だけだと線が残る) */
-function clearTracePath() {
-  traceScreen.length = 0;
-  paintTracePath();
 }
 
 /** 指で遊ぶ端末なら、道具をそろえておく(効かせるかは padlessOn が決める) */
@@ -9115,11 +9066,7 @@ function updatePlay() {
       const v = padlessMove.update(player.x + 8, player.y + 8);
       mmsxx.input.setStick('touch', v.x, v.y);
     } else if (traceOn && traceMove) {
-      // **引ける長さは自機の速さで決まる。** 速い自機ほど長く引ける
-      // (どちらも「引き終わるまでにどれだけ進めるか」の話なので、
-      //  速さに比例させておけば、体感の長さがそろう)
-      traceMove.maxLength = spd * TRACE_LEN_PER_SPEED;
-      // なぞった道も同じ口へ流す(まず始点へ行き、そのあと道をなぞる)
+      // 遅延ドローも同じ口へ流す(狙いの点は指から遅れて付いてくる)
       const v = traceMove.update(player.x + 8, player.y + 8);
       mmsxx.input.setStick('touch', v.x, v.y);
     }
@@ -13992,7 +13939,7 @@ if (PAD_ON) {
 // そちらへ横から口を出さない(ポーズ中も同じ)
 if (PAD_ON) {
   setupPadless();
-  traceMove = createTrace({ expireMs: TRACE_EXPIRE_MS });
+  traceMove = createTrace();
   bindPadlessTaps();
   // 実機を繋いで中を覗くとき用(touchGui と同じ考えかた)。
   // つまみもここから当てられる: padless.state / padless.marker / padless.heading
@@ -14029,9 +13976,6 @@ function bindPadlessTaps() {
     if (traceOn) {
       // **前の道は捨てて引き直す**(部品の down がそうする)。
       // 絵のほうも同じところで捨てる
-      traceScreen.length = 0;
-      traceScreen.push(traceDot(c.x, c.y));
-      traceTouchedAt = performance.now();
       traceMove.down(c.x, c.y);
       paintTracePath();
     } else {
@@ -14046,18 +13990,8 @@ function bindPadlessTaps() {
     const p = at(e);
     const c = aimClamp(p.x, p.y);
     if (traceOn) {
-      const before = traceMove.points.length;
+      // **均すのは部品の仕事。** ここは指の場所を渡すだけ
       traceMove.move(c.x, c.y);
-      // **絵に使うのは、丸めたあとのドットを窓へ戻したもの。**
-      // 指の生の点をそのまま引くと、**ゲーム画面の外にも線が伸びる** —
-      // 自機はそこへは行けないので、行けないところに道が見えることになる。
-      // 丸めたぶんを戻せば、線と自機の通り道が必ず同じものになる。
-      // 拾う間隔は部品に合わせる(点が増えたときだけ足す)
-      if (traceMove.points.length > before) {
-        traceScreen.push(traceDot(c.x, c.y));
-        traceTouchedAt = performance.now();
-        paintTracePath();
-      }
     } else {
       padlessMove.move(c.x, c.y);
     }
@@ -14067,8 +14001,7 @@ function bindPadlessTaps() {
     if (e.pointerId !== id) return;
     id = null;
     // 行き先はもう指の下に置いてあるので、離すだけでよい
-    if (traceOn) { traceMove.up(); traceTouchedAt = performance.now(); }
-    else padlessMove.up();
+    if (traceOn) traceMove.up(); else padlessMove.up();
   };
   // **離したことは window で拾う。** canvas だけで待っていると、
   // 捕まえ損ねたまま指が canvas の外(連射の四角やポーズの上)へ抜けて
