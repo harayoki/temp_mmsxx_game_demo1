@@ -160,7 +160,8 @@ const settings = new SaveGroup('starfable-settings', {
   padFlip: { type: T.NUMBER, min: 0, max: 1, digits: 0, label: 'TURN BACK' },
   padFlipSet: { type: T.FLAG, label: 'TURN BACK SET' },
   // パッドレスで置ける行き先の数(0 = 1 つ / 1 = 2 つ / 2 = 3 つ)
-  padTargets: { type: T.NUMBER, min: 0, max: 2, digits: 0, label: 'TARGETS' },
+  // 0〜2 が行き先の数(1〜3)、3 がバーチャルパッド
+  padTargets: { type: T.NUMBER, min: 0, max: 3, digits: 0, label: 'TARGETS' },
   padTargetsSet: { type: T.FLAG, label: 'TARGETS SET' },
   // 遊びかたの案内を一度でも出したか(**出すのは初めての 1 回だけ**)
   howToSeen: { type: T.FLAG, label: 'HOW TO PLAY SEEN' },
@@ -1180,21 +1181,34 @@ aux.priority = 11;
 aux.visible = false;
 
 /**
- * **パッドレスの移動**(`?stick=padless`)。叩いた先へ自機が自分で歩く。
+ * **パッドレスの移動。** 叩いた先へ自機が自分で歩く。
  *
- * 十字は出さない(仕様どおり)。撃つのは自動なので、**両手とも移動に使える**。
+ * 十字は出さない。撃つのは自動なので、**両手とも移動に使える**。
  * 制御そのものは engine/util/padless.js が持っていて、ここでするのは
- * 「指の点をドットへ戻す」「行き先を届く範囲へ丸める」「印を置く」の 3 つ
+ * 「指の点をドットへ戻す」「行き先を届く範囲へ丸める」「印を置く」の 3 つ。
+ *
+ * **どちらで遊ぶかはポーズ中に選べる**(TARGETS。下の PAD_TARGETS)ので、
+ * 道具は指で遊ぶ端末なら**いつでも作っておく**。
+ * 効かせるかどうかは `padlessOn` が決める(遊びの最中に切り替わる)。
+ *
+ * **入れものだけ先に置く。** 中身を作るのは PAD_ON が出てから
+ * (`setupPadless()`。**const は巻き上がらない**ので、ここで PAD_ON を
+ * 触ると読み込みごと落ちる)
  */
-const PADLESS = OPT.get('stick') === 'padless';
-const padlessMove = PADLESS ? createPadless() : null;
+let padlessMove = null;
+/** いまパッドレスで遊んでいるか。**ポーズ中の TARGETS で切り替わる** */
+let padlessOn = false;
 /**
  * 行き先の印。**溜められるぶんだけ用意する**(部品の maxPoints と同じ数)。
  * **弾より奥**に置く(避けるものを隠さない)
  */
 const PAD_AIM_MAX = 3;
 const aimSps = [];
-if (PADLESS) {
+
+/** 指で遊ぶ端末なら、道具をそろえておく(効かせるかは padlessOn が決める) */
+function setupPadless() {
+  if (padlessMove) return;
+  padlessMove = createPadless();
   for (let i = 0; i < PAD_AIM_MAX; i++) {
     const sp = mmsxx.sprite(SPRITE_SYMBOLS.aimMark);
     sp.priority = 3;
@@ -8950,7 +8964,7 @@ function updatePlay() {
     const spd = SPEED_TABLE[speedLevel - 1];
     // **パッドレスは毎コマ置き直す**(行き先へ向かう向きを 1 つの口へ流す)。
     // ここから先は十字やパッドと同じ道を通るので、下の移動は何も変わらない
-    if (padlessMove) {
+    if (padlessOn && padlessMove) {
       const v = padlessMove.update(player.x + 8, player.y + 8);
       mmsxx.input.setStick('touch', v.x, v.y);
     }
@@ -8982,8 +8996,8 @@ function updatePlay() {
 
   // **行き先の印。** 出すのは遊びの最中だけ(やられている最中や登場中は消す)。
   // 絵は 16x16 で真ん中に十字が入っているので、行き先から 8 引いて置く
-  if (aimSps.length) {
-    const playing = state === 'play' && !paused && !entering;
+  if (aimSps.length && padlessMove) {
+    const playing = padlessOn && state === 'play' && !paused && !entering;
     // **遊びの最中から外れたら行き先を捨てる。**
     // やられて戻ってきたときに前の行き先が生きていると、
     // 復帰した自機が置いた覚えのないところへ いきなり飛んでいく
@@ -13395,7 +13409,18 @@ let padFlip = 0;
  * **既定は 1。** 増えるほど画面に赤い十字が並ぶので、
  * 慣れないうちは何が起きているのか分かりにくい
  */
-const PAD_TARGETS = [1, 2, 3];
+/**
+ * **4 つ目はバーチャルパッド。** 数ではなく遊びかたそのものを選ぶ。
+ * 同じ 1 つのボタンで選べるようにしてあるのは、
+ * **どちらも「どうやって動かすか」の話**だから(別の場所に分けると、
+ * パッドに戻したい人が TARGETS を見つけられない)
+ */
+const PAD_TARGETS = [
+  { name: '1', points: 1 },
+  { name: '2', points: 2 },
+  { name: '3', points: 3 },
+  { name: 'PAD', points: 0 },   // 0 = パッドレスをやめて十字を出す
+];
 /** いまの段(PAD_TARGETS の番号)。**1 つから始める** */
 let padTargets = 0;
 /** いまの段。**まん中から始める** */
@@ -13742,15 +13767,10 @@ if (PAD_ON) {
   touchGui.layout();
   // 実機を繋いで中を覗くとき用(touch-tool の window.touch と同じ考えかた)
   mmsxx.expose('touchGui', touchGui);
-  // **パッドレスでは十字を出さない**(仕様の 1 節)。
-  // 絵と当たりが消えて指がうしろへ抜けるので、canvas を直に叩けるようになる。
-  // 連射の四角はそのまま残る
-  if (PADLESS) {
-    touchGui.touch.dpadOn = false;
-    // **連射の受け場所をゲーム画面から外す。** 掛かったままだと、
-    // そこを叩いても行き先が置けない(押したのに動かない場所ができる)
-    touchGui.setOptions({ shotHitOffCanvas: true });
-  }
+  // **十字を出すかどうかは遊びかたしだい**(ポーズ中の TARGETS)。
+  // パッドレスでは絵と当たりが消えて指がうしろへ抜けるので、
+  // canvas を直に叩けるようになる。連射の四角はどちらでも残る。
+  // 当てるのは applyPadTargets(下の bindPadSenseButton から呼ぶ)
   if (DEVICE) showDeviceLinks();
   restoreZoom();
 }
@@ -13759,7 +13779,8 @@ if (PAD_ON) {
 //
 // **遊びの最中だけ**。メニューは器のジェスチャで動いているので、
 // そちらへ横から口を出さない(ポーズ中も同じ)
-if (PADLESS) {
+if (PAD_ON) {
+  setupPadless();
   bindPadlessTaps();
   // 実機を繋いで中を覗くとき用(touchGui と同じ考えかた)。
   // つまみもここから当てられる: padless.state / padless.marker / padless.heading
@@ -13772,7 +13793,8 @@ function bindPadlessTaps() {
   /** いま追いかけている指。**1 本だけ見る**(2 本目は捨てる) */
   let id = null;
   /** 遊びの最中か。ここ以外では指を受けない */
-  const live = () => state === 'play' && !paused && !entering;
+  // **パッドレスで遊んでいるあいだだけ受ける**(ポーズ中の TARGETS で切り替わる)
+  const live = () => padlessOn && state === 'play' && !paused && !entering;
   /** 画面の点を、自機の真ん中と同じものさしのドットへ */
   const at = (e) => mmsxx.vdp.pointToScreen(e.clientX, e.clientY);
   /** 自機の真ん中(スプライトは 16x16 なので +8) */
@@ -14026,54 +14048,63 @@ function bindPadSenseButton() {
   if (!PAD_ON) return;
   const tools = document.getElementById('tools');
   if (!tools) return;
-  // **効かないつまみは出さない。**
-  // 切り返しは十字(origin)の話なので、パッドレスでは出しても何も動かない。
-  // 行き先の数はその逆。効かないものが並んでいると、
-  // 押しても変わらないつまみを探すことになる(PAD RESPONSE で懲りた)
-  if (PADLESS) {
-    padTargetsUI = createStepper({
-      mount: tools,
-      label: 'TARGETS',
-      items: PAD_TARGETS.map(String),
-      index: startPadTargets(),
-      wrap: false,          // 1〜3 しか無いので、端は端だと見せる
-      onChange: (i, name, byUser) => applyPadTargets(i, byUser),
-    });
-    // **絵のボタンの列から少し離す。** 合間に割り込むと、ポーズのたびに
-    // 上のボタンが押し下がって場所を覚えられない
-    padTargetsUI.el.style.marginTop = '12px';
-    // 部品は作った時点では onChange を呼ばない(**当てるのは借りる側の仕事**)
-    applyPadTargets(padTargetsUI.index, false);
-    return;
-  }
-  padFlipUI = createStepper({
+  // **出すのは 1 つだけ。** ここは「どうやって動かすか」を選ぶところで、
+  // 行き先の数もパッドに戻すことも同じ並びに入っている(PAD_TARGETS)。
+  // 切り返し(TURN BACK)は十字のときしか効かないつまみなので出さない —
+  // 効かないものが並んでいると、押しても変わらないつまみを探すことになる
+  // (PAD RESPONSE で懲りた)
+  padTargetsUI = createStepper({
     mount: tools,
-    label: 'TURN BACK',
-    items: PAD_FLIP.map(s => s.name),
-    index: startPadFlip(),
-    onChange: (i, name, byUser) => applyPadFlip(i, byUser),
+    label: 'TARGETS',
+    items: PAD_TARGETS.map(s => s.name),
+    index: startPadTargets(),
+    wrap: false,          // 4 つしか無いので、端は端だと見せる
+    onChange: (i, name, byUser) => applyPadTargets(i, byUser),
   });
-  padFlipUI.el.style.marginTop = '12px';
-  applyPadFlip(padFlipUI.index, false);
+  // **絵のボタンの列から少し離す。** 合間に割り込むと、ポーズのたびに
+  // 上のボタンが押し下がって場所を覚えられない
+  padTargetsUI.el.style.marginTop = '12px';
+  // 部品は作った時点では onChange を呼ばない(**当てるのは借りる側の仕事**)
+  applyPadTargets(padTargetsUI.index, false);
 }
 
 /** 行き先の数を当てる。**部品へ流して、覚えて、画面に出す** */
 function applyPadTargets(n, tell) {
   padTargets = Math.max(0, Math.min(PAD_TARGETS.length - 1, n));
-  const v = PAD_TARGETS[padTargets];
-  if (padlessMove) padlessMove.maxPoints = v;
-  if (tell) showNotice('TARGETS: ' + v);
+  const s = PAD_TARGETS[padTargets];
+  padlessOn = s.points > 0;
+  if (padlessMove) {
+    if (padlessOn) padlessMove.maxPoints = s.points;
+    // **パッドへ戻すときは置いたぶんを消す。**
+    // 残すと、十字で動かしているのに赤い十字が残って、
+    // 自機がそちらへ勝手に向かう
+    else padlessMove.stop();
+  }
+  if (touchGui) {
+    // 十字はパッドのときだけ出す(パッドレスでは絵も当たりも消して、
+    // canvas を直に受けられるようにする)
+    touchGui.touch.dpadOn = !padlessOn;
+    // 連射の受け場所を画面から外すのも、画面を叩いて動かすときだけ
+    touchGui.setOptions({ shotHitOffCanvas: padlessOn });
+  }
+  if (tell) showNotice('TARGETS: ' + s.name);
   if (DEVICE) return;
   settings.set('padTargets', padTargets);
   settings.set('padTargetsSet', true);
   settings.flush();
 }
 
-/** どの段から始めるか。**?targets= → 前に決めた段 → 既定** の順に見る */
+/**
+ * どの段から始めるか。**?targets= / ?stick= → 前に決めた段 → 既定** の順に見る。
+ * `?stick=` にパッドレス以外(origin / move)が入っていたら、パッドから始める
+ */
 function startPadTargets() {
-  const v = Number(OPT.get('targets'));
-  const at = PAD_TARGETS.indexOf(v);
+  const raw = OPT.get('targets');
+  if (raw === 'pad') return PAD_TARGETS.length - 1;
+  const at = PAD_TARGETS.findIndex(s => s.name === raw);
   if (at >= 0) return at;
+  const stick = OPT.get('stick');
+  if (stick && stick !== 'padless') return PAD_TARGETS.length - 1;
   if (!DEVICE && settings.get('padTargetsSet')) return settings.get('padTargets');
   return padTargets;
 }
