@@ -1557,12 +1557,16 @@ let rubHintIn = 0;            // 出すまでの残りコマ(0 は出さない)
 /**
  * こすり打ちの案内を予約する。
  *
- * **すぐには出さない。** 呼ばれる場面ではたいてい別の知らせ
+ * **ほんの少しだけ置く。** 呼ばれる場面ではたいてい別の知らせ
  * (「内側から壊せ」など)が出たところで、showNotice は前のを消してしまう。
- * 少し置いてから出せば、どちらも読める
+ * 1 コマ置けば順番は入れ替わる。
+ *
+ * **置きすぎないこと。** 2 秒 待たせていたころは、出るころには相手が
+ * 動き出していて「安心して連射できるタイミング」を過ぎていた。
+ * 出したいのは**無防備になったその瞬間**
  * @param {string} who どの場面か('moai' / 'octopus' / 'crab' / 'nautilus')
  */
-function cueRubHint(who, delay = 110) {
+function cueRubHint(who, delay = 36) {
   if (!PAD_ON || rubHintDone.has(who)) return;
   rubHintDone.add(who);
   rubHintIn = delay;
@@ -8256,6 +8260,8 @@ function breakShip() {
   }
   // **無防備になった瞬間に、こすり打ちを教える**(上の cueRubHint)。
   // ここから先は素直にダメージが通るので、速く撃てるほど効く。
+  // ここへ来るのは カニ = 脚が全部折れた / タコ = 壺が割れた のとき。
+  // 貝(黄色いガードが外れたところ)は別の場所から呼んでいる。
   // **ドラゴンには出さない** — あちらは装甲がはがれても怒って突進が増えるだけで、
   // 落ち着いて削れる「狙いどき」にはならない
   if (boss.kind === 'crab' || boss.kind === 'octopus') cueRubHint(boss.kind);
@@ -10453,10 +10459,15 @@ function updatePlay() {
   updateFlash();
   updateNotice();
   // 予約しておいたこすり打ちの案内(上の cueRubHint)。
-  // **前の知らせが読み終わるころに出す**ので、ここで数える。
+  // **前の知らせと入れ替わるだけの間**を置くので、ここで数える。
   // **点滅させて長めに出す** — 出るのはボスと撃ち合っている最中なので、
-  // 画面の下に 3 秒 静かに出しただけでは見落とされた(実機でそうなった)
-  if (rubHintIn > 0 && --rubHintIn === 0) {
+  // 画面の下に 3 秒 静かに出しただけでは見落とされた(実機でそうなった)。
+  //
+  // **撃たれている最中は待つ。** 教えたいのは「安心して連射できるところ」なので、
+  // レーザーが伸びているあいだに出しても、読む余裕が無い
+  if (rubHintIn > 0 && boss && laserPhase(boss)) {
+    // そのまま据え置き(数えない)
+  } else if (rubHintIn > 0 && --rubHintIn === 0) {
     showNotice('RUB THE CIRCLE TO FIRE FAST!', 300, 176, 11);
   }
   updateGearBlink();
@@ -13575,7 +13586,10 @@ function menuGuide() {
       // **画面の中の案内と同じ言葉にする**(あちらは ESC:SKIP)。
       // CANCEL だと「打ったぶんを取り消す」とも読めるが、するのは
       // 名前を付けずに先へ行くこと
-      return { left: [TG.cursor, TG.letter],
+      // **ここだけ横払いの向きが逆。** ほかの場面は「ページをめくる」ので
+      // 左へ払うと次が出てくるが、ここで動くのは指の先にあるカーソル。
+      // 既定のままだと右へ払って左へ動き、実機で「左右が逆」になっていた
+      return { left: [TG.cursor, TG.letter], xFollow: true,
         ok: OPTBTN.submit, esc: OK.skip, opt: OPTBTN.del };
     // **記録を送っているところ。** ここを書き忘れていて、下の default
     // (何も押せない)に落ちていた。**キーボードなら SPACE で進めるのに、

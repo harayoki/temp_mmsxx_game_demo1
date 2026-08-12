@@ -703,6 +703,12 @@ export class TouchGui {
       // **OK だけ大きくしたい場面がある**(タイトルで選んだものの名前を出すなど)。
       // 場所は動かさないまま、字と上下の余白だけ育てる
       okBig: !!(guide && guide.okBig),
+      // **横払いの向き。** 既定はページをめくる向き
+      // (左へ払うと次のページが左から来る = ArrowRight)。
+      // カーソルを横に動かす場面では逆になる — 右へ払ったのに
+      // カーソルが左へ行くので、実機で「左右が逆」と言われた。
+      // 名前入力のように**指の先にあるものが動く**場面では true にする
+      xFollow: !!(guide && guide.xFollow),
     };
     this._applyGuide();
   }
@@ -1111,7 +1117,7 @@ export class TouchGui {
       // **めくり違えても戻せる**ので、早とちり気味でちょうどよい
       if (!this._flicked && Math.abs(total.dx) >= this.opts.flickMinDist) {
         this._flicked = true;
-        this._pulse(total.dx < 0 ? 'ArrowRight' : 'ArrowLeft');
+        this._pulse(this._xKey(total.dx));
       }
       return;
     }
@@ -1124,8 +1130,25 @@ export class TouchGui {
   }
 
   /**
-   * 横のフリック。**1 回で 1 ページ**。
-   * 左へ払うと次のページが出てくるので ArrowRight
+   * 横に払ったとき、どちらの矢印を送るか。
+   *
+   * **既定はページをめくる向き。** 左へ払うと次のページが左から出てくるので、
+   * 指が左(dx < 0)なら ArrowRight。紙をめくるのと同じで、動くのは中身のほう。
+   *
+   * **カーソルを動かす場面では逆にする**(setGuide の `xFollow`)。
+   * こちらは指の先にあるものが動くので、右へ払えば右へ行ってほしい。
+   * 名前入力を既定のままにしていて「左右が逆」になっていた
+   *
+   * @param {number} dx 指の横の動き(回転を戻したあとの値)
+   */
+  _xKey(dx) {
+    const back = dx > 0;   // 右へ払った
+    if (this._guide.xFollow) return back ? 'ArrowRight' : 'ArrowLeft';
+    return back ? 'ArrowLeft' : 'ArrowRight';
+  }
+
+  /**
+   * 横のフリック。**1 回で 1 ページ**
    */
   _flick(e) {
     if (this._flicked || this._axis === 'y') return;       // 縦と決めたぶんは送らない
@@ -1133,7 +1156,7 @@ export class TouchGui {
     if (Math.abs(d.dx) <= Math.abs(d.dy)) return;          // 縦の払いは送りにまかせる
     if (Math.abs(d.dx) < this.opts.flickMinDist) return;   // 短すぎるものは数えない
     this._flicked = true;
-    this._pulse(d.dx < 0 ? 'ArrowRight' : 'ArrowLeft');
+    this._pulse(this._xKey(d.dx));
   }
 
   // ── 通知 ──────────────────────────────────────────────

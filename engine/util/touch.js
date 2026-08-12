@@ -1403,26 +1403,6 @@ const SHOT_HTML = `
   <div class="mmsxx-touch-title"></div>
   <div class="mmsxx-touch-note"></div>
   <div class="mmsxx-touch-fire"></div>
-  <svg class="mmsxx-touch-gesture" viewBox="0 0 48 48" aria-hidden="true">
-    <g class="mmsxx-touch-way1">
-      <g class="mmsxx-touch-rub"><g class="mmsxx-touch-finger" transform="translate(19.5,15.5) scale(0.9)">
-        <rect x="6.2" y="0" width="3.8" height="11.5" rx="1.9"/>
-        <circle cx="11" cy="9.4" r="1.9"/>
-        <circle cx="13.2" cy="10.8" r="1.8"/>
-        <rect x="3.2" y="8.4" width="11.6" height="12" rx="4.4"/>
-        <circle cx="3.6" cy="13.8" r="2.4"/>
-      </g></g>
-    </g>
-    <g class="mmsxx-touch-way2">
-      <g class="mmsxx-touch-spin"><g class="mmsxx-touch-finger" transform="translate(19.5,15.5) scale(0.9)">
-        <rect x="6.2" y="0" width="3.8" height="11.5" rx="1.9"/>
-        <circle cx="11" cy="9.4" r="1.9"/>
-        <circle cx="13.2" cy="10.8" r="1.8"/>
-        <rect x="3.2" y="8.4" width="11.6" height="12" rx="4.4"/>
-        <circle cx="3.6" cy="13.8" r="2.4"/>
-      </g></g>
-    </g>
-  </svg>
   <div class="mmsxx-touch-callout"></div>
   <div class="mmsxx-touch-pause"></div>`;
 
@@ -1578,53 +1558,11 @@ function injectStyle() {
   background-image: var(--shotarea-img, none);
 }
 
-/* こすりかたの絵。**最初だけ**、ボタンの上に白で重ねる。
-   **丸より大きくする。** はみ出して構わないこと(受けるのはエリア全体)を見せるため。
-   斜めに行ったり来たりを繰り返して、こする動きそのものを示す */
-.mmsxx-touch-gesture {
-  /* 絵の外枠。**矢印はこの 34/48 を占める**(7〜41)。
-     丸(ボタンの絵)は、その矢印の 9 割の大きさにしてある */
-  --box: calc((var(--r) * 2.8 - 40px) * 1.6);
-  --arrow: calc(var(--box) * 34 / 48);
-  --btn: calc(var(--box) * 34 / 48 * 0.9);
-  position: absolute; left: calc(50% + var(--shot-shift, 0px)); pointer-events: none;
-  transform: translate(-50%, 0);   /* 動きを止めてもずれないよう、ここでも寄せておく */
-  bottom: calc(10% - (var(--box) - var(--btn)) / 2);
-  width: var(--box); height: var(--box);
-  fill: none; stroke: #ffffff; stroke-width: 1.3;
-  stroke-linecap: square; stroke-linejoin: miter;
-}
-/* 指は塗りつぶし。線と同じ白 1 色 */
-.mmsxx-touch-finger { fill: #ffffff; stroke: none; }
-/* **動くのは指だけ。** 矢印は止めておく(動かすと目障りだった)。
-   こすりかたは斜めの往復だけではないので、**数秒おきにくるくるも見せる** */
-.mmsxx-touch-rub {
-  animation: mmsxx-touch-scrub 0.32s ease-in-out infinite alternate;
-}
-@keyframes mmsxx-touch-scrub {
-  0%   { transform: translate(-7px, 7px); }
-  100% { transform: translate(7px, -7px); }
-}
-/* まわりかた。原点で回してから外へずらし、逆に回して向きを戻す */
-.mmsxx-touch-spin {
-  animation: mmsxx-touch-spin 0.9s linear infinite;
-}
-@keyframes mmsxx-touch-spin {
-  from { transform: rotate(0deg) translate(7px, 0) rotate(0deg); }
-  to   { transform: rotate(360deg) translate(7px, 0) rotate(-360deg); }
-}
-/* 3 秒ずつ入れ替えて、**2 とおり見せたら指は消える**。
-   こすりかたは 2 つ(斜めの往復・くるくる)しかないので、見せ終わったら用が済む。
-   そのあとも動き続けると、遊んでいる最中ずっと指が視界に居ることになる。
-   **infinite にしない**のはそのため。forwards で消えたまま留める */
-.mmsxx-touch-way1 { animation: mmsxx-touch-way-a 6s steps(1) 1 forwards; }
-.mmsxx-touch-way2 { animation: mmsxx-touch-way-b 6s steps(1) 1 forwards; }
-/* **こちらも 100% を書く。** 書かないと、終わったときに元の値(1)へ戻って
-   1 つめの指が出たまま居座る(実際そうなった) */
-@keyframes mmsxx-touch-way-a { 0% { opacity: 1; } 50% { opacity: 0; } 100% { opacity: 0; } }
-/* **100% で 0 に戻す**のを忘れないこと。書かないと 2 つめが出たまま残る */
-@keyframes mmsxx-touch-way-b { 0% { opacity: 0; } 50% { opacity: 1; } 100% { opacity: 0; } }
-.mmsxx-touch-shot.used .mmsxx-touch-gesture { display: none; }
+/* **こすりかたの絵(指)は置かない。**
+   遊びはじめの数秒、丸の上で指が往復する絵を出していたが、
+   まだこする場面でもないうちから視界に居るだけだった。
+   こすりを教えるのは、**それが要る場面**に出る知らせのほうに任せてある
+   (ボスが無防備になった瞬間の RUB THE CIRCLE TO FIRE FAST!)。 */
 
 /* ボタンの絵。**指はエリア全体で受けるので、これは見せるだけ**。
    同系色で少し違う色の枠線を付けた素朴な丸 */

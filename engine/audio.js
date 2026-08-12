@@ -630,14 +630,31 @@ registerProcessor('mmsxx-tap', MmsxxTap);
     const state = { gain, timer: 0, nodes: [], name, baseGain: 1 };
     this.bgmState = state;
 
+    /**
+     * **ジングルの最中に曲が変わったら、新しい曲は黙ったまま始める。**
+     *
+     * playJingle は鳴っている BGM を `_muteBGM(true)` で黙らせるが、
+     * 黙らせたのはそのときの曲であって、**あとから始まった曲は素通し**になる。
+     * ジングルは短いので、全開で始まった曲にまるごと踏み潰されて聞こえない。
+     *
+     * 実際にそうなっていた: モアイを内側から倒すとボーナスのファンファーレが
+     * 鳴るが、同じころモアイの曲が道中の曲へ戻るため、次のコマで全開の
+     * 道中曲が始まってファンファーレが消えていた。
+     *
+     * 黙って始めておけば、stopJingle の `_muteBGM(false)` が拾って戻す
+     */
+    const hushForJingle = () => { if (this.jingleState) gain.gain.value = 0.0001; };
+
     // 音声ファイル(mp3 など)の場合
     if (!Array.isArray(tracks)) {
       gain.gain.value = tracks.gain ?? 1;
       state.baseGain = gain.gain.value;
+      hushForJingle();
       this.bgmVoices = 1;
       this._playAudioBGM(tracks, loop, state);
       return;
     }
+    hushForJingle();
     this.bgmVoices = tracks.length;
     this._pump(tracks, loop, state, gain, () => this.bgmState === state);
   }
@@ -806,8 +823,15 @@ registerProcessor('mmsxx-tap', MmsxxTap);
   stopBGM() {
     const s = this.bgmState;
     if (!s) return;
-    // 黙らせたまま曲を止めると、戻す先が無くなる
-    if (this.jingleState) this.stopJingle();
+    // **ジングルは道連れにしない。**
+    // 以前はここで stopJingle() していた(黙らせた曲を止めると音量を戻す先が
+    // 無くなるため)が、そのせいで**曲が変わるとファンファーレが即死**していた。
+    // モアイを内側から倒したときの 10 万点のファンファーレが、ちょうど同じころ
+    // モアイの曲が道中の曲へ戻るせいで、一音も鳴らずに消えていた。
+    //
+    // 戻す先が無い件は playBGM 側で面倒を見ている(ジングル中に始まる曲は
+    // 黙ったまま始まり、stopJingle が戻す)。曲がひとつも無い場合も
+    // _muteBGM は bgmState が無ければ何もしないので、放っておいて困らない
     this.bgmState = null;
     this.bgmVoices = 0;
     clearTimeout(s.timer);
