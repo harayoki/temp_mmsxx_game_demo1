@@ -14553,6 +14553,11 @@ const HOWTO_PAGES = [
 let howToEl = null;
 /** 案内で止めたのか(自分で止めていたポーズを、閉じるときに戻さないため) */
 let howToPaused = false;
+/** ページ送りの部品。**キーとパッドから送るのに要る**(下の howToNext) */
+let howToPager = null;
+
+/** 次のページへ。**最後まで行ったら 1 ページ目へ回る**(閉じるのは X と ESC) */
+function howToNext() { if (howToPager) howToPager.step(1); }
 
 /** その人の言葉で取り出す */
 function howToText(v) { return (TG_LANG === 'ja' ? v.ja : v.en) || v.en; }
@@ -14829,6 +14834,7 @@ function openHowTo() {
   });
   pager.show(true);
   pager.el.style.alignSelf = 'center';
+  howToPager = pager;   // キーとパッドから送るため(howToNext)
 
   // **右上に小さい X。閉じるのはここだけ。**
   // ページは回り込むので、送っているうちに閉じてしまうことは無い。
@@ -14859,6 +14865,7 @@ function closeHowTo() {
   if (!howToEl) return;
   howToEl.remove();
   howToEl = null;
+  howToPager = null;
   if (howToPaused) setPaused(false);
   howToPaused = false;
 }
@@ -15349,6 +15356,17 @@ mmsxx.run(() => {
   } else if (captureArmed > 0) captureArmed--;
   // ポーズを抜けた直後の画面(ポーズの文字が写らない)をもう 1 枚
   if (capturePending > 0 && --capturePending === 0) captureClipboard();
+  // **遊びかたの板が開いているあいだは、キーとパッドをそちらへ渡す。**
+  // 板は DOM なので指では触れるが、パッドで遊ぶ人には触りようが無かった。
+  // パッドは A → Space、B / Start → Escape で落ちてくる
+  // (engine/util/gamepad.js の STANDARD_MAP)ので、そのまま使える。
+  // **ポーズの解除より先に見る。** あとに置くと、閉じる ESC が
+  // そのままポーズも解いてしまう
+  if (howToEl) {
+    if (mmsxx.input.wasPressed('Escape')) closeHowTo();
+    else if (mmsxx.input.wasPressed('Space') || mmsxx.input.wasPressed('Enter')) howToNext();
+    return;
+  }
   if (paused) {
     // 解除は ESC だけ。ENTER は裏技コードの確定に使う
     if (mmsxx.input.wasPressed('Escape')) {
