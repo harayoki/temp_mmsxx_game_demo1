@@ -161,9 +161,11 @@ const settings = new SaveGroup('starfable-settings', {
   // 切り返しの重さ(0 = 切る / 1 = はっきり戻したときだけ)と、決めたことがあるかの印
   padFlip: { type: T.NUMBER, min: 0, max: 1, digits: 0, label: 'TURN BACK' },
   padFlipSet: { type: T.FLAG, label: 'TURN BACK SET' },
-  // 動かしかた(0 = 行き先 1 つ / 1 = 2 つ / 2 = 十字 / 3 = なぞる)
+  // 動かしかた(0 = 十字 / 1 = 行き先 1 つ / 2 = 2 つ / 3 = なぞる)。
+  // **並びを変えたら、覚えてある番号の意味も変わる**
+  // (前に選んでいた人は、次に開いたとき別のものが選ばれている)
   padTargets: { type: T.NUMBER, min: 0, max: 3, digits: 0, label: 'CONTROL' },
-  padTargetsSet: { type: T.FLAG, label: 'TARGETS SET' },
+  padTargetsSet: { type: T.FLAG, label: 'CONTROL SET' },
   // 遊びかたの案内を一度でも出したか(**出すのは初めての 1 回だけ**)
   howToSeen: { type: T.FLAG, label: 'HOW TO PLAY SEEN' },
 });
@@ -13591,13 +13593,15 @@ let padFlip = 0;
  * パッドに戻したい人が CONTROL を見つけられない)
  */
 const PAD_TARGETS = [
-  { name: 'TARGET1', points: 1 },
+  // **並びは既定のものから。** 初めて開いた人がまず見るのは先頭なので、
+  // 既定(十字)を先頭に置く
+  { name: 'V-PAD', points: 0 },   // 0 = 行き先を置くのをやめて十字を出す
+  { name: 'TGT1', points: 1 },
   // **2 つまで。** 3 つ置けるようにしてあったが、画面に赤い十字が
   // 3 つ並ぶと、どれが次の行き先なのか見て取れなかった
-  { name: 'TARGETS2', points: 2 },
-  { name: 'V-PAD', points: 0 },   // 0 = 行き先を置くのをやめて十字を出す
-  // **なぞった道をたどる**(engine/util/trace.js)。
-  // 行き先を「点」ではなく「道」で渡す。通ってほしい道が書ける
+  { name: 'TGT2', points: 2 },
+  // **指を筆にして引っぱる**(engine/util/trace.js)。
+  // 手ブレ補正の掛かった遅延ドローで、自機が筆先として付いてくる
   { name: 'DRAW', points: 0, draw: true },
 ];
 /**
@@ -14336,8 +14340,10 @@ function startPadTargets() {
   // 「いちばん後ろが十字」と数えると、後ろへ足した瞬間に別のものになる
   const padAt = PAD_TARGETS.findIndex(s => s.name === 'V-PAD');
   if (raw === 'PAD' || raw === 'V-PAD') return padAt;
-  if (raw === '1') return 0;
-  if (raw === '2') return 1;
+  // **短い書きかたも受ける。** 番号ではなく名前で引く(並びが変わっても効く)
+  const byName = (n) => PAD_TARGETS.findIndex(s => s.name === n);
+  if (raw === '1') return byName('TGT1');
+  if (raw === '2') return byName('TGT2');
   const at = PAD_TARGETS.findIndex(s => s.name === raw);
   if (at >= 0) return at;
   const stick = OPT.get('stick');
