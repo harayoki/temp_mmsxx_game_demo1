@@ -919,11 +919,15 @@ export class TouchGui {
       const cr = this.touch._rectOf(this.canvas);
       const edge = zone.offsetLeft + (cr.right - zr.left);
       if (left < edge) {
-        // **削りきってしまわない。** 帯そのものが画面に食われている機種では
-        // 残りが無くなるので、丸の右半分ぶんは必ず残す
-        const keep = Math.max(0, left + width - Math.max(edge, left + width - fr.width / 2));
-        width = Math.max(fr.width / 2, keep);
-        left = left + (fr.width + m * 2) - width;
+        // **掛けないほうを先に取る。** 押しやすさより、
+        // 「画面のここは押しても行き先が置けない」を作らないことを優先する
+        const right = left + width;
+        const rest = right - edge;
+        // ただし**指が乗らないほど細くはしない**。そこまで削るしかない機種では、
+        // わずかに掛かるのを飲む(24px は指の腹より狭いが、狙えば当たる)
+        const min = 24;
+        if (rest >= min) { left = edge; width = rest; }
+        else { width = Math.min(min, right - left); left = right - width; }
       }
     }
     hit.style.left = Math.round(left) + 'px';

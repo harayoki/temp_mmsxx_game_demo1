@@ -13821,12 +13821,24 @@ function applyZoom(z) {
   if (touchGui) touchGui.layout();
 }
 
-/** 前に決めた大きさがあれば、それで始める */
+/**
+ * 前に決めた大きさがあれば、それで始める。
+ * 決めていなければ、**指で遊ぶときだけ 1 段小さくしておく**。
+ *
+ * いっぱいまで広げると、**画面の広い機種(iPad)でボタンがほとんど隠れる** —
+ * 画面が縦横いっぱいに育って、左右の帯が残らなくなるため。
+ * 1 段落としても遊ぶには十分大きい。**自分で決めた印は立てない**ので、
+ * 狭いところでは今までどおり自動でさらに縮む
+ */
 function restoreZoom() {
-  // 確認モードは覚えない側なので、戻すのもしない(機種ごとの素の姿を見る)
-  if (DEVICE || !settings.get('zoomSet')) return;
-  const z = settings.get('zoom');
-  if (typeof z === 'number' && z >= ZOOM_MIN && z <= ZOOM_MAX) applyZoom(z);
+  if (!DEVICE && settings.get('zoomSet')) {
+    const z = settings.get('zoom');
+    if (typeof z === 'number' && z >= ZOOM_MIN && z <= ZOOM_MAX) { applyZoom(z); return; }
+  }
+  if (!PAD_ON) return;
+  mmsxx.vdp.zoom = Math.max(ZOOM_MIN, ZOOM_MAX / ZOOM_STEP);
+  mmsxx.vdp.refitCss();
+  if (touchGui) touchGui.layout();
 }
 
 function bindZoomButtons() {
@@ -14509,16 +14521,21 @@ const HOWTO_PAGES = [
     },
   },
   {
-    // **読み直しかたは最後に置く。** 遊びかたを読み終えた人が
-    // 次に知りたいのは「また読めるのか」なので、そこで答える
-    title: { ja: 'よみなおす', en: 'READ AGAIN' },
+    // **最後のページには題を付けない。**
+    // ここは遊びかたではなく、そのほかの話をまとめて置くところ。
+    // 題を付けると、この 1 枚が何かの単元に見えてしまう
+    title: null,
     body: {
-      ja: 'この案内は ? のボタンでいつでも読み直せます。\n'
-        + 'タイトルとポーズ中に出ています。\n'
-        + '閉じるときは、右上の × を押してください。',
-      en: 'Press the ? button any time to read this again.\n'
-        + 'It is there on the title and while paused.\n'
-        + 'Tap the × at the top right to close.',
+      ja: 'ゲームパッドも使えます。\n'
+        + 'タイトルでボタンを押して、\n'
+        + '出てくる案内にしたがってください。\n'
+        + '\n'
+        + 'この案内は ? でいつでも読めます。',
+      en: 'A game pad works too.\n'
+        + 'Press a button on the title screen\n'
+        + 'and follow what it says.\n'
+        + '\n'
+        + 'Press ? any time to read this again.',
     },
   },
 ];
@@ -14530,6 +14547,108 @@ let howToPaused = false;
 
 /** その人の言葉で取り出す */
 function howToText(v) { return (TG_LANG === 'ja' ? v.ja : v.en) || v.en; }
+
+/**
+ * **挿絵。** ページごとに、ゲームの絵をそのまま並べる。
+ *
+ * 新しく描かない — **遊んでいるあいだに出てくるものと同じ絵**でないと、
+ * 読んだあとに見つけられない。そのぶん、**大きくしたり傾けたり**して
+ * 図としての見栄えを作る(ドットは pixelated のまま。にじませない)。
+ *
+ * 置き場所は**割合**(`l` / `t` = 板の左上からの %)。px で置くと、
+ * 板の大きさが機種で変わるぶん、狭いところで外へ出てしまう。
+ *
+ * **字の座布団を避けて、まわりへ散らす。** 重なってもよいことにはしてあるが、
+ * 真ん中へ置くと座布団の裏に丸ごと隠れて、何も見えなくなる
+ *
+ * `{ sym | icon, scale, deg, l, t }`
+ */
+const HOWTO_ART = [
+  // うごかす: 右上に置かれたターゲットと、左下から向かう自機
+  [
+    { sym: 'aimMark', scale: 4, deg: 0, l: 86, t: 18 },
+    { sym: 'player', scale: 4, deg: -18, l: 12, t: 78 },
+  ],
+  // うつ: 右の端を弾が並んで昇っていく
+  [
+    { sym: 'bulletP', scale: 4, deg: 0, l: 88, t: 16 },
+    { sym: 'bulletP', scale: 4, deg: 0, l: 88, t: 36 },
+    { sym: 'bulletP', scale: 4, deg: 0, l: 88, t: 56 },
+    { sym: 'player', scale: 4, deg: 0, l: 88, t: 82 },
+  ],
+  // めぐる: ターゲットを 3 つ散らして、道筋に見せる
+  [
+    { sym: 'player', scale: 3, deg: -24, l: 8, t: 84 },
+    { sym: 'aimMark', scale: 3, deg: 0, l: 22, t: 16 },
+    { sym: 'aimMark', scale: 3, deg: 0, l: 78, t: 14 },
+    { sym: 'aimMark', scale: 3, deg: 0, l: 90, t: 82 },
+  ],
+  // そのほか: パッドで遊ぶ話なので、ここだけ道具の絵(ICONS)を借りる
+  [{ icon: 'keyboardWide', scale: 3, deg: -8, l: 50, t: 88 }],
+];
+
+/** 1 枚ぶんの絵を img にする。**作れなければ null**(絵が無くても案内は読める) */
+function howToArtImg(a) {
+  try {
+    const img = document.createElement('img');
+    if (a.icon) {
+      img.src = iconDataURL(mmsxx, ICONS[a.icon],
+        { body: ICON_BODY, accent: 7, scale: a.scale || 2, key: 'howto-' + a.icon });
+    } else {
+      const sym = SPRITE_SYMBOLS[a.sym];
+      if (!sym) return null;
+      img.src = exportSymbol(mmsxx, sym, { scale: a.scale || 3 }).toDataURL();
+    }
+    img.alt = '';
+    Object.assign(img.style, {
+      position: 'absolute', left: (a.l || 50) + '%', top: (a.t || 50) + '%',
+      transform: `translate(-50%, -50%) rotate(${a.deg || 0}deg)`,
+      imageRendering: 'pixelated',
+    });
+    return img;
+  } catch (e) { return null; }   // 絵が作れない環境では字だけで出す
+}
+
+/**
+ * ページの挿絵をまとめた箱。**板いっぱいに敷く**(字の下に回る)。
+ *
+ * 絵のための場所を別に取ると、狭い機種では字か絵のどちらかが潰れる。
+ * **敷いてしまって、字は座布団を敷いて上に乗せる**ほうが、
+ * どちらも読める(絵は隠れても、何の絵かは分かる)
+ */
+function howToArtBox(i) {
+  const box = document.createElement('div');
+  Object.assign(box.style, {
+    position: 'absolute', inset: '0', overflow: 'hidden', pointerEvents: 'none',
+  });
+  for (const a of (HOWTO_ART[i] || [])) {
+    const img = howToArtImg(a);
+    if (img) box.appendChild(img);
+  }
+  return box;
+}
+
+/**
+ * 板の大きさ。**遊びの画面と同じ広さまで**で頭打ちにする。
+ *
+ * 実機では器が窓ぜんぶを覆っているので、窓いっぱいと同じ意味になる。
+ * `?device=` で枠を作っているときや窓の大きい端末では、
+ * **窓いっぱいに広げると枠の外まではみ出して**、どこを押せばよいのか
+ * 分からなくなる。器の大きさを借りて、そこへ収める
+ */
+function howToBox() {
+  const area = document.querySelector('.mmsxx-gui');
+  const r = area ? area.getBoundingClientRect() : null;
+  const w = r && r.width ? Math.round(r.width * 0.92) + 'px' : '92vw';
+  const h = r && r.height ? Math.round(r.height * 0.9) + 'px' : '90vh';
+  return {
+    background: '#101010', borderColor: '#cccccc', color: '#e8e8e8',
+    // 絵を敷くので、中身は板いっぱいに広げる(余白は座布団の側で取る)
+    padding: '8px 34px',
+    width: w, maxWidth: w, minHeight: h, maxHeight: h,
+    boxSizing: 'border-box', overflow: 'hidden',
+  };
+}
 
 /**
  * **初めて遊びはじめるときに 1 度だけ出す。**
@@ -14565,26 +14684,63 @@ function openHowTo() {
   // **板の左半分を押せば前へ、右半分を押せば次へ**。
   // 閉じるボタンは置かない。**最後のページから次へ送ったら閉じる**
   // (読み終わったら先へ進む、が 1 つの動きで済む)
+  // **絵を下に敷いて、字はその上へ。**
+  // 字には半透明の黒い座布団を敷くので、絵と重なっても読める
   const inner = document.createElement('div');
   Object.assign(inner.style, {
+    position: 'relative', width: '100%', minHeight: '100%',
+    display: 'flex', flexDirection: 'column', alignItems: 'center',
+    justifyContent: 'center', gap: '10px',
+  });
+  const art = document.createElement('div');
+  Object.assign(art.style, { position: 'absolute', inset: '0' });
+  const text = document.createElement('div');
+  Object.assign(text.style, {
+    position: 'relative',
     display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px',
   });
+  // **座布団は行ごとに敷く。** 大きな 1 枚を置くと、そのぶん挿絵が
+  // まるごと隠れる。字の下だけを塗れば、あいだから絵が見える。
+  // 角は丸めない(ドット絵の画面に丸みは合わない)
+  const PAD_BG = 'rgba(0, 0, 0, 0.66)';
+  const cushion = (el) => {
+    Object.assign(el.style, { background: PAD_BG, padding: '2px 10px' });
+    return el;
+  };
   const title = document.createElement('div');
   Object.assign(title.style, { color: '#ffe000' });
+  cushion(title);
   const body = document.createElement('div');
   // **高さを決め打ちにする。** ページごとに行数が違うと、
   // 送るたびに板の大きさが変わって、押す場所が動く
   Object.assign(body.style, {
-    whiteSpace: 'pre-line', minHeight: '5.5em', lineHeight: '1.6',
+    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px',
+    minHeight: '5.5em', lineHeight: '1.6',
   });
   const pageNo = document.createElement('div');
   Object.assign(pageNo.style, { color: '#9a9aa8', fontSize: '0.8em' });
-  inner.append(title, body, pageNo);
+  cushion(pageNo);
+  text.append(title, body, pageNo);
+  inner.append(art, text);
+
+  /** 本文を**行ごとの座布団**に置き直す。空の行は隙間だけ空ける */
+  const setBody = (s) => {
+    body.replaceChildren(...s.split('\n').map((line) => {
+      const d = document.createElement('div');
+      if (!line) { d.style.height = '0.6em'; return d; }
+      d.textContent = line;
+      return cushion(d);
+    }));
+  };
 
   const paint = (i) => {
     const p = HOWTO_PAGES[i];
-    title.textContent = howToText(p.title);
-    body.textContent = howToText(p.body);
+    // **題の無いページは箱ごと引っ込める。** 空のまま残すと、
+    // そのぶんの隙間だけが空いて、本文の位置がページごとに動く
+    title.style.display = p.title ? '' : 'none';
+    title.textContent = p.title ? howToText(p.title) : '';
+    setBody(howToText(p.body));
+    art.replaceChildren(howToArtBox(i));
     pageNo.textContent = `${i + 1} / ${HOWTO_PAGES.length}`;
   };
   paint(0);
@@ -14601,12 +14757,11 @@ function openHowTo() {
     content: inner,
     // 板の見た目。矢印に貸すぶんだけ左右を広く取る
     // **画面いっぱいに取る。** 読ませる板なので、小さくして余白を残す
-    // 意味が無い。押す場所(左半分 / 右半分)も広いほうが当てやすい
-    mainStyle: {
-      background: '#101010', borderColor: '#cccccc', color: '#e8e8e8',
-      padding: '16px 34px', width: '92vw', minHeight: '82vh',
-      boxSizing: 'border-box', overflowY: 'auto',
-    },
+    // 意味が無い。押す場所(左半分 / 右半分)も広いほうが当てやすい。
+    // ただし**大きくするのはスマホの画面までで頭打ち**にする
+    // (`?device=` の枠や、窓の大きい端末では、窓いっぱいだと board が
+    // 画面の外まではみ出して、どこを押せばよいのか分からなくなる)
+    mainStyle: howToBox(),
     onChange: (i) => paint(i),
   });
   pager.show(true);
@@ -14621,11 +14776,14 @@ function openHowTo() {
   close.type = 'button';
   close.textContent = '×';
   close.setAttribute('aria-label', 'CLOSE');
+  // **指で当てられる大きさにする**(44px。28px では小さすぎた)。
+  // 絵は小さいままでよいが、受ける四角は指なりに取る
   Object.assign(close.style, {
-    position: 'absolute', top: '6px', right: '26px',
-    width: '28px', height: '28px', padding: '0',
-    font: '20px/1 var(--mmsxx-gui-font, monospace)',
+    position: 'absolute', top: '4px', right: '26px',
+    width: '44px', height: '44px', padding: '0',
+    font: '24px/1 var(--mmsxx-gui-font, monospace)',
     color: '#e8e8e8', background: 'transparent', border: '0', cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
   });
   close.addEventListener('click', () => { close.blur(); closeHowTo(); });
   pager.el.appendChild(close);

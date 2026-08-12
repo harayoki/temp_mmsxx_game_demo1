@@ -1638,9 +1638,12 @@ function injectStyle() {
      間隔が左右で違って見える */
   position: absolute; left: 50%; bottom: calc(10% - var(--r) * 0.3);
   transform: translateX(-50%);
-  /* 絵の矢印の 9 割 */
-  width: calc((var(--r) * 2.8 - 40px) * 1.6 * 34 / 48 * 0.9);
-  height: calc((var(--r) * 2.8 - 40px) * 1.6 * 34 / 48 * 0.9);
+  /* 絵の矢印の 9 割 …… から **さらに 8 掛け**。
+     叩いて動かす遊びかたでは、こするのは「あれば効く」ものになったので、
+     そのぶん場所を返す。**受け場所は別に測っている**(_fitShotHit)ので、
+     ここを縮めれば押すところも一緒に縮む */
+  width: calc((var(--r) * 2.8 - 40px) * 1.6 * 34 / 48 * 0.9 * 0.8);
+  height: calc((var(--r) * 2.8 - 40px) * 1.6 * 34 / 48 * 0.9 * 0.8);
   box-sizing: border-box; pointer-events: none; border-radius: 50%;
   border: 9px solid #224466;    /* 輪 */
   padding: 11px;                /* 隙間 */
