@@ -3701,8 +3701,10 @@ function startStage() {
     stageHardShown = !!label && hardNow();
     if (stageHardShown) hud.print(centerX(HARD_LABEL), HARD_LABEL_Y, HARD_LABEL, HARD_LABEL_COLOR);
     // 操作の説明は**1 面の頭でだけ**、面の名前と一緒に出す。
-    // タイトルに置いていたが、遊びかたの話なのでここへ移した
-    stageHelpShown = stageNo === 1;
+    // タイトルに置いていたが、遊びかたの話なのでここへ移した。
+    // **指で遊ぶ端末では出さない。** 中身が矢印キーと SP と ESC の話で、
+    // どれも指では押せない。遊びかたは ? の案内が受け持つ
+    stageHelpShown = stageNo === 1 && !PAD_ON;
     if (stageHelpShown) hud.print(centerX(PLAY_HELP), PLAY_HELP_Y, PLAY_HELP, PLAY_HELP_COLOR);
   }
   // 2 回目のコンティニュー。面が始まってすぐ、未実装さんが顔を出す
@@ -13389,6 +13391,8 @@ const OK = {
   play: 'PLAY',
   skip: 'SKIP',
   back: 'BACK',
+  // **先へ進むだけ**の場面。何が起きるかを名前で言えないときはこれ
+  ok: 'OK',
   /**
    * **タイトルで選んでいるものの名前**(GAME START / HARD GAME / ...)。
    * 上下で選んだものと押すボタンが結びつくように、名前をそのまま出す。
@@ -13462,7 +13466,10 @@ function menuGuide() {
       if (titlePage === 1) return { left: [TG.page], ok: OK.title, esc: null };
       return { left: [TG.page, TG.scroll], ok: OK.title, esc: null };
     case 'over':
-      return { left: [], ok: OK.skip, esc: OK.skip };
+      // **同じ SKIP を 2 つ並べない。** どちらを押しても同じことが起きるので、
+      // 上に置いてあると「別の何かだろうか」と考えさせるだけだった。
+      // 残すのは下の 1 つ。**する事は先へ進むこと**なので OK と書く
+      return { left: [], ok: OK.ok, esc: null };
     case 'entry':
       // 左右で桁と ENTER を選び、上下でその桁の文字を送る
       return { left: [TG.cursor, TG.letter],
