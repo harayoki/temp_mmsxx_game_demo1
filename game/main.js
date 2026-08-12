@@ -2067,12 +2067,13 @@ let speedLevel = 1;
 /**
  * **押しっぱなしのときの連射間隔**(コマ)。
  *
- * 20 コマ(毎秒 3 発)だったのを **1.5 倍の速さ**にした。
+ * 20 コマ(毎秒 3 発)だったのを 13 まで詰めたが、速すぎたので **16** へ戻した
+ * (毎秒 3.75 発。20 のころと 13 のころの あいだ)。
  * 指で遊ぶときは、こすらないかぎりこの速さが出るぶんの全部なので、
  * ここが遅いと**こすり続けないと戦えない**遊びになってしまう。
- * キーボードで押しっぱなしにしている人にも同じだけ効く
+ * **キーボードで押しっぱなしにしている人にも同じだけ効く**(PC も一緒に変わる)
  */
-const AUTO_FIRE_INTERVAL = 13;
+const AUTO_FIRE_INTERVAL = 16;
 let volleySeq = 0;
 let volleys = new Map(); // volley ID -> 残っている弾数
 let lastShotFrame = -999;
@@ -3823,6 +3824,9 @@ const CANDY_SWAP = { 9: 7, 7: 9 };
 
 function enterPlay(fromContinue = false) {
   cancelFlash();
+  // **初めて遊びはじめるときだけ、遊びかたを出す**(スマホだけ)。
+  // 続きから始めたときは出さない — もう一度遊んでいる人には要らない
+  if (!fromContinue) maybeShowHowTo();
   // タイトルへ戻ったときに、この難易度を選んだ状態にする。
   // **難易度のあるモードのときだけ**書き換える(ボスラッシュなどでは触らない)。
   // CONTINUE は続けている難易度そのものなので、書いても値は変わらない
@@ -13245,6 +13249,8 @@ let kbdUsable = null;
 let rotateShown = null;
 /** つまみのボタンを出しているか(ポーズ中だけ) */
 let padSenseShown = null;
+/** 遊びかたの ? を出しているか(ポーズ中だけ) */
+let howToShown = null;
 /** 段を選ぶ部品(engine/util/stepper.js)。**PAD_ON のときだけ作る** */
 let padFlipUI = null;
 /** 行き先の数を選ぶ部品。**パッドレスのときだけ作る** */
@@ -13383,6 +13389,12 @@ const OK = {
   play: 'PLAY',
   skip: 'SKIP',
   back: 'BACK',
+  /**
+   * **タイトルで選んでいるものの名前**(GAME START / HARD GAME / ...)。
+   * 上下で選んだものと押すボタンが結びつくように、名前をそのまま出す。
+   * **毎コマ呼ばれる**ので、関数のまま持っておく
+   */
+  pick: () => MODES[modeIndex].name,
   // **名前入力では BACK と書かない。** 左キーが「桁を戻す」なので、
   // BACK だと 1 文字戻ると読める。ここは打つのをやめて出ていくほう
   cancel: 'CANCEL',
@@ -13440,7 +13452,12 @@ function menuGuide() {
       // ロゴのページだけ上下でモードを選べる。一覧のページは上下がスクロール
       // モードは数個しかないので、**1 歩ぶんを大きく取る**(TG_PICK)
       if (titlePage === 0) {
-        return { left: [TG.page, TG.menu], ok: OK.start, esc: null, step: TG_PICK };
+        // **選んでいるものの名前をボタンに出す。**
+        // START とだけ書いてあると、上下で選んだものと押すものが
+        // 結びつかない(canvas の中の並びと、指が触るボタンが別の場所にある)。
+        // 名前がそのまま出ていれば、押す前にどれを選んだのかが分かる
+        return { left: [TG.page, TG.menu], ok: OK.pick(), esc: null, step: TG_PICK,
+          okBig: true };
       }
       if (titlePage === 1) return { left: [TG.page], ok: OK.title, esc: null };
       return { left: [TG.page, TG.scroll], ok: OK.title, esc: null };
@@ -13818,6 +13835,7 @@ function bindZoomButtons() {
   bindRotateButton();
   bindKeyboardButton();
   bindPadSenseButton();
+  bindHowToButton();
 
   // **ドットをそろえるかどうか**。既定は「置けるだけ大きく」だが、
   // ドットのガタつきが気になる人のために、整数倍へ切り下げる道も残す
@@ -14403,6 +14421,185 @@ function closeHomeInstall() {
   a2hsEl = null;
 }
 
+// ---- 遊びかたの案内 ----
+//
+// **スマホだけ。** PC は画面の下に操作の一覧が出ているし、
+// 触りかたも見て分かる。指で遊ぶときだけ、先に読んでもらう。
+//
+// **初めて遊びはじめるときに 1 度**出して、そのあとはポーズ中の ? から
+// いつでも読み直せる。読み終わるまでゲームは止めておく
+// (読んでいるあいだにやられていた、では案内の意味が無い)。
+//
+// 中身はこれから決める。**いまは 3 ページの下書き**が入っている。
+
+/**
+ * 案内のページ。**ここだけ日英を出し分ける**(canvas の中は英語のまま。
+ * これは DOM なので、読んでほしいことは読める言葉で出す)。
+ *
+ * TODO: 中身は未定。いまは並びと見た目を決めるための下書き
+ */
+const HOWTO_PAGES = [
+  {
+    title: { ja: 'うごかす', en: 'MOVE' },
+    body: {
+      ja: '画面をタップすると、そこへ自機が動きます。\n'
+        + '押さえたまま指をずらすと、行き先も一緒に動きます。\n'
+        + '自機をタップすると、その場で止まります。',
+      en: 'Tap the screen and your ship flies there.\n'
+        + 'Hold and drag to move the target with your finger.\n'
+        + 'Tap your own ship to stop.',
+    },
+  },
+  {
+    title: { ja: 'うつ', en: 'SHOOT' },
+    body: {
+      ja: '弾は自動で出ます。何もしなくても撃ち続けます。\n'
+        + '右下の丸をこすると、そのぶん速く撃てます。\n'
+        + '両手とも移動に使えます。',
+      en: 'You fire automatically. No button needed.\n'
+        + 'Rub the circle at the lower right to fire faster.\n'
+        + 'Both hands are free to move.',
+    },
+  },
+  {
+    title: { ja: 'つまみ', en: 'SETTINGS' },
+    body: {
+      ja: 'ポーズ中に、行き先をいくつまで置けるかを選べます。\n'
+        + '画面の大きさや向きも、そこで変えられます。\n'
+        + 'この案内は、ポーズ中の ? でいつでも読み直せます。',
+      en: 'Pause to choose how many targets you can place.\n'
+        + 'Screen size and rotation live there too.\n'
+        + 'Press ? while paused to read this again.',
+    },
+  },
+];
+
+/** 開いている板。**開いているあいだはゲームを止める** */
+let howToEl = null;
+/** 案内で止めたのか(自分で止めていたポーズを、閉じるときに戻さないため) */
+let howToPaused = false;
+
+/** その人の言葉で取り出す */
+function howToText(v) { return (TG_LANG === 'ja' ? v.ja : v.en) || v.en; }
+
+/**
+ * **初めて遊びはじめるときに 1 度だけ出す。**
+ * `?howto=1` で毎回出せる(見た目を確かめるため)
+ */
+function maybeShowHowTo() {
+  if (!PAD_ON) return;                       // スマホだけ
+  if (OPT.get('howto') !== '1') {
+    if (DEVICE) return;                      // 機種を渡り歩くときは出さない
+    if (settings.get('howToSeen')) return;
+    settings.set('howToSeen', true);
+    settings.flush();
+  }
+  openHowTo();
+}
+
+/** 案内を開く。**ポーズ中の ? からも、遊びはじめからも ここへ来る** */
+function openHowTo() {
+  if (howToEl) return;
+  // **止めてから出す。** 読んでいるあいだに敵が動いていては読めない
+  howToPaused = !paused;
+  if (howToPaused) setPaused(true);
+
+  const el = document.createElement('div');
+  el.id = 'howto';
+  Object.assign(el.style, {
+    position: 'fixed', inset: '0', zIndex: '9997', display: 'flex',
+    alignItems: 'center', justifyContent: 'center',
+    background: 'rgba(0,0,0,0.82)',
+  });
+  const box = document.createElement('div');
+  Object.assign(box.style, {
+    font: 'clamp(14px, var(--mmsxx-gui-font-size, 16px), 24px) var(--mmsxx-gui-font, monospace)',
+    color: '#e8e8e8', textAlign: 'center', lineHeight: '1.6',
+    background: '#101010', border: '2px solid #cccccc',
+    padding: '16px 18px', maxWidth: '88vw', maxHeight: '92vh',
+    boxSizing: 'border-box', overflowY: 'auto',
+    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px',
+  });
+
+  const title = document.createElement('div');
+  Object.assign(title.style, { color: '#ffe000' });
+  const body = document.createElement('div');
+  // **高さを決め打ちにしない。** ページごとに行数が違うと、
+  // 送るたびにボタンの位置が動いて押しにくい。いちばん長いぶんで場所を取る
+  Object.assign(body.style, { whiteSpace: 'pre-line', minHeight: '5.5em' });
+  box.append(title, body);
+
+  const paint = (i) => {
+    const p = HOWTO_PAGES[i];
+    title.textContent = howToText(p.title);
+    body.textContent = howToText(p.body);
+  };
+  paint(0);
+
+  // ページ送り。**つまみと同じ部品を大きくして使う**
+  // (同じ形のものは同じ触りかたで動く、と覚えてもらう)
+  const pager = createStepper({
+    mount: box,
+    items: HOWTO_PAGES.map((p, i) => `${i + 1} / ${HOWTO_PAGES.length}`),
+    index: 0,
+    wrap: false,                 // 端は端だと見せる(何ページあるか分かるように)
+    fontSize: 24,                // **8 の倍数**。ドット絵の書体はそこでしか揃わない
+    onChange: (i) => paint(i),
+  });
+  pager.show(true);
+
+  const close = document.createElement('button');
+  close.type = 'button';
+  close.textContent = 'OK';
+  Object.assign(close.style, {
+    font: 'inherit', color: '#111122', background: '#ffe000',
+    border: '2px solid #ffe000', padding: '10px 28px', cursor: 'pointer',
+  });
+  close.addEventListener('click', () => closeHowTo());
+  box.appendChild(close);
+
+  el.appendChild(box);
+  document.body.appendChild(el);
+  howToEl = el;
+}
+
+/** 案内を閉じる。**自分で止めていたポーズは戻さない** */
+function closeHowTo() {
+  if (!howToEl) return;
+  howToEl.remove();
+  howToEl = null;
+  if (howToPaused) setPaused(false);
+  howToPaused = false;
+}
+
+// **開発版だけ**: 遊びはじめまで進まなくても案内を出せるようにする。
+// 中身を詰めているあいだ、毎回ゲームを始め直すのは手間なので
+if (DEV) mmsxx.expose('mmsxxHowTo', () => { openHowTo(); return HOWTO_PAGES.length + ' ページ'; });
+
+/** ポーズ中の ? ボタン。**スマホだけ**(PC には案内が画面の下に出ている) */
+function bindHowToButton() {
+  const el = document.getElementById('howto-btn');
+  if (!el) return;
+  if (!PAD_ON) { el.style.display = 'none'; return; }
+  el.addEventListener('click', () => { el.blur(); openHowTo(); });
+}
+
+/**
+ * **ポーズ中とタイトルで出す。**
+ *
+ * 遊びかたを読むのは遊びはじめる前でもあるので、タイトルにも要る
+ * (ポーズまで来ないと読めないのでは、初めてのひと勝負を手探りで遊ぶことになる)。
+ * 遊んでいる最中は出さない — 弾を避けている最中に触るものではない
+ */
+function showHowToButton() {
+  const el = document.getElementById('howto-btn');
+  if (!el || !PAD_ON) return;
+  const on = paused || state === 'title';
+  if (howToShown === on) return;
+  howToShown = on;
+  el.style.display = on ? '' : 'none';
+}
+
 // **ここで呼ぶ。** 上の const(IS_STANDALONE)より前では触れない
 setupHomeInstall();
 // スマホの画角への入口(DEV のときだけ)。DEVICE / DEVICES を見るので、
@@ -14520,6 +14717,7 @@ function updateTouchGui() {
     showKeyboardButton();
     showRotateButton();
     showPadSenseButton();
+    showHowToButton();
     return;
   }
   touchGui.setMode('menu');
@@ -14528,6 +14726,7 @@ function updateTouchGui() {
   showKeyboardButton();
   showRotateButton();
   showPadSenseButton();
+  showHowToButton();
 }
 
 /**

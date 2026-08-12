@@ -209,6 +209,10 @@
          90 度は要らない(縦横の食い違いはエンジンが自動で合わせる) -->
     <button id="rotate-btn" type="button" title="TURN SCREEN 180"
             aria-label="TURN SCREEN 180" style="display:none"></button>
+    <!-- 遊びかたの案内。**ポーズ中だけ出す**(game/main.js)。スマホだけ。
+         絵にすると「?」以上に分かる形が無いので、ここは字のまま -->
+    <button id="howto-btn" type="button" title="HOW TO PLAY"
+            aria-label="HOW TO PLAY" style="display:none">?</button>
     <button id="share-btn" type="button" title="SCREENSHOT" aria-label="SCREENSHOT"></button>
     <!-- OS へ画像を渡す。**渡せる環境でだけ出す**(game/main.js が判定する)。
          Firefox など navigator.share の無いところでは最初から出さない -->

@@ -656,6 +656,9 @@ export class TouchGui {
       opt: (guide && guide.opt) || null,
       // 縦に 1 歩送るのに要る指の移動(px)。**数個から選ぶ場面では大きく**
       step: (guide && guide.step) || 0,
+      // **OK だけ大きくしたい場面がある**(タイトルで選んだものの名前を出すなど)。
+      // 場所は動かさないまま、字と上下の余白だけ育てる
+      okBig: !!(guide && guide.okBig),
     };
     this._applyGuide();
   }
@@ -688,6 +691,7 @@ export class TouchGui {
       el.textContent = pickText(v, this.opts.lang);
       if (woke) this._wake(el);
     }
+    this._el.ok.classList.toggle('big', g.okBig);
   }
 
   /**
@@ -1533,6 +1537,13 @@ function injectStyle() {
 }
 /* 沈めるときは色も戻す(押せないのに目立つのがいちばん困る) */
 .mmsxx-gui-ok.off { background: #2a2a3c; border-color: #ffffff; color: #ffffff; }
+/* **選んだものの名前を出す場面だけ大きく**(タイトル)。
+   ここは「何を選んだか」を読ませる場所でもあるので、字が小さいと
+   画面の中の並びと見比べることになる。**8 の倍数**(16 -> 24)にする */
+.mmsxx-gui-ok.big {
+  font-size: calc(var(--mmsxx-gui-font-size, 16px) * 1.5);
+  padding-top: 18px; padding-bottom: 18px;
+}
 /* **横が窮屈な機種では左右も詰める。** 端の 6px と字の左右の余白を削って、
    長い文言(GO TITLE など)が入るところまで幅を稼ぐ */
 /* **狭いところでは外側の端へ寄せる。** 真ん中に置くとゲーム画面の側へ
