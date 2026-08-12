@@ -35,6 +35,16 @@ const DEFAULTS = {
   /** 行き先にどれだけ近づいたら着いたことにするか(ドット) */
   arrive: 4,
   /**
+   * **行き過ぎたと見なす距離**(ドット)。
+   * ここまで近づいたあと**離れはじめたら**、着いたことにして止める。
+   *
+   * 曲がれる速さには上限があるので、**旋回半径より内側で行き先を外すと
+   * もう届かず、そのまわりを回り続ける**(半径 = 速さ ÷ 旋回の速さ。
+   * 2px/コマ・5°/コマなら 23 ドットほど)。距離を詰めるだけでは直らない —
+   * 近いほど曲がりきれないので、外したことに気づいて止めるしかない
+   */
+  passBy: 28,
+  /**
    * **自機のまわりを叩いたら止まる**(ドット)。
    * 止めかたが要る(撃つ場所を選びたい・その場で粘りたい)ので、
    * **いちばん押しやすいところ = 自機そのもの**を止める合図にする
@@ -90,32 +100,50 @@ export function createPadless(opts = {}) {
   let fx = 0, fy = 0;
   /** ひと押しで曲げたぶんの合計(度)。maxSteer の頭打ちに使う */
   let steered = 0;
+  /** 前のコマの行き先までの距離。**離れはじめたか**を見るためだけに持つ */
+  let lastDist = Infinity;
   /** 印。firm=false は「まだ指が乗っている(仮)」 */
   const marker = { on: false, x: 0, y: 0, firm: false };
 
-  /** 自機から見て、その点は前方か。前方でなければ縁まで戻した点を返す */
-  function clampForward(sx, sy, px, py) {
+  /**
+   * 自機から見て、その点は前方か。前方でなければ縁まで戻した点を返す。
+   *
+   * @param {boolean} firm **確定するときだけ true**。
+   *   最小前進距離(`minAhead`)を効かせるのはこのときだけにする。
+   *   仮の印にも効かせていたことがあり、**自機が指へ近づくほど印が前へ
+   *   逃げていった**(指を押さえたままなのに印が動く)。
+   *   最小前進が要るのは「離した先が近すぎて、置いた瞬間に着いた扱いで
+   *   止まってしまう」のを避けるためで、押さえているあいだには要らない
+   */
+  function clampForward(sx, sy, px, py, firm) {
     let dx = px - sx, dy = py - sy;
     let dist = Math.hypot(dx, dy);
-    // **近すぎる行き先は前へ押し出す。** そのままだと着いた扱いで止まってしまう
-    if (dist < o.minAhead) {
-      dist = o.minAhead;
-      // 向きが取れないほど近いときは、進んでいる向きへ出す
-      if (!(dx || dy)) { dx = Math.cos(heading * D2R); dy = Math.sin(heading * D2R); }
-      const n = Math.hypot(dx, dy);
-      dx = dx / n * dist; dy = dy / n * dist;
+    // 向きが取れないほど重なっているときだけ、進んでいる向きへ出す
+    if (dist < 0.001) {
+      dx = Math.cos(heading * D2R); dy = Math.sin(heading * D2R);
+      dist = firm ? o.minAhead : 0.001;
+      return { x: sx + dx * dist, y: sy + dy * dist };
     }
     const deg = Math.atan2(dy, dx) / D2R;
     const off = wrapDeg(deg - heading);
-    if (Math.abs(off) <= o.forwardDeg) return { x: sx + dx, y: sy + dy };
+    if (Math.abs(off) <= o.forwardDeg) {
+      // 前方。**そのままの場所**。近くても押し出さない(印が指から逃げる元だった)
+      if (firm && dist < o.minAhead) {
+        const k = o.minAhead / dist;
+        return { x: sx + dx * k, y: sy + dy * k };
+      }
+      return { x: px, y: py };
+    }
     // 前方の縁まで戻す(**距離はそのまま**。行きたかった遠さは残す)
+    const d = firm ? Math.max(dist, o.minAhead) : dist;
     const edge = (heading + Math.sign(off) * o.forwardDeg) * D2R;
-    return { x: sx + Math.cos(edge) * dist, y: sy + Math.sin(edge) * dist };
+    return { x: sx + Math.cos(edge) * d, y: sy + Math.sin(edge) * d };
   }
 
   function stop() {
     state = 'idle';
     steered = 0;
+    lastDist = Infinity;
     marker.on = false;
     marker.firm = false;
   }
@@ -140,6 +168,7 @@ export function createPadless(opts = {}) {
       tx = x; ty = y;
       state = 'steer';
       steered = 0;
+      lastDist = Infinity;
       marker.on = true; marker.firm = false;
       marker.x = x; marker.y = y;
       return true;
@@ -154,17 +183,22 @@ export function createPadless(opts = {}) {
     /** 指が離れた。**そこを新しい行き先にする**(前方に限る) */
     up(selfX, selfY) {
       if (state !== 'steer') return;
-      const at = clampForward(selfX, selfY, fx, fy);
+      // **確定するときだけ最小前進を効かせる**(firm = true)
+      const at = clampForward(selfX, selfY, fx, fy, true);
       tx = at.x; ty = at.y;
       state = 'auto';
       steered = 0;
+      lastDist = Infinity;
       marker.on = true; marker.firm = true;
       marker.x = tx; marker.y = ty;
     },
 
     /** 指が消えた(着信など)。**行き先はそのまま**、曲げるのだけやめる */
     cancel() {
-      if (state === 'steer') { state = 'auto'; marker.firm = true; marker.x = tx; marker.y = ty; }
+      if (state !== 'steer') return;
+      state = 'auto';
+      lastDist = Infinity;
+      marker.firm = true; marker.x = tx; marker.y = ty;
     },
 
     /** 止める(有効範囲の外を叩いたときなど。**呼ぶ側が決める**) */
@@ -184,6 +218,15 @@ export function createPadless(opts = {}) {
       if (state === 'steer') {
         const vx = fx - selfX, vy = fy - selfY;
         const len = Math.hypot(vx, vy);
+        // **仮の印は指のところ**(前方の外へ出たときだけ縁へ寄せる)。
+        // 最小前進は効かせない — 効かせていたころは、自機が近づくほど
+        // 印が前へ逃げていった(指は押さえたままなのに印が動く)
+        const at = clampForward(selfX, selfY, fx, fy, false);
+        marker.x = at.x; marker.y = at.y;
+        // **指のところまで来たら、そこで浮いて待つ。**
+        // 押さえているあいだも前へ進み続ける作りにしていたので、
+        // 指を追い越しては戻りを繰り返していた。指をずらせばまた動き出す
+        if (len <= o.arrive) return { x: 0, y: 0 };
         if (len >= o.deadzone) {
           const h = heading * D2R;
           // 進んでいる向きの**真横**(右が +)
@@ -206,9 +249,6 @@ export function createPadless(opts = {}) {
           heading = wrapDeg(heading + turn);
           steered += turn;
         }
-        // **仮の印は、指の場所を前方へ丸めたところ**(離したらそこが行き先になる)
-        const at = clampForward(selfX, selfY, fx, fy);
-        marker.x = at.x; marker.y = at.y;
       } else {
         // 行き先へ向きを寄せる。**その場では飛ばさない**(コマ落ちでも同じ)
         const want = Math.atan2(ty - selfY, tx - selfX) / D2R;
@@ -216,7 +256,12 @@ export function createPadless(opts = {}) {
         const cap = o.turnRate * dt;
         heading = wrapDeg(heading + (Math.abs(off) <= cap ? off : Math.sign(off) * cap));
         // 着いたら止まる
-        if (Math.hypot(tx - selfX, ty - selfY) <= o.arrive) { stop(); return { x: 0, y: 0 }; }
+        const dist = Math.hypot(tx - selfX, ty - selfY);
+        if (dist <= o.arrive) { stop(); return { x: 0, y: 0 }; }
+        // **行き過ぎたら、そこで止める。** 曲がりきれずに回り続けるのを断つ
+        // (上の passBy を見ること)
+        if (dist <= o.passBy && dist > lastDist) { stop(); return { x: 0, y: 0 }; }
+        lastDist = dist;
       }
       const h = heading * D2R;
       return { x: Math.cos(h), y: Math.sin(h) };
