@@ -13393,6 +13393,44 @@ if (PAD_ON) {
       //   move   … いま指が動いている向き。折り返しがその場でつながり、
       //            指を止めれば止まる
       stickMode: OPT.get('stick') === 'move' ? 'move' : 'origin',
+      /**
+       * **原点を引きずる距離**(`?drag=`)。既定は部品まかせ(28px)。
+       * `?drag=0` で引きずらないほう(前の効きぐあい)に戻せるので、
+       * 行きつ戻りつする感じが減ったかどうかを**実機で見比べられる**。
+       * 全開の距離(14px)を下回る値は受けない(全開に届かなくなるため)
+       */
+      ...(() => {
+        const v = Number(OPT.get('drag'));
+        return (OPT.get('drag') != null && Number.isFinite(v)
+          && (v === 0 || (v >= 16 && v <= 120))) ? { dragMax: v } : {};
+      })(),
+      /**
+       * **全開までの距離**(`?full=`。既定 14px)と
+       * **効きぐあいの曲がりかた**(`?curve=`。既定 1 = 直線)。
+       *
+       * この 2 つは**組で見ること**。曲線は「不感帯から全開までの
+       * あいだの割りふり」しか変えないので、いまの 14px のように
+       * あいだがほとんど無いと、どう曲げても見た目が変わらない。
+       * 例: `?full=55&curve=0.45` … 1/8 動かせば 3 割、半分で 7 割
+       */
+      ...(() => {
+        const v = Number(OPT.get('full'));
+        return (v >= 8 && v <= 160) ? { stickFullDist: v } : {};
+      })(),
+      ...(() => {
+        const v = Number(OPT.get('curve'));
+        return (v >= 0.2 && v <= 4) ? { stickCurve: v } : {};
+      })(),
+      /**
+       * **折り返しと決める角度**(`?flip=`。既定 120 度)。
+       * `?flip=0` で切ると、昔どおり原点をまたぐまで逆を向かない。
+       * 下げるほど裏返りやすい(90 度あたりから、円を描いただけで裏返る)
+       */
+      ...(() => {
+        const v = Number(OPT.get('flip'));
+        return (OPT.get('flip') != null && Number.isFinite(v)
+          && (v === 0 || (v >= 60 && v <= 180))) ? { stickFlipAngle: v } : {};
+      })(),
     },
     lang: TG_LANG,
     // 強制したときだけ、器も同じ画角に区切る(canvas 側は下の fitSize)
