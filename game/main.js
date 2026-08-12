@@ -1547,7 +1547,11 @@ let moaiToldInside = false;   // 「内側から壊せ」を出したか(1 プ�
 //
 // **出さない相手**: ドラゴン(そういう瞬間が無い)、ラスボスの 1 / 2、未実装さん。
 // **指で遊ぶときだけ**(キーボードには連打の口が最初からある)
-let rubHintShown = false;     // 出したか(1 プレイに 1 回)
+// **数えるのは場面ごと。** 1 プレイに 1 回だけにすると、
+// 1 面でモアイに出会った人はボスの狙いどきで二度と出ない。
+// 場面は道中に散らばっていて、前に見たのは忘れているころなので、
+// **相手ごとに 1 回ずつ**出す
+const rubHintDone = new Set();
 let rubHintIn = 0;            // 出すまでの残りコマ(0 は出さない)
 
 /**
@@ -1556,18 +1560,19 @@ let rubHintIn = 0;            // 出すまでの残りコマ(0 は出さない)
  * **すぐには出さない。** 呼ばれる場面ではたいてい別の知らせ
  * (「内側から壊せ」など)が出たところで、showNotice は前のを消してしまう。
  * 少し置いてから出せば、どちらも読める
+ * @param {string} who どの場面か('moai' / 'octopus' / 'crab' / 'nautilus')
  */
-function cueRubHint(delay = 150) {
-  if (!PAD_ON || rubHintShown) return;
-  rubHintShown = true;
+function cueRubHint(who, delay = 150) {
+  if (!PAD_ON || rubHintDone.has(who)) return;
+  rubHintDone.add(who);
   rubHintIn = delay;
 }
 // **開発版だけ**: 狙いどきまで遊び進まなくても、案内の出かたを見られるように
 // (出す場面はどれもボス戦の途中なので、そこまで行くのが手間)
 if (DEV) {
   mmsxx.expose('mmsxxRubHint', () => {
-    rubHintShown = false;
-    cueRubHint(30);
+    rubHintDone.clear();
+    cueRubHint('dev', 30);
     return PAD_ON ? '0.5 秒後に出ます' : '指で遊ぶ端末ではないので出ません';
   });
 }
@@ -1926,7 +1931,7 @@ function updateMoai() {
       showNotice('BREAK IT FROM INSIDE!');
       // **狙いどきが来たところで、こすり打ちも教える**(上の cueRubHint)。
       // すき間は閉じるので、ここは速く撃てるほど効く場面でもある
-      cueRubHint();
+      cueRubHint('moai');
     }
   } else {
     // 合体するまでのカウントダウン
@@ -3947,8 +3952,8 @@ function enterPlay(fromContinue = false) {
   // モアイの案内は 1 プレイに 1 回ずつ。新しいゲームでは出し直す
   moaiToldWait = false;
   moaiToldInside = false;
-  // こすり打ちの案内も 1 プレイに 1 回(下の cueRubHint)
-  rubHintShown = false;
+  // こすり打ちの案内は場面ごとに 1 回(下の cueRubHint)。新しいゲームでは出し直す
+  rubHintDone.clear();
   rubHintIn = 0;
   bossPractice = false;
   usedKonami = false;  // 隠しコマンドは 1 ゲームに 1 回ずつ
@@ -8253,7 +8258,7 @@ function breakShip() {
   // ここから先は素直にダメージが通るので、速く撃てるほど効く。
   // **ドラゴンには出さない** — あちらは装甲がはがれても怒って突進が増えるだけで、
   // 落ち着いて削れる「狙いどき」にはならない
-  if (boss.kind === 'crab' || boss.kind === 'octopus') cueRubHint();
+  if (boss.kind === 'crab' || boss.kind === 'octopus') cueRubHint(boss.kind);
   for (let i = 0; i < 5; i++) {
     spawnBoom(boss.sx + 8 + Math.random() * 44, boss.sy + HEAD_H + Math.random() * 16);
   }
@@ -9801,7 +9806,7 @@ function updatePlay() {
           boss.phase2 = true;
           boss.ringTarget = NAUT_R_WIDE;   // 輪が広がって入りやすくなる
           // 中の生き物を直に叩けるようになった = 狙いどき(上の cueRubHint)
-          cueRubHint();
+          cueRubHint('nautilus');
           for (let i = 0; i < 5; i++) spawnBoom(g.sp.x, g.sp.y);
           mmsxx.audio.playSE('bossboom', SE_HIT);
           flashTimer = 3;
