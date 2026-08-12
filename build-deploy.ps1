@@ -134,7 +134,7 @@ if ($FreezeBuildNumber) {
   Set-Content -Path $numPath -Value $buildNo -NoNewline -Encoding ascii
 }
 # 版の頭。**ここを上げたら build-number.txt を -1 にする**と、次のビルドが .00 から始まる
-$GameVersionBase = 'v1.02'
+$GameVersionBase = 'v1.05'
 # **うしろのビルド番号が付くのは公開版だけ**。
 # 手元用は版の頭だけ(v1.01)にする。どちらも頭は同じ版を名乗る
 if ($Local) { $gameVersion = $GameVersionBase }
