@@ -1178,9 +1178,20 @@ aux.visible = false;
  */
 const PADLESS = OPT.get('stick') === 'padless';
 const padlessMove = PADLESS ? createPadless() : null;
-/** 行き先の印。**弾より奥**に置く(避けるものを隠さない) */
-const aimSp = PADLESS ? mmsxx.sprite(SPRITE_SYMBOLS.aimMark) : null;
-if (aimSp) { aimSp.priority = 3; aimSp.visible = false; }
+/**
+ * 行き先の印。**溜められるぶんだけ用意する**(部品の maxPoints と同じ数)。
+ * **弾より奥**に置く(避けるものを隠さない)
+ */
+const PAD_AIM_MAX = 2;
+const aimSps = [];
+if (PADLESS) {
+  for (let i = 0; i < PAD_AIM_MAX; i++) {
+    const sp = mmsxx.sprite(SPRITE_SYMBOLS.aimMark);
+    sp.priority = 3;
+    sp.visible = false;
+    aimSps.push(sp);
+  }
+}
 /**
  * **自機の真ん中が行ける範囲。** 行き先をここへ丸めておかないと、
  * 端を叩いたときに自機が壁で止まったまま「まだ着いていない」ことになり、
@@ -8907,16 +8918,18 @@ function updatePlay() {
 
   // **行き先の印。** 出すのは遊びの最中だけ(やられている最中や登場中は消す)。
   // 絵は 16x16 で真ん中に十字が入っているので、行き先から 8 引いて置く
-  if (aimSp) {
+  if (aimSps.length) {
     const playing = state === 'play' && !paused && !entering;
     // **遊びの最中から外れたら行き先を捨てる。**
     // やられて戻ってきたときに前の行き先が生きていると、
     // 復帰した自機が置いた覚えのないところへ いきなり飛んでいく
     if (!playing && padlessMove.state !== 'idle') padlessMove.stop();
-    const m = padlessMove.marker;
-    const on = m.on && playing && player.visible;
-    aimSp.visible = on;
-    if (on) { aimSp.x = Math.round(m.x) - 8; aimSp.y = Math.round(m.y) - 8; }
+    const pts = padlessMove.points;
+    for (let i = 0; i < aimSps.length; i++) {
+      const p = (playing && player.visible) ? pts[i] : null;
+      aimSps[i].visible = !!p;
+      if (p) { aimSps[i].x = Math.round(p.x) - 8; aimSps[i].y = Math.round(p.y) - 8; }
+    }
   }
 
   updateBGM();

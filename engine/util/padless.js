@@ -26,6 +26,22 @@
 // **向きは一気に変えない**(`turnRate`)。行き先が真後ろへ回っても、
 // 自機はその場で裏返らずに回り込む。
 //
+// ## 行き先は溜められる(道筋になる)
+//
+// 叩くたびに**後ろへ並ぶ**(`maxPoints` まで。既定 2)。自機は**置いた順に**
+// 通っていき、着いたぶんから消えていく。先に置いたものが先に消える。
+//
+// 弾幕の切れ目を一手先に置いておける、というのが狙い。
+// **いっぱいのときに叩いたら、いちばん古いものを捨てる。**
+// 置けなくなるより、**新しく置いたほうを必ず効かせる**ほうが迷わない
+// (置いたのに何も起きないのは、壊れたようにしか見えない)。
+//
+// 全部消したいときは、自機を叩くか、**画面の外を叩く**(呼ぶ側が stop() を呼ぶ)。
+//
+// **置いてある印も、つかんでずらせる**(`grabRadius` の中を押さえたとき)。
+// このときは増えない — 触ったものを動かすだけ。
+// 何も無いところを押さえたときだけ、新しく置かれる。
+//
 // ゲームの中身は知らない。**座標系は呼ぶ側のもの**で、ここでは
 // 「ドット」としか呼ばない(向きの符号だけ、下が + であることを前提にしている)。
 
@@ -50,6 +66,20 @@ const DEFAULTS = {
    */
   stopRadius: 12,
   /**
+   * **置いてある印をつかめる近さ**(ドット)。
+   * ここより近くを押さえたら、新しく置かずに**その印を動かす**。
+   * 印そのもの(7 ドット)より広くしてある — 指は印より太いので、
+   * 見えている絵ちょうどでしか掴めないと、まず掴めない
+   */
+  grabRadius: 14,
+  /**
+   * **溜めておける行き先の数。**
+   * 増やすほど先まで引けるが、**印のぶんスプライトを食う**ので、
+   * 借りる側が出せる数と揃えること。
+   * **溢れたぶんは古いほうから捨てる**(下の down を見ること)
+   */
+  maxPoints: 2,
+  /**
    * **1 秒で曲がれる上限**(度/秒)。
    * **コマ落ちしても曲がりすぎないように**、経った時間で掛ける。
    * 上げるほど指なりに曲がるが、上げすぎると真後ろへもその場で裏返る
@@ -73,32 +103,34 @@ export function createPadless(opts = {}) {
 
   /** 'idle'(止まっている) / 'auto'(行き先へ歩く) / 'drag'(押さえたまま引きずっている) */
   let state = 'idle';
-  /** 行き先(ドット) */
-  let tx = 0, ty = 0;
+  /**
+   * **行き先の列**(ドット)。**先頭がいま向かっている先**で、
+   * 着いたぶんから前から消えていく。叩いたものは後ろへ並ぶ。
+   * `{ x, y, firm }` の firm は「もう指が乗っていない」
+   */
+  const points = [];
   /** いま進んでいる向き(度。0 が右、時計回り) */
   let heading = -90;
   /** 前のコマの行き先までの距離。**離れはじめたか**を見るためだけに持つ */
   let lastDist = Infinity;
-  /** 印。**行き先そのもの**を指す(firm=false は まだ指が乗っている) */
-  const marker = { on: false, x: 0, y: 0, firm: false };
-
-  /** 行き先を置き直す。**印も必ず一緒に動かす**(食い違わせない) */
-  function aimAt(x, y) {
-    tx = x; ty = y;
-    marker.x = x; marker.y = y;
-    lastDist = Infinity;
-  }
+  /** いま指でつかんでいる印の番号(-1 で何もつかんでいない) */
+  let held = -1;
 
   function stop() {
     state = 'idle';
     lastDist = Infinity;
-    marker.on = false;
-    marker.firm = false;
+    held = -1;
+    points.length = 0;
   }
 
   return {
     get state() { return state; },
-    get marker() { return marker; },
+    /**
+     * **行き先の列**。`{ x, y, firm }` が置いた順に並ぶ。
+     * **先頭がいま向かっている先**。印を出す側はこれをそのまま並べればよい。
+     * 中身は書き換えないこと(触りたいときは down / move / stop から)
+     */
+    get points() { return points; },
     /** いま進んでいる向き(度)。印の絵を向けたいときなどに */
     get heading() { return heading; },
 
@@ -107,41 +139,67 @@ export function createPadless(opts = {}) {
      * @returns {boolean} 受けたか(false なら止める合図だった)
      */
     down(x, y, selfX, selfY) {
-      // **自機のまわりを叩いたら止まる**(行き先にしない)
+      // **自機のまわりを叩いたら、置いたぶんを全部消して止まる**
       if (Math.hypot(x - selfX, y - selfY) <= o.stopRadius) { stop(); return false; }
+      // **置いてある印の上なら、それをつかむ**(増やさない)。
+      // 近いものから見る(重なっていたら、押さえたところに近いほうが取れる)
+      let near = -1, best = o.grabRadius;
+      for (let i = 0; i < points.length; i++) {
+        const d = Math.hypot(points[i].x - x, points[i].y - y);
+        if (d <= best) { best = d; near = i; }
+      }
+      if (near >= 0) {
+        held = near;
+        points[held].firm = false;
+        state = 'drag';
+        return true;
+      }
       // 止まっているところからなら、向きはその場で合わせてよい
       // (歩いている最中は turnRate で曲がる。急に向きが飛ばないように)
       if (state === 'idle') heading = Math.atan2(y - selfY, x - selfX) / D2R;
-      aimAt(x, y);
+      points.push({ x, y, firm: false });
+      // **溢れたら古いほうから捨てる。** いま向かっていた先が消えるので、
+      // 行き過ぎの見張りも数え直す(残っている先頭までの距離は別ものになる)
+      while (points.length > o.maxPoints) { points.shift(); lastDist = Infinity; }
+      // 先頭を置いたのなら、そこまでの距離を数え直す
+      if (points.length === 1) lastDist = Infinity;
+      held = points.length - 1;
       state = 'drag';
-      marker.on = true; marker.firm = false;
       return true;
     },
 
     /**
-     * 指が動いた。**行き先ごと引きずる。**
+     * 指が動いた。**いま置いたものを引きずる**(いちばん後ろ)。
      *
      * 印だけを動かして行き先を据え置きにしたことがあったが、
      * **押さえている場所と自機の向かう先が食い違う**ので、
-     * 何を動かしているのか分からなくなった。指の下が行き先
+     * 何を動かしているのか分からなくなった。指の下が行き先。
+     *
+     * 途中の点は動かさない。**指の下にあるのは最後の 1 つだけ**なので、
+     * ほかが付いてくると何を触ったのか分からない
      */
     move(x, y) {
-      if (state !== 'drag') return;
-      aimAt(x, y);
+      if (state !== 'drag' || held < 0 || held >= points.length) return;
+      const p = points[held];
+      p.x = x; p.y = y;
+      // 引きずっているのが先頭なら、行き過ぎの見張りを数え直す
+      if (held === 0) lastDist = Infinity;
     },
 
     /** 指が離れた。**行き先はそのまま**(もう指の下に置いてある) */
     up() {
       if (state !== 'drag') return;
       state = 'auto';
-      marker.firm = true;
+      if (held >= 0 && held < points.length) points[held].firm = true;
+      held = -1;
     },
 
     /** 指が消えた(着信など)。離したのと同じ扱いでよい */
     cancel() {
       if (state !== 'drag') return;
       state = 'auto';
-      marker.firm = true;
+      if (held >= 0 && held < points.length) points[held].firm = true;
+      held = -1;
     },
 
     /** 止める(有効範囲の外を叩いたときなど。**呼ぶ側が決める**) */
@@ -154,29 +212,38 @@ export function createPadless(opts = {}) {
      * @param {number} [dtMs] 前のコマからの時間(ms)。既定は 60 コマ/秒ぶん
      */
     update(selfX, selfY, dtMs = 1000 / 60) {
-      if (state === 'idle') return { x: 0, y: 0 };
+      if (state === 'idle' || !points.length) return { x: 0, y: 0 };
       // **経った時間で掛ける。** コマが飛んでも曲がる量が変わらないように
       const dt = Math.min(100, Math.max(1, dtMs)) / 1000;
-      const dist = Math.hypot(tx - selfX, ty - selfY);
 
-      // 着いた。**押さえているあいだは止めずに浮いて待つ**
-      // (止めてしまうと、そのあと指をずらしても動き出せない)
-      if (dist <= o.arrive) {
-        if (state === 'drag') { lastDist = dist; return { x: 0, y: 0 }; }
-        stop();
-        return { x: 0, y: 0 };
-      }
-      // **行き過ぎたら、そこで止める。** 曲がりきれずに回り続けるのを断つ
-      // (上の passBy を見ること)
-      if (dist <= o.passBy && dist > lastDist) {
-        if (state === 'drag') { lastDist = dist; return { x: 0, y: 0 }; }
-        stop();
-        return { x: 0, y: 0 };
+      // **先頭に着いたら、そこを捨てて次へ。** 列が空いたら止まる。
+      // 重なって置かれていれば 1 コマで何個も片付くので、**回して読む**
+      // (次を見に行くのに 1 コマ止まったように見えるのを避ける)
+      let t = points[0];
+      let dist = Math.hypot(t.x - selfX, t.y - selfY);
+      for (;;) {
+        // **いま指でつかんでいる先頭は捨てない。**
+        // 捨てると、そのあと指をずらしても動き出せなくなる(浮いて待つ)。
+        // つかんでいるのが後ろの印なら、先頭はふつうに片付けてよい
+        const holding = (state === 'drag' && held === 0);
+        // 行き過ぎたぶんも着いた扱い。曲がりきれずに回り続けるのを断つ
+        // (上の passBy を見ること)
+        const reached = dist <= o.arrive || (dist <= o.passBy && dist > lastDist);
+        if (!reached) break;
+        if (holding) { lastDist = dist; return { x: 0, y: 0 }; }
+        points.shift();
+        // **つかんでいる番号も 1 つ手前へ**(前が抜けたぶん)。
+        // 0 のときはここへ来ない(上の holding で止まる)ので、正のときだけ
+        if (held > 0) held--;
+        lastDist = Infinity;
+        if (!points.length) { stop(); return { x: 0, y: 0 }; }
+        t = points[0];
+        dist = Math.hypot(t.x - selfX, t.y - selfY);
       }
       lastDist = dist;
 
       // 行き先へ向きを寄せる。**その場では飛ばさない**(コマ落ちでも同じ)
-      const want = Math.atan2(ty - selfY, tx - selfX) / D2R;
+      const want = Math.atan2(t.y - selfY, t.x - selfX) / D2R;
       const off = wrapDeg(want - heading);
       const cap = o.turnRate * dt;
       heading = wrapDeg(heading + (Math.abs(off) <= cap ? off : Math.sign(off) * cap));
