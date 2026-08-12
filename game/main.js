@@ -1233,6 +1233,8 @@ const TRACE_EXPIRE_MS = 4000;
 const traceScreen = [];
 /** 道を引く SVG(要るときに作る) */
 let tracePathEl = null;
+/** 最後に指が道を触った時刻(ms)。**上の見張り**が使う */
+let traceTouchedAt = 0;
 
 /**
  * ゲームのドットを、道の絵に使う窓の点へ。
@@ -1273,6 +1275,11 @@ function paintTracePath() {
   // **通ったところは消す。** 残しておくと、どこまで走ったのか
   // 見て取れない(引いた線が全部そこに在るだけになる)。
   // 画面の点の列は部品の点と同じ並びなので、番号でそのまま切れる
+  // **道そのものが捨てられていたら、絵も出さない。**
+  // time で消えたぶん(trace の expireMs)は中で stop() が呼ばれて
+  // 番号も 0 に戻るので、そのままだと**引いた線が丸ごと出直す**。
+  // 実機で「軌跡が消えないで残る」となっていたのはこれ
+  if (traceOn && traceMove && traceMove.state === 'idle') traceScreen.length = 0;
   const from = (traceOn && traceMove) ? Math.min(traceMove.index, traceScreen.length) : 0;
   const left = traceScreen.slice(from);
   // **線は自機から始める。** 引きはじめた場所に印は置かず、
@@ -1308,6 +1315,25 @@ function smoothPath(pts) {
 
 /** 前に描いたときの番号。**進んだときだけ引き直す**(毎コマ書き替えない) */
 let tracePaintedAt = -1;
+
+/**
+ * **残っている道を片付ける。毎コマ呼ぶ。**
+ *
+ * 消す仕掛けは engine/util/trace.js が持っているが、あれを回すのは
+ * 遊びの最中だけ。**やられた直後・ポーズ・タイトル**では回らないので、
+ * ここで同じことを見る。時間で消えるのも、なぞる番でなくなったのも同じ
+ */
+function sweepTracePath() {
+  if (!traceScreen.length) return;
+  const gone = !traceMove || !traceOn || traceMove.state === 'idle'
+    || state !== 'play' || paused
+    // 引き終わってから一定の時間で消える(trace の expireMs と同じ長さ)
+    || (traceMove.state === 'auto' && performance.now() - traceTouchedAt > TRACE_EXPIRE_MS);
+  if (gone) {
+    if (traceMove) traceMove.stop();
+    clearTracePath();
+  }
+}
 
 /** 道を捨てる。**制御と絵の両方**(片方だけだと線が残る) */
 function clearTracePath() {
@@ -14005,6 +14031,7 @@ function bindPadlessTaps() {
       // 絵のほうも同じところで捨てる
       traceScreen.length = 0;
       traceScreen.push(traceDot(c.x, c.y));
+      traceTouchedAt = performance.now();
       traceMove.down(c.x, c.y);
       paintTracePath();
     } else {
@@ -14028,6 +14055,7 @@ function bindPadlessTaps() {
       // 拾う間隔は部品に合わせる(点が増えたときだけ足す)
       if (traceMove.points.length > before) {
         traceScreen.push(traceDot(c.x, c.y));
+        traceTouchedAt = performance.now();
         paintTracePath();
       }
     } else {
@@ -14039,7 +14067,8 @@ function bindPadlessTaps() {
     if (e.pointerId !== id) return;
     id = null;
     // 行き先はもう指の下に置いてあるので、離すだけでよい
-    if (traceOn) traceMove.up(); else padlessMove.up();
+    if (traceOn) { traceMove.up(); traceTouchedAt = performance.now(); }
+    else padlessMove.up();
   };
   // **離したことは window で拾う。** canvas だけで待っていると、
   // 捕まえ損ねたまま指が canvas の外(連射の四角やポーズの上)へ抜けて
@@ -15702,6 +15731,11 @@ mmsxx.run(() => {
   gamepad.poll();
   // 出すものと案内を、いまの画面に合わせる。**同じなら何もしない**
   updateTouchGui();
+  // **道の見張りはここでもする。**
+  // 消す仕掛けは trace.update の中にあるが、**あれは遊びの最中しか
+  // 呼ばれない** — やられた直後やタイトルへ戻ったあとは呼ばれないので、
+  // 線だけが画面に残る。ここは毎コマ通るので、そこでも片付ける
+  sweepTracePath();
   // 対応していないパッドは poll() が相手にしないので、押されたことも伝わってこない。
   // **繋いだのに何も起きない**を放っておかないよう、ここで見つけて知らせる
   // 対応していないパッドは**押しても番号が読めない**ので、「また押されたら
