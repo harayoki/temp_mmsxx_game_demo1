@@ -44,6 +44,8 @@ import { createGesture } from '../engine/util/gesture.js';
 import { DEVICES, findDevice } from '../engine/util/devices.js';
 // キャンバスの上に重ねる知らせ(読ませてゲームを止める)
 import { createNotice } from '../engine/util/notice.js';
+// 段を選ぶボタン(何のつまみかと いまの段を 2 行で出し、左右で送る)
+import { createStepper } from '../engine/util/stepper.js';
 import Bowser from '../vendor/bowser/bowser.js';
 // 開発者ツールで止まったときに見せる、このゲームのぶんの文章
 import { gameStop } from './console-stop.js';
@@ -13181,8 +13183,10 @@ let tuneShown = true;
 let kbdUsable = null;
 /** 180 度のボタンを出しているか(ポーズ中だけ) */
 let rotateShown = null;
-/** 効きぐあいのボタンを出しているか(ポーズ中だけ) */
+/** つまみのボタンを出しているか(ポーズ中だけ) */
 let padSenseShown = null;
+/** 段を選ぶ部品(engine/util/stepper.js)。**PAD_ON のときだけ作る** */
+let padFlipUI = null;
 /**
  * **十字の効きぐあい**(ポーズ中に切り替える)。
  *
@@ -13234,17 +13238,20 @@ const PAD_SENSE_ON = false;
  *
  * OFF は仕掛けそのものを切る(昔どおり原点をまたぐまで逆を向かない)。
  *
- * **既定は FIRM。** 120 度 / 3px(= NORMAL)では早すぎるという声だったので、
- * ひとつ重いほうから始める
+ * **既定は OFF。** 効きぐあいに曲線を掛けて手前を這うようにしたら、
+ * **切らしたままでも寄せ直せるようになった**。裏返る仕掛けは、効くときは
+ * 気持ちよいが、効いてほしくないときに効くと何が起きたか分からない。
+ * 要る人だけ FIRM にすればよい。
+ *
+ * **段は 2 つだけにしてある。** 途中の重さ(100 度 / 120 度)も試したが、
+ * 切るか はっきり戻したときだけ効かせるかの 2 つで足りた
  */
 const PAD_FLIP = [
   { name: 'OFF', angle: 0, move: 3 },
-  { name: 'QUICK', angle: 100, move: 2 },
-  { name: 'NORMAL', angle: 120, move: 3 },
   { name: 'FIRM', angle: 145, move: 6 },
 ];
-/** いまの段。**重いほうから始める**(上の説明を見ること) */
-let padFlip = 3;
+/** いまの段。**切ったほうから始める**(上の説明を見ること) */
+let padFlip = 0;
 /** いまの段。**まん中から始める** */
 let padSense = 1;
 const ZOOM_STEP = 1.12;   // 1 回で 1 割ちょっと。押した手応えが分かるくらい
@@ -13718,11 +13725,9 @@ function applyPadSense(n, tell) {
   padSense = ((n % PAD_SENSE.length) + PAD_SENSE.length) % PAD_SENSE.length;
   const s = PAD_SENSE[padSense];
   if (touchGui) touchGui.touch.setOptions({ stickFullSpeed: s.full, stickMinSpeed: s.min });
-  // **ボタンそのものに 2 行で書く。** 絵では 3 段のどれなのかを表せないし、
-  // 段の名前だけでは「何が HIGH なのか」が分からなかった。
-  // 上の行で何のつまみかを言い、下の行にいまの段を出す
-  const el = document.getElementById('pad-sense');
-  if (el) el.textContent = 'PAD RESPONSE\n' + s.name;
+  // **札の字は部品が書く**(engine/util/stepper.js)。戻すときは
+  // createStepper({ label: 'PAD RESPONSE', items: PAD_SENSE.map(s => s.name) })
+  // をもう 1 つ作って、その onChange からここを呼ぶこと
   // 押したときは画面にも出す(ポーズ中なので弾の邪魔にもならない)
   if (tell) showNotice('PAD: ' + s.name);
   if (DEVICE) return;
@@ -13738,11 +13743,7 @@ function applyPadFlip(n, tell) {
   if (touchGui) {
     touchGui.touch.setOptions({ stickFlipAngle: s.angle, stickFlipMove: s.move });
   }
-  // **ボタンそのものに 2 行で書く。** 絵では 4 段のどれなのかを表せないし、
-  // 段の名前だけでは「何が FIRM なのか」が分からない。
-  // 上の行で何のつまみかを言い、下の行にいまの段を出す
-  const el = document.getElementById('pad-sense');
-  if (el) el.textContent = 'TURN BACK\n' + s.name;
+  // **札の字は部品が書く**(engine/util/stepper.js)。ここでは中身だけ当てる。
   // 押したときは画面にも出す(ポーズ中なので弾の邪魔にもならない)
   if (tell) showNotice('TURN: ' + s.name);
   if (DEVICE) return;
@@ -13759,26 +13760,22 @@ function applyPadFlip(n, tell) {
  * 表に無い数字を渡しても一番近いところから始まる
  */
 function bindPadSenseButton() {
-  const el = document.getElementById('pad-sense');
-  const row = document.getElementById('pad-sense-row');
-  if (!el || !row) return;
   // **PC には要らない。** 十字が出ないので効きようがない
-  if (!PAD_ON) { row.style.display = 'none'; return; }
-  // **ボタンそのものも左右に割れている。**
-  // 矢印は「替えられる」と見せるための目印で、指が行くのは字の出ている
-  // 本体のほう。そちらを押しても、押した側へ動くようにする
-  el.addEventListener('click', (e) => {
-    el.blur();
-    const r = el.getBoundingClientRect();
-    // 幅が測れないとき(隠れている最中など)は今までどおり次へ送る
-    const back = r.width > 0 && (e.clientX - r.left) < r.width / 2;
-    applyPadFlip(padFlip + (back ? -1 : 1), true);
+  if (!PAD_ON) return;
+  const tools = document.getElementById('tools');
+  if (!tools) return;
+  padFlipUI = createStepper({
+    mount: tools,
+    label: 'TURN BACK',
+    items: PAD_FLIP.map(s => s.name),
+    index: startPadFlip(),
+    onChange: (i, name, byUser) => applyPadFlip(i, byUser),
   });
-  for (const [id, step] of [['pad-sense-prev', -1], ['pad-sense-next', 1]]) {
-    const b = document.getElementById(id);
-    if (b) b.addEventListener('click', () => { b.blur(); applyPadFlip(padFlip + step, true); });
-  }
-  applyPadFlip(startPadFlip(), false);
+  // **絵のボタンの列から少し離す。** 合間に割り込むと、ポーズのたびに
+  // 上のボタンが押し下がって場所を覚えられない
+  padFlipUI.el.style.marginTop = '12px';
+  // 部品は作った時点では onChange を呼ばない(**当てるのは借りる側の仕事**)
+  applyPadFlip(padFlipUI.index, false);
 }
 
 /** どの段から始めるか。**?flip= → 前に決めた段 → 既定** の順に見る */
@@ -13802,13 +13799,11 @@ function startPadFlip() {
  * 遊んでいる最中に触るものではないし、そのぶん十字の場所を食う
  */
 function showPadSenseButton() {
-  // **出し入れするのは矢印ごと**(行そのもの)。本体だけ消すと矢印が残る
-  const row = document.getElementById('pad-sense-row');
-  if (!row) return;
+  if (!padFlipUI) return;
   const on = paused;
   if (padSenseShown === on) return;
   padSenseShown = on;
-  row.style.display = on ? '' : 'none';
+  padFlipUI.show(on);
 }
 
 /**
@@ -13852,7 +13847,7 @@ function drawToolIcons() {
   // **横長のボタンには横長の絵。** 16x16 を引き伸ばすとキーが長方形になって崩れる
   put('keyboard-btn', ICONS.keyboardWide, 7);
   put('rotate-btn', ICONS.rotate180, 7);
-  // pad-sense は字のボタン(絵は入れない)。中身は applyPadSense が書く
+  // 段を選ぶボタンは字のボタン(絵は入れない)。engine/util/stepper.js が書く
   // **切り替えのボタンは中の絵だけで状態を出す。**(枠は白いまま。いつでも押せる)
   // 効いていないときは差し色も灰色にして、絵ごとモノクロにする
   put('pixel-fit', ICONS.pixelFit, mmsxx.vdp.pixelPerfect ? 7 : ICON_MONO);

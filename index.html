@@ -135,54 +135,10 @@
     border: 0;
     cursor: pointer;
   }
-  /* **効きぐあいだけは字のボタン。** 絵では 3 段のどれなのかを表せない。
-     左の空き(#tools の列)にそのまま並ぶので、幅と高さの決め打ちを外して
-     字なりの大きさにする */
-  /* **#tools button より強く書くこと。** `#pad-sense` だけでは
-     上の `#tools button`(id + 要素)に負けて、32px の絵のボタンのままになる */
-  /* **絵のボタンの列から少し離す。** 合間に割り込むと、ポーズのたびに
-     上のボタンが押し下がって場所を覚えられない */
-  #pad-sense-row {
-    position: relative;
-    align-self: flex-start;
-    margin-top: 12px;
-  }
-  /* 左右の矢印。**囲みの内側に重ねる**。
-     横へ並べると左の空きからはみ出してゲーム画面に掛かるので、
-     ボタンの幅はそのままに、左右の端を矢印に貸す。
-     **押す場所が左半分・右半分と重なる**ので、どちらを押しても同じ向きへ動く */
-  #tools #pad-sense-prev, #tools #pad-sense-next {
-    position: absolute;
-    top: 2px;
-    bottom: 2px;
-    width: 20px;
-    height: auto;
-    padding: 0;
-    font: 12px/1 var(--mmsxx-gui-font, monospace);
-    color: #ffffff;
-    background: transparent;
-    background-image: none;
-    border: 0;
-  }
-  #tools #pad-sense-prev { left: 2px; }
-  #tools #pad-sense-next { right: 2px; }
-  #tools #pad-sense {
-    width: auto;
-    height: auto;
-    /* 左右は矢印に貸すぶんだけ広げる(字が矢印に重ならないように) */
-    padding: 6px 24px;
-    /* **8 の倍数にする。** ドット絵の書体は決まった大きさでしか揃わない */
-    font: 16px/1.4 var(--mmsxx-gui-font, monospace);
-    letter-spacing: 0;
-    color: #ffffff;
-    background: #2a2a3c;
-    border: 2px solid #ffffff;
-    background-image: none;
-    /* **2 行で出す。** 上に何のつまみかを書かないと、
-       段の名前(HIGH)だけでは何が HIGH なのか分からない */
-    white-space: pre;
-    text-align: center;
-  }
+  /* **段を選ぶボタンの見た目はここに無い。** engine/util/stepper.js が
+     style 属性で書いている。上の `#tools button`(id + 要素)は class より
+     強いので、部品側を class で書くと 32px の絵のボタンに潰れてしまう。
+     style 属性ならどの指定より強いので、どこへ置いても同じ姿で出る */
   /* **キーボードだけ横に長い。** ここは右の空きに 1 つで立っていて、
      十字や連射のように場所を覚えて押すものでもない。
      打ちたいときに確実に当てられるほうが要るので、横だけ倍にする。
@@ -264,23 +220,12 @@
     <!-- 文字を打つ(裏技の打ち込み)。**右の空きへ移す**(game/main.js)。
          打てる場面でだけ効かせ、それ以外は沈める -->
     <button id="keyboard-btn" type="button" title="KEYBOARD" aria-label="KEYBOARD"></button>
-    <!-- 十字の効きぐあい。**ポーズ中だけ出す**(game/main.js)。
-         **ほかの絵のボタンの合間から外して、少し下へ落としてある**。
+    <!-- 十字の切り返しの段を選ぶボタンは、**ここへ game/main.js が挿す**。
+         作っているのは engine/util/stepper.js(段を選ぶ部品)で、
+         見た目も置きかたもあちらが持っている。
          絵のボタンの列に字のボタンが混じると並びが途切れて見えるうえ、
-         ポーズのたびに間へ割り込んで上のボタンを押し下げていた。
-
-         左右の矢印は**替えられることを見せるため**。
-         右の矢印かボタンの右半分で次へ、左の矢印か左半分で前へ戻る
-         (段は 3 つしか無いので、行きつ戻りつできないと選び直しが遠い)。
-         **ここだけ絵ではなく字**。3 段のうちどれなのかは絵では表せないし、
-         棒グラフの絵では何のつまみかも伝わらなかった -->
-    <div id="pad-sense-row" style="display:none">
-      <button id="pad-sense" type="button" title="PAD SENSITIVITY"></button>
-      <button id="pad-sense-prev" type="button" title="PREVIOUS"
-              aria-label="PREVIOUS">&#9664;</button>
-      <button id="pad-sense-next" type="button" title="NEXT"
-              aria-label="NEXT">&#9654;</button>
-    </div>
+         ポーズのたびに間へ割り込んで上のボタンを押し下げていたので、
+         **列のいちばん下へ落として少し離してある** -->
     <span id="dev-badge">DEV</span>
   </div>
 </div>
