@@ -1188,7 +1188,7 @@ aux.visible = false;
  * 制御そのものは engine/util/padless.js が持っていて、ここでするのは
  * 「指の点をドットへ戻す」「行き先を届く範囲へ丸める」「印を置く」の 3 つ。
  *
- * **どちらで遊ぶかはポーズ中に選べる**(TARGETS。下の PAD_TARGETS)ので、
+ * **どちらで遊ぶかはポーズ中に選べる**(CONTROL。下の PAD_TARGETS)ので、
  * 道具は指で遊ぶ端末なら**いつでも作っておく**。
  * 効かせるかどうかは `padlessOn` が決める(遊びの最中に切り替わる)。
  *
@@ -13588,7 +13588,7 @@ let padFlip = 0;
  * **4 つ目はバーチャルパッド。** 数ではなく遊びかたそのものを選ぶ。
  * 同じ 1 つのボタンで選べるようにしてあるのは、
  * **どちらも「どうやって動かすか」の話**だから(別の場所に分けると、
- * パッドに戻したい人が TARGETS を見つけられない)
+ * パッドに戻したい人が CONTROL を見つけられない)
  */
 const PAD_TARGETS = [
   { name: 'TARGET1', points: 1 },
@@ -13605,7 +13605,7 @@ const PAD_TARGETS = [
  *
  * 行き先を置く遊びかたのほうが後から作ったものだが、
  * 初めて触る人には十字のほうが読める(見れば何をするものか分かる)。
- * 置く遊びかたはポーズ中の TARGETS で選んでもらう
+ * 置く遊びかたはポーズ中の CONTROL で選んでもらう
  */
 let padTargets = PAD_TARGETS.findIndex(s => s.name === 'V-PAD');
 /** いまの段。**まん中から始める** */
@@ -13961,7 +13961,7 @@ if (PAD_ON) {
   touchGui.layout();
   // 実機を繋いで中を覗くとき用(touch-tool の window.touch と同じ考えかた)
   mmsxx.expose('touchGui', touchGui);
-  // **十字を出すかどうかは遊びかたしだい**(ポーズ中の TARGETS)。
+  // **十字を出すかどうかは遊びかたしだい**(ポーズ中の CONTROL)。
   // パッドレスでは絵と当たりが消えて指がうしろへ抜けるので、
   // canvas を直に叩けるようになる。連射の四角はどちらでも残る。
   // 当てるのは applyPadTargets(下の bindPadSenseButton から呼ぶ)
@@ -13989,7 +13989,7 @@ function bindPadlessTaps() {
   /** いま追いかけている指。**1 本だけ見る**(2 本目は捨てる) */
   let id = null;
   /** 遊びの最中か。ここ以外では指を受けない */
-  // **パッドレスで遊んでいるあいだだけ受ける**(ポーズ中の TARGETS で切り替わる)
+  // **画面を触って動かすあいだだけ受ける**(ポーズ中の CONTROL で切り替わる)
   const live = () => (padlessOn || traceOn) && canSteer();
   /** 画面の点を、自機の真ん中と同じものさしのドットへ */
   const at = (e) => mmsxx.vdp.pointToScreen(e.clientX, e.clientY);
@@ -14848,12 +14848,12 @@ const HOWTO_PAGES_AIM = [
         + '自機が順番にめぐるようになります。\n'
         + 'さきまわりの操作ができるので、\n'
         + '慣れたらやってみよう。\n'
-        + '数はポーズ中の TARGETS で選べます。',
+        + '数はポーズ中、CONTROL で選べます。',
       en: 'Raise the number of targets and your ship\n'
         + 'visits them in order.\n'
         + 'It lets you plan a move ahead,\n'
         + 'so try it once you are used to the game.\n'
-        + 'Pick the number with TARGETS while paused.',
+        + 'Pick the number with CONTROL while paused.',
     },
   },
   {
@@ -14911,14 +14911,14 @@ const HOWTO_PAGES_PAD = [
   {
     title: { ja: 'ターゲット', en: 'TARGETS' },
     body: {
-      ja: '画面をタップして動かす遊びかたもあります。\n'
+      ja: '画面をタップして動かす方法もあります。\n'
         + '赤い十字（ターゲット）を置くと、\n'
         + 'そこへ自機が動きます。\n'
-        + 'ポーズ中の TARGETS で切り替えられます。',
+        + 'ポーズ中、CONTROL で切り替えられます。',
       en: 'You can also fly by tapping the screen.\n'
         + 'Drop a red cross (TARGET) and\n'
         + 'your ship flies to it.\n'
-        + 'Switch with TARGETS while paused.',
+        + 'Switch with CONTROL while paused.',
     },
   },
   HOWTO_PAGES_AIM[3],
@@ -15048,6 +15048,11 @@ function howToArtImg(a) {
         const g = live.cloneNode(true);
         const w = Math.round(px * 48 / (34 * 0.9));
         Object.assign(g.style, {
+          // **出すことをここで言う。** 実物は「こすりを教える場面」でだけ
+          // 出す決まりになっていて、ふだんは display:none。
+          // 複製にもその指定が効くので、案内では出しっぱなしにすると言い直す
+          // (これを書き忘れていて、うつのページから指が消えていた)
+          display: 'block',
           position: 'absolute', left: '50%', top: '50%', bottom: 'auto',
           transform: 'translate(-50%, -50%)', width: w + 'px', height: w + 'px',
         });
