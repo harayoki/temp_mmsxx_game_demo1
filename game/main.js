@@ -1182,7 +1182,7 @@ const padlessMove = PADLESS ? createPadless() : null;
  * 行き先の印。**溜められるぶんだけ用意する**(部品の maxPoints と同じ数)。
  * **弾より奥**に置く(避けるものを隠さない)
  */
-const PAD_AIM_MAX = 2;
+const PAD_AIM_MAX = 3;
 const aimSps = [];
 if (PADLESS) {
   for (let i = 0; i < PAD_AIM_MAX; i++) {
@@ -13247,6 +13247,8 @@ let rotateShown = null;
 let padSenseShown = null;
 /** 段を選ぶ部品(engine/util/stepper.js)。**PAD_ON のときだけ作る** */
 let padFlipUI = null;
+/** 行き先の数を選ぶ部品。**パッドレスのときだけ作る** */
+let padTargetsUI = null;
 /**
  * **十字の効きぐあい**(ポーズ中に切り替える)。
  *
@@ -13312,6 +13314,19 @@ const PAD_FLIP = [
 ];
 /** いまの段。**切ったほうから始める**(上の説明を見ること) */
 let padFlip = 0;
+
+/**
+ * **パッドレスで溜めておける行き先の数**(ポーズ中に選ぶ)。
+ *
+ * 1 なら叩いたところへ行くだけ。増やすと**先の手まで置いておける**ので、
+ * 弾幕の切れ目を 2 手 3 手 先に引いておける。
+ *
+ * **既定は 1。** 増えるほど画面に赤い十字が並ぶので、
+ * 慣れないうちは何が起きているのか分かりにくい
+ */
+const PAD_TARGETS = [1, 2, 3];
+/** いまの段(PAD_TARGETS の番号)。**1 つから始める** */
+let padTargets = 0;
 /** いまの段。**まん中から始める** */
 let padSense = 1;
 const ZOOM_STEP = 1.12;   // 1 回で 1 割ちょっと。押した手応えが分かるくらい
@@ -13392,8 +13407,10 @@ const OPTBTN = {
   // サウンドテストの停止。**鳴らしっぱなしを止める口**が要る。
   // ESC は画面を出るほうなので、止めるだけの関数を直に呼ぶ
   soundStop: { en: 'STOP', run: () => stopSoundTest() },
-  // 名前入力の 1 文字消し。左キーは桁を移るだけなので、消す口がここに要る
-  del: { en: 'BACK', code: 'Backspace' },
+  // 名前入力の 1 文字消し。左キーは桁を移るだけなので、消す口がここに要る。
+  // **BACK とは書かない。** 前の画面へ戻るようにも、1 桁戻るようにも読める。
+  // するのは「消す」なので DEL
+  del: { en: 'DEL', code: 'Backspace' },
   // **名前入力の確定。** キーボードの SPACE は「ENTER の枠にいるときだけ」
   // 効くので、指では枠まで移らないと先へ進めず、行き止まりに見えていた。
   // ボタンは**どこにいても確定**にする(打ち終わったら押すもの、で通る)
@@ -13895,6 +13912,26 @@ function bindPadSenseButton() {
   if (!PAD_ON) return;
   const tools = document.getElementById('tools');
   if (!tools) return;
+  // **効かないつまみは出さない。**
+  // 切り返しは十字(origin)の話なので、パッドレスでは出しても何も動かない。
+  // 行き先の数はその逆。効かないものが並んでいると、
+  // 押しても変わらないつまみを探すことになる(PAD RESPONSE で懲りた)
+  if (PADLESS) {
+    padTargetsUI = createStepper({
+      mount: tools,
+      label: 'TARGETS',
+      items: PAD_TARGETS.map(String),
+      index: startPadTargets(),
+      wrap: false,          // 1〜3 しか無いので、端は端だと見せる
+      onChange: (i, name, byUser) => applyPadTargets(i, byUser),
+    });
+    // **絵のボタンの列から少し離す。** 合間に割り込むと、ポーズのたびに
+    // 上のボタンが押し下がって場所を覚えられない
+    padTargetsUI.el.style.marginTop = '12px';
+    // 部品は作った時点では onChange を呼ばない(**当てるのは借りる側の仕事**)
+    applyPadTargets(padTargetsUI.index, false);
+    return;
+  }
   padFlipUI = createStepper({
     mount: tools,
     label: 'TURN BACK',
@@ -13902,11 +13939,29 @@ function bindPadSenseButton() {
     index: startPadFlip(),
     onChange: (i, name, byUser) => applyPadFlip(i, byUser),
   });
-  // **絵のボタンの列から少し離す。** 合間に割り込むと、ポーズのたびに
-  // 上のボタンが押し下がって場所を覚えられない
   padFlipUI.el.style.marginTop = '12px';
-  // 部品は作った時点では onChange を呼ばない(**当てるのは借りる側の仕事**)
   applyPadFlip(padFlipUI.index, false);
+}
+
+/** 行き先の数を当てる。**部品へ流して、覚えて、画面に出す** */
+function applyPadTargets(n, tell) {
+  padTargets = Math.max(0, Math.min(PAD_TARGETS.length - 1, n));
+  const v = PAD_TARGETS[padTargets];
+  if (padlessMove) padlessMove.maxPoints = v;
+  if (tell) showNotice('TARGETS: ' + v);
+  if (DEVICE) return;
+  settings.set('padTargets', padTargets);
+  settings.set('padTargetsSet', true);
+  settings.flush();
+}
+
+/** どの段から始めるか。**?targets= → 前に決めた段 → 既定** の順に見る */
+function startPadTargets() {
+  const v = Number(OPT.get('targets'));
+  const at = PAD_TARGETS.indexOf(v);
+  if (at >= 0) return at;
+  if (!DEVICE && settings.get('padTargetsSet')) return settings.get('padTargets');
+  return padTargets;
 }
 
 /** どの段から始めるか。**?flip= → 前に決めた段 → 既定** の順に見る */
@@ -13930,11 +13985,13 @@ function startPadFlip() {
  * 遊んでいる最中に触るものではないし、そのぶん十字の場所を食う
  */
 function showPadSenseButton() {
-  if (!padFlipUI) return;
+  // **出しているのはどちらか片方**(遊びかたで出し分ける。bindPadSenseButton)
+  const ui = padTargetsUI || padFlipUI;
+  if (!ui) return;
   const on = paused;
   if (padSenseShown === on) return;
   padSenseShown = on;
-  padFlipUI.show(on);
+  ui.show(on);
 }
 
 /**

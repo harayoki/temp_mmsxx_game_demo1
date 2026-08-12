@@ -38,9 +38,17 @@
 //
 // 全部消したいときは、自機を叩くか、**画面の外を叩く**(呼ぶ側が stop() を呼ぶ)。
 //
-// **置いてある印も、つかんでずらせる**(`grabRadius` の中を押さえたとき)。
-// このときは増えない — 触ったものを動かすだけ。
-// 何も無いところを押さえたときだけ、新しく置かれる。
+// 引きずりかたは 2 通りある。**どちらを触ったかで意味が変わる**。
+//
+//   置いてある印の上を押さえた … **その印を動かすだけ**(`grabRadius`)。
+//     ほかは触らない。狭いところをゆっくり抜けたいときに、
+//     先に置いた点を少しずつ寄せていける
+//   何も無いところを押さえた   … 新しく置いて引きずる。
+//     **`cancelDrag` を超えて引きずったら、先に置いてあるぶんは消える**。
+//     大きく引き直したということなので、前の道筋は用済み。
+//     残っていると、**置き直したのにまず要らないほうへ行ってしまう**
+//
+// 短い直しでは道筋を残し、大きく引き直したら道筋も引き直す、という分けかた。
 //
 // ゲームの中身は知らない。**座標系は呼ぶ側のもの**で、ここでは
 // 「ドット」としか呼ばない(向きの符号だけ、下が + であることを前提にしている)。
@@ -73,12 +81,23 @@ const DEFAULTS = {
    */
   grabRadius: 14,
   /**
+   * **新しく置いたものをこれだけ引きずったら、先に置いてあるぶんを消す**(ドット)。
+   *
+   * 押さえたところからの直線の距離で見る。**道なりの長さでは見ない** —
+   * 迷って行き来しただけで消えてしまう。
+   *
+   * **つかんで動かしたときは消さない。** あちらは細かく寄せるための操作で、
+   * 道筋を引き直しているわけではない(狭いところを抜けるときに使う)
+   */
+  cancelDrag: 24,
+  /**
    * **溜めておける行き先の数。**
    * 増やすほど先まで引けるが、**印のぶんスプライトを食う**ので、
    * 借りる側が出せる数と揃えること。
-   * **溢れたぶんは古いほうから捨てる**(下の down を見ること)
+   * **溢れたぶんは古いほうから捨てる**(下の down を見ること)。
+   * **遊びの最中に変えてよい**(`maxPoints` に入れ直す)
    */
-  maxPoints: 2,
+  maxPoints: 1,
   /**
    * **1 秒で曲がれる上限**(度/秒)。**0 で頭打ちなし**(既定)。
    *
@@ -121,13 +140,21 @@ export function createPadless(opts = {}) {
   let heading = -90;
   /** 前のコマの行き先までの距離。**離れはじめたか**を見るためだけに持つ */
   let lastDist = Infinity;
-  /** いま指でつかんでいる印の番号(-1 で何もつかんでいない) */
+  /** いま指で動かしている印の番号(-1 で何も持っていない) */
   let held = -1;
+  /** 押さえはじめた場所。**そこからどれだけ引きずったか**を測るのに使う */
+  let pressX = 0, pressY = 0;
+  /**
+   * 先に置いてあるぶんを、もう消したか / 消さないことにしたか。
+   * **つかんで動かしているときは最初から true**(あちらは消さない操作)
+   */
+  let cutDone = false;
 
   function stop() {
     state = 'idle';
     lastDist = Infinity;
     held = -1;
+    cutDone = false;
     points.length = 0;
   }
 
@@ -141,6 +168,20 @@ export function createPadless(opts = {}) {
     get points() { return points; },
     /** いま進んでいる向き(度)。印の絵を向けたいときなどに */
     get heading() { return heading; },
+    /**
+     * **溜めておける数**。遊びの最中に変えてよい。
+     * 減らしたぶんは**古いほうから捨てる**(いま向かっている先が消えるので、
+     * 行き過ぎの見張りも数え直す)
+     */
+    get maxPoints() { return o.maxPoints; },
+    set maxPoints(n) {
+      o.maxPoints = Math.max(1, Math.floor(n) || 1);
+      while (points.length > o.maxPoints) {
+        points.shift();
+        if (held > 0) held--;
+        lastDist = Infinity;
+      }
+    },
 
     /**
      * 指が触れた。**自機の場所も一緒に渡す**(止める合図かどうかを見るため)。
@@ -149,7 +190,7 @@ export function createPadless(opts = {}) {
     down(x, y, selfX, selfY) {
       // **自機のまわりを叩いたら、置いたぶんを全部消して止まる**
       if (Math.hypot(x - selfX, y - selfY) <= o.stopRadius) { stop(); return false; }
-      // **置いてある印の上なら、それをつかむ**(増やさない)。
+      // **置いてある印の上なら、それをつかむ**(増やさない・ほかも消さない)。
       // 近いものから見る(重なっていたら、押さえたところに近いほうが取れる)
       let near = -1, best = o.grabRadius;
       for (let i = 0; i < points.length; i++) {
@@ -159,6 +200,8 @@ export function createPadless(opts = {}) {
       if (near >= 0) {
         held = near;
         points[held].firm = false;
+        pressX = x; pressY = y;
+        cutDone = true;             // つかんだぶんは、どれだけ動かしても消さない
         state = 'drag';
         return true;
       }
@@ -172,6 +215,8 @@ export function createPadless(opts = {}) {
       // 先頭を置いたのなら、そこまでの距離を数え直す
       if (points.length === 1) lastDist = Infinity;
       held = points.length - 1;
+      pressX = x; pressY = y;
+      cutDone = false;
       state = 'drag';
       return true;
     },
@@ -188,8 +233,18 @@ export function createPadless(opts = {}) {
      */
     move(x, y) {
       if (state !== 'drag' || held < 0 || held >= points.length) return;
-      const p = points[held];
-      p.x = x; p.y = y;
+      points[held].x = x;
+      points[held].y = y;
+      // **押さえたところから離れたら、先に置いてあるぶんを消す。**
+      // 大きく引き直したということなので、前の道筋は用済み。
+      // **つかんで動かしているときは効かない**(cutDone を立てて入ってくる)
+      if (!cutDone && held > 0
+          && Math.hypot(x - pressX, y - pressY) >= o.cancelDrag) {
+        cutDone = true;
+        points.splice(0, held);     // 引きずっている 1 つだけ残す
+        held = 0;
+        lastDist = Infinity;
+      }
       // 引きずっているのが先頭なら、行き過ぎの見張りを数え直す
       if (held === 0) lastDist = Infinity;
     },
@@ -200,6 +255,7 @@ export function createPadless(opts = {}) {
       state = 'auto';
       if (held >= 0 && held < points.length) points[held].firm = true;
       held = -1;
+      cutDone = false;
     },
 
     /** 指が消えた(着信など)。離したのと同じ扱いでよい */
@@ -208,6 +264,7 @@ export function createPadless(opts = {}) {
       state = 'auto';
       if (held >= 0 && held < points.length) points[held].firm = true;
       held = -1;
+      cutDone = false;
     },
 
     /** 止める(有効範囲の外を叩いたときなど。**呼ぶ側が決める**) */
@@ -230,9 +287,9 @@ export function createPadless(opts = {}) {
       let t = points[0];
       let dist = Math.hypot(t.x - selfX, t.y - selfY);
       for (;;) {
-        // **いま指でつかんでいる先頭は捨てない。**
+        // **いま指で持っている先頭は捨てない。**
         // 捨てると、そのあと指をずらしても動き出せなくなる(浮いて待つ)。
-        // つかんでいるのが後ろの印なら、先頭はふつうに片付けてよい
+        // 持っているのが後ろの印なら、先頭はふつうに片付けてよい
         const holding = (state === 'drag' && held === 0);
         // 行き過ぎたぶんも着いた扱い。曲がりきれずに回り続けるのを断つ
         // (上の passBy を見ること)
@@ -240,7 +297,7 @@ export function createPadless(opts = {}) {
         if (!reached) break;
         if (holding) { lastDist = dist; return { x: 0, y: 0 }; }
         points.shift();
-        // **つかんでいる番号も 1 つ手前へ**(前が抜けたぶん)。
+        // **持っている番号も 1 つ手前へ**(前が抜けたぶん)。
         // 0 のときはここへ来ない(上の holding で止まる)ので、正のときだけ
         if (held > 0) held--;
         lastDist = Infinity;
