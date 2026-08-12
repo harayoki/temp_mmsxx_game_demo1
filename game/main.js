@@ -564,10 +564,12 @@ for (let y = 0; y < VH; y += 128) {
 // 難易度は NORMAL(既定) と HARD の 2 つ。
 // もとは NORMAL / EASY と呼んでいたが、やさしいほうを標準にした
 // (中身は変えず、呼び名と並び順だけを入れ替えている)。
-// ゲーム中では HARD だけを明示し、やさしいほう(既定)は「NORMAL」と名乗らない。
-// 呼び分けが必要なのは仕様書の中だけ。
+// **やさしいほうも NORMAL GAME と名乗る。**
+// もとは GAME START と書いて「NORMAL」を伏せていたが、隣に HARD GAME が
+// 並んでいるところへ GAME START が居ると、**難易度の選択肢に見えない**
+// (始めるボタンと読める)。並びの中では、同じ言葉づかいで揃うほうがよい
 const MODES = [
-  { id: 'normal', name: 'GAME START' },
+  { id: 'normal', name: 'NORMAL GAME' },
   { id: 'hard', name: 'HARD GAME' },
   { id: 'bossrush', name: 'BOSS RUSH' },
   { id: 'staff', name: 'STAFF ROLL' },
@@ -3573,7 +3575,7 @@ let rushOne = 0;   // 0 = 4 体タイムアタック / それ以外はその相�
 /**
  * 上下で 1 つ進んだ先の並び。
  *
- * **本編(GAME START / HARD GAME)を選んでいるあいだは、
+ * **本編(NORMAL GAME / HARD GAME)を選んでいるあいだは、
  * 回り込みで開発用の項目へ入らない。** 撮影中にうっかり見せないため。
  * 消したわけではなく、下へたどっていけば今までどおり出てくる
  */
@@ -3836,7 +3838,7 @@ function enterPlay(fromContinue = false) {
   if (level === 'normal' || level === 'hard') setLastPlayed(level);
   // **新しく始めたら、続きの記録は捨てる。**
   // 残しておくと、前に遊んだ難易度の CONTINUE が並びに居座る。
-  // CONTINUE は GAME START の隣に入るうえ、ゲームオーバーの直後は
+  // CONTINUE は NORMAL GAME の隣に入るうえ、ゲームオーバーの直後は
   // そこが選ばれた状態なので、**始めたつもりのない難易度の途中**から
   // 始まってしまう(NORMAL で遊んでいたつもりが HARD の 3 面、など)。
   // 新しく始めるというのは、そこまでの続きを捨てるということ
@@ -13394,7 +13396,7 @@ const OK = {
   // **先へ進むだけ**の場面。何が起きるかを名前で言えないときはこれ
   ok: 'OK',
   /**
-   * **タイトルで選んでいるものの名前**(GAME START / HARD GAME / ...)。
+   * **タイトルで選んでいるものの名前**(NORMAL GAME / HARD GAME / ...)。
    * 上下で選んだものと押すボタンが結びつくように、名前をそのまま出す。
    * **毎コマ呼ばれる**ので、関数のまま持っておく
    */
