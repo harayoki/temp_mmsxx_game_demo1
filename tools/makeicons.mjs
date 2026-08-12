@@ -1,6 +1,7 @@
 // **ホーム画面に置くアイコンを作る。**
 //
 //   node tools/makeicons.mjs        # icons/ に並ぶ
+//   node tools/makeicons.mjs --dev  # icons-dev/ に並ぶ(自機の色が違う)
 //
 // ## 手で描いた PNG を持たない
 //
@@ -30,7 +31,16 @@ import { fileURLToPath } from 'node:url';
 import { GAME_DATA } from '../game/gamedata.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const outDir = path.join(root, 'icons');
+/**
+ * **開発版のぶんは色を変えて別に出す。**
+ *
+ * ホーム画面に本番と開発版を両方置くと、**アイコンが同じなので取り違える**。
+ * どちらを触っているのか分からないまま遊ぶことになるので、
+ * 自機の色で見分けが付くようにする(build-deploy.ps1 が -Local のとき
+ * こちらを配る)
+ */
+const DEV_ICONS = process.argv.includes('--dev');
+const outDir = path.join(root, DEV_ICONS ? 'icons-dev' : 'icons');
 
 /** 地の色。**ゲームの宇宙と同じ黒**(manifest の background_color と揃える) */
 const BG = [0, 0, 0];
@@ -103,10 +113,22 @@ function draw(size, scale) {
     for (let x = 0; x < art.w; x++) {
       const o = (y * art.w + x) * 4;
       if (art.rgba[o + 3] < 128) continue;      // 透いているところは地のまま
-      put(ox + x, oy + y, [art.rgba[o], art.rgba[o + 1], art.rgba[o + 2]]);
+      put(ox + x, oy + y, tint([art.rgba[o], art.rgba[o + 1], art.rgba[o + 2]]));
     }
   }
   return png(size, size, px);
+}
+
+/**
+ * **開発版だけ、自機の色をずらす。**
+ *
+ * 色の輪を回すのではなく、**RGB の並びをずらす**([r,g,b] → [g,b,r])。
+ * こうすると**白と灰はそのまま**(3 つが同じ値なので動かない)で、
+ * 色の付いているところだけが変わる ── 青い機体が緑になり、
+ * 白いところは白のまま残るので、絵の形は崩れない
+ */
+function tint(rgb) {
+  return DEV_ICONS ? [rgb[1], rgb[2], rgb[0]] : rgb;
 }
 
 /** 8bit RGBA の PNG を組み立てる */

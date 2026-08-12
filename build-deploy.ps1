@@ -42,8 +42,16 @@ Copy-Item (Join-Path $root 'index.html') $deploy
 Copy-Item (Join-Path $root 'default-og-image.png') $deploy
 # ホーム画面に置くアイコン(tools/makeicons.mjs が作る)と、その置き場所を書いた札。
 # **どちらか片方だけだとインストールできない**(札はアイコンを名指ししている)
-if (Test-Path (Join-Path $root 'icons')) {
-  Copy-Item -Recurse (Join-Path $root 'icons') (Join-Path $deploy 'icons')
+#
+# **開発版は色違いのアイコンを配る**(icons-dev)。ホーム画面に本番と
+# 並べたときに、同じ絵だとどちらを触っているのか分からない。
+# 名前は icons のまま置く(札が名指ししている先を変えずに済む)
+$iconSrc = Join-Path $root 'icons'
+if ($Local -and (Test-Path (Join-Path $root 'icons-dev'))) {
+  $iconSrc = Join-Path $root 'icons-dev'
+}
+if (Test-Path $iconSrc) {
+  Copy-Item -Recurse $iconSrc (Join-Path $deploy 'icons')
 }
 if (Test-Path (Join-Path $root 'manifest.webmanifest')) {
   Copy-Item (Join-Path $root 'manifest.webmanifest') $deploy
