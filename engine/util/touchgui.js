@@ -317,9 +317,13 @@ const DEFAULTS = {
  */
 const ICONS = {
   // 左右の両矢印。ページのめくり
-  leftright: '<path d="M1 24 15 9v8h18V9l14 15-14 15v-8H15v8z"/>',
-  // 上下の両矢印。一覧の送り
-  updown: '<path d="M24 1 39 15h-8v18h8L24 47 9 33h8V15H9z"/>',
+  //
+  // **胴は細く。** 文字を同じマスへ重ねて出すので、胴が太いと
+  // 文字と一体の四角に見えて、**矢印だと分からなくなる**(実機でそうなった)。
+  // 細くすれば、文字の上下から頭だけがはみ出して矢印だと読める
+  leftright: '<path d="M1 24 15 9v10h18V9l14 15-14 15v-10H15v10z"/>',
+  // 上下の両矢印。一覧の送り(こちらも同じ理由で胴を細くしてある)
+  updown: '<path d="M24 1 39 15h-10v18h10L24 47 9 33h10V15H9z"/>',
   // 触る場所。真ん中の丸と、その外の輪
   tap: '<circle cx="24" cy="24" r="10"/>'
     + '<path d="M24 2a22 22 0 1 0 0 44 22 22 0 1 0 0-44zm0 7a15 15 0 1 1 0 30 15 15 0 1 1 0-30z"/>',
@@ -660,7 +664,11 @@ export class TouchGui {
    */
   setGuide(guide) {
     this._guide = {
-      left: (guide && guide.left) || [],
+      // **左は枠の数を決め打ちにする**(GUIDE_SLOTS)。
+      // 場面ごとに数が変わると、出たり入ったりするうえ、
+      // 残ったほうの位置まで動いて落ち着かない。
+      // 足りないぶんは null で埋め、「出ているが使えない」枠として出す
+      left: padSlots((guide && guide.left) || [], GUIDE_SLOTS),
       right: (guide && guide.right) || [],
       ok: (guide && guide.ok) || null,
       esc: (guide && guide.esc) || null,
@@ -1306,7 +1314,15 @@ function pickText(v, lang) {
 }
 
 /** 案内 1 つぶん。絵と文字を縦に並べる */
+/**
+ * 案内の 1 つぶん。**`null` を渡すと「出ているが使えない」枠**になる。
+ *
+ * 使える場面でだけ出す作りにしていたが、画面ごとに数が変わるので
+ * **出たり入ったりが忙しく**、そのたびに残ったほうの位置も動いていた。
+ * 枠は据え置きにして、使えないときは**文字を消して絵を沈める**
+ */
 function guideItemHTML(item, lang) {
+  if (!item) return '<div class="mmsxx-gui-item off"></div>';
   const icon = ICONS[item.icon] || '';
   const text = pickText(item, lang);
   // **長押しで出すぶんは、見えている文字より詳しくてよい。**
@@ -1316,6 +1332,20 @@ function guideItemHTML(item, lang) {
     + (icon ? `<svg class="mmsxx-gui-icon" viewBox="0 0 48 48" aria-hidden="true">${icon}</svg>` : '')
     + `<div class="mmsxx-gui-label">${escapeHTML(text)}</div>`
     + '</div>';
+}
+
+/**
+ * **左の案内に置く枠の数。**
+ * いまの画面はどれも 2 つまで(ページ送り + 一覧の送り、など)。
+ * 増やすときはここだけ変えれば、場面ごとの並びはそのままでよい
+ */
+const GUIDE_SLOTS = 2;
+
+/** 足りないぶんを null で埋める(多いぶんはそのまま出す) */
+function padSlots(list, n) {
+  const out = list.slice();
+  while (out.length < n) out.push(null);
+  return out;
 }
 
 function escapeHTML(s) {
@@ -1507,6 +1537,14 @@ function injectStyle() {
    長押しで説明を読ませるため(狭い機種では文字を消してしまうので) */
 .mmsxx-gui-item {
   display: grid; place-items: center; width: 100%; pointer-events: auto;
+}
+/* **出ているが使えない枠。** 中身は空で、絵も文字も持たない。
+   場所だけ取っておくので、使えるようになっても位置が動かない。
+   高さは絵と同じだけ取る(空にすると潰れて、そのぶん上下がずれる) */
+.mmsxx-gui-item.off {
+  width: 100%; max-width: 96px; aspect-ratio: 1;
+  background: rgba(0, 0, 0, 0.28);
+  pointer-events: none;
 }
 .mmsxx-gui-icon, .mmsxx-gui-item .mmsxx-gui-label { grid-area: 1 / 1; }
 /* 下敷きのシルエット。**沈めておく**(主役は上の文字) */
