@@ -14482,16 +14482,16 @@ const HOWTO_PAGES = [
   {
     title: { ja: 'うつ', en: 'SHOOT' },
     body: {
-      ja: '弾は自動で出ます。何もしなくても撃ち続けます。\n'
-        + '右下の丸をこすると、そのぶん速く撃てます。\n'
+      ja: '弾は自動で出ます。\n'
+        + '丸いボタンをこすると はやく撃てます。\n'
+        + 'ボスはこれで攻略しよう。\n'
         + '撃つのに指を取られないので、\n'
-        + '両手とも移動に使えます。\n'
-        + 'この案内は ? でいつでも読み直せます。',
-      en: 'You fire automatically. No button needed.\n'
-        + 'Rub the circle at the lower right to fire faster.\n'
+        + '両手とも移動に使えます。',
+      en: 'You fire automatically.\n'
+        + 'Rub the round button to fire faster.\n'
+        + 'That is how you take down a boss.\n'
         + 'Shooting never ties up a finger,\n'
-        + 'so both hands are free to move.\n'
-        + 'Press ? any time to read this again.',
+        + 'so both hands are free to move.',
     },
   },
   {
@@ -14505,6 +14505,19 @@ const HOWTO_PAGES = [
         + 'Your ship visits them in order.\n'
         + 'Drag far to drop the earlier ones.\n'
         + 'Tap outside the screen to clear them all.',
+    },
+  },
+  {
+    // **読み直しかたは最後に置く。** 遊びかたを読み終えた人が
+    // 次に知りたいのは「また読めるのか」なので、そこで答える
+    title: { ja: 'よみなおす', en: 'READ AGAIN' },
+    body: {
+      ja: 'この案内は ? のボタンでいつでも読み直せます。\n'
+        + 'タイトルとポーズ中に出ています。\n'
+        + '閉じるときは、右上の × を押してください。',
+      en: 'Press the ? button any time to read this again.\n'
+        + 'It is there on the title and while paused.\n'
+        + 'Tap the × at the top right to close.',
     },
   },
 ];
@@ -14579,7 +14592,10 @@ function openHowTo() {
     mount: el,
     items: HOWTO_PAGES.map((p, i) => String(i + 1)),
     index: 0,
-    wrap: false,                 // 端は端だと見せる(何ページあるか分かるように)
+    // **回り込む。** 1 ページ目から左へ送れば最後のページへ行く。
+    // 端で止まると「もう無い」のか「効いていない」のか分からないし、
+    // **閉じるのは右上の × に任せる**ので、送りきる必要も無い
+    wrap: true,
     fontSize: 24,                // **8 の倍数**。ドット絵の書体はそこでしか揃わない
     content: inner,
     // 板の見た目。矢印に貸すぶんだけ左右を広く取る
@@ -14591,13 +14607,12 @@ function openHowTo() {
       boxSizing: 'border-box', overflowY: 'auto',
     },
     onChange: (i) => paint(i),
-    onPastEnd: () => closeHowTo(),
   });
   pager.show(true);
   pager.el.style.alignSelf = 'center';
 
-  // **右上に小さい X。** 送りきらなくても出られる口を 1 つ置いておく
-  // (最後まで読まないと閉じられない、では初めてでない人が困る)。
+  // **右上に小さい X。閉じるのはここだけ。**
+  // ページは回り込むので、送っているうちに閉じてしまうことは無い。
   // **矢印の列とは重ねない**(右の矢印は右端 2px から 20px ぶん居るので、
   // その内側へ寄せる)。板の子ではなく**根の子**にする —
   // 板そのものがボタンなので、中へ入れると押し分けられない
