@@ -362,7 +362,7 @@ export class TouchControls {
     };
     this._resizeWait = 0;
     this._dpad = this._shot = this._fire = this._pause = this._knob = this._stickEl = null;
-    this._needle = null;
+    this._needle = this._cap = null;
     /** 指を受けるだけの入れ物(絵は持たない)。attach で渡されたときだけ */
     this._dpadCatch = this._shotCatch = null;
     /** 1 コマだけ押すための仕掛け */
@@ -427,6 +427,9 @@ export class TouchControls {
     this._knob = this._dpad.querySelector('.mmsxx-touch-knob');
     this._stickEl = this._dpad.querySelector('.mmsxx-touch-stick');
     this._needle = this._dpad.querySelector('.mmsxx-touch-needle');
+    // **十字の中のほうだけ。** 目印(hint)にも同じ絵が入っているが、
+    // あちらは倒していない姿で出しっぱなしにする
+    this._cap = this._stickEl.querySelector('.mmsxx-touch-cap');
 
     this._applyLayout();
     this._applyLabels();
@@ -469,7 +472,7 @@ export class TouchControls {
     this._zones = [];
     this._dpadCatch = this._shotCatch = null;
     this._dpad = this._shot = this._fire = this._pause = this._knob = this._stickEl = null;
-    this._needle = null;
+    this._needle = this._cap = null;
   }
 
   /** 指を受けるだけの入れ物。渡されたぶんだけ */
@@ -1125,8 +1128,9 @@ export class TouchControls {
    */
   _showNeedle() {
     const n = this._needle;
-    if (!n) return;
     const s = this.stick;
+    this._showCap();
+    if (!n) return;
     const t = Math.hypot(s.rx, s.ry);
     if (!s.active || t <= 0) { n.style.display = 'none'; return; }
     n.style.display = 'block';
@@ -1135,6 +1139,25 @@ export class TouchControls {
     // 振り切っていることは色で見せる(伸ばし続けると輪の外へ出てしまう)
     n.style.setProperty('--len', Math.min(1, t) * this._r + 'px');
     n.classList.toggle('full', t >= 1);
+  }
+
+  /**
+   * **棒の頭を、倒したぶんだけ土台の中で寄せる。**
+   *
+   * 針と同じ値(`rx` / `ry`)を見るので、**2 つが食い違うことはない**。
+   * 寄せられるのは土台の縁に頭が収まるところまで(半径の 6 割)で、
+   * **全開でちょうど内側に接する**
+   */
+  _showCap() {
+    const cap = this._cap;
+    if (!cap) return;
+    const s = this.stick;
+    const t = Math.min(1, Math.hypot(s.rx, s.ry));
+    // 土台の半径から頭の半径を引いたぶんだけ寄せられる(頭は --r の 0.4 倍)
+    const reach = this._r * 0.6;
+    const k = t > 0 ? reach * t / Math.hypot(s.rx, s.ry) : 0;
+    cap.style.setProperty('--cx', (s.active ? s.rx * k : 0) + 'px');
+    cap.style.setProperty('--cy', (s.active ? s.ry * k : 0) + 'px');
   }
 
   // ── こすり打ち ────────────────────────────────────────
@@ -1330,16 +1353,23 @@ export class TouchControls {
 
 // ── DOM と CSS ──────────────────────────────────────────
 
-const ARROWS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']
-  .map(c => `<div class="mmsxx-touch-arrow" data-code="${c}"></div>`).join('');
+/**
+ * **アナログパッドの絵**(土台と、その中を寄っていく棒の頭)。
+ *
+ * 前は上下左右の矢印 4 つだったが、**動きが 360 度になったいま用を満たさない**
+ * (点けても 8 方向にしかならず、丸めて動いているように見えていた)。
+ * 触れていないときの目印にも、触れているあいだの絵にも同じものを使う —
+ * **触る前と触ったあとで別の絵が出ると、同じものだと分からない**
+ */
+const STICK_ART = '<div class="mmsxx-touch-dial"></div><div class="mmsxx-touch-cap"></div>';
 
 /** 十字の入れ物の中身 */
 const DPAD_HTML = `
   <div class="mmsxx-touch-title"></div>
   <div class="mmsxx-touch-note"></div>
-  <div class="mmsxx-touch-hint">${ARROWS}</div>
+  <div class="mmsxx-touch-hint">${STICK_ART}</div>
   <div class="mmsxx-touch-callout"></div>
-  <div class="mmsxx-touch-stick"><div class="mmsxx-touch-ring"></div><div class="mmsxx-touch-dial"></div>${ARROWS}<div class="mmsxx-touch-needle"><i></i></div></div>
+  <div class="mmsxx-touch-stick"><div class="mmsxx-touch-ring"></div>${STICK_ART}<div class="mmsxx-touch-needle"><i></i></div></div>
   <div class="mmsxx-touch-knob"></div>`;
 
 /** ショットの入れ物の中身 */
@@ -1469,34 +1499,31 @@ function injectStyle() {
   background-image: var(--knob-img, none);
 }
 
-/* 押している向きの目印。**太めの矢印をベタ塗りで。**
-   上向きの形を 1 つ作って、向きごとに回す */
-/* 上向きの形を 1 つ作って、向きごとに回す。
-   **中心ぎりぎりまで寄せる**ので、外側の端は今までと同じところに来る */
-/* 上向きの形を 1 つ作って、向きごとに回す。
-   幅は半径ぶん、長さはその手前まで。**お尻が隣の矢印と重ならない**ところで止める
-   (内側の端が幅の半分より内へ入ると、四隅で重なる) */
-.mmsxx-touch-arrow {
-  position: absolute; background: #224466;
-  width: calc(var(--r) * 1.2); height: calc(var(--r) * 0.78);
-  margin: calc(var(--r) * -0.39) 0 0 calc(var(--r) * -0.6);
-  /* 幹は 30〜70%(太さそのまま)。傘の張り出しは片側 7.5% まで詰めた */
-  clip-path: polygon(50% 0%, 77.5% 52%, 70% 52%, 70% 100%, 30% 100%, 30% 52%, 22.5% 52%);
-}
-/* 押されたときの黄色。**輝度を 8 割に落としてある**(素の #ffcc22 は目に痛い)。
-   十字の矢印はもう点けない(針が受け持つ)ので、いま効くのは hint のほうだけ */
-.mmsxx-touch-arrow.on { background: #cca31b; }
-
-/* 倒し量の目盛りになる輪。**針がここへ届いたら全速**。
-   どこまで倒せばよいかが、触る前から見えているようにする */
+/* アナログパッドの土台。**棒の頭が動きまわる窪み**に見せる。
+   外側の輪は倒し量の目盛りでもある(**頭がここへ届いたら全速**)ので、
+   どこまで倒せばよいかが触る前から見えている。
+   色は薄い白で置く。**絵と同じ紺だと消える**(下敷きが紺の丸)ので、
+   絵を差し替えても、明るくても暗くても残るようにする */
 .mmsxx-touch-dial {
   position: absolute;
   left: calc(var(--r) * -1); top: calc(var(--r) * -1);
   width: calc(var(--r) * 2); height: calc(var(--r) * 2);
   border-radius: 50%;
-  /* **絵と同じ紺だと消える**(十字の下敷きが紺の丸)。
-     薄い白なら、絵を差し替えても明るくても暗くても残る */
+  background: rgba(8, 14, 30, 0.45);
   box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.22);
+}
+/* 棒の頭。**倒したぶんだけ土台の中を寄っていく**(--cx / --cy は JS が入れる)。
+   触れていないときの目印では真ん中のまま出る(倒していないので 0)。
+   大きさは土台の 4 割。**これより小さいと棒に見えず、
+   大きいと寄る先が無くなって倒しているのか分からない** */
+.mmsxx-touch-cap {
+  position: absolute;
+  left: calc(var(--r) * -0.4); top: calc(var(--r) * -0.4);
+  width: calc(var(--r) * 0.8); height: calc(var(--r) * 0.8);
+  border-radius: 50%;
+  background: #3d5f96;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.34);
+  transform: translate(var(--cx, 0px), var(--cy, 0px));
 }
 
 /* **倒している向きと強さ。丸めずそのまま出す。**
@@ -1517,12 +1544,6 @@ function injectStyle() {
 }
 /* 振り切っているあいだ。長さはもう伸びないので、色でそれと分かるようにする */
 .mmsxx-touch-needle.full i { background: #ffcc22; }
-/* 大きさはそのまま、4 つとも内側へ 20px 寄せる */
-.mmsxx-touch-arrow[data-code="ArrowUp"]    { left: 0; top: calc(var(--r) * -1.01 + 20px); }
-.mmsxx-touch-arrow[data-code="ArrowDown"]  { left: 0; top: calc(var(--r) * 1.01 - 20px);  transform: rotate(180deg); }
-.mmsxx-touch-arrow[data-code="ArrowLeft"]  { top: 0; left: calc(var(--r) * -1.01 + 20px); transform: rotate(-90deg); }
-.mmsxx-touch-arrow[data-code="ArrowRight"] { top: 0; left: calc(var(--r) * 1.01 - 20px);  transform: rotate(90deg); }
-
 /* ショット。面の横溝で「こする場所」だと見せる */
 /* ボタンのエリア。**反応するのはこのエリア全体。**
    背景は既定では何も出さない(setSkin({ shotArea }) で差せる) */
