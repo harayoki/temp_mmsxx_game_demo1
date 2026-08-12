@@ -14469,11 +14469,14 @@ const HOWTO_PAGES = [
       // **置いてある十字をつかめることは書かない。**
       // 使えると強いが、知らなくても遊べる。最初に読ませるものへ
       // 全部を並べると、肝心の「タップで動く」がぼやける
-      ja: '画面をタップすると、赤い十字が置かれ、\n'
+      // **ここで TARGET という呼び名を出しておく。**
+      // ポーズ中のつまみが TARGETS なので、3 ページ目の「ターゲットの数」と
+      // 名前がつながる(赤い十字とターゲットが別ものに見えていた)
+      ja: '画面をタップすると、赤い十字(TARGET)が置かれ、\n'
         + 'そこへ自機が動きます。\n'
         + '押さえたまま指をずらすと、\n'
         + '行き先も付いてきます。',
-      en: 'Tap the screen to drop a red cross.\n'
+      en: 'Tap the screen to drop a red cross (TARGET).\n'
         + 'Your ship flies to it.\n'
         + 'Hold and drag to bring\n'
         + 'the target with you.',
