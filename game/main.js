@@ -10469,6 +10469,11 @@ function updatePlay() {
     // そのまま据え置き(数えない)
   } else if (rubHintIn > 0 && --rubHintIn === 0) {
     showNotice('RUB THE CIRCLE TO FIRE FAST!', 300, 176, 11);
+    // **文字だけでは伝わらない。** 動かしかた(斜めの往復・くるくる)は
+    // 指の絵が一番早いので、丸の上で同じ長さだけ動かして見せる
+    // **6 秒。** 3 秒ずつ 2 とおり見せる作りなので、縮めると
+    // 2 つめ(くるくる)が途中で切れる
+    if (touchGui) touchGui.rubDemo(6);
   }
   updateGearBlink();
   // 宝珠の七色は HUD に描いているので、少しずつ描き直す

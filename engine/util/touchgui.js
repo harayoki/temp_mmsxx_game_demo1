@@ -612,6 +612,12 @@ export class TouchGui {
    */
   keepFire() { this.touch.keepFire(); return this; }
 
+  /**
+   * **こすりかたを指で見せる**(touch.js の rubDemo)。
+   * 速く撃てるほど効く場面に来たところで呼ぶ
+   */
+  rubDemo(sec) { this.touch.rubDemo(sec); return this; }
+
   /** 案内の言語を変える */
   setLang(lang) {
     this.opts.lang = lang;
@@ -1499,14 +1505,18 @@ function injectStyle() {
    「ここに何かある」とだけ伝える。
    **明るさで光らせる**(opacity ではなく filter)。薄さは --gui-alpha が
    持っているので、そちらとけんかさせない。
-   なめらかに明滅させず steps で切り替えるのは、昔の画面の感じに寄せるため */
-.mmsxx-gui.attention .mmsxx-gui-left,
-.mmsxx-gui.attention .mmsxx-gui-right {
+   なめらかに明滅させず steps で切り替えるのは、昔の画面の感じに寄せるため。
+
+   **光らせるのは動かすほうの帯だけ。** 連射のほうは、遊びはじめから
+   ずっと右で点滅しているだけだった。とりわけ叩いて動かす遊びかたでは
+   左の帯が空なので、**点いているのは連射側だけ**になって目障りになる。
+   丸はそれと分かる形をしているので、教わらなくても押せる */
+.mmsxx-gui.attention .mmsxx-gui-left {
   animation: mmsxx-gui-attention 1s steps(2, jump-none) infinite;
 }
 /* **光るものを 1 つにする。** 十字は自前でも目印を明滅させているが、
    周期が違う(1.4 秒)ので、こちらの 1 秒と噛み合わずばらばらに見える。
-   あちらを止めて、左右そろって同じ拍で光らせる */
+   あちらを止めて、帯ごと同じ拍で光らせる */
 .mmsxx-gui .mmsxx-touch-hint { animation: none; }
 
 /* **使いかたの文字は、斜線の帯まではみ出してよい。**
