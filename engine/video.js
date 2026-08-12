@@ -991,6 +991,58 @@ export class VDP {
    */
   refitCss() { this._applyCssSize(); }
 
+  /**
+   * **窓の点を、ゲームのドットへ戻す**(`_applyCssSize` の逆)。
+   *
+   *   const at = mmsxx.vdp.pointToScreen(e.clientX, e.clientY);
+   *   if (at.inside) 目的地にする(at.x, at.y);
+   *
+   * 指で画面を直に指す遊びかた(タップした先へ動く など)に要る。
+   * **回すところがもう 1 つ増える**ので、ここに置いてある —
+   * 倍率もボーダーもずらしも見た目の角度も、持っているのは この面だから。
+   *
+   * 角度は canvas の**真ん中を軸に**掛かっている(transform-origin の既定)ので、
+   * 真ん中からのずれを角度ぶん戻せば、0/90/180/270 のどれでも同じ式で足りる。
+   * `getBoundingClientRect()` が返すのは**回したあとの外枠**なので、
+   * 90 度と 270 度では幅と高さが入れ替わっていることに気をつけること。
+   *
+   * @param {number} clientX 窓の左上から数えた点(pointer イベントのそれ)
+   * @param {number} clientY 同上
+   * @returns {{x:number, y:number, inside:boolean}}
+   *   x / y は**描画領域の左上を 0 とするドット**(ボーダーとずらしを抜いたもの)。
+   *   **枠の外でも数字は返す**(はみ出したぶんは負や width 以上になる)ので、
+   *   中かどうかは inside で見ること
+   */
+  pointToScreen(clientX, clientY) {
+    const out = { x: 0, y: 0, inside: false };
+    const canvas = this.canvas;
+    if (!canvas || typeof canvas.getBoundingClientRect !== 'function') return out;
+    const r = canvas.getBoundingClientRect();
+    if (!r.width || !r.height) return out;
+    const angle = ((this.viewAngle % 360) + 360) % 360;
+    // 回したあとの外枠の真ん中 = 回す軸
+    const dx = clientX - (r.left + r.width / 2);
+    const dy = clientY - (r.top + r.height / 2);
+    // 角度ぶん戻す(回した向きの逆へ回す)
+    const rad = -angle * Math.PI / 180;
+    const cos = Math.cos(rad), sin = Math.sin(rad);
+    const ux = dx * cos - dy * sin;
+    const uy = dx * sin + dy * cos;
+    // 回す前の CSS の大きさ。90 / 270 では外枠の幅と高さが入れ替わっている
+    const swap = (angle === 90 || angle === 270);
+    const cssW = swap ? r.height : r.width;
+    const cssH = swap ? r.width : r.height;
+    // CSS の大きさ → canvas の画素(等倍の中身)
+    const ow = this.outWidth, oh = this.outHeight;
+    const px = ux * (ow / cssW) + ow / 2;
+    const py = uy * (oh / cssH) + oh / 2;
+    // ボーダーとずらしを抜いて、描画領域の左上を 0 にする
+    out.x = px - (this.borderX + this.adjustX);
+    out.y = py - (this.borderY + this.adjustY);
+    out.inside = out.x >= 0 && out.x < this.width && out.y >= 0 && out.y < this.height;
+    return out;
+  }
+
   // ---- 直前のコマを溜める(あとで「何秒前」を取り出す) ----
   //
   // **色番号のまま**輪っかに溜める。1 ドット 1 バイトなので、
