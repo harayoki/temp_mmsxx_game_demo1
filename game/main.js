@@ -14199,6 +14199,16 @@ function bindPadSenseButton() {
   // 切り返し(TURN BACK)は十字のときしか効かないつまみなので出さない —
   // 効かないものが並んでいると、押しても変わらないつまみを探すことになる
   // (PAD RESPONSE で懲りた)
+  /**
+   * **行を折るための当て板。**
+   *
+   * `#tools` は横並びの折り返し(flex-wrap)なので、そのまま足すと
+   * **絵のボタンの続き**として同じ行に並ぶ。高さ 0 で幅いっぱいのものを
+   * 先に入れておくと、そこで行が折れて、この下は**絵の無い行**になる
+   */
+  const br = document.createElement('div');
+  br.style.cssText = 'flex-basis:100%;height:0;margin:0';
+  tools.appendChild(br);
   padTargetsUI = createStepper({
     mount: tools,
     label: 'CONTROL',
@@ -14211,7 +14221,12 @@ function bindPadSenseButton() {
   });
   // **絵のボタンの列から少し離す。** 合間に割り込むと、ポーズのたびに
   // 上のボタンが押し下がって場所を覚えられない
-  padTargetsUI.el.style.marginTop = '12px';
+  // **絵のボタンの列から 1 行ぶん空ける。**
+  // すぐ下に付けていたころは、絵の並びの続きに見えて
+  // ポーズのたびに上のボタンが押し下がり、場所を覚えられなかった。
+  // 空き行を 1 つ挟めば、**別のものだと見て取れる**
+  // (ボタンは 32px、間は 4px。合わせて 1 行ぶん)
+  padTargetsUI.el.style.marginTop = '40px';
   // 部品は作った時点では onChange を呼ばない(**当てるのは借りる側の仕事**)
   applyPadTargets(padTargetsUI.index, false);
 }
