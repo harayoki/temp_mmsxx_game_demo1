@@ -46,6 +46,8 @@ import { DEVICES, findDevice } from '../engine/util/devices.js';
 import { createNotice } from '../engine/util/notice.js';
 // 段を選ぶボタン(何のつまみかと いまの段を 2 行で出し、左右で送る)
 import { createStepper } from '../engine/util/stepper.js';
+// パッドレスの移動(叩いた先へ自機が歩く。押したままずらすと角度を曲げられる)
+import { createPadless } from '../engine/util/padless.js';
 import Bowser from '../vendor/bowser/bowser.js';
 // 開発者ツールで止まったときに見せる、このゲームのぶんの文章
 import { gameStop } from './console-stop.js';
@@ -1166,6 +1168,30 @@ player.rank = 'always';
 const aux = mmsxx.sprite(SPRITE_SYMBOLS.flameSmall);
 aux.priority = 11;
 aux.visible = false;
+
+/**
+ * **パッドレスの移動**(`?stick=padless`)。叩いた先へ自機が自分で歩く。
+ *
+ * 十字は出さない(仕様どおり)。撃つのは自動なので、**両手とも移動に使える**。
+ * 制御そのものは engine/util/padless.js が持っていて、ここでするのは
+ * 「指の点をドットへ戻す」「行き先を届く範囲へ丸める」「印を置く」の 3 つ
+ */
+const PADLESS = OPT.get('stick') === 'padless';
+const padlessMove = PADLESS ? createPadless() : null;
+/** 行き先の印。**弾より奥**に置く(避けるものを隠さない) */
+const aimSp = PADLESS ? mmsxx.sprite(SPRITE_SYMBOLS.aimMark) : null;
+if (aimSp) { aimSp.priority = 3; aimSp.visible = false; }
+/**
+ * **自機の真ん中が行ける範囲。** 行き先をここへ丸めておかないと、
+ * 端を叩いたときに自機が壁で止まったまま「まだ着いていない」ことになり、
+ * **押し続けたまま止まらなくなる**(下の移動の頭打ちと同じ範囲にする)
+ */
+function aimClamp(x, y) {
+  return {
+    x: Math.max(8, Math.min(SCREEN_W - 8, x)),
+    y: Math.max(28, Math.min(SCREEN_H - 10, y)),
+  };
+}
 
 let bullets = [];
 let enemies = [];
@@ -8847,6 +8873,12 @@ function updatePlay() {
     if (invincible > 0) invincible--;
   } else if (state === 'play') {
     const spd = SPEED_TABLE[speedLevel - 1];
+    // **パッドレスは毎コマ置き直す**(行き先へ向かう向きを 1 つの口へ流す)。
+    // ここから先は十字やパッドと同じ道を通るので、下の移動は何も変わらない
+    if (padlessMove) {
+      const v = padlessMove.update(player.x + 8, player.y + 8);
+      mmsxx.input.setStick('touch', v.x, v.y);
+    }
     // 向きと強さは 1 つの口から(上の「自機の動かしかた」を見ること)
     const st = mmsxx.input.stick(MOVE_SNAP);
     if (st.strength > 0) {
@@ -8871,6 +8903,15 @@ function updatePlay() {
       const gap = autoFire > 0 ? 6 : AUTO_FIRE_INTERVAL;
       if (playFrame - lastShotFrame >= gap) fireShot();
     }
+  }
+
+  // **行き先の印。** 出すのは遊びの最中だけ(やられている最中や登場中は消す)。
+  // 絵は 16x16 で真ん中に十字が入っているので、行き先から 8 引いて置く
+  if (aimSp) {
+    const m = padlessMove.marker;
+    const on = m.on && state === 'play' && !entering && player.visible;
+    aimSp.visible = on;
+    if (on) { aimSp.x = Math.round(m.x) - 8; aimSp.y = Math.round(m.y) - 8; }
   }
 
   updateBGM();
@@ -13570,8 +13611,72 @@ if (PAD_ON) {
   touchGui.layout();
   // 実機を繋いで中を覗くとき用(touch-tool の window.touch と同じ考えかた)
   mmsxx.expose('touchGui', touchGui);
+  // **パッドレスでは十字を出さない**(仕様の 1 節)。
+  // 絵と当たりが消えて指がうしろへ抜けるので、canvas を直に叩けるようになる。
+  // 連射の四角はそのまま残る
+  if (PADLESS) touchGui.touch.dpadOn = false;
   if (DEVICE) showDeviceLinks();
   restoreZoom();
+}
+// **パッドレスの指を受ける。** 受けるのは canvas そのもの。
+// 十字を切ってあるので器は素通しになっていて、ここまで上がってくる。
+//
+// **遊びの最中だけ**。メニューは器のジェスチャで動いているので、
+// そちらへ横から口を出さない(ポーズ中も同じ)
+if (PADLESS) {
+  bindPadlessTaps();
+  // 実機を繋いで中を覗くとき用(touchGui と同じ考えかた)。
+  // つまみもここから当てられる: padless.state / padless.marker / padless.heading
+  mmsxx.expose('padless', padlessMove);
+}
+
+function bindPadlessTaps() {
+  const canvas = document.getElementById('screen');
+  if (!canvas) return;
+  /** いま追いかけている指。**1 本だけ見る**(2 本目は捨てる) */
+  let id = null;
+  /** 遊びの最中か。ここ以外では指を受けない */
+  const live = () => state === 'play' && !paused && !entering;
+  /** 画面の点を、自機の真ん中と同じものさしのドットへ */
+  const at = (e) => mmsxx.vdp.pointToScreen(e.clientX, e.clientY);
+  /** 自機の真ん中(スプライトは 16x16 なので +8) */
+  const selfX = () => player.x + 8;
+  const selfY = () => player.y + 8;
+
+  canvas.addEventListener('pointerdown', (e) => {
+    if (!live() || id !== null) return;
+    const p = at(e);
+    // **枠の外を叩いたら止まる**(仕様の 3.3)。行き先にはしない
+    if (!p.inside) { padlessMove.stop(); return; }
+    e.preventDefault();
+    id = e.pointerId;
+    try { canvas.setPointerCapture(id); } catch (err) { /* 捕まえられなくても続ける */ }
+    const c = aimClamp(p.x, p.y);
+    padlessMove.down(c.x, c.y, selfX(), selfY());
+  });
+
+  canvas.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== id) return;
+    const p = at(e);
+    const c = aimClamp(p.x, p.y);
+    padlessMove.move(c.x, c.y);
+  });
+
+  const up = (e) => {
+    if (e.pointerId !== id) return;
+    id = null;
+    padlessMove.up(selfX(), selfY());
+  };
+  canvas.addEventListener('pointerup', up);
+  canvas.addEventListener('lostpointercapture', up);
+  // 着信やジェスチャで指が消えたぶん。**行き先はそのまま**、曲げるのだけやめる
+  canvas.addEventListener('pointercancel', (e) => {
+    if (e.pointerId !== id) return;
+    id = null;
+    padlessMove.cancel();
+  });
+  // 長押しのメニュー(iOS の「コピー」など)を断る
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 }
 // **PC でも要る。** 大きさもドットのそろえかたも、指で触る端末だけの話ではない。
 // スマホ用の分岐の中に入れていたせいで、PC ではボタンが空のままだった

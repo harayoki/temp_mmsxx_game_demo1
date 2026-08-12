@@ -491,9 +491,33 @@ export class TouchControls {
     for (const z of this._zones) z.style.display = v ? '' : 'none';
     // **受けるだけの入れ物も一緒に消す。** 残すと、メニューで払ったつもりの指を
     // 十字やショットが横取りしてしまう(絵は出ていないので、何が起きたのか分からない)
-    for (const c of this._catches()) c.style.display = v ? '' : 'none';
+    if (this._shotCatch) this._shotCatch.style.display = v ? '' : 'none';
+    // 十字のほうは **dpadOn も見る**(切っているなら出しっぱなしにしない)
+    if (this._dpadCatch) this._dpadCatch.style.display = (v && this.dpadOn) ? '' : 'none';
     // 出したら「撃っている」状態から始める / しまったら押しっぱなしを解く
     this._applyIdleFire();
+  }
+
+  /**
+   * **十字を出すか**(既定は出す)。
+   *
+   * 切ると絵も当たりも消え、**指はうしろへ抜ける** —
+   * canvas を直に叩く遊びかた(engine/util/padless.js)へ替えるためのもの。
+   * 連射のほうは残るので、撃つ場所はそのまま。
+   *
+   * **入れ物そのものは display で消さない。** 大きさの計算(`_applyLayout`)が
+   * 帯の幅を見ているので、消すと幅が 0 になって**連射の丸まで縮む**。
+   * 見えなくするのと当たりを外すのを別々にやって、箱は残しておく
+   */
+  get dpadOn() { return this._dpadOn !== false; }
+  set dpadOn(v) {
+    this._dpadOn = !!v;
+    if (!v) this.releaseAll();
+    if (this._dpad) {
+      this._dpad.style.visibility = v ? '' : 'hidden';
+      this._dpad.style.pointerEvents = v ? '' : 'none';
+    }
+    if (this._dpadCatch) this._dpadCatch.style.display = (v && this.visible) ? '' : 'none';
   }
 
   /** つまみを変える。**動かしたまま効く** */
