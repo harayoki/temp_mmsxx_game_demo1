@@ -14466,14 +14466,17 @@ const HOWTO_PAGES = [
   {
     title: { ja: 'うごかす', en: 'MOVE' },
     body: {
+      // **置いてある十字をつかめることは書かない。**
+      // 使えると強いが、知らなくても遊べる。最初に読ませるものへ
+      // 全部を並べると、肝心の「タップで動く」がぼやける
       ja: '画面をタップすると、赤い十字が置かれ、\n'
         + 'そこへ自機が動きます。\n'
-        + '押さえたまま指をずらすと、行き先も付いてきます。\n'
-        + '置いてある十字は、つかんで動かせます。',
+        + '押さえたまま指をずらすと、\n'
+        + '行き先も付いてきます。',
       en: 'Tap the screen to drop a red cross.\n'
         + 'Your ship flies to it.\n'
-        + 'Hold and drag to bring the target with you.\n'
-        + 'You can also grab a cross you already placed.',
+        + 'Hold and drag to bring\n'
+        + 'the target with you.',
     },
   },
   {
@@ -14592,6 +14595,24 @@ function openHowTo() {
   });
   pager.show(true);
   pager.el.style.alignSelf = 'center';
+
+  // **右上に小さい X。** 送りきらなくても出られる口を 1 つ置いておく
+  // (最後まで読まないと閉じられない、では初めてでない人が困る)。
+  // **矢印の列とは重ねない**(右の矢印は右端 2px から 20px ぶん居るので、
+  // その内側へ寄せる)。板の子ではなく**根の子**にする —
+  // 板そのものがボタンなので、中へ入れると押し分けられない
+  const close = document.createElement('button');
+  close.type = 'button';
+  close.textContent = '×';
+  close.setAttribute('aria-label', 'CLOSE');
+  Object.assign(close.style, {
+    position: 'absolute', top: '6px', right: '26px',
+    width: '28px', height: '28px', padding: '0',
+    font: '20px/1 var(--mmsxx-gui-font, monospace)',
+    color: '#e8e8e8', background: 'transparent', border: '0', cursor: 'pointer',
+  });
+  close.addEventListener('click', () => { close.blur(); closeHowTo(); });
+  pager.el.appendChild(close);
   document.body.appendChild(el);
   howToEl = el;
 }
