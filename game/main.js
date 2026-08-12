@@ -13672,7 +13672,8 @@ function bindPadlessTaps() {
   const up = (e) => {
     if (e.pointerId !== id) return;
     id = null;
-    padlessMove.up(selfX(), selfY());
+    // 行き先はもう指の下に置いてあるので、離すだけでよい
+    padlessMove.up();
   };
   // **離したことは window で拾う。** canvas だけで待っていると、
   // 捕まえ損ねたまま指が canvas の外(連射の四角やポーズの上)へ抜けて

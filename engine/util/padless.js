@@ -1,9 +1,9 @@
 // **パッドレスの移動制御。** 画面を叩いた先へ自機が自分で歩いていく。
-// 押したまま指をずらすと、進む角度を左右へ曲げられる。
+// 押したまま指をずらすと、行き先ごと引きずって動かせる。
 //
 //   const move = createPadless();
 //   // 指を受けたら(**ゲームのドットで**渡すこと。画面の点は vdp.pointToScreen で戻す)
-//   move.down(x, y); move.move(x, y); move.up(x, y);
+//   move.down(x, y, selfX, selfY); move.move(x, y); move.up();
 //   // 毎コマ
 //   const v = move.update(player.x, player.y, dtMs);
 //   mmsxx.input.setStick('touch', v.x, v.y);
@@ -17,15 +17,14 @@
 //
 // 撃つのが自動なら、**両手とも移動に使える**(左右どちらの指で叩いてもよい)。
 //
-// ## 押したままずらすと曲がる
+// ## 押したままずらすと、行き先ごと動く
 //
-// 行き先を決め直すには叩き直せばよいが、**弾をよけながらだと間に合わない**。
-// そこで、押したまま指をずらしているあいだは、
-// 進んでいる向きに対して**横へどれだけ外れているか**だけを見て角度を曲げる。
+// 叩いた場所が行き先。**押さえたままずらせば、行き先もそこへ付いてくる**ので、
+// 弾をよけながら寄せ先を変えられる(叩き直さなくてよい)。
+// 指を離しても、そのときの場所が行き先として残る。
 //
-// **前へ進む力はこちらで保つ**(指を後ろへ引いても下がらない)。
-// 指を離したら、その場所を新しい行き先にする。ただし**前方に限る** —
-// 後ろを指していたら、前方の縁まで押し出す。
+// **向きは一気に変えない**(`turnRate`)。行き先が真後ろへ回っても、
+// 自機はその場で裏返らずに回り込む。
 //
 // ゲームの中身は知らない。**座標系は呼ぶ側のもの**で、ここでは
 // 「ドット」としか呼ばない(向きの符号だけ、下が + であることを前提にしている)。
@@ -51,29 +50,11 @@ const DEFAULTS = {
    */
   stopRadius: 12,
   /**
-   * **操舵の効き**(度/秒。横へ目いっぱい外れているときの曲がる速さ)。
-   * 上げるほど指なりに曲がるが、**指の震えでふらつく**
-   */
-  steerRate: 180,
-  /**
-   * **1 秒で曲がれる上限**(度/秒)。行き先を叩き直したときにも効く。
-   * **コマ落ちしても曲がりすぎないように**、経った時間で掛ける
+   * **1 秒で曲がれる上限**(度/秒)。
+   * **コマ落ちしても曲がりすぎないように**、経った時間で掛ける。
+   * 上げるほど指なりに曲がるが、上げすぎると真後ろへもその場で裏返る
    */
   turnRate: 300,
-  /**
-   * **ひと押しで曲げられる上限**(度)。
-   * これがないと、押したまま指を回すだけで真後ろを向けてしまう
-   */
-  maxSteer: 110,
-  /**
-   * 指を離したとき、**前方と認める広さ**(度。進んでいる向きから片側へ)。
-   * ここを外れた行き先は、縁まで戻される
-   */
-  forwardDeg: 80,
-  /** 後ろを指していたときに、前へ押し出す距離(ドット) */
-  minAhead: 32,
-  /** 指のずれをここから見る(ドット)。**置いただけでは曲げない** */
-  deadzone: 3,
 };
 
 const D2R = Math.PI / 180;
@@ -90,59 +71,26 @@ function wrapDeg(d) {
 export function createPadless(opts = {}) {
   const o = Object.assign({}, DEFAULTS, opts);
 
-  /** 'idle'(止まっている) / 'auto'(行き先へ歩く) / 'steer'(押したまま曲げている) */
+  /** 'idle'(止まっている) / 'auto'(行き先へ歩く) / 'drag'(押さえたまま引きずっている) */
   let state = 'idle';
   /** 行き先(ドット) */
   let tx = 0, ty = 0;
   /** いま進んでいる向き(度。0 が右、時計回り) */
   let heading = -90;
-  /** 指のいまの場所(steer のあいだだけ意味がある) */
-  let fx = 0, fy = 0;
-  /** ひと押しで曲げたぶんの合計(度)。maxSteer の頭打ちに使う */
-  let steered = 0;
   /** 前のコマの行き先までの距離。**離れはじめたか**を見るためだけに持つ */
   let lastDist = Infinity;
-  /** 印。firm=false は「まだ指が乗っている(仮)」 */
+  /** 印。**行き先そのもの**を指す(firm=false は まだ指が乗っている) */
   const marker = { on: false, x: 0, y: 0, firm: false };
 
-  /**
-   * 自機から見て、その点は前方か。前方でなければ縁まで戻した点を返す。
-   *
-   * @param {boolean} firm **確定するときだけ true**。
-   *   最小前進距離(`minAhead`)を効かせるのはこのときだけにする。
-   *   仮の印にも効かせていたことがあり、**自機が指へ近づくほど印が前へ
-   *   逃げていった**(指を押さえたままなのに印が動く)。
-   *   最小前進が要るのは「離した先が近すぎて、置いた瞬間に着いた扱いで
-   *   止まってしまう」のを避けるためで、押さえているあいだには要らない
-   */
-  function clampForward(sx, sy, px, py, firm) {
-    let dx = px - sx, dy = py - sy;
-    let dist = Math.hypot(dx, dy);
-    // 向きが取れないほど重なっているときだけ、進んでいる向きへ出す
-    if (dist < 0.001) {
-      dx = Math.cos(heading * D2R); dy = Math.sin(heading * D2R);
-      dist = firm ? o.minAhead : 0.001;
-      return { x: sx + dx * dist, y: sy + dy * dist };
-    }
-    const deg = Math.atan2(dy, dx) / D2R;
-    const off = wrapDeg(deg - heading);
-    if (Math.abs(off) <= o.forwardDeg) {
-      // 前方。**そのままの場所**。近くても押し出さない(印が指から逃げる元だった)
-      if (firm && dist < o.minAhead) {
-        const k = o.minAhead / dist;
-        return { x: sx + dx * k, y: sy + dy * k };
-      }
-      return { x: px, y: py };
-    }
-    // 前方の縁まで戻す(**距離はそのまま**。行きたかった遠さは残す)
-    const d = firm ? Math.max(dist, o.minAhead) : dist;
-    const edge = (heading + Math.sign(off) * o.forwardDeg) * D2R;
-    return { x: sx + Math.cos(edge) * d, y: sy + Math.sin(edge) * d };
+  /** 行き先を置き直す。**印も必ず一緒に動かす**(食い違わせない) */
+  function aimAt(x, y) {
+    tx = x; ty = y;
+    marker.x = x; marker.y = y;
+    lastDist = Infinity;
   }
 
   function stop() {
     state = 'idle';
-    steered = 0;
     lastDist = Infinity;
     marker.on = false;
     marker.firm = false;
@@ -159,46 +107,41 @@ export function createPadless(opts = {}) {
      * @returns {boolean} 受けたか(false なら止める合図だった)
      */
     down(x, y, selfX, selfY) {
-      fx = x; fy = y;
       // **自機のまわりを叩いたら止まる**(行き先にしない)
       if (Math.hypot(x - selfX, y - selfY) <= o.stopRadius) { stop(); return false; }
       // 止まっているところからなら、向きはその場で合わせてよい
       // (歩いている最中は turnRate で曲がる。急に向きが飛ばないように)
       if (state === 'idle') heading = Math.atan2(y - selfY, x - selfX) / D2R;
-      tx = x; ty = y;
-      state = 'steer';
-      steered = 0;
-      lastDist = Infinity;
+      aimAt(x, y);
+      state = 'drag';
       marker.on = true; marker.firm = false;
-      marker.x = x; marker.y = y;
       return true;
     },
 
-    /** 指が動いた。**曲げるのは update の中**(経った時間で掛けるため) */
+    /**
+     * 指が動いた。**行き先ごと引きずる。**
+     *
+     * 印だけを動かして行き先を据え置きにしたことがあったが、
+     * **押さえている場所と自機の向かう先が食い違う**ので、
+     * 何を動かしているのか分からなくなった。指の下が行き先
+     */
     move(x, y) {
-      if (state !== 'steer') return;
-      fx = x; fy = y;
+      if (state !== 'drag') return;
+      aimAt(x, y);
     },
 
-    /** 指が離れた。**そこを新しい行き先にする**(前方に限る) */
-    up(selfX, selfY) {
-      if (state !== 'steer') return;
-      // **確定するときだけ最小前進を効かせる**(firm = true)
-      const at = clampForward(selfX, selfY, fx, fy, true);
-      tx = at.x; ty = at.y;
+    /** 指が離れた。**行き先はそのまま**(もう指の下に置いてある) */
+    up() {
+      if (state !== 'drag') return;
       state = 'auto';
-      steered = 0;
-      lastDist = Infinity;
-      marker.on = true; marker.firm = true;
-      marker.x = tx; marker.y = ty;
+      marker.firm = true;
     },
 
-    /** 指が消えた(着信など)。**行き先はそのまま**、曲げるのだけやめる */
+    /** 指が消えた(着信など)。離したのと同じ扱いでよい */
     cancel() {
-      if (state !== 'steer') return;
+      if (state !== 'drag') return;
       state = 'auto';
-      lastDist = Infinity;
-      marker.firm = true; marker.x = tx; marker.y = ty;
+      marker.firm = true;
     },
 
     /** 止める(有効範囲の外を叩いたときなど。**呼ぶ側が決める**) */
@@ -214,58 +157,29 @@ export function createPadless(opts = {}) {
       if (state === 'idle') return { x: 0, y: 0 };
       // **経った時間で掛ける。** コマが飛んでも曲がる量が変わらないように
       const dt = Math.min(100, Math.max(1, dtMs)) / 1000;
+      const dist = Math.hypot(tx - selfX, ty - selfY);
 
-      if (state === 'steer') {
-        const vx = fx - selfX, vy = fy - selfY;
-        const len = Math.hypot(vx, vy);
-        // **印は動かさない。押してから離すまで、叩いたところに居座る。**
-        //
-        // ずらす操作は**進む角度を曲げるためのもの**であって、行き先を
-        // 動かすものではない(仕様の 4.1。新しい行き先になるのは離した時点)。
-        // 指に追わせていたことがあり、ずらすほど印が付いてきて
-        // 「行き先がおかしくなる」ことになった。
-        // 前方の縁へ寄せて先出しする案も駄目だった —
-        // **縁は進んでいる向きと一緒に回る**ので、指を止めていても滑る。
-        //
-        // **行き先まで来たら、そこで浮いて待つ。** 押さえているあいだも
-        // 前へ進み続ける作りだと、追い越しては戻るのを繰り返す
-        if (Math.hypot(tx - selfX, ty - selfY) <= o.arrive) return { x: 0, y: 0 };
-        if (len >= o.deadzone) {
-          const h = heading * D2R;
-          // 進んでいる向きの**真横**(右が +)
-          const px = -Math.sin(h), py = Math.cos(h);
-          const nx = vx / len, ny = vy / len;
-          // 横へどれだけ外れているか(-1〜1)と、前後どちらにいるか
-          let lat = nx * px + ny * py;
-          const fwd = nx * Math.cos(h) + ny * Math.sin(h);
-          // **後ろにいるときは目いっぱい曲げる。** 真後ろは横の成分が 0 に
-          // なってしまい、そのままでは曲がれなくなる(そこだけ効かない穴になる)
-          if (fwd < 0) lat = (lat >= 0 ? 1 : -1);
-          let turn = lat * o.steerRate * dt;
-          // ひと押しで曲げられるぶんの残り
-          const room = o.maxSteer - Math.abs(steered);
-          if (room <= 0) turn = 0;
-          else if (Math.abs(turn) > room) turn = Math.sign(turn) * room;
-          // 1 コマで曲がれる上限
-          const cap = o.turnRate * dt;
-          if (Math.abs(turn) > cap) turn = Math.sign(turn) * cap;
-          heading = wrapDeg(heading + turn);
-          steered += turn;
-        }
-      } else {
-        // 行き先へ向きを寄せる。**その場では飛ばさない**(コマ落ちでも同じ)
-        const want = Math.atan2(ty - selfY, tx - selfX) / D2R;
-        const off = wrapDeg(want - heading);
-        const cap = o.turnRate * dt;
-        heading = wrapDeg(heading + (Math.abs(off) <= cap ? off : Math.sign(off) * cap));
-        // 着いたら止まる
-        const dist = Math.hypot(tx - selfX, ty - selfY);
-        if (dist <= o.arrive) { stop(); return { x: 0, y: 0 }; }
-        // **行き過ぎたら、そこで止める。** 曲がりきれずに回り続けるのを断つ
-        // (上の passBy を見ること)
-        if (dist <= o.passBy && dist > lastDist) { stop(); return { x: 0, y: 0 }; }
-        lastDist = dist;
+      // 着いた。**押さえているあいだは止めずに浮いて待つ**
+      // (止めてしまうと、そのあと指をずらしても動き出せない)
+      if (dist <= o.arrive) {
+        if (state === 'drag') { lastDist = dist; return { x: 0, y: 0 }; }
+        stop();
+        return { x: 0, y: 0 };
       }
+      // **行き過ぎたら、そこで止める。** 曲がりきれずに回り続けるのを断つ
+      // (上の passBy を見ること)
+      if (dist <= o.passBy && dist > lastDist) {
+        if (state === 'drag') { lastDist = dist; return { x: 0, y: 0 }; }
+        stop();
+        return { x: 0, y: 0 };
+      }
+      lastDist = dist;
+
+      // 行き先へ向きを寄せる。**その場では飛ばさない**(コマ落ちでも同じ)
+      const want = Math.atan2(ty - selfY, tx - selfX) / D2R;
+      const off = wrapDeg(want - heading);
+      const cap = o.turnRate * dt;
+      heading = wrapDeg(heading + (Math.abs(off) <= cap ? off : Math.sign(off) * cap));
       const h = heading * D2R;
       return { x: Math.cos(h), y: Math.sin(h) };
     },
