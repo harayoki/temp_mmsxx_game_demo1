@@ -14466,12 +14466,14 @@ const HOWTO_PAGES = [
   {
     title: { ja: 'うごかす', en: 'MOVE' },
     body: {
-      ja: '画面をタップすると、そこへ自機が動きます。\n'
-        + '押さえたまま指をずらすと、行き先も一緒に動きます。\n'
-        + '自機をタップすると、その場で止まります。',
-      en: 'Tap the screen and your ship flies there.\n'
-        + 'Hold and drag to move the target with your finger.\n'
-        + 'Tap your own ship to stop.',
+      ja: '画面をタップすると、赤い十字が置かれ、\n'
+        + 'そこへ自機が動きます。\n'
+        + '押さえたまま指をずらすと、行き先も付いてきます。\n'
+        + '置いてある十字は、つかんで動かせます。',
+      en: 'Tap the screen to drop a red cross.\n'
+        + 'Your ship flies to it.\n'
+        + 'Hold and drag to bring the target with you.\n'
+        + 'You can also grab a cross you already placed.',
     },
   },
   {
@@ -14479,21 +14481,27 @@ const HOWTO_PAGES = [
     body: {
       ja: '弾は自動で出ます。何もしなくても撃ち続けます。\n'
         + '右下の丸をこすると、そのぶん速く撃てます。\n'
-        + '両手とも移動に使えます。',
+        + '撃つのに指を取られないので、\n'
+        + '両手とも移動に使えます。\n'
+        + 'この案内は ? でいつでも読み直せます。',
       en: 'You fire automatically. No button needed.\n'
         + 'Rub the circle at the lower right to fire faster.\n'
-        + 'Both hands are free to move.',
+        + 'Shooting never ties up a finger,\n'
+        + 'so both hands are free to move.\n'
+        + 'Press ? any time to read this again.',
     },
   },
   {
-    title: { ja: 'つまみ', en: 'SETTINGS' },
+    title: { ja: 'いきさきを ためる', en: 'ROUTE' },
     body: {
-      ja: 'ポーズ中に、行き先をいくつまで置けるかを選べます。\n'
-        + '画面の大きさや向きも、そこで変えられます。\n'
-        + 'この案内は、ポーズ中の ? でいつでも読み直せます。',
-      en: 'Pause to choose how many targets you can place.\n'
-        + 'Screen size and rotation live there too.\n'
-        + 'Press ? while paused to read this again.',
+      ja: '行き先は 1〜3 つまで置けます(ポーズ中の TARGETS)。\n'
+        + '置いた順に通っていきます。\n'
+        + '大きく引きずると、先に置いたぶんは消えます。\n'
+        + '画面の外をタップすると、全部消えます。',
+      en: 'Place 1 to 3 targets (TARGETS while paused).\n'
+        + 'Your ship visits them in order.\n'
+        + 'Drag far to drop the earlier ones.\n'
+        + 'Tap outside the screen to clear them all.',
     },
   },
 ];
@@ -14535,54 +14543,55 @@ function openHowTo() {
     alignItems: 'center', justifyContent: 'center',
     background: 'rgba(0,0,0,0.82)',
   });
-  const box = document.createElement('div');
-  Object.assign(box.style, {
-    font: 'clamp(14px, var(--mmsxx-gui-font-size, 16px), 24px) var(--mmsxx-gui-font, monospace)',
-    color: '#e8e8e8', textAlign: 'center', lineHeight: '1.6',
-    background: '#101010', border: '2px solid #cccccc',
-    padding: '16px 18px', maxWidth: '88vw', maxHeight: '92vh',
-    boxSizing: 'border-box', overflowY: 'auto',
-    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px',
+  // **板そのものがページ送りのボタン。**
+  // つまみ(TARGETS)と同じ作りにしてある — 左右の端に矢印が居て、
+  // **板の左半分を押せば前へ、右半分を押せば次へ**。
+  // 閉じるボタンは置かない。**最後のページから次へ送ったら閉じる**
+  // (読み終わったら先へ進む、が 1 つの動きで済む)
+  const inner = document.createElement('div');
+  Object.assign(inner.style, {
+    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px',
   });
-
   const title = document.createElement('div');
   Object.assign(title.style, { color: '#ffe000' });
   const body = document.createElement('div');
-  // **高さを決め打ちにしない。** ページごとに行数が違うと、
-  // 送るたびにボタンの位置が動いて押しにくい。いちばん長いぶんで場所を取る
-  Object.assign(body.style, { whiteSpace: 'pre-line', minHeight: '5.5em' });
-  box.append(title, body);
+  // **高さを決め打ちにする。** ページごとに行数が違うと、
+  // 送るたびに板の大きさが変わって、押す場所が動く
+  Object.assign(body.style, {
+    whiteSpace: 'pre-line', minHeight: '5.5em', lineHeight: '1.6',
+  });
+  const pageNo = document.createElement('div');
+  Object.assign(pageNo.style, { color: '#9a9aa8', fontSize: '0.8em' });
+  inner.append(title, body, pageNo);
 
   const paint = (i) => {
     const p = HOWTO_PAGES[i];
     title.textContent = howToText(p.title);
     body.textContent = howToText(p.body);
+    pageNo.textContent = `${i + 1} / ${HOWTO_PAGES.length}`;
   };
   paint(0);
 
-  // ページ送り。**つまみと同じ部品を大きくして使う**
-  // (同じ形のものは同じ触りかたで動く、と覚えてもらう)
   const pager = createStepper({
-    mount: box,
-    items: HOWTO_PAGES.map((p, i) => `${i + 1} / ${HOWTO_PAGES.length}`),
+    mount: el,
+    items: HOWTO_PAGES.map((p, i) => String(i + 1)),
     index: 0,
     wrap: false,                 // 端は端だと見せる(何ページあるか分かるように)
     fontSize: 24,                // **8 の倍数**。ドット絵の書体はそこでしか揃わない
+    content: inner,
+    // 板の見た目。矢印に貸すぶんだけ左右を広く取る
+    // **画面いっぱいに取る。** 読ませる板なので、小さくして余白を残す
+    // 意味が無い。押す場所(左半分 / 右半分)も広いほうが当てやすい
+    mainStyle: {
+      background: '#101010', borderColor: '#cccccc', color: '#e8e8e8',
+      padding: '16px 34px', width: '92vw', minHeight: '82vh',
+      boxSizing: 'border-box', overflowY: 'auto',
+    },
     onChange: (i) => paint(i),
+    onPastEnd: () => closeHowTo(),
   });
   pager.show(true);
-
-  const close = document.createElement('button');
-  close.type = 'button';
-  close.textContent = 'OK';
-  Object.assign(close.style, {
-    font: 'inherit', color: '#111122', background: '#ffe000',
-    border: '2px solid #ffe000', padding: '10px 28px', cursor: 'pointer',
-  });
-  close.addEventListener('click', () => closeHowTo());
-  box.appendChild(close);
-
-  el.appendChild(box);
+  pager.el.style.alignSelf = 'center';
   document.body.appendChild(el);
   howToEl = el;
 }

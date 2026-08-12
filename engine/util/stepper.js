@@ -48,6 +48,13 @@ const COLORS = {
  *   wrap?: boolean,        端で回り込むか(既定 true)
  *   colors?: object,       上の COLORS を部分的に差し替える
  *   fontSize?: number,     字の大きさ(px。既定 16。**8 の倍数にすること**)
+ *   content?: HTMLElement, **字の代わりに中へ入れるもの**。
+ *                          渡すと label / items の字は書かず、中身の面倒は
+ *                          呼ぶ側が onChange で見る(遊びかたの案内など、
+ *                          板そのものを送りたいときに使う)
+ *   mainStyle?: object,    本体の見た目を上書きする(板にするときの地色・枠・余白)
+ *   onPastEnd?: () => void, **端の先へ送ろうとしたとき**(wrap が false のとき
+ *                          だけ)。最後まで読んだら閉じる、のような締めに使う
  *   onChange?: (index:number, name:string, byUser:boolean) => void,
  * }} opts
  */
@@ -77,6 +84,13 @@ export function createStepper(opts) {
     // **2 行で出す。** 上に何のつまみかを書かないと、段の名前だけでは
     // 何がその段なのか分からない
     + 'white-space:pre;text-align:center;cursor:pointer';
+  // **字の代わりに中身を入れる**(板を送りたいとき)。
+  // 送る仕掛けは同じものを使いまわす — 半分押しを二度書かない
+  if (opts.content) {
+    main.style.whiteSpace = 'normal';
+    main.appendChild(opts.content);
+  }
+  if (opts.mainStyle) Object.assign(main.style, opts.mainStyle);
 
   const arrow = (side, glyph) => {
     const b = document.createElement('button');
@@ -105,7 +119,10 @@ export function createStepper(opts) {
   }
 
   function paint() {
-    main.textContent = (opts.label ? opts.label + '\n' : '') + items[index];
+    // 中身を渡されているときは、書くのは呼ぶ側の仕事(onChange で受ける)
+    if (!opts.content) {
+      main.textContent = (opts.label ? opts.label + '\n' : '') + items[index];
+    }
     if (!wrap) {
       // 端では沈める。**枠ごと薄くする**(押せないことを見せる)
       prev.style.opacity = index <= 0 ? '0.3' : '1';
@@ -114,6 +131,10 @@ export function createStepper(opts) {
   }
 
   function set(n, byUser) {
+    // **端の先へ送ろうとしたら、締めを呼ぶ**(回り込まないときだけ)。
+    // 「最後まで読んだら閉じる」のような終わりかたを、
+    // 呼ぶ側が別のボタンを足さずに書けるようにするため
+    if (!wrap && byUser && n >= items.length && opts.onPastEnd) { opts.onPastEnd(); return; }
     const at = clamp(n);
     index = at;
     paint();
