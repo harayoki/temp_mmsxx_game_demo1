@@ -275,6 +275,14 @@ const DEFAULTS = {
    * **holdFire より優先する**(同時に立てても、こちらが勝つ)
    */
   idleFire: false,
+  /**
+   * **十字の絵を、触れたところへ出すか**(既定)。
+   *
+   * false にすると据え置きの場所(_anchor)へ出る。出る場所が毎回変わると
+   * 目で探すことになる、という理由で一度は据え置きにしていたが、
+   * 実機では**親指を置いた先に出てくれるほうが早い**
+   */
+  stickAtTouch: true,
   shotCode: 'Space',
   pauseCode: 'Escape',
 };
@@ -1149,7 +1157,18 @@ export class TouchControls {
     }
   }
 
-  /** 十字の絵は据え置きの場所へ、つまみだけ指の場所へ */
+  /**
+   * 十字の絵を出す。**触れたところへ出す**(stickAtTouch)。
+   *
+   * 一度は据え置きにしていた。出る場所が毎回変わると、結局そこを目で
+   * 探すことになる、という理由。ただ実機で遊ぶと**親指を置いた先に
+   * 出てくれるほうが早い**ので、触れたところへ戻してある。
+   * 据え置きに戻したいときは `stickAtTouch: false`。
+   *
+   * **原点(ox/oy)へ出す。** 指の今いる場所(x/y)ではない。
+   * 原点は引きずり(dragMax)や折り返し(_flipOrigin)で動くので、
+   * 絵もそれに付いていく — つまみと絵の関係が指と一致する
+   */
   _showRing() {
     if (!this._stickEl || !this._dpad) return;
     const r = this._rectOf(this._dpad);
@@ -1158,7 +1177,8 @@ export class TouchControls {
     this._stickEl.style.display = 'block';
     this._knob.style.display = 'block';
     this._dpad.classList.add('holding');   // 目印を引っ込める
-    const at = this._anchor(r);
+    const at = this.opts.stickAtTouch === false ? this._anchor(r)
+      : { x: s.ox - r.left, y: s.oy - r.top };
     this._stickEl.style.left = at.x + 'px';
     this._stickEl.style.top = at.y + 'px';
     this._knob.style.left = (s.x - r.left) + 'px';

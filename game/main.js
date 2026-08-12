@@ -14111,7 +14111,9 @@ function bindPadSenseButton() {
     label: 'TARGETS',
     items: PAD_TARGETS.map(s => s.name),
     index: startPadTargets(),
-    wrap: false,          // 4 つしか無いので、端は端だと見せる
+    // **端まで行ったら回り込む。** 4 つしか無いので、端で止まると
+    // 逆の端へ行くのに 3 回押すことになる(実機で言われたぶん)
+    wrap: true,
     onChange: (i, name, byUser) => applyPadTargets(i, byUser),
   });
   // **絵のボタンの列から少し離す。** 合間に割り込むと、ポーズのたびに
