@@ -14528,14 +14528,15 @@ const HOWTO_PAGES = [
     body: {
       ja: 'ゲームパッドも使えます。\n'
         + 'タイトルでボタンを押して、\n'
-        + '出てくる案内にしたがってください。\n'
-        + '\n'
-        + 'この案内は ? でいつでも読めます。',
+        + '出てくる案内にしたがってください。',
       en: 'A game pad works too.\n'
         + 'Press a button on the title screen\n'
-        + 'and follow what it says.\n'
-        + '\n'
-        + 'Press ? any time to read this again.',
+        + 'and follow what it says.',
+    },
+    // **締めの 1 行**。本文とは色を分ける(遊びかたではなく、この板の話なので)
+    note: {
+      ja: 'この案内は ? でいつでも読めます。',
+      en: 'Press ? any time to read this again.',
     },
   },
 ];
@@ -14569,12 +14570,15 @@ const HOWTO_ART = [
     { sym: 'aimMark', scale: 4, deg: 0, l: 86, t: 18 },
     { sym: 'player', scale: 4, deg: -18, l: 12, t: 78 },
   ],
-  // うつ: 右の端を弾が並んで昇っていく
+  // うつ: 左の端を弾が並んで昇り、右下に こする丸を置く
   [
-    { sym: 'bulletP', scale: 4, deg: 0, l: 88, t: 16 },
-    { sym: 'bulletP', scale: 4, deg: 0, l: 88, t: 36 },
-    { sym: 'bulletP', scale: 4, deg: 0, l: 88, t: 56 },
-    { sym: 'player', scale: 4, deg: 0, l: 88, t: 82 },
+    { sym: 'bulletP', scale: 4, deg: 0, l: 12, t: 14 },
+    { sym: 'bulletP', scale: 4, deg: 0, l: 12, t: 34 },
+    { sym: 'bulletP', scale: 4, deg: 0, l: 12, t: 54 },
+    { sym: 'player', scale: 4, deg: 0, l: 12, t: 80 },
+    // **丸はスプライトではない**(CSS で描いてある)ので、絵の代わりに
+    // 同じ見た目の丸をここで作る(下の howToArtImg を見ること)
+    { fire: true, size: 88, l: 84, t: 74 },
   ],
   // めぐる: ターゲットを 3 つ散らして、道筋に見せる
   [
@@ -14583,13 +14587,30 @@ const HOWTO_ART = [
     { sym: 'aimMark', scale: 3, deg: 0, l: 78, t: 14 },
     { sym: 'aimMark', scale: 3, deg: 0, l: 90, t: 82 },
   ],
-  // そのほか: パッドで遊ぶ話なので、ここだけ道具の絵(ICONS)を借りる
-  [{ icon: 'keyboardWide', scale: 3, deg: -8, l: 50, t: 88 }],
+  // そのほか: **挿絵は無し。**
+  // パッドの話なのにキーボードの絵を借りていたが、別のものを指していて変だった。
+  // パッドの絵は engine/util/icons.js にまだ無いので、置くなら足すところから
+  [],
 ];
 
 /** 1 枚ぶんの絵を img にする。**作れなければ null**(絵が無くても案内は読める) */
 function howToArtImg(a) {
   try {
+    // **こする丸だけは絵ではない。** engine/util/touch.js が CSS で描いていて、
+    // スプライトとして取り出せないので、同じ見た目の丸をここで作る。
+    // **色と厚みはあちらに合わせること**(離れると、案内と実物が別ものに見える)
+    if (a.fire) {
+      const d = document.createElement('div');
+      const px = a.size || 80;
+      Object.assign(d.style, {
+        position: 'absolute', left: (a.l || 50) + '%', top: (a.t || 50) + '%',
+        transform: 'translate(-50%, -50%)',
+        width: px + 'px', height: px + 'px', boxSizing: 'border-box',
+        borderRadius: '50%', border: `${Math.round(px * 0.1)}px solid #224466`,
+        background: '#3d5f96',
+      });
+      return d;
+    }
     const img = document.createElement('img');
     if (a.icon) {
       img.src = iconDataURL(mmsxx, ICONS[a.icon],
@@ -14717,10 +14738,14 @@ function openHowTo() {
     display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px',
     minHeight: '5.5em', lineHeight: '1.6',
   });
+  // 締めの 1 行。**題と同じ黄色**にして、本文と読み分ける
+  const note = document.createElement('div');
+  Object.assign(note.style, { color: '#ffe000' });
+  cushion(note);
   const pageNo = document.createElement('div');
   Object.assign(pageNo.style, { color: '#9a9aa8', fontSize: '0.8em' });
   cushion(pageNo);
-  text.append(title, body, pageNo);
+  text.append(title, body, note, pageNo);
   inner.append(art, text);
 
   /** 本文を**行ごとの座布団**に置き直す。空の行は隙間だけ空ける */
@@ -14740,6 +14765,8 @@ function openHowTo() {
     title.style.display = p.title ? '' : 'none';
     title.textContent = p.title ? howToText(p.title) : '';
     setBody(howToText(p.body));
+    note.style.display = p.note ? '' : 'none';
+    note.textContent = p.note ? howToText(p.note) : '';
     art.replaceChildren(howToArtBox(i));
     pageNo.textContent = `${i + 1} / ${HOWTO_PAGES.length}`;
   };
