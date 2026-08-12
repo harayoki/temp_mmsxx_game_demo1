@@ -14724,12 +14724,10 @@ const HOWTO_PAGES_PAD = [
       ja: '画面をタップして動かす遊びかたもあります。\n'
         + '赤い十字（ターゲット）を置くと、\n'
         + 'そこへ自機が動きます。\n'
-        + '十字を持たないぶん、両手とも移動に使えます。\n'
         + 'ポーズ中の TARGETS で切り替えられます。',
       en: 'You can also fly by tapping the screen.\n'
         + 'Drop a red cross (TARGET) and\n'
         + 'your ship flies to it.\n'
-        + 'With no pad to hold, both hands can move you.\n'
         + 'Switch with TARGETS while paused.',
     },
   },
