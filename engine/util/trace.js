@@ -46,12 +46,14 @@ const DEFAULTS = {
    */
   passBy: 12,
   /**
-   * **道の長さの上限**(ドット。0 で頭打ちなし)。
-   * ここを越えたぶんは拾わない ── **指はまだ動くが、道は伸びない**。
+   * **いま画面に出ている道の長さの上限**(ドット。0 で頭打ちなし)。
    *
-   * 自機の速さで決めるつもりの値(呼ぶ側が入れ直す)。
-   * 遅い自機で長い道を引けると、引き終わったころには
-   * 画面の様子がすっかり変わっている
+   * 見るのは**まだ通っていないぶん**(自機の先に残っている緑の線)。
+   * 引いた道のりの合計ではない ── 自機が食べたぶんは空くので、
+   * **一定の長さを保ったまま引き続ければ、いくらでも引いていける**
+   * (前を走る自機に糸を継ぎ足していく感じ)。
+   *
+   * 自機の速さで決めるつもりの値(呼ぶ側が入れ直す)
    */
   maxLength: 0,
   /**
@@ -81,14 +83,11 @@ export function createTrace(opts = {}) {
   /** 前のコマの距離。**離れはじめたか**を見るためだけに持つ */
   let lastDist = Infinity;
   /**
-   * **指が実際に動いた長さ**(ドット)。上限の見張りに使う。
-   *
-   * 拾った点どうしの距離では数えない ── `minStep` に満たない動きが
-   * まるごと抜けるので、**こまかく引くほど長く引けて**しまう
+   * **道の始まりからそこまでの長さ**(ドット)。points と同じ並び。
+   * `cum[i]` = 0 番目から i 番目までの道のり。
+   * **いま残っている長さ**は `cum[最後] - cum[index]` で出せる
    */
-  let length = 0;
-  /** 前に指を見た場所。上の長さを実寸で数えるために持つ */
-  let rawX = 0, rawY = 0;
+  const cum = [];
   /** 最後に指が触れた時刻(ms)。**時間で片付ける**のに使う */
   let touchedAt = 0;
 
@@ -96,8 +95,18 @@ export function createTrace(opts = {}) {
     state = 'idle';
     index = 0;
     lastDist = Infinity;
-    length = 0;
     points.length = 0;
+    cum.length = 0;
+  }
+
+  /**
+   * **いま画面に出ている長さ**(ドット)。まだ通っていないぶん。
+   * 自機が進めば短くなるので、そのぶんまた引ける
+   */
+  function remaining() {
+    if (points.length < 2) return 0;
+    const at = Math.min(index, points.length - 1);
+    return cum[points.length - 1] - cum[at];
   }
 
   /** いまの時刻(ms)。試験から差し替えられるように 1 か所にまとめておく */
@@ -115,8 +124,8 @@ export function createTrace(opts = {}) {
     get end() { return points.length ? points[points.length - 1] : null; },
     /** 終わりまで着いたか */
     get done() { return state !== 'draw' && index >= points.length; },
-    /** 道なりの長さ(ドット) */
-    get length() { return length; },
+    /** **いま画面に出ている長さ**(ドット)。通ったぶんは入らない */
+    get length() { return remaining(); },
     /** 上限の長さ。**遊びの最中に変えてよい**(自機の速さで決めるため) */
     get maxLength() { return o.maxLength; },
     set maxLength(v) { o.maxLength = Math.max(0, v || 0); },
@@ -134,8 +143,8 @@ export function createTrace(opts = {}) {
       points.push({ x, y });
       index = 0;
       lastDist = Infinity;
-      length = 0;
-      rawX = x; rawY = y;
+      cum.length = 0;
+      cum.push(0);
       touchedAt = now();
       state = 'draw';
     },
@@ -143,20 +152,21 @@ export function createTrace(opts = {}) {
     /**
      * 指が動いた。**minStep ドット進むごとに 1 点**拾う。
      *
-     * 長さは**指が実際に動いたぶん**で数える(拾った点の数ではない)。
-     * 点の間隔で数えていたころは、こまかく行き来しながら引くと
-     * 上限に当たらず、いくらでも長い道が引けた
+     * 伸ばせるかどうかは**いま画面に出ている長さ**で決める。
+     * 引いた道のりの合計で見ていたころは、自機が食べて短くなっても
+     * もう継ぎ足せなかった。**自機の先に一定の長さを保つ**のが本当
      */
     move(x, y) {
       if (state !== 'draw') return;
-      length += Math.hypot(x - rawX, y - rawY);
-      rawX = x; rawY = y;
       touchedAt = now();
-      // **上限まで来たら、それ以上は伸ばさない。** 指は動いてよい
-      if (o.maxLength > 0 && length > o.maxLength) return;
+      // **出ているぶんが上限まで来たら、それ以上は伸ばさない。**
+      // 指は動いてよい(自機が進んで空けば、また伸びはじめる)
+      if (o.maxLength > 0 && remaining() >= o.maxLength) return;
       const last = points[points.length - 1];
-      if (Math.hypot(x - last.x, y - last.y) < o.minStep) return;
+      const d = Math.hypot(x - last.x, y - last.y);
+      if (d < o.minStep) return;
       points.push({ x, y });
+      cum.push(cum[cum.length - 1] + d);
     },
 
     /** 指が離れた。**道はそのまま残る**(たどりはじめる) */
