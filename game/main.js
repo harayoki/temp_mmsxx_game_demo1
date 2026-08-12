@@ -14926,14 +14926,19 @@ const HOWTO_PAGES_PAD = [
 ];
 
 /**
- * いま出すべき案内。**そのとき効いている遊びかたのぶん**を返す。
- * 既定が入れ替わっても、読むものは手元の動きと合っている
+ * いま出す案内。**いつも十字(V-PAD)のぶん**を出す。
+ *
+ * 遊びかたごとに出し分ける作りにしてあったが、**初めての人が読むのは
+ * 既定の遊びかたの話**でよい(ほかは 4 枚目の「他の操作方法も
+ * 追加されてる事があるよ！」と、ポーズ中の CONTROL が受け持つ)。
+ *
+ * **行き先を置くほう(HOWTO_PAGES_AIM)は残してある。**
+ * そちらを既定に戻すことがあるので、そのときは下の 2 つを
+ * `(padlessOn || traceOn) ? …AIM : …PAD` に戻せばよい
  */
-// TODO: なぞる遊びかた(DRAW)のぶんはまだ無い。画面を触って動かす点は
-// 同じなので、いまは行き先を置くほうの案内を出しておく
-function howToPages() { return (padlessOn || traceOn) ? HOWTO_PAGES_AIM : HOWTO_PAGES_PAD; }
-/** 挿絵も遊びかたごと(上と同じ並び) */
-function howToArt() { return (padlessOn || traceOn) ? HOWTO_ART_AIM : HOWTO_ART_PAD; }
+function howToPages() { return HOWTO_PAGES_PAD; }
+/** 挿絵も同じ(上と同じ並び) */
+function howToArt() { return HOWTO_ART_PAD; }
 
 /** 開いている板。**開いているあいだはゲームを止める** */
 let howToEl = null;
