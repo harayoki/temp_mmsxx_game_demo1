@@ -1058,6 +1058,46 @@ export class VDP {
     return out;
   }
 
+  /**
+   * **上の逆。** 描画領域のドットを、窓の点(clientX / clientY)へ戻す。
+   *
+   *   const at = mmsxx.vdp.screenToPoint(player.x + 8, player.y + 8);
+   *   線を引く(at.x, at.y);
+   *
+   * ゲームの中のものへ、**DOM の側から線や札を寄せたい**ときに要る
+   * (スプライトでは引けないもの ── 長い線など ── を上に重ねる場面)。
+   * 上と同じ変換を、順番も符号も逆にたどっているだけ。
+   * **直すときは 2 つまとめて**見ること
+   *
+   * @param {number} x 描画領域の左上を 0 とするドット
+   * @param {number} y 同上
+   * @returns {{x:number, y:number}} 窓の左上から数えた点
+   */
+  screenToPoint(x, y) {
+    const out = { x: 0, y: 0 };
+    const canvas = this.canvas;
+    if (!canvas || typeof canvas.getBoundingClientRect !== 'function') return out;
+    const r = canvas.getBoundingClientRect();
+    if (!r.width || !r.height) return out;
+    const angle = ((this.viewAngle % 360) + 360) % 360;
+    // ボーダーとずらしを足して、canvas の画素へ
+    const px = x + (this.borderX + this.adjustX);
+    const py = y + (this.borderY + this.adjustY);
+    const ow = this.outWidth, oh = this.outHeight;
+    const swap = (angle === 90 || angle === 270);
+    const cssW = swap ? r.height : r.width;
+    const cssH = swap ? r.width : r.height;
+    // canvas の画素 → 回す前の CSS の大きさ(真ん中を 0 として)
+    const ux = (px - ow / 2) * (cssW / ow);
+    const uy = (py - oh / 2) * (cssH / oh);
+    // 角度ぶん回す
+    const rad = angle * Math.PI / 180;
+    const cos = Math.cos(rad), sin = Math.sin(rad);
+    out.x = (ux * cos - uy * sin) + (r.left + r.width / 2);
+    out.y = (ux * sin + uy * cos) + (r.top + r.height / 2);
+    return out;
+  }
+
   // ---- 直前のコマを溜める(あとで「何秒前」を取り出す) ----
   //
   // **色番号のまま**輪っかに溜める。1 ドット 1 バイトなので、

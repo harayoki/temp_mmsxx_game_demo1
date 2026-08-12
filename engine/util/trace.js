@@ -45,6 +45,22 @@ const DEFAULTS = {
    * 道の点は近い間隔で並んでいるので、`padless` の同じつまみより小さい
    */
   passBy: 12,
+  /**
+   * **道の長さの上限**(ドット。0 で頭打ちなし)。
+   * ここを越えたぶんは拾わない ── **指はまだ動くが、道は伸びない**。
+   *
+   * 自機の速さで決めるつもりの値(呼ぶ側が入れ直す)。
+   * 遅い自機で長い道を引けると、引き終わったころには
+   * 画面の様子がすっかり変わっている
+   */
+  maxLength: 0,
+  /**
+   * **指を離してから道が消えるまで**(ms。0 で消えない)。
+   *
+   * 走り終わった道が残り続けると、**やられて出直したあとにも
+   * 前の道が画面に残る**。時間で勝手に片付ける
+   */
+  expireMs: 0,
 };
 
 const D2R = Math.PI / 180;
@@ -64,13 +80,21 @@ export function createTrace(opts = {}) {
   let index = 0;
   /** 前のコマの距離。**離れはじめたか**を見るためだけに持つ */
   let lastDist = Infinity;
+  /** 道なりの長さ(ドット)。**上限の見張りに使う** */
+  let length = 0;
+  /** 最後に指が触れた時刻(ms)。**時間で片付ける**のに使う */
+  let touchedAt = 0;
 
   function stop() {
     state = 'idle';
     index = 0;
     lastDist = Infinity;
+    length = 0;
     points.length = 0;
   }
+
+  /** いまの時刻(ms)。試験から差し替えられるように 1 か所にまとめておく */
+  const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
   return {
     get state() { return state; },
@@ -84,6 +108,14 @@ export function createTrace(opts = {}) {
     get end() { return points.length ? points[points.length - 1] : null; },
     /** 終わりまで着いたか */
     get done() { return state !== 'draw' && index >= points.length; },
+    /** 道なりの長さ(ドット) */
+    get length() { return length; },
+    /** 上限の長さ。**遊びの最中に変えてよい**(自機の速さで決めるため) */
+    get maxLength() { return o.maxLength; },
+    set maxLength(v) { o.maxLength = Math.max(0, v || 0); },
+    /** 指を離してから消えるまで(ms) */
+    get expireMs() { return o.expireMs; },
+    set expireMs(v) { o.expireMs = Math.max(0, v || 0); },
 
     /**
      * 指が触れた。**前の道は捨てて引き直す。**
@@ -95,6 +127,8 @@ export function createTrace(opts = {}) {
       points.push({ x, y });
       index = 0;
       lastDist = Infinity;
+      length = 0;
+      touchedAt = now();
       state = 'draw';
     },
 
@@ -102,14 +136,20 @@ export function createTrace(opts = {}) {
     move(x, y) {
       if (state !== 'draw') return;
       const last = points[points.length - 1];
-      if (Math.hypot(x - last.x, y - last.y) < o.minStep) return;
+      const d = Math.hypot(x - last.x, y - last.y);
+      if (d < o.minStep) return;
+      // **上限まで来たら、それ以上は伸ばさない。** 指は動いてよい
+      if (o.maxLength > 0 && length + d > o.maxLength) return;
       points.push({ x, y });
+      length += d;
+      touchedAt = now();
     },
 
     /** 指が離れた。**道はそのまま残る**(たどりはじめる) */
     up() {
       if (state !== 'draw') return;
       state = 'auto';
+      touchedAt = now();
     },
 
     /** 指が消えた(着信など)。離したのと同じ扱いでよい */
@@ -127,6 +167,11 @@ export function createTrace(opts = {}) {
      * @param {number} selfY 同上
      */
     update(selfX, selfY) {
+      // **時間で片付ける。** 引いているあいだは数えない
+      if (o.expireMs > 0 && state === 'auto' && now() - touchedAt > o.expireMs) {
+        stop();
+        return { x: 0, y: 0 };
+      }
       if (state === 'idle' || index >= points.length) return { x: 0, y: 0 };
       let t = points[index];
       let dist = Math.hypot(t.x - selfX, t.y - selfY);

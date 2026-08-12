@@ -1221,21 +1221,41 @@ const aimSps = [];
 // 指が通ったところをなぞるだけなので、回転も倍率も考えずに済む
 // (画面が 90 度 回っていても、指の跡は指の跡のまま)。
 
+/**
+ * **引ける道の長さ**(速さ 1 あたりのドット)。
+ * 速さの表(SPEED_TABLE)は 1〜2 ドット/コマほどなので、
+ * 200 なら 200〜400 ドット ── 画面の対角(320 ドット)の前後になる
+ */
+const TRACE_LEN_PER_SPEED = 200;
+/** 引き終わってから道が消えるまで(ms)。やられたあとに残さないため */
+const TRACE_EXPIRE_MS = 4000;
 /** 道の絵に使う、画面の点の列。**中身は engine/util/trace.js の点と同じ数** */
 const traceScreen = [];
 /** 道を引く SVG(要るときに作る) */
 let tracePathEl = null;
+
+/**
+ * ゲームのドットを、道の絵に使う窓の点へ。
+ * **丸めたあとのドットを渡すこと**(自機が行ける範囲に収まっている)
+ */
+function traceDot(x, y) {
+  const at = mmsxx.vdp.screenToPoint(x, y);
+  return [at.x, at.y];
+}
 
 /** 道の絵を引き直す。**点が増えたときと、道を捨てたときに呼ぶ** */
 function paintTracePath() {
   if (!tracePathEl) {
     if (!traceScreen.length) return;   // 出すものが無いうちは作らない
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    // **名前を付けておく。** 絵のボタンにも SVG があるので、
+    // 探すときに取り違えないように
+    svg.setAttribute('class', 'mmsxx-trace');
     // **器(z-index: 10)より下、canvas より上。**
     // 指は素通しにする(下の canvas が受ける)
     svg.setAttribute('style', 'position:fixed;inset:0;width:100%;height:100%;'
       + 'pointer-events:none;z-index:9');
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     path.setAttribute('fill', 'none');
     // **緑。** 赤い十字(始点と終点)とはっきり分ける。
     // 道は「これから通るところ」で、印は「端」なので、別の色にする
@@ -1243,7 +1263,9 @@ function paintTracePath() {
     path.setAttribute('stroke-width', '3');
     path.setAttribute('stroke-linecap', 'round');
     path.setAttribute('stroke-linejoin', 'round');
-    path.setAttribute('opacity', '0.75');
+    // **半分だけ透かす。** 道はゲームの絵ではなく指の跡なので、
+    // 下の弾と自機が透けて見えるほうがよい(点滅も試したが目に障った)
+    path.setAttribute('opacity', '0.5');
     svg.appendChild(path);
     document.body.appendChild(svg);
     tracePathEl = path;
@@ -1253,7 +1275,35 @@ function paintTracePath() {
   // 画面の点の列は部品の点と同じ並びなので、番号でそのまま切れる
   const from = (traceOn && traceMove) ? Math.min(traceMove.index, traceScreen.length) : 0;
   const left = traceScreen.slice(from);
-  tracePathEl.setAttribute('points', left.map(p => p[0] + ',' + p[1]).join(' '));
+  // **線は自機から始める。** 引きはじめた場所に印は置かず、
+  // **自機からそこまで線を引く**(どこから走り出すのかが線で分かる)。
+  // 自機はドットで持っているので、窓の点へ戻してもらう
+  if (left.length && player && player.visible) {
+    const at = mmsxx.vdp.screenToPoint(player.x + 8, player.y + 8);
+    left.unshift([at.x, at.y]);
+  }
+  tracePathEl.setAttribute('d', smoothPath(left));
+}
+
+/**
+ * 点の列を**なめらかな線**にする(SVG の d)。
+ *
+ * 折れ線のままだと、指の拾い(minStep)ごとに角が立つ。
+ * **隣り合う点の中点を通る二次曲線**でつなぐと、点そのものは
+ * 制御点になって角が取れる(古くからある平滑化のやりかた)
+ */
+function smoothPath(pts) {
+  if (!pts.length) return '';
+  if (pts.length === 1) return 'M' + pts[0][0] + ',' + pts[0][1];
+  let d = 'M' + pts[0][0] + ',' + pts[0][1];
+  for (let i = 1; i < pts.length - 1; i++) {
+    const mx = (pts[i][0] + pts[i + 1][0]) / 2;
+    const my = (pts[i][1] + pts[i + 1][1]) / 2;
+    d += 'Q' + pts[i][0] + ',' + pts[i][1] + ' ' + mx + ',' + my;
+  }
+  const last = pts[pts.length - 1];
+  d += 'L' + last[0] + ',' + last[1];
+  return d;
 }
 
 /** 前に描いたときの番号。**進んだときだけ引き直す**(毎コマ書き替えない) */
@@ -9039,6 +9089,10 @@ function updatePlay() {
       const v = padlessMove.update(player.x + 8, player.y + 8);
       mmsxx.input.setStick('touch', v.x, v.y);
     } else if (traceOn && traceMove) {
+      // **引ける長さは自機の速さで決まる。** 速い自機ほど長く引ける
+      // (どちらも「引き終わるまでにどれだけ進めるか」の話なので、
+      //  速さに比例させておけば、体感の長さがそろう)
+      traceMove.maxLength = spd * TRACE_LEN_PER_SPEED;
       // なぞった道も同じ口へ流す(まず始点へ行き、そのあと道をなぞる)
       const v = traceMove.update(player.x + 8, player.y + 8);
       mmsxx.input.setStick('touch', v.x, v.y);
@@ -9081,16 +9135,14 @@ function updatePlay() {
       traceMove.stop();
       clearTracePath();
     }
-    // **進んだぶんだけ道を短くする**(上の paintTracePath)。
-    // 番号が変わったときだけ書き替える
-    if (traceOn && traceMove && traceMove.index !== tracePaintedAt) {
-      tracePaintedAt = traceMove.index;
-      paintTracePath();
-    }
-    // **なぞる番のときは、道の始まりと終わりだけに印を置く。**
-    // 途中は線が見せているので、印まで並べると線が埋もれる
+    // **毎コマ引き直す。** 線の始まりは自機なので、自機が動けば線も動く
+    if (traceOn && traceMove) paintTracePath();
+    // **なぞる番の印は終わりだけ。**
+    // 始まりには置かない — 線が自機からそこまで引いてあるので、
+    // どこから走り出すのかは線が見せている。
+    // 途中にも置かない(印を並べると線が埋もれる)
     const pts = traceOn
-      ? (traceMove && traceMove.start ? [traceMove.start, traceMove.end] : [])
+      ? (traceMove && traceMove.end ? [traceMove.end] : [])
       : padlessMove.points;
     // **2 コマごとに赤とピンクを入れ替える。** 止まった赤い十字は
     // 背景の中に埋もれるので、色が動いていること自体を目印にする
@@ -13916,7 +13968,7 @@ if (PAD_ON) {
 // そちらへ横から口を出さない(ポーズ中も同じ)
 if (PAD_ON) {
   setupPadless();
-  traceMove = createTrace();
+  traceMove = createTrace({ expireMs: TRACE_EXPIRE_MS });
   bindPadlessTaps();
   // 実機を繋いで中を覗くとき用(touchGui と同じ考えかた)。
   // つまみもここから当てられる: padless.state / padless.marker / padless.heading
@@ -13954,7 +14006,7 @@ function bindPadlessTaps() {
       // **前の道は捨てて引き直す**(部品の down がそうする)。
       // 絵のほうも同じところで捨てる
       traceScreen.length = 0;
-      traceScreen.push([e.clientX, e.clientY]);
+      traceScreen.push(traceDot(c.x, c.y));
       traceMove.down(c.x, c.y);
       paintTracePath();
     } else {
@@ -13971,12 +14023,13 @@ function bindPadlessTaps() {
     if (traceOn) {
       const before = traceMove.points.length;
       traceMove.move(c.x, c.y);
-      // **絵のほうは画面の点をそのまま持つ。**
-      // ドットから画面へ戻す道は無いし、指が通ったところをそのまま
-      // なぞればよいので、回転も倍率も考えずに済む。
+      // **絵に使うのは、丸めたあとのドットを窓へ戻したもの。**
+      // 指の生の点をそのまま引くと、**ゲーム画面の外にも線が伸びる** —
+      // 自機はそこへは行けないので、行けないところに道が見えることになる。
+      // 丸めたぶんを戻せば、線と自機の通り道が必ず同じものになる。
       // 拾う間隔は部品に合わせる(点が増えたときだけ足す)
       if (traceMove.points.length > before) {
-        traceScreen.push([e.clientX, e.clientY]);
+        traceScreen.push(traceDot(c.x, c.y));
         paintTracePath();
       }
     } else {
