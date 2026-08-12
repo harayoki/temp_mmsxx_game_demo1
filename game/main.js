@@ -14314,9 +14314,11 @@ const A2HS_TEXT = {
   later: { ja: 'このまま遊ぶ', en: 'PLAY HERE' },
   // **まだ作りかけだと先に断っておく。** 遊びはじめてから使いにくさに
   // ぶつかるより、置く前に分かっているほうがよい
+  // **「使いづらい」とまでは言わなくなった。** 一通り触れる形になったので、
+  // 断るのは まだ動いている最中だということだけでよい
   wip: {
-    ja: '※スマホ版のインターフェースはまだ開発中のため使いづらいです。',
-    en: '* The phone controls are still under construction and rough to use.',
+    ja: '※スマホ版のインターフェースはまだ調整中です。',
+    en: '* The phone controls are still being tuned.',
   },
 };
 
@@ -14979,7 +14981,12 @@ function showDeviceLinks() {
 function showDeviceEntry() {
   if (!DEV || DEVICE || coarsePointer()) return;
   const bar = document.createElement('p');
-  bar.style.cssText = 'display:flex;gap:8px;align-items:center;'
+  // **器より前に出す。** 器(.mmsxx-gui)は fixed で窓ぜんぶを覆っていて、
+  // メニューのあいだは指を受ける(pointer-events: auto)ので、
+  // ふつうに置くと**この帯が器の下に潜って押せなくなる**(?pad=1 のとき)。
+  // 器は z-index: 10 なので、それより上へ
+  bar.style.cssText = 'position:relative;z-index:20;'
+    + 'display:flex;gap:8px;align-items:center;'
     + 'justify-content:center;flex-wrap:wrap';
   bar.append(Object.assign(document.createElement('span'), {
     textContent: 'DEV: OPEN AS PHONE',
