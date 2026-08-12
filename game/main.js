@@ -14701,10 +14701,14 @@ function howToArtBox(i) {
  * 分からなくなる。器の大きさを借りて、そこへ収める
  */
 function howToBox() {
-  const area = document.querySelector('.mmsxx-gui');
-  const r = area ? area.getBoundingClientRect() : null;
-  const w = r && r.width ? Math.round(r.width * 0.92) + 'px' : '92vw';
-  const h = r && r.height ? Math.round(r.height * 0.9) + 'px' : '90vh';
+  // **器の中に居るときは割合で取る。** 器は回っていることがあるので、
+  // px で測ると 90 度のときに縦横が入れ替わったまま渡してしまう。
+  // 割合なら、回る前の器の大きさに対する比になる
+  // **幅と高さは根(ステッパーの箱)へ入れる。**
+  // 本体へ % で入れても、その親が中身なりに縮むので効かない
+  // (親の幅が中身で決まり、その中身が親の 92% を欲しがって堂々巡りになる)
+  const w = '100%';
+  const h = '100%';
   return {
     background: '#101010', borderColor: '#cccccc', color: '#e8e8e8',
     // 絵を敷くので、中身は板いっぱいに広げる(余白は座布団の側で取る)
@@ -14736,12 +14740,20 @@ function openHowTo() {
   howToPaused = !paused;
   if (howToPaused) setPaused(true);
 
+  // **器の中へ入れる。** 器は見た目の角度で回っているので、
+  // window へ直に置くと、90 度回して見せている機種で**そこだけ横倒し**で出る
+  // (実機でそうなった)。中へ入れれば回転も画角の枠も付いてくる。
+  // 器が無いとき(PC)は今までどおり窓へ
+  const host = (touchGui && touchGui.el) || document.body;
+  const inGui = host !== document.body;
   const el = document.createElement('div');
   el.id = 'howto';
   Object.assign(el.style, {
-    position: 'fixed', inset: '0', zIndex: '9997', display: 'flex',
-    alignItems: 'center', justifyContent: 'center',
+    position: inGui ? 'absolute' : 'fixed', inset: '0', zIndex: '9997',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
     background: 'rgba(0,0,0,0.82)',
+    // 器は遊びの最中 素通しにしてあるので、こちらで受け直す
+    pointerEvents: 'auto',
   });
   // **板そのものがページ送りのボタン。**
   // つまみ(TARGETS)と同じ作りにしてある — 左右の端に矢印が居て、
@@ -14835,7 +14847,13 @@ function openHowTo() {
     onChange: (i) => paint(i),
   });
   pager.show(true);
-  pager.el.style.alignSelf = 'center';
+  // **大きさはここで決める**(本体ではなく根。上の howToBox を見ること)。
+  // 器の中に居るなら器に対する割合、外(PC)なら窓に対する割合
+  Object.assign(pager.el.style, {
+    alignSelf: 'center',
+    width: inGui ? '92%' : '92vw',
+    height: inGui ? '88%' : '88vh',
+  });
   howToPager = pager;   // キーとパッドから送るため(howToNext)
 
   // **右上に小さい X。閉じるのはここだけ。**
@@ -14858,7 +14876,7 @@ function openHowTo() {
   });
   close.addEventListener('click', () => { close.blur(); closeHowTo(); });
   pager.el.appendChild(close);
-  document.body.appendChild(el);
+  host.appendChild(el);
   howToEl = el;
 }
 
