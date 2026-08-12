@@ -14484,14 +14484,10 @@ const HOWTO_PAGES = [
     body: {
       ja: '弾は自動で出ます。\n'
         + '丸いボタンをこすると はやく撃てます。\n'
-        + 'ボスはこれで攻略しよう。\n'
-        + '撃つのに指を取られないので、\n'
-        + '両手とも移動に使えます。',
+        + 'ボスはこれで攻略しよう。',
       en: 'You fire automatically.\n'
         + 'Rub the round button to fire faster.\n'
-        + 'That is how you take down a boss.\n'
-        + 'Shooting never ties up a finger,\n'
-        + 'so both hands are free to move.',
+        + 'That is how you take down a boss.',
     },
   },
   {
