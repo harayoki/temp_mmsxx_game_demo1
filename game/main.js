@@ -1237,7 +1237,9 @@ function paintTracePath() {
       + 'pointer-events:none;z-index:9');
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
     path.setAttribute('fill', 'none');
-    path.setAttribute('stroke', '#ff5a7a');
+    // **緑。** 赤い十字(始点と終点)とはっきり分ける。
+    // 道は「これから通るところ」で、印は「端」なので、別の色にする
+    path.setAttribute('stroke', '#3ee06e');
     path.setAttribute('stroke-width', '3');
     path.setAttribute('stroke-linecap', 'round');
     path.setAttribute('stroke-linejoin', 'round');
@@ -1246,8 +1248,16 @@ function paintTracePath() {
     document.body.appendChild(svg);
     tracePathEl = path;
   }
-  tracePathEl.setAttribute('points', traceScreen.map(p => p[0] + ',' + p[1]).join(' '));
+  // **通ったところは消す。** 残しておくと、どこまで走ったのか
+  // 見て取れない(引いた線が全部そこに在るだけになる)。
+  // 画面の点の列は部品の点と同じ並びなので、番号でそのまま切れる
+  const from = (traceOn && traceMove) ? Math.min(traceMove.index, traceScreen.length) : 0;
+  const left = traceScreen.slice(from);
+  tracePathEl.setAttribute('points', left.map(p => p[0] + ',' + p[1]).join(' '));
 }
+
+/** 前に描いたときの番号。**進んだときだけ引き直す**(毎コマ書き替えない) */
+let tracePaintedAt = -1;
 
 /** 道を捨てる。**制御と絵の両方**(片方だけだと線が残る) */
 function clearTracePath() {
@@ -9070,6 +9080,12 @@ function updatePlay() {
     if (!playing && traceMove && traceMove.state !== 'idle') {
       traceMove.stop();
       clearTracePath();
+    }
+    // **進んだぶんだけ道を短くする**(上の paintTracePath)。
+    // 番号が変わったときだけ書き替える
+    if (traceOn && traceMove && traceMove.index !== tracePaintedAt) {
+      tracePaintedAt = traceMove.index;
+      paintTracePath();
     }
     // **なぞる番のときは、道の始まりと終わりだけに印を置く。**
     // 途中は線が見せているので、印まで並べると線が埋もれる
