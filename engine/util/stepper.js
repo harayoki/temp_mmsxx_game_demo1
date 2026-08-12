@@ -124,7 +124,12 @@ export function createStepper(opts) {
     b.type = 'button';
     b.className = 'mmsxx-stepper-half-' + side;
     b.setAttribute('aria-label', side === 'prev' ? 'PREVIOUS' : 'NEXT');
-    b.style.cssText = 'position:absolute;top:0;bottom:0;width:50%;'
+    // **height:auto を必ず書く。** 借りる側に `#tools button { height: 32px }`
+    // のような指定があると、top/bottom を書いても**高さのほうが勝つ**
+    // (上下と高さが同時に決まっているときは bottom が捨てられる)。
+    // 実際それで上半分しか受けておらず、**2 行目の数字のあたりを押しても
+    // 何も起きなかった**。本体と矢印には書いてあって、ここだけ抜けていた
+    b.style.cssText = 'position:absolute;top:0;bottom:0;height:auto;width:50%;'
       + `${side === 'prev' ? 'left' : 'right'}:0;`
       + 'padding:0;border:0;background:transparent;cursor:pointer';
     return b;
