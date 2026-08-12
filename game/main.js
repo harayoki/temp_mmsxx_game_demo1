@@ -1562,7 +1562,7 @@ let rubHintIn = 0;            // 出すまでの残りコマ(0 は出さない)
  * 少し置いてから出せば、どちらも読める
  * @param {string} who どの場面か('moai' / 'octopus' / 'crab' / 'nautilus')
  */
-function cueRubHint(who, delay = 150) {
+function cueRubHint(who, delay = 110) {
   if (!PAD_ON || rubHintDone.has(who)) return;
   rubHintDone.add(who);
   rubHintIn = delay;
@@ -10453,8 +10453,12 @@ function updatePlay() {
   updateFlash();
   updateNotice();
   // 予約しておいたこすり打ちの案内(上の cueRubHint)。
-  // **前の知らせが読み終わるころに出す**ので、ここで数える
-  if (rubHintIn > 0 && --rubHintIn === 0) showNotice('RUB THE CIRCLE TO FIRE FAST!', 180);
+  // **前の知らせが読み終わるころに出す**ので、ここで数える。
+  // **点滅させて長めに出す** — 出るのはボスと撃ち合っている最中なので、
+  // 画面の下に 3 秒 静かに出しただけでは見落とされた(実機でそうなった)
+  if (rubHintIn > 0 && --rubHintIn === 0) {
+    showNotice('RUB THE CIRCLE TO FIRE FAST!', 300, 176, 11);
+  }
   updateGearBlink();
   // 宝珠の七色は HUD に描いているので、少しずつ描き直す
   if ((mmsxx.frame & 1) === 0) drawOrbMarks();
@@ -10962,6 +10966,8 @@ mmsxx.expose('mmsxxDebug', () => ({
   gear: { shotLevel, speedLevel, maxVolleys, damageLevel, barrierHP, ships },
   playerX: Math.round(player.x), bullets: bullets.length,
   talkHold, continueStages: { ...continueStages },
+  // こすり打ちの案内(出すまでの残りコマ / もう出した場面)
+  rub: { in: rubHintIn, done: [...rubHintDone] },
   // パッドの受け入れ具合(使うと答えたか / 断られた回数 / 札が出ているか)
   pad: { enabled: padEnabled, declined: padDeclined, notice: padNotice.open,
     pads: gamepad.usable().length, unsupported: gamepad.unsupported().length },
@@ -15158,8 +15164,10 @@ function updateTouchGui() {
 function showKeyboardButton() {
   const el = document.getElementById('keyboard-btn');
   if (!el) return;
-  // **打てるのは裏技の打ち込みだけ**(ポーズ中)。名前入力は上下左右で選べるので要らない
-  const usable = paused;
+  // 打てるのは**ポーズ中の裏技**と**名前入力**。
+  // 名前入力は上下左右でも選べるが、**1 文字ずつ送るのは指では重い**
+  // (5 文字入れるのに何十回も払うことになる)。打てるなら打つほうが早い
+  const usable = paused || state === 'entry';
   if (kbdUsable === usable) return;
   kbdUsable = usable;
   el.classList.toggle('off', !usable);

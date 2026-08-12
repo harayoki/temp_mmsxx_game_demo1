@@ -108,7 +108,30 @@ export function createStepper(opts) {
   };
   const prev = arrow('prev', '◀');
   const next = arrow('next', '▶');
-  root.append(main, prev, next);
+  /**
+   * **左半分 / 右半分の当たり。**
+   *
+   * 押した場所を座標で測って半分に分けていたが、**板が回っていると崩れる**
+   * (画面の座標と、回った板の中の左右が食い違う。90 度で見せる機種では
+   * どこを押しても片側になった)。当たりそのものを 2 つに割れば、
+   * 場所の計算がまるごと要らない。
+   *
+   * **矢印より先に並べる。** あとに置いたほうが上に来るので、
+   * 矢印の上を押したときは矢印が取る
+   */
+  const half = (side) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'mmsxx-stepper-half-' + side;
+    b.setAttribute('aria-label', side === 'prev' ? 'PREVIOUS' : 'NEXT');
+    b.style.cssText = 'position:absolute;top:0;bottom:0;width:50%;'
+      + `${side === 'prev' ? 'left' : 'right'}:0;`
+      + 'padding:0;border:0;background:transparent;cursor:pointer';
+    return b;
+  };
+  const halfPrev = half('prev');
+  const halfNext = half('next');
+  root.append(main, halfPrev, halfNext, prev, next);
 
   let index = clamp(opts.index || 0);
 
@@ -143,15 +166,11 @@ export function createStepper(opts) {
 
   // **本体そのものも左右に割れている。**
   // 矢印は「替えられる」と見せるための目印で、指が行くのは字の出ている本体のほう
-  main.addEventListener('click', (e) => {
-    main.blur();
-    const r = main.getBoundingClientRect();
-    // 幅が測れないとき(隠れている最中など)は次へ送る
-    const back = r.width > 0 && (e.clientX - r.left) < r.width / 2;
-    set(index + (back ? -1 : 1), true);
-  });
-  prev.addEventListener('click', () => { prev.blur(); set(index - 1, true); });
-  next.addEventListener('click', () => { next.blur(); set(index + 1, true); });
+  const step = (b, d) => b.addEventListener('click', () => { b.blur(); set(index + d, true); });
+  step(halfPrev, -1);
+  step(halfNext, 1);
+  step(prev, -1);
+  step(next, 1);
 
   paint();
   if (opts.mount) opts.mount.appendChild(root);
