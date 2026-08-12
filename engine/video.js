@@ -961,20 +961,35 @@ export class VDP {
       // 別々に掛けると、どちらの向きで数えているのか分からなくなるので、
       // ここで 1 つの角度にまとめてしまう。外へも viewAngle として出す
       const angle = ((rot ? 90 : 0) + (this.upsideDown ? 180 : 0)) % 360;
+      /**
+       * **端末に食われるぶんだけ寄せる**(--mmsxx-view-dx / dy)。
+       *
+       * 真ん中に置くとき見ているのは窓の真ん中だが、ノッチやホームバーで
+       * 使えなくなっているところは**片側だけ**なので、そのままでは
+       * 使えるところの真ん中から外れる。**実機で「左に寄っている」**と
+       * なっていたのがこれで、**逆さにすると右へ寄った**(食われる側が
+       * 入れ替わるため)。
+       *
+       * 値を入れるのは器のほう(engine/util/touchgui.js)。あちらは
+       * env() を測っているので、そこから ずらす量を渡してもらう。
+       * **画面の座標で渡すこと**(回す前)。ノッチは見た目の向きではなく
+       * 実際の画面の端に張り付いているため
+       */
+      const off = 'translate(var(--mmsxx-view-dx, 0px), var(--mmsxx-view-dy, 0px))';
       // 回すときは、回した見た目で真ん中に来るように置き直す。
       // (回転は見た目だけで、置き場所の大きさは変わらないため)
       if (rot) {
         st.position = 'fixed';
         st.left = '50%';
         st.top = '50%';
-        st.transform = `translate(-50%, -50%) rotate(${angle}deg)`;
+        st.transform = `${off} translate(-50%, -50%) rotate(${angle}deg)`;
       } else {
         st.position = '';
         st.left = '';
         st.top = '';
         // **180 度だけなら置き直さなくてよい。** 回す軸は canvas の真ん中
         // (transform-origin の既定)なので、その場でひっくり返るだけ
-        st.transform = angle ? `rotate(${angle}deg)` : '';
+        st.transform = angle ? `${off} rotate(${angle}deg)` : off;
       }
       this.rotated = rot;
       this.viewAngle = angle;

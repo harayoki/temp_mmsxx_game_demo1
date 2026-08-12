@@ -96,11 +96,13 @@ export function planSideLayout(m) {
   const w = m.view.w;
   const sl = (m.safe && m.safe.left) || 0;
   const sr = (m.safe && m.safe.right) || 0;
-  // ゲーム画面は器の真ん中。食われるぶんを引いた残りが、実際に空いている幅
-  const cLeft = (w - m.canvasW) / 2;
-  const freeL = Math.max(0, Math.floor(cLeft - sl));
-  const freeR = Math.max(0, Math.floor(w - sr - (cLeft + m.canvasW)));
-  const gap = Math.min(freeL, freeR);
+  // **ゲーム画面は「使えるところ」の真ん中**(器の真ん中ではない)。
+  // 食われるぶんが片側だけのとき、器の真ん中に置くと寄って見えるので、
+  // engine/video.js が同じぶんだけ寄せている。**両方そろえること** ──
+  // 片方だけ直すと、帯の幅と実際の空きが食い違って画面に掛かる
+  const free = Math.max(0, Math.floor((w - sl - sr - m.canvasW) / 2));
+  const freeL = free, freeR = free;
+  const gap = free;
 
   // **空きが足りないときは重ねる。** 画面を縮めて空きを作る手もあるが、
   // それだと弾も自機も一緒に小さくなって見えなくなる
@@ -813,6 +815,24 @@ export class TouchGui {
     // env() は画面の向きで返ってくるので、90 度回して見せているときは
     // 上下左右も一緒に回さないと、くびれていない側を空けることになる
     const ins = this._safeInsets();
+    /**
+     * **ゲーム画面を「使えるところ」の真ん中へ寄せる。**
+     *
+     * 画面は窓の真ん中に置かれるが、ノッチやホームバーで使えなくなって
+     * いるのは**片側だけ**なので、そのままでは真ん中に見えない。
+     * 実機で**左に寄って見え、逆さにすると右へ寄った**のがこれ
+     * (縦持ちだと上のノッチと下のホームバーが、90 度 回した見た目では
+     * 左右になる。端末をひっくり返すと入れ替わる)。
+     *
+     * **画面の座標のまま渡す**(回す前)。ノッチは見た目の向きではなく、
+     * 実際の画面の端に張り付いている。受けるのは engine/video.js
+     */
+    if (this.canvas) {
+      const dx = (ins.left - ins.right) / 2;
+      const dy = (ins.top - ins.bottom) / 2;
+      this.canvas.style.setProperty('--mmsxx-view-dx', dx + 'px');
+      this.canvas.style.setProperty('--mmsxx-view-dy', dy + 'px');
+    }
     // **左右の端の帯は env() に出てこない。** OS の「戻る」に取られるところなので、
     // ここで足しておく。足すのは**画面の左右**(回す前)。OS のジェスチャは
     // 見た目の向きではなく、実際の画面の端に張り付いているため
