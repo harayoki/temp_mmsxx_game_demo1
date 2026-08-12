@@ -8908,8 +8908,13 @@ function updatePlay() {
   // **行き先の印。** 出すのは遊びの最中だけ(やられている最中や登場中は消す)。
   // 絵は 16x16 で真ん中に十字が入っているので、行き先から 8 引いて置く
   if (aimSp) {
+    const playing = state === 'play' && !paused && !entering;
+    // **遊びの最中から外れたら行き先を捨てる。**
+    // やられて戻ってきたときに前の行き先が生きていると、
+    // 復帰した自機が置いた覚えのないところへ いきなり飛んでいく
+    if (!playing && padlessMove.state !== 'idle') padlessMove.stop();
     const m = padlessMove.marker;
-    const on = m.on && state === 'play' && !entering && player.visible;
+    const on = m.on && playing && player.visible;
     aimSp.visible = on;
     if (on) { aimSp.x = Math.round(m.x) - 8; aimSp.y = Math.round(m.y) - 8; }
   }
@@ -13655,7 +13660,9 @@ function bindPadlessTaps() {
     padlessMove.down(c.x, c.y, selfX(), selfY());
   });
 
-  canvas.addEventListener('pointermove', (e) => {
+  // **動きも window で拾う**(上の pointerup と同じ理由。
+  // 捕まえ損ねても、指が枠から出ても、離すまで面倒を見る)
+  window.addEventListener('pointermove', (e) => {
     if (e.pointerId !== id) return;
     const p = at(e);
     const c = aimClamp(p.x, p.y);
@@ -13667,10 +13674,14 @@ function bindPadlessTaps() {
     id = null;
     padlessMove.up(selfX(), selfY());
   };
-  canvas.addEventListener('pointerup', up);
+  // **離したことは window で拾う。** canvas だけで待っていると、
+  // 捕まえ損ねたまま指が canvas の外(連射の四角やポーズの上)へ抜けて
+  // 離されたときに来ない。**来ないと押している扱いのまま残り、
+  // 印が指を追い続ける**(行き先が勝手に動いて見えるのはこれ)
+  window.addEventListener('pointerup', up);
   canvas.addEventListener('lostpointercapture', up);
   // 着信やジェスチャで指が消えたぶん。**行き先はそのまま**、曲げるのだけやめる
-  canvas.addEventListener('pointercancel', (e) => {
+  window.addEventListener('pointercancel', (e) => {
     if (e.pointerId !== id) return;
     id = null;
     padlessMove.cancel();
