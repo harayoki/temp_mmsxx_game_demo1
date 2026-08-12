@@ -9137,13 +9137,11 @@ function updatePlay() {
     }
     // **毎コマ引き直す。** 線の始まりは自機なので、自機が動けば線も動く
     if (traceOn && traceMove) paintTracePath();
-    // **なぞる番の印は終わりだけ。**
-    // 始まりには置かない — 線が自機からそこまで引いてあるので、
-    // どこから走り出すのかは線が見せている。
-    // 途中にも置かない(印を並べると線が埋もれる)
-    const pts = traceOn
-      ? (traceMove && traceMove.end ? [traceMove.end] : [])
-      : padlessMove.points;
+    // **なぞる番は印を置かない。**
+    // 道は線が丸ごと見せている ── 始まりは自機からつながっているし、
+    // 終わりは線の切れたところ。そこに印を足しても、
+    // 線に重ねるものが増えるだけだった
+    const pts = traceOn ? [] : padlessMove.points;
     // **2 コマごとに赤とピンクを入れ替える。** 止まった赤い十字は
     // 背景の中に埋もれるので、色が動いていること自体を目印にする
     const img = (mmsxx.frame & 2) ? SPRITE_SYMBOLS.aimMark1 : SPRITE_SYMBOLS.aimMark;
