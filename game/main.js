@@ -1221,8 +1221,25 @@ const aimSps = [];
 // 指が通ったところをなぞるだけなので、回転も倍率も考えずに済む
 // (画面が 90 度 回っていても、指の跡は指の跡のまま)。
 
+/**
+ * **線を自機から離しはじめる長さ**(ドット)。
+ * 自機の絵は 16 ドット四方なので、その角を少し越えたあたり
+ */
+const TRACE_GAP = 12;
 /** 線を引く SVG(要るときに作る) */
 let tracePathEl = null;
+
+/**
+ * **いま自機を動かせるか。**
+ *
+ * 遊びの最中でも、**手を離させている場面**がいくつかある ──
+ * 面クリアの集計、飛び去っていく演出、出てくる途中、ポーズ。
+ * そこで線を出すと、**自機が画面の外まで飛んでいくのに線が付いていく**
+ * (面クリアで画面の外まで線が伸びていたのはこれ)
+ */
+function canSteer() {
+  return state === 'play' && !paused && !entering && !leaving && clearTimer <= 0;
+}
 
 /**
  * ゲームのドットを、線の絵に使う窓の点へ。
@@ -1244,7 +1261,7 @@ function paintTracePath() {
   // **自機が点滅していても線は出す。** やられたあとの無敵のあいだ、
   // player.visible は 4 コマごとに落ちる。そこで線まで消すと、
   // 引いている最中に線が点滅した(実際そうなった)
-  const show = at && player && state === 'play' && !paused;
+  const show = at && player && canSteer();
   if (!show) {
     if (tracePathEl) tracePathEl.setAttribute('d', '');
     return;
@@ -1270,7 +1287,14 @@ function paintTracePath() {
     document.body.appendChild(svg);
     tracePathEl = path;
   }
-  const a = traceDot(player.x + 8, player.y + 8);
+  // **線は自機から少し離して引きはじめる。**
+  // 真ん中から引くと、線が自機の絵に重なって、どちらも見づらい
+  const px = player.x + 8, py = player.y + 8;
+  const vx = at.x - px, vy = at.y - py;
+  const d = Math.hypot(vx, vy);
+  if (d <= TRACE_GAP) { tracePathEl.setAttribute('d', ''); return; }
+  const k = TRACE_GAP / d;
+  const a = traceDot(px + vx * k, py + vy * k);
   const b = traceDot(at.x, at.y);
   tracePathEl.setAttribute('d', 'M' + a[0] + ',' + a[1] + 'L' + b[0] + ',' + b[1]);
 }
@@ -1285,9 +1309,10 @@ function clearTracePath() {
  * 引いていないのに線が残っていることがないように
  */
 function sweepTracePath() {
-  if (!traceMove || !traceOn || traceMove.state === 'idle'
-      || state !== 'play' || paused) {
-    if (traceMove && !traceOn) traceMove.stop();
+  if (!traceMove || !traceOn || traceMove.state === 'idle' || !canSteer()) {
+    // **動かせない場面では、引いているぶんも捨てる。**
+    // 残すと、動かせるようになった瞬間に前の指の場所へ走り出す
+    if (traceMove && !canSteer()) traceMove.stop();
     clearTracePath();
   }
 }
@@ -1653,6 +1678,9 @@ let rubHintIn = 0;            // 出すまでの残りコマ(0 は出さない)
  * 出したいのは**無防備になったその瞬間**
  * @param {string} who どの場面か('moai' / 'octopus' / 'crab' / 'nautilus')
  */
+/** こすりの指を見せている最中か。**倒したところで止める**のに使う */
+let rubDemoOn = false;
+
 function cueRubHint(who, delay = 36) {
   if (!PAD_ON || rubHintDone.has(who)) return;
   rubHintDone.add(who);
@@ -10585,7 +10613,15 @@ function updatePlay() {
     // 指の絵が一番早いので、丸の上で同じ長さだけ動かして見せる
     // **6 秒。** 3 秒ずつ 2 とおり見せる作りなので、縮めると
     // 2 つめ(くるくる)が途中で切れる
+    rubDemoOn = true;
     if (touchGui) touchGui.rubDemo(6);
+  }
+  // **教えた相手を倒したら、こすりの案内はやめる。**
+  // 倒れていくボスの前で指が動いていても、もう見ている場合ではない
+  if (boss && boss.dying > 0 && (rubHintIn > 0 || rubDemoOn)) {
+    rubHintIn = 0;
+    rubDemoOn = false;
+    if (touchGui) touchGui.rubDemo(0);
   }
   updateGearBlink();
   // 宝珠の七色は HUD に描いているので、少しずつ描き直す
@@ -13954,7 +13990,7 @@ function bindPadlessTaps() {
   let id = null;
   /** 遊びの最中か。ここ以外では指を受けない */
   // **パッドレスで遊んでいるあいだだけ受ける**(ポーズ中の TARGETS で切り替わる)
-  const live = () => (padlessOn || traceOn) && state === 'play' && !paused && !entering;
+  const live = () => (padlessOn || traceOn) && canSteer();
   /** 画面の点を、自機の真ん中と同じものさしのドットへ */
   const at = (e) => mmsxx.vdp.pointToScreen(e.clientX, e.clientY);
   /** 自機の真ん中(スプライトは 16x16 なので +8) */

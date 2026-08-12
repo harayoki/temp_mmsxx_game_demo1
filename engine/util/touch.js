@@ -790,6 +790,8 @@ export class TouchControls {
     if (!el) return;
     clearTimeout(this._rubDemoTimer);
     el.classList.remove('rubdemo');
+    // **0 以下はその場でやめる**(見せている途中で用が済んだとき)
+    if (!(sec > 0)) return;
     void el.offsetWidth;   // ここで巻き戻さないと、続けて呼んだとき動きが続きから始まる
     el.classList.add('rubdemo');
     this._rubDemoTimer = setTimeout(() => {

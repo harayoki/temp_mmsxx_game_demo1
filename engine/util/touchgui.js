@@ -636,8 +636,14 @@ export class TouchGui {
     // **見せているあいだは帯を濃くする**(上の .rubdemo)。
     // 薄いままだと指が透けて暗く、動きが読み取れなかった
     if (this._root) {
-      this._root.classList.add('rubdemo');
       clearTimeout(this._rubDemoTimer);
+      // **0 以下はその場でやめる。** 見せている途中で用が済むことがある
+      // (教えた相手を倒してしまったら、こすりかたを見ている場合ではない)
+      if (!(sec > 0)) {
+        this._root.classList.remove('rubdemo');
+        return this;
+      }
+      this._root.classList.add('rubdemo');
       this._rubDemoTimer = setTimeout(() => {
         if (this._root) this._root.classList.remove('rubdemo');
       }, sec * 1000);
