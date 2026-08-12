@@ -14857,18 +14857,26 @@ const HOWTO_PAGES_AIM = [
     },
   },
   {
-    // **最後のページには題を付けない。**
-    // ここは遊びかたではなく、そのほかの話をまとめて置くところ。
-    // 題を付けると、この 1 枚が何かの単元に見えてしまう
-    title: null,
+    title: { ja: 'その他のそうさ', en: 'OTHER CONTROLS' },
     body: {
       ja: 'ゲームパッドも使えます。\n'
         + 'タイトルでボタンを押して、\n'
-        + '出てくる案内にしたがってください。',
+        + '出てくる案内にしたがってください。\n'
+        + '\n'
+        + '他の操作方法も追加されてる事があるよ！',
       en: 'A game pad works too.\n'
         + 'Press a button on the title screen\n'
-        + 'and follow what it says.',
+        + 'and follow what it says.\n'
+        + '\n'
+        + 'More ways to play may have been added!',
     },
+  },
+  {
+    // **締めの 1 枚。** 遊びかたの話はここまでで、最後はこの板そのものの
+    // 話だけを 1 行置く。**本文は置かない** — 黄色い 1 行だけを見せたいので、
+    // ほかに字があるとそちらへ目が行く
+    title: null,
+    body: { ja: '', en: '' },
     // **締めの 1 行**。本文とは色を分ける(遊びかたではなく、この板の話なので)
     note: {
       ja: 'この案内は ? でいつでも読めます。',
@@ -14914,6 +14922,7 @@ const HOWTO_PAGES_PAD = [
     },
   },
   HOWTO_PAGES_AIM[3],
+  HOWTO_PAGES_AIM[4],
 ];
 
 /**
@@ -14981,6 +14990,8 @@ const HOWTO_ART_AIM = [
   // パッドの話なのにキーボードの絵を借りていたが、別のものを指していて変だった。
   // パッドの絵は engine/util/icons.js にまだ無いので、置くなら足すところから
   [],
+  // 締めの 1 枚も挿絵は無し(黄色い 1 行だけを読ませたい)
+  [],
 ];
 
 /**
@@ -14998,6 +15009,7 @@ const HOWTO_ART_PAD = [
   HOWTO_ART_AIM[1],
   HOWTO_ART_AIM[2],
   HOWTO_ART_AIM[3],
+  HOWTO_ART_AIM[4],
 ];
 
 /** 1 枚ぶんの絵を img にする。**作れなければ null**(絵が無くても案内は読める) */
@@ -15222,7 +15234,11 @@ function openHowTo() {
     // そのぶんの隙間だけが空いて、本文の位置がページごとに動く
     title.style.display = p.title ? '' : 'none';
     title.textContent = p.title ? howToText(p.title) : '';
-    setBody(howToText(p.body));
+    // **本文の無いページは箱ごと引っ込める。**
+    // 空の座布団が 1 枚残って、黒い帯だけが見えることになる
+    const text = p.body ? howToText(p.body) : '';
+    body.style.display = text ? '' : 'none';
+    setBody(text);
     note.style.display = p.note ? '' : 'none';
     note.textContent = p.note ? howToText(p.note) : '';
     art.replaceChildren(howToArtBox(i));
