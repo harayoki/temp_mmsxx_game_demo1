@@ -14879,7 +14879,7 @@ const HOWTO_PAGES_AIM = [
     body: { ja: '', en: '' },
     // **締めの 1 行**。本文とは色を分ける(遊びかたではなく、この板の話なので)
     note: {
-      ja: 'この案内は ? でいつでも読めます。',
+      ja: 'この案内は ? でいつでも出せます。',
       en: 'Press ? any time to read this again.',
     },
   },
