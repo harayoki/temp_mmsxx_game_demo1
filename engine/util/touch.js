@@ -105,6 +105,14 @@ const DEFAULTS = {
    * (指が原点から離れられる上限のほうが、全開になる距離より近くなる)。
    * 大きくするほど戻す量も増えるので、**全開の距離のすぐ上**に置いてある
    */
+  /**
+   * **引きずるのは原点だけ。絵は動かさない。**
+   *
+   * 一度 0(引きずらない)にしたが、それでは**大きく払ったぶんだけ戻さないと
+   * 逆を向けない**という、これを入れる前の困りごとがそのまま戻る。
+   * 「パッドごと引きずれる」と見えていたのは**絵が原点に付いていた**からで、
+   * 絵は触れた点に置いたまま(`_showRing` の px/py)、効きだけ今までどおりにする
+   */
   dragMax: 30,
   /**
    * **向きの決めかた。** ゲームによって合う合わないがあるので、丸ごと替えられる。
@@ -206,7 +214,12 @@ const DEFAULTS = {
    * 145 度は「まっすぐ戻しにきたとき」だけ。120 度では早すぎた
    * (狙って曲げただけで裏返る)。**90 度まで下げると、円を描くように
    * 動かしただけで裏返る**ので、下げるなら少しずつ。
-   * **遊ぶ人が選べる**(ポーズ中の TURN BACK。game/main.js の PAD_FLIP)
+   * **遊ぶ人が選べる**(ポーズ中の TURN BACK。game/main.js の PAD_FLIP)。
+   *
+   * **原点は置き直すが、絵は飛ばさない。** 一度 0(切)にしたが、
+   * これは切り返しの重さそのものなので、切ると効きが変わってしまう。
+   * 「反転で強調が入る」と見えていたのは、**絵が原点に付いて飛んでいた**から。
+   * 絵は触れた点に置いたままにしてある(`_showRing`)
    */
   stickFlipAngle: 145,
   /**
@@ -684,10 +697,11 @@ export class TouchControls {
     this._r = Math.max(16, Math.round(r));
     // **scale は掛けない。** 見た目の大きさは変えず、判定だけを変えるつまみ
     for (const z of this._zones) z.style.setProperty('--r', this._r + 'px');
-    // **触れていないときの目印も、触れたときと同じ場所へ。**
-    // 別々に置くと、指を下ろした拍子に十字がそこへ飛んだように見える
-    // (「タップした位置へ移動している」ように見えていたのはこれ)
-    if (this._dpad) {
+    // **まだ触られていないときの目印の場所。**
+    // 一度でも触ったあとは、そこへ置き直す(_hideRing)。
+    // 大きさを測り直しただけで目印が決まった場所へ戻ると、
+    // 触ってもいないのにパッドが飛んだように見える
+    if (this._dpad && !this.stick.active && this.stick.px === undefined) {
       const at = this._anchor(this._rectOf(this._dpad));
       this._dpad.style.setProperty('--hx', at.x + 'px');
       this._dpad.style.setProperty('--hy', at.y + 'px');
@@ -887,6 +901,10 @@ export class TouchControls {
     const s = this.stick;
     s.active = true;
     s.ox = p.x; s.oy = p.y;
+    // **絵を置く場所。触れたところから動かさない。**
+    // 原点(ox/oy)は折り返し(_flipOrigin)で動くので、そちらに絵を付けると
+    // **切り返すたびにパッドが飛ぶ**。置いたものはそこに在る、で通したい
+    s.px = p.x; s.py = p.y;
     s.x = p.x; s.y = p.y;
     s.dx = 0; s.dy = 0; s.dist = 0; s.deg = 0; s.sector = -1;
     s.rx = 0; s.ry = 0;
@@ -1137,7 +1155,20 @@ export class TouchControls {
     if (this._stickEl) this._stickEl.style.display = 'none';
     if (this._knob) this._knob.style.display = 'none';
     if (this._needle) this._needle.style.display = 'none';
-    if (this._dpad) this._dpad.classList.remove('holding');   // 目印を出す
+    if (!this._dpad) return;
+    // **離したら、目印は最後に触れたところへ置く。**
+    // 触れたところへ絵を出すようにしてから、離した瞬間に目印が
+    // 決まった場所へ戻り、**パッドが飛んで見えた**(実機で言われたぶん)。
+    // 次に触るのもたいてい同じあたりなので、そこで待たせておく
+    if (this.opts.stickAtTouch !== false) {
+      const s = this.stick;
+      const r = this._rectOf(this._dpad);
+      if (s.px !== undefined) {
+        this._dpad.style.setProperty('--hx', (s.px - r.left) + 'px');
+        this._dpad.style.setProperty('--hy', (s.py - r.top) + 'px');
+      }
+    }
+    this._dpad.classList.remove('holding');   // 目印を出す
   }
 
   /** 区画を決める。**境目を少し重ねて**ばたつきを止める */
@@ -1165,9 +1196,9 @@ export class TouchControls {
    * 出てくれるほうが早い**ので、触れたところへ戻してある。
    * 据え置きに戻したいときは `stickAtTouch: false`。
    *
-   * **原点(ox/oy)へ出す。** 指の今いる場所(x/y)ではない。
-   * 原点は引きずり(dragMax)や折り返し(_flipOrigin)で動くので、
-   * 絵もそれに付いていく — つまみと絵の関係が指と一致する
+   * **触れた点(px/py)へ出して、離すまで動かさない。**
+   * 原点(ox/oy)は折り返しで動くので、そちらに付けるとパッドが飛ぶ。
+   * 引きずり(dragMax)も既定では切ってある
    */
   _showRing() {
     if (!this._stickEl || !this._dpad) return;
@@ -1178,7 +1209,7 @@ export class TouchControls {
     this._knob.style.display = 'block';
     this._dpad.classList.add('holding');   // 目印を引っ込める
     const at = this.opts.stickAtTouch === false ? this._anchor(r)
-      : { x: s.ox - r.left, y: s.oy - r.top };
+      : { x: s.px - r.left, y: s.py - r.top };
     this._stickEl.style.left = at.x + 'px';
     this._stickEl.style.top = at.y + 'px';
     this._knob.style.left = (s.x - r.left) + 'px';

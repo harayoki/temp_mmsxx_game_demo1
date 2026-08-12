@@ -14621,9 +14621,14 @@ function closeHomeInstall() {
  * 案内のページ。**ここだけ日英を出し分ける**(canvas の中は英語のまま。
  * これは DOM なので、読んでほしいことは読める言葉で出す)。
  *
- * TODO: 中身は未定。いまは並びと見た目を決めるための下書き
+ * **遊びかたごとに 2 とおりある。** 十字で動かす人にターゲットの話をしても、
+ * 画面をタップしても何も起きないので嘘になる。逆も同じ。
+ * どちらを出すかは `howToPages()` が、そのとき効いているほうで決める
+ * (`?targets=` などで既定が入れ替わっても、読むものは合っている)。
+ *
+ * こちらは**ターゲット型**(画面をタップして動かす)のぶん
  */
-const HOWTO_PAGES = [
+const HOWTO_PAGES_AIM = [
   {
     title: { ja: 'うごかす', en: 'MOVE' },
     body: {
@@ -14690,6 +14695,55 @@ const HOWTO_PAGES = [
   },
 ];
 
+/**
+ * **十字(バーチャルパッド)で動かすぶん**の案内。
+ *
+ * 2 枚目(うつ)と 4 枚目(そのほか)は上と同じ話なので、そのまま借りる。
+ * 違うのは 1 枚目(動かしかた)と 3 枚目(もう片方の遊びかたの案内)だけ
+ */
+const HOWTO_PAGES_PAD = [
+  {
+    title: { ja: 'うごかす', en: 'MOVE' },
+    body: {
+      // **「触れたところに出る」を最初に書く。** 決まった場所を探しに
+      // いかなくてよいことが分かっていないと、いちいち目で探すことになる
+      ja: '画面の左がわを指でおさえると、\n'
+        + 'おさえたところにパッドが出ます。\n'
+        + 'そのまま指をずらすと、\n'
+        + 'ずらした向きへ自機が動きます。',
+      en: 'Press the left side of the screen and\n'
+        + 'a pad appears right where you pressed.\n'
+        + 'Slide from there and your ship\n'
+        + 'flies the way you slide.',
+    },
+  },
+  HOWTO_PAGES_AIM[1],
+  {
+    title: { ja: 'ターゲット', en: 'TARGETS' },
+    body: {
+      ja: '画面をタップして動かす遊びかたもあります。\n'
+        + '赤い十字（ターゲット）を置くと、\n'
+        + 'そこへ自機が動きます。\n'
+        + '十字を持たないぶん、両手とも移動に使えます。\n'
+        + 'ポーズ中の TARGETS で切り替えられます。',
+      en: 'You can also fly by tapping the screen.\n'
+        + 'Drop a red cross (TARGET) and\n'
+        + 'your ship flies to it.\n'
+        + 'With no pad to hold, both hands can move you.\n'
+        + 'Switch with TARGETS while paused.',
+    },
+  },
+  HOWTO_PAGES_AIM[3],
+];
+
+/**
+ * いま出すべき案内。**そのとき効いている遊びかたのぶん**を返す。
+ * 既定が入れ替わっても、読むものは手元の動きと合っている
+ */
+function howToPages() { return padlessOn ? HOWTO_PAGES_AIM : HOWTO_PAGES_PAD; }
+/** 挿絵も遊びかたごと(上と同じ並び) */
+function howToArt() { return padlessOn ? HOWTO_ART_AIM : HOWTO_ART_PAD; }
+
 /** 開いている板。**開いているあいだはゲームを止める** */
 let howToEl = null;
 /** 案内で止めたのか(自分で止めていたポーズを、閉じるときに戻さないため) */
@@ -14718,7 +14772,7 @@ function howToText(v) { return (TG_LANG === 'ja' ? v.ja : v.en) || v.en; }
  *
  * `{ sym | icon, scale, deg, l, t }`
  */
-const HOWTO_ART = [
+const HOWTO_ART_AIM = [
   // うごかす: 右上に置かれたターゲットと、左下から向かう自機
   [
     { sym: 'aimMark', scale: 4, deg: 0, l: 86, t: 18 },
@@ -14745,6 +14799,23 @@ const HOWTO_ART = [
   // パッドの話なのにキーボードの絵を借りていたが、別のものを指していて変だった。
   // パッドの絵は engine/util/icons.js にまだ無いので、置くなら足すところから
   [],
+];
+
+/**
+ * 十字で動かすぶんの挿絵。**並びは HOWTO_PAGES_PAD と同じ**。
+ *
+ * 1 枚目にターゲットは置かない(あちらの遊びかたの絵なので、
+ * 十字で遊ぶ人には出てこないものを見せることになる)。
+ * 3 枚目は逆に、もう片方の遊びかたの話なのでターゲットを並べる
+ */
+const HOWTO_ART_PAD = [
+  // うごかす: 自機だけ。**パッドの絵はまだ無い**(icons.js に足すところから)
+  [
+    { sym: 'player', scale: 4, deg: -18, l: 84, t: 22 },
+  ],
+  HOWTO_ART_AIM[1],
+  HOWTO_ART_AIM[2],
+  HOWTO_ART_AIM[3],
 ];
 
 /** 1 枚ぶんの絵を img にする。**作れなければ null**(絵が無くても案内は読める) */
@@ -14824,7 +14895,7 @@ function howToArtBox(i) {
   Object.assign(box.style, {
     position: 'absolute', inset: '0', overflow: 'hidden', pointerEvents: 'none',
   });
-  for (const a of (HOWTO_ART[i] || [])) {
+  for (const a of (howToArt()[i] || [])) {
     const img = howToArtImg(a);
     if (img) box.appendChild(img);
   }
@@ -14859,10 +14930,14 @@ function howToBox() {
 
 /**
  * **初めて遊びはじめるときに 1 度だけ出す。**
- * `?howto=1` で毎回出せる(見た目を確かめるため)
+ * `?howto=1` で毎回出せる(見た目を確かめるため)。
+ *
+ * **PC では毎回出す。** あちらで案内を読むのは中身を確かめるときなので、
+ * 1 度きりだと**書き替えたぶんを見るのに覚えた印を消して回る**ことになる。
+ * 指で遊ぶ端末では今までどおり 1 度きり(遊ぶ人の邪魔をしない)
  */
 function maybeShowHowTo() {
-  if (!PAD_ON) return;                       // スマホだけ
+  if (!PAD_ON) { openHowTo(); return; }      // PC は毎回
   if (OPT.get('howto') !== '1') {
     if (DEVICE) return;                      // 機種を渡り歩くときは出さない
     if (settings.get('howToSeen')) return;
@@ -14960,7 +15035,7 @@ function openHowTo() {
   };
 
   const paint = (i) => {
-    const p = HOWTO_PAGES[i];
+    const p = howToPages()[i];
     // **題の無いページは箱ごと引っ込める。** 空のまま残すと、
     // そのぶんの隙間だけが空いて、本文の位置がページごとに動く
     title.style.display = p.title ? '' : 'none';
@@ -14969,13 +15044,13 @@ function openHowTo() {
     note.style.display = p.note ? '' : 'none';
     note.textContent = p.note ? howToText(p.note) : '';
     art.replaceChildren(howToArtBox(i));
-    pageNo.textContent = `${i + 1} / ${HOWTO_PAGES.length}`;
+    pageNo.textContent = `${i + 1} / ${howToPages().length}`;
   };
   paint(0);
 
   const pager = createStepper({
     mount: el,
-    items: HOWTO_PAGES.map((p, i) => String(i + 1)),
+    items: howToPages().map((p, i) => String(i + 1)),
     index: 0,
     // **回り込む。** 1 ページ目から左へ送れば最後のページへ行く。
     // 端で止まると「もう無い」のか「効いていない」のか分からないし、
@@ -15038,7 +15113,7 @@ function closeHowTo() {
 
 // **開発版だけ**: 遊びはじめまで進まなくても案内を出せるようにする。
 // 中身を詰めているあいだ、毎回ゲームを始め直すのは手間なので
-if (DEV) mmsxx.expose('mmsxxHowTo', () => { openHowTo(); return HOWTO_PAGES.length + ' ページ'; });
+if (DEV) mmsxx.expose('mmsxxHowTo', () => { openHowTo(); return howToPages().length + ' ページ'; });
 
 /** ポーズ中の ? ボタン。**スマホだけ**(PC には案内が画面の下に出ている) */
 function bindHowToButton() {
