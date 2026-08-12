@@ -333,6 +333,13 @@ export class VDP {
     if (typeof window !== 'undefined') {
       let waiting = 0;
       const refit = () => {
+        // **その場でも 1 度合わせる。**
+        // 次の描き替えを待つのは「最終的な大きさ」を取るためだが、
+        // **requestAnimationFrame が回らない場面がある**(窓が隠れている、
+        // 別のタブ、機種によっては絞られる)。そこで待ちに入ると、
+        // 窓を変えたのに画面の大きさが付いてこないまま残る。
+        // 直に合わせておけば、少なくとも古い大きさのままにはならない
+        this.refitCss();
         if (waiting) cancelAnimationFrame(waiting);
         waiting = requestAnimationFrame(() => { waiting = 0; this.refitCss(); });
       };
