@@ -48,6 +48,8 @@ import { createNotice } from '../engine/util/notice.js';
 import { createStepper } from '../engine/util/stepper.js';
 // パッドレスの移動(叩いた先へ自機が歩く。押したままずらすと角度を曲げられる)
 import { createPadless } from '../engine/util/padless.js';
+// なぞった道をたどる移動(指で線を引くと、始点まで行ってから道をなぞる)
+import { createTrace } from '../engine/util/trace.js';
 import Bowser from '../vendor/bowser/bowser.js';
 // 開発者ツールで止まったときに見せる、このゲームのぶんの文章
 import { gameStop } from './console-stop.js';
@@ -159,8 +161,8 @@ const settings = new SaveGroup('starfable-settings', {
   // 切り返しの重さ(0 = 切る / 1 = はっきり戻したときだけ)と、決めたことがあるかの印
   padFlip: { type: T.NUMBER, min: 0, max: 1, digits: 0, label: 'TURN BACK' },
   padFlipSet: { type: T.FLAG, label: 'TURN BACK SET' },
-  // パッドレスで置ける行き先の数(0 = 1 つ / 1 = 2 つ / 2 = バーチャルパッド)
-  padTargets: { type: T.NUMBER, min: 0, max: 2, digits: 0, label: 'TARGETS' },
+  // 動かしかた(0 = 行き先 1 つ / 1 = 2 つ / 2 = 十字 / 3 = なぞる)
+  padTargets: { type: T.NUMBER, min: 0, max: 3, digits: 0, label: 'CONTROL' },
   padTargetsSet: { type: T.FLAG, label: 'TARGETS SET' },
   // 遊びかたの案内を一度でも出したか(**出すのは初めての 1 回だけ**)
   howToSeen: { type: T.FLAG, label: 'HOW TO PLAY SEEN' },
@@ -1195,14 +1197,63 @@ aux.visible = false;
  * 触ると読み込みごと落ちる)
  */
 let padlessMove = null;
-/** いまパッドレスで遊んでいるか。**ポーズ中の TARGETS で切り替わる** */
+/** いま行き先を置いて遊んでいるか。**ポーズ中の CONTROL で切り替わる** */
 let padlessOn = false;
+/** いま道をなぞって遊んでいるか(同じく CONTROL で切り替わる) */
+let traceOn = false;
+/** なぞった道をたどる制御(engine/util/trace.js)。**PAD_ON のときだけ作る** */
+let traceMove = null;
 /**
  * 行き先の印。**溜められるぶんだけ用意する**(部品の maxPoints と同じ数)。
  * **弾より奥**に置く(避けるものを隠さない)
  */
 const PAD_AIM_MAX = 2;
 const aimSps = [];
+
+// ---- なぞった道の絵 ----
+//
+// **スプライトでは引けない。** MSX1 のスプライトは 1 行に 4 枚までで、
+// 道なりに何十個も並べたら、その行の弾も自機も消える。
+// 道は**画面の上に重ねた SVG** で引く(ゲームの絵ではなく、指の跡なので、
+// ドット絵の決まりごとに合わせる必要も無い)。
+//
+// **画面の点をそのまま持つ。** ドットから画面へ戻す道は用意していないし、
+// 指が通ったところをなぞるだけなので、回転も倍率も考えずに済む
+// (画面が 90 度 回っていても、指の跡は指の跡のまま)。
+
+/** 道の絵に使う、画面の点の列。**中身は engine/util/trace.js の点と同じ数** */
+const traceScreen = [];
+/** 道を引く SVG(要るときに作る) */
+let tracePathEl = null;
+
+/** 道の絵を引き直す。**点が増えたときと、道を捨てたときに呼ぶ** */
+function paintTracePath() {
+  if (!tracePathEl) {
+    if (!traceScreen.length) return;   // 出すものが無いうちは作らない
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    // **器(z-index: 10)より下、canvas より上。**
+    // 指は素通しにする(下の canvas が受ける)
+    svg.setAttribute('style', 'position:fixed;inset:0;width:100%;height:100%;'
+      + 'pointer-events:none;z-index:9');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', '#ff5a7a');
+    path.setAttribute('stroke-width', '3');
+    path.setAttribute('stroke-linecap', 'round');
+    path.setAttribute('stroke-linejoin', 'round');
+    path.setAttribute('opacity', '0.75');
+    svg.appendChild(path);
+    document.body.appendChild(svg);
+    tracePathEl = path;
+  }
+  tracePathEl.setAttribute('points', traceScreen.map(p => p[0] + ',' + p[1]).join(' '));
+}
+
+/** 道を捨てる。**制御と絵の両方**(片方だけだと線が残る) */
+function clearTracePath() {
+  traceScreen.length = 0;
+  paintTracePath();
+}
 
 /** 指で遊ぶ端末なら、道具をそろえておく(効かせるかは padlessOn が決める) */
 function setupPadless() {
@@ -8977,6 +9028,10 @@ function updatePlay() {
     if (padlessOn && padlessMove) {
       const v = padlessMove.update(player.x + 8, player.y + 8);
       mmsxx.input.setStick('touch', v.x, v.y);
+    } else if (traceOn && traceMove) {
+      // なぞった道も同じ口へ流す(まず始点へ行き、そのあと道をなぞる)
+      const v = traceMove.update(player.x + 8, player.y + 8);
+      mmsxx.input.setStick('touch', v.x, v.y);
     }
     // 向きと強さは 1 つの口から(上の「自機の動かしかた」を見ること)
     const st = mmsxx.input.stick(MOVE_SNAP);
@@ -9007,12 +9062,20 @@ function updatePlay() {
   // **行き先の印。** 出すのは遊びの最中だけ(やられている最中や登場中は消す)。
   // 絵は 16x16 で真ん中に十字が入っているので、行き先から 8 引いて置く
   if (aimSps.length && padlessMove) {
-    const playing = padlessOn && state === 'play' && !paused && !entering;
+    const playing = (padlessOn || traceOn) && state === 'play' && !paused && !entering;
     // **遊びの最中から外れたら行き先を捨てる。**
     // やられて戻ってきたときに前の行き先が生きていると、
     // 復帰した自機が置いた覚えのないところへ いきなり飛んでいく
     if (!playing && padlessMove.state !== 'idle') padlessMove.stop();
-    const pts = padlessMove.points;
+    if (!playing && traceMove && traceMove.state !== 'idle') {
+      traceMove.stop();
+      clearTracePath();
+    }
+    // **なぞる番のときは、道の始まりと終わりだけに印を置く。**
+    // 途中は線が見せているので、印まで並べると線が埋もれる
+    const pts = traceOn
+      ? (traceMove && traceMove.start ? [traceMove.start, traceMove.end] : [])
+      : padlessMove.points;
     // **2 コマごとに赤とピンクを入れ替える。** 止まった赤い十字は
     // 背景の中に埋もれるので、色が動いていること自体を目印にする
     const img = (mmsxx.frame & 2) ? SPRITE_SYMBOLS.aimMark1 : SPRITE_SYMBOLS.aimMark;
@@ -13453,11 +13516,14 @@ let padFlip = 0;
  * パッドに戻したい人が TARGETS を見つけられない)
  */
 const PAD_TARGETS = [
-  { name: '1', points: 1 },
+  { name: 'TARGET1', points: 1 },
   // **2 つまで。** 3 つ置けるようにしてあったが、画面に赤い十字が
   // 3 つ並ぶと、どれが次の行き先なのか見て取れなかった
-  { name: '2', points: 2 },
-  { name: 'PAD', points: 0 },   // 0 = パッドレスをやめて十字を出す
+  { name: 'TARGETS2', points: 2 },
+  { name: 'V-PAD', points: 0 },   // 0 = 行き先を置くのをやめて十字を出す
+  // **なぞった道をたどる**(engine/util/trace.js)。
+  // 行き先を「点」ではなく「道」で渡す。通ってほしい道が書ける
+  { name: 'DRAW', points: 0, draw: true },
 ];
 /**
  * いまの段(PAD_TARGETS の番号)。**十字から始める**。
@@ -13466,7 +13532,7 @@ const PAD_TARGETS = [
  * 初めて触る人には十字のほうが読める(見れば何をするものか分かる)。
  * 置く遊びかたはポーズ中の TARGETS で選んでもらう
  */
-let padTargets = PAD_TARGETS.length - 1;
+let padTargets = PAD_TARGETS.findIndex(s => s.name === 'V-PAD');
 /** いまの段。**まん中から始める** */
 let padSense = 1;
 const ZOOM_STEP = 1.12;   // 1 回で 1 割ちょっと。押した手応えが分かるくらい
@@ -13834,10 +13900,12 @@ if (PAD_ON) {
 // そちらへ横から口を出さない(ポーズ中も同じ)
 if (PAD_ON) {
   setupPadless();
+  traceMove = createTrace();
   bindPadlessTaps();
   // 実機を繋いで中を覗くとき用(touchGui と同じ考えかた)。
   // つまみもここから当てられる: padless.state / padless.marker / padless.heading
   mmsxx.expose('padless', padlessMove);
+  mmsxx.expose('trace', traceMove);
 }
 
 function bindPadlessTaps() {
@@ -13847,7 +13915,7 @@ function bindPadlessTaps() {
   let id = null;
   /** 遊びの最中か。ここ以外では指を受けない */
   // **パッドレスで遊んでいるあいだだけ受ける**(ポーズ中の TARGETS で切り替わる)
-  const live = () => padlessOn && state === 'play' && !paused && !entering;
+  const live = () => (padlessOn || traceOn) && state === 'play' && !paused && !entering;
   /** 画面の点を、自機の真ん中と同じものさしのドットへ */
   const at = (e) => mmsxx.vdp.pointToScreen(e.clientX, e.clientY);
   /** 自機の真ん中(スプライトは 16x16 なので +8) */
@@ -13858,12 +13926,24 @@ function bindPadlessTaps() {
     if (!live() || id !== null) return;
     const p = at(e);
     // **枠の外を叩いたら止まる**(仕様の 3.3)。行き先にはしない
-    if (!p.inside) { padlessMove.stop(); return; }
+    if (!p.inside) {
+      if (traceOn) { traceMove.stop(); clearTracePath(); } else padlessMove.stop();
+      return;
+    }
     e.preventDefault();
     id = e.pointerId;
     try { canvas.setPointerCapture(id); } catch (err) { /* 捕まえられなくても続ける */ }
     const c = aimClamp(p.x, p.y);
-    padlessMove.down(c.x, c.y, selfX(), selfY());
+    if (traceOn) {
+      // **前の道は捨てて引き直す**(部品の down がそうする)。
+      // 絵のほうも同じところで捨てる
+      traceScreen.length = 0;
+      traceScreen.push([e.clientX, e.clientY]);
+      traceMove.down(c.x, c.y);
+      paintTracePath();
+    } else {
+      padlessMove.down(c.x, c.y, selfX(), selfY());
+    }
   });
 
   // **動きも window で拾う**(上の pointerup と同じ理由。
@@ -13872,14 +13952,27 @@ function bindPadlessTaps() {
     if (e.pointerId !== id) return;
     const p = at(e);
     const c = aimClamp(p.x, p.y);
-    padlessMove.move(c.x, c.y);
+    if (traceOn) {
+      const before = traceMove.points.length;
+      traceMove.move(c.x, c.y);
+      // **絵のほうは画面の点をそのまま持つ。**
+      // ドットから画面へ戻す道は無いし、指が通ったところをそのまま
+      // なぞればよいので、回転も倍率も考えずに済む。
+      // 拾う間隔は部品に合わせる(点が増えたときだけ足す)
+      if (traceMove.points.length > before) {
+        traceScreen.push([e.clientX, e.clientY]);
+        paintTracePath();
+      }
+    } else {
+      padlessMove.move(c.x, c.y);
+    }
   });
 
   const up = (e) => {
     if (e.pointerId !== id) return;
     id = null;
     // 行き先はもう指の下に置いてあるので、離すだけでよい
-    padlessMove.up();
+    if (traceOn) traceMove.up(); else padlessMove.up();
   };
   // **離したことは window で拾う。** canvas だけで待っていると、
   // 捕まえ損ねたまま指が canvas の外(連射の四角やポーズの上)へ抜けて
@@ -13891,7 +13984,7 @@ function bindPadlessTaps() {
   window.addEventListener('pointercancel', (e) => {
     if (e.pointerId !== id) return;
     id = null;
-    padlessMove.cancel();
+    if (traceOn) traceMove.cancel(); else padlessMove.cancel();
   });
   // 長押しのメニュー(iOS の「コピー」など)を断る
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -14108,11 +14201,11 @@ function bindPadSenseButton() {
   // (PAD RESPONSE で懲りた)
   padTargetsUI = createStepper({
     mount: tools,
-    label: 'TARGETS',
+    label: 'CONTROL',
     items: PAD_TARGETS.map(s => s.name),
     index: startPadTargets(),
-    // **端まで行ったら回り込む。** 3 つしか無いので、端で止まると
-    // 逆の端へ行くのに 2 回押すことになる(実機で言われたぶん)
+    // **端まで行ったら回り込む。** 数が少ないので、端で止まると
+    // 逆の端へ行くのに何度も押すことになる(実機で言われたぶん)
     wrap: true,
     onChange: (i, name, byUser) => applyPadTargets(i, byUser),
   });
@@ -14128,21 +14221,25 @@ function applyPadTargets(n, tell) {
   padTargets = Math.max(0, Math.min(PAD_TARGETS.length - 1, n));
   const s = PAD_TARGETS[padTargets];
   padlessOn = s.points > 0;
+  traceOn = !!s.draw;
   if (padlessMove) {
     if (padlessOn) padlessMove.maxPoints = s.points;
-    // **パッドへ戻すときは置いたぶんを消す。**
+    // **ほかの動かしかたへ移るときは置いたぶんを消す。**
     // 残すと、十字で動かしているのに赤い十字が残って、
     // 自機がそちらへ勝手に向かう
     else padlessMove.stop();
   }
+  // 道も同じ。**残すと、なぞる番でもないのに線が居座る**
+  if (traceMove && !traceOn) { traceMove.stop(); clearTracePath(); }
   if (touchGui) {
-    // 十字はパッドのときだけ出す(パッドレスでは絵も当たりも消して、
+    // 十字はパッドのときだけ出す(画面を触って動かすときは絵も当たりも消して、
     // canvas を直に受けられるようにする)
-    touchGui.touch.dpadOn = !padlessOn;
-    // 連射の受け場所を画面から外すのも、画面を叩いて動かすときだけ
-    touchGui.setOptions({ shotHitOffCanvas: padlessOn });
+    const onCanvas = padlessOn || traceOn;
+    touchGui.touch.dpadOn = !onCanvas;
+    // 連射の受け場所を画面から外すのも、画面を触って動かすときだけ
+    touchGui.setOptions({ shotHitOffCanvas: onCanvas });
   }
-  if (tell) showNotice('TARGETS: ' + s.name);
+  if (tell) showNotice('CONTROL: ' + s.name);
   if (DEVICE) return;
   settings.set('padTargets', padTargets);
   settings.set('padTargetsSet', true);
@@ -14154,12 +14251,17 @@ function applyPadTargets(n, tell) {
  * `?stick=` にパッドレス以外(origin / move)が入っていたら、パッドから始める
  */
 function startPadTargets() {
-  const raw = OPT.get('targets');
-  if (raw === 'pad') return PAD_TARGETS.length - 1;
+  const raw = (OPT.get('targets') || '').toUpperCase();
+  // **十字の番号は名前で引く。** 一覧に足すたびに番号が動くので、
+  // 「いちばん後ろが十字」と数えると、後ろへ足した瞬間に別のものになる
+  const padAt = PAD_TARGETS.findIndex(s => s.name === 'V-PAD');
+  if (raw === 'PAD' || raw === 'V-PAD') return padAt;
+  if (raw === '1') return 0;
+  if (raw === '2') return 1;
   const at = PAD_TARGETS.findIndex(s => s.name === raw);
   if (at >= 0) return at;
   const stick = OPT.get('stick');
-  if (stick && stick !== 'padless') return PAD_TARGETS.length - 1;
+  if (stick && stick !== 'padless') return padAt;
   if (!DEVICE && settings.get('padTargetsSet')) return settings.get('padTargets');
   return padTargets;
 }
@@ -14738,9 +14840,11 @@ const HOWTO_PAGES_PAD = [
  * いま出すべき案内。**そのとき効いている遊びかたのぶん**を返す。
  * 既定が入れ替わっても、読むものは手元の動きと合っている
  */
-function howToPages() { return padlessOn ? HOWTO_PAGES_AIM : HOWTO_PAGES_PAD; }
+// TODO: なぞる遊びかた(DRAW)のぶんはまだ無い。画面を触って動かす点は
+// 同じなので、いまは行き先を置くほうの案内を出しておく
+function howToPages() { return (padlessOn || traceOn) ? HOWTO_PAGES_AIM : HOWTO_PAGES_PAD; }
 /** 挿絵も遊びかたごと(上と同じ並び) */
-function howToArt() { return padlessOn ? HOWTO_ART_AIM : HOWTO_ART_PAD; }
+function howToArt() { return (padlessOn || traceOn) ? HOWTO_ART_AIM : HOWTO_ART_PAD; }
 
 /** 開いている板。**開いているあいだはゲームを止める** */
 let howToEl = null;
