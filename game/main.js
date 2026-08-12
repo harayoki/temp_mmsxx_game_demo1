@@ -394,6 +394,7 @@ const SPRITE_COLORS = {
   chargeOrb0: 1, chargeOrb1: 1, chargeOrb2: 1,
   chargeRing0: 1, chargeRing1: 1, chargeRing2: 1,
   bulletP: 1, bulletE: 1,
+  aimMark: 1,   // パッドレスの行き先の印(赤 1 色)
   coinItem: 1, autoItem: 1, dragonItem: 1, candyItem: 2,
   boom0: 1, boom1: 1, boom2: 1,
   // ラスボス。シルエットマンは黒 1 色、回転レーザーの粒も単色

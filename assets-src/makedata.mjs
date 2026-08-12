@@ -493,6 +493,22 @@ const bulletP = fromAscii([
   '.YYY.',
 ], { Y: '#ffe34d' });
 
+// パッドレスのときの行き先の印。**小さい赤い十字**。
+// 真ん中を抜いてあるのは、そこに何が居るか(敵・アイテム)を隠さないため。
+// **弾と見間違えない形にする**のが肝で、丸にすると敵弾に紛れる。
+// 大きさは 7x7 まで。これ以上だと、寄せたい場所そのものを覆ってしまう。
+// **あとで波紋の広がるコマ送りに替える**(叩いたところに輪が広がる、よくあるやつ)。
+// そのときはここに何コマか並べて、ゲーム側で送ること。いまは十字 1 枚
+const aimMark = fromAscii([
+  '...R...',
+  '...R...',
+  '.......',
+  'RR...RR',
+  '.......',
+  '...R...',
+  '...R...',
+], { R: '#f04848' });
+
 // ボスの弾。グラディウスのモアイのような、ぽわぽわ飛ぶ 16x16 のリング
 const bulletRing = fromAscii([
   '.....######.....',
@@ -6414,6 +6430,7 @@ const images = {
   player, enemyA, enemyB, enemyC, enemyF, enemyG, enemyH, enemyI, enemyJ,
   glower0, glower1, glower2, weight16t, kingWaveL, kingWaveM, kingWaveS, warper, cube, bouncer, rammer, logo, station, jupiter, saturn, colony, moai, moaiFlip, asteroid, earth, earthBig, blackhole,
   bulletP: pad16(bulletP), bulletE: pad16(bulletE), bulletRing,
+  aimMark: pad16(aimMark),
   item: pad16(item), star: pad16(star), bomb: pad16(bomb),
   speedUp: pad16(speedUp), rapidUp: pad16(rapidUp), oneUp: pad16(oneUp),
   powerUp: pad16(powerUp), barrierItem: pad16(barrierItem), barrier,
