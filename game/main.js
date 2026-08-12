@@ -159,9 +159,8 @@ const settings = new SaveGroup('starfable-settings', {
   // 切り返しの重さ(0 = 切る / 1 = はっきり戻したときだけ)と、決めたことがあるかの印
   padFlip: { type: T.NUMBER, min: 0, max: 1, digits: 0, label: 'TURN BACK' },
   padFlipSet: { type: T.FLAG, label: 'TURN BACK SET' },
-  // パッドレスで置ける行き先の数(0 = 1 つ / 1 = 2 つ / 2 = 3 つ)
-  // 0〜2 が行き先の数(1〜3)、3 がバーチャルパッド
-  padTargets: { type: T.NUMBER, min: 0, max: 3, digits: 0, label: 'TARGETS' },
+  // パッドレスで置ける行き先の数(0 = 1 つ / 1 = 2 つ / 2 = バーチャルパッド)
+  padTargets: { type: T.NUMBER, min: 0, max: 2, digits: 0, label: 'TARGETS' },
   padTargetsSet: { type: T.FLAG, label: 'TARGETS SET' },
   // 遊びかたの案内を一度でも出したか(**出すのは初めての 1 回だけ**)
   howToSeen: { type: T.FLAG, label: 'HOW TO PLAY SEEN' },
@@ -1202,7 +1201,7 @@ let padlessOn = false;
  * 行き先の印。**溜められるぶんだけ用意する**(部品の maxPoints と同じ数)。
  * **弾より奥**に置く(避けるものを隠さない)
  */
-const PAD_AIM_MAX = 3;
+const PAD_AIM_MAX = 2;
 const aimSps = [];
 
 /** 指で遊ぶ端末なら、道具をそろえておく(効かせるかは padlessOn が決める) */
@@ -13455,8 +13454,9 @@ let padFlip = 0;
  */
 const PAD_TARGETS = [
   { name: '1', points: 1 },
+  // **2 つまで。** 3 つ置けるようにしてあったが、画面に赤い十字が
+  // 3 つ並ぶと、どれが次の行き先なのか見て取れなかった
   { name: '2', points: 2 },
-  { name: '3', points: 3 },
   { name: 'PAD', points: 0 },   // 0 = パッドレスをやめて十字を出す
 ];
 /**
@@ -14111,8 +14111,8 @@ function bindPadSenseButton() {
     label: 'TARGETS',
     items: PAD_TARGETS.map(s => s.name),
     index: startPadTargets(),
-    // **端まで行ったら回り込む。** 4 つしか無いので、端で止まると
-    // 逆の端へ行くのに 3 回押すことになる(実機で言われたぶん)
+    // **端まで行ったら回り込む。** 3 つしか無いので、端で止まると
+    // 逆の端へ行くのに 2 回押すことになる(実機で言われたぶん)
     wrap: true,
     onChange: (i, name, byUser) => applyPadTargets(i, byUser),
   });

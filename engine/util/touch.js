@@ -90,6 +90,24 @@ const DEFAULTS = {
   // 4 なら、置いた指のわずかな揺れでは自機が動かない
   deadzone: 4,
   /**
+   * ('origin' のとき)**触れた点のまわりの「動かないところ」**(px。0 で切)。
+   *
+   * 上の `deadzone` は**原点**からの距離で見るので、引きずり(`dragMax`)で
+   * 原点が指に付いてくると**どこにも止まるところが無くなる**。
+   * 速く払ったあとは原点が指のすぐ後ろに居て、戻しても倒したままになり、
+   * 止めるにはゆっくり動かして原点に追いつくしかなかった。
+   *
+   * こちらは**触れた点**からの距離なので、引きずりに動かされない。
+   * 絵が置いてあるところ = 遊ぶ人が思うニュートラルで、
+   * **どれだけ速く戻ってきても、そこまで来れば止まる**。
+   *
+   * **見るのは指の通り道**(前の場所から今の場所まで)なので、
+   * 1 コマで飛び越えるほど速く払っても、そこを通れば止まる。
+   * だから窓は狭くてよい — 広げると、そのぶん**そっと寄せる操作**が
+   * 効かなくなる(手前の這うところが丸ごと消える)
+   */
+  stickHome: 10,
+  /**
    * これより離れたら**原点を引きずる**(px)。0 で引きずらない。
    *
    * **戻す量に頭を付けるためのつまみ。** 0 のままだと、右へ 200px 出した
@@ -919,6 +937,20 @@ export class TouchControls {
     if (this.opts.stickMode === 'move') this._startCoast();
   }
 
+  /**
+   * 点(px, py)から線分(ax, ay)-(bx, by)までの距離。
+   * 指の**通り道**が、止まるところを通ったかを見るのに使う
+   */
+  _segDist(px, py, ax, ay, bx, by) {
+    const vx = bx - ax, vy = by - ay;
+    const len2 = vx * vx + vy * vy;
+    if (len2 <= 0) return Math.hypot(px - ax, py - ay);
+    // 線分のどのあたりがいちばん近いか(0〜1 に収める)
+    let t = ((px - ax) * vx + (py - ay) * vy) / len2;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(px - (ax + vx * t), py - (ay + vy * t));
+  }
+
   _stickMove(p) {
     if (this.opts.stickMode === 'move') { this._stickMoveDirect(p); return; }
     const s = this.stick;
@@ -926,11 +958,37 @@ export class TouchControls {
     // 下の折り返しの見分けが、指の場所ではなく指の動きを見るため
     const mdx = p.x - s.x, mdy = p.y - s.y;
     this._decay(performance.now(), mdx, mdy);
+    // 通り道の見分け(下の stickHome)に、動く前の場所が要る
+    const fromX = s.x, fromY = s.y;
     s.x = p.x; s.y = p.y;
     this._flipOrigin(mdx, mdy);
     let dx = s.x - s.ox;
     let dy = s.y - s.oy;
     let dist = Math.hypot(dx, dy);
+
+    /**
+     * **触れた点のまわりは、いつでも止まるところ**(stickHome)。
+     *
+     * 引きずり(dragMax)があると、原点は指に付いてくる。速く払うほど
+     * 原点は指のすぐ後ろに居るので、**どこまで戻しても倒したまま**になり、
+     * 止めるにはゆっくり動かして原点に追いつくしかなかった。
+     *
+     * 絵は触れた点に置いてある。**遊ぶ人にとってのニュートラルはそこ**なので、
+     * そのまわりに戻ってきたら、速さにかかわらず倒し量を 0 にする。
+     * 原点も触れた点へ戻す — 次に倒すときは、押し直したのと同じになる。
+     *
+     * **見るのは今いる場所ではなく通り道。** 速く払うと 1 コマで 60px も
+     * 進むので、場所だけで見ると狭い窓は丸ごと飛び越えてしまう
+     */
+    const home = this._px(this.opts.stickHome);
+    if (home > 0 && this._segDist(s.px, s.py, fromX, fromY, s.x, s.y) <= home) {
+      s.ox = s.px; s.oy = s.py;
+      s.dx = 0; s.dy = 0; s.dist = 0; s.sector = -1;
+      this._applyDirs([]);
+      this._reportStick();
+      this._showRing();
+      return;
+    }
 
     // 大きく離れたら、その距離を保つように原点を引きずる。**0 なら引きずらない**
     const max = this._px(this.opts.dragMax);
