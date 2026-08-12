@@ -263,8 +263,9 @@ export class TouchControls {
 
     /** 相対十字の様子(touch-tool が読む) */
     // vx / vy / speed は 'move' のときの、ならした指の速さ(px/ms)
+    // rx / ry は**外へ知らせた向きと強さ**(_reportStick が入れる)。針もこれを見る
     this.stick = { active: false, ox: 0, oy: 0, x: 0, y: 0, dx: 0, dy: 0, dist: 0, deg: 0, sector: -1,
-      vx: 0, vy: 0, speed: 0 };
+      vx: 0, vy: 0, speed: 0, rx: 0, ry: 0 };
     /** ('move' のとき)最後に速さを測った時刻 */
     this._sampleAt = 0;
     /** ('move' のとき)指が止まったことに気づくための見張り */
@@ -287,6 +288,7 @@ export class TouchControls {
     };
     this._resizeWait = 0;
     this._dpad = this._shot = this._fire = this._pause = this._knob = this._stickEl = null;
+    this._needle = null;
     /** 指を受けるだけの入れ物(絵は持たない)。attach で渡されたときだけ */
     this._dpadCatch = this._shotCatch = null;
     /** 1 コマだけ押すための仕掛け */
@@ -350,6 +352,7 @@ export class TouchControls {
     this._pause = this._shot.querySelector('.mmsxx-touch-pause');
     this._knob = this._dpad.querySelector('.mmsxx-touch-knob');
     this._stickEl = this._dpad.querySelector('.mmsxx-touch-stick');
+    this._needle = this._dpad.querySelector('.mmsxx-touch-needle');
 
     this._applyLayout();
     this._applyLabels();
@@ -392,6 +395,7 @@ export class TouchControls {
     this._zones = [];
     this._dpadCatch = this._shotCatch = null;
     this._dpad = this._shot = this._fire = this._pause = this._knob = this._stickEl = null;
+    this._needle = null;
   }
 
   /** 指を受けるだけの入れ物。渡されたぶんだけ */
@@ -582,9 +586,10 @@ export class TouchControls {
   /** 押しているところを明るくする。**音は鳴らさない** */
   _paint() {
     if (!this._dpad) return;
-    for (const arrow of this._dpad.querySelectorAll('.mmsxx-touch-stick .mmsxx-touch-arrow')) {
-      arrow.classList.toggle('on', this.down.has(arrow.dataset.code));
-    }
+    // **十字の矢印はもう点けない。** 矢印は 8 方向しか無いので、
+    // 点けると 360 度動いているものが 8 方向に吸着して見える。
+    // 倒している向きは針(_showNeedle)が丸めずに見せる。
+    // 残してあるのは**上下左右がどちらかを示す目印**としてだけ
     // **押しっぱなしの明かりは、撃ちっぱなしの遊びでは出さない。**
     // idleFire では触っていないあいだが押しっぱなしなので、点けると
     // 遊んでいるあいだ ずっと光ることになる(こすりが効いた合図が埋もれる)。
@@ -750,6 +755,7 @@ export class TouchControls {
     s.ox = p.x; s.oy = p.y;
     s.x = p.x; s.y = p.y;
     s.dx = 0; s.dy = 0; s.dist = 0; s.deg = 0; s.sector = -1;
+    s.rx = 0; s.ry = 0;
     // 'move' 用。**触れただけでは向きを立てない**(動きはまだ 0)
     s.vx = 0; s.vy = 0; s.speed = 0;
     this._sampleAt = performance.now();
@@ -852,9 +858,8 @@ export class TouchControls {
    * 触れたところからの決めかた('origin')では、原点からの距離で作る
    */
   _reportStick() {
-    if (!this.onStick) return;
     const s = this.stick;
-    if (!s.active) { this.onStick(0, 0); return; }
+    if (!s.active) { s.rx = 0; s.ry = 0; if (this.onStick) this.onStick(0, 0); return; }
     let x = 0, y = 0;
     if (this.opts.stickMode === 'move') {
       const lo = this.opts.stickMinSpeed;
@@ -872,7 +877,10 @@ export class TouchControls {
       const t = Math.min(1, Math.max(0, (s.dist - dead) / Math.max(1, full - dead)));
       if (t > 0 && s.dist > 0) { x = (s.dx / s.dist) * t; y = (s.dy / s.dist) * t; }
     }
-    this.onStick(x, y);
+    // **針が見せるのは、ここで出した値そのもの。**
+    // 別に計算し直すと、目に見えているものと自機の動きがずれる
+    s.rx = x; s.ry = y;
+    if (this.onStick) this.onStick(x, y);
   }
 
   /**
@@ -942,6 +950,7 @@ export class TouchControls {
   _hideRing() {
     if (this._stickEl) this._stickEl.style.display = 'none';
     if (this._knob) this._knob.style.display = 'none';
+    if (this._needle) this._needle.style.display = 'none';
     if (this._dpad) this._dpad.classList.remove('holding');   // 目印を出す
   }
 
@@ -976,6 +985,30 @@ export class TouchControls {
     this._stickEl.style.top = at.y + 'px';
     this._knob.style.left = (s.x - r.left) + 'px';
     this._knob.style.top = (s.y - r.top) + 'px';
+    this._showNeedle();
+  }
+
+  /**
+   * **倒している向きを、丸めずそのまま見せる。**
+   *
+   * 矢印 4 つは 8 方向にしか点かないので、動きが 360 度なのに
+   * **目には 8 方向へ吸着しているように見えていた**。読み取りは針が受け持つ。
+   *
+   * 見せるのは `_reportStick` が外へ出した値そのもの(`rx` / `ry`)なので、
+   * 針の向きと長さは**自機の向きと速さと必ず一致する**
+   */
+  _showNeedle() {
+    const n = this._needle;
+    if (!n) return;
+    const s = this.stick;
+    const t = Math.hypot(s.rx, s.ry);
+    if (!s.active || t <= 0) { n.style.display = 'none'; return; }
+    n.style.display = 'block';
+    n.style.setProperty('--deg', (Math.atan2(s.ry, s.rx) * 180 / Math.PI) + 'deg');
+    // **1 を超えることがある**('move' の stickMaxPower)。長さは輪で頭打ちにして、
+    // 振り切っていることは色で見せる(伸ばし続けると輪の外へ出てしまう)
+    n.style.setProperty('--len', Math.min(1, t) * this._r + 'px');
+    n.classList.toggle('full', t >= 1);
   }
 
   // ── こすり打ち ────────────────────────────────────────
@@ -1180,7 +1213,7 @@ const DPAD_HTML = `
   <div class="mmsxx-touch-note"></div>
   <div class="mmsxx-touch-hint">${ARROWS}</div>
   <div class="mmsxx-touch-callout"></div>
-  <div class="mmsxx-touch-stick"><div class="mmsxx-touch-ring"></div>${ARROWS}</div>
+  <div class="mmsxx-touch-stick"><div class="mmsxx-touch-ring"></div><div class="mmsxx-touch-dial"></div>${ARROWS}<div class="mmsxx-touch-needle"><i></i></div></div>
   <div class="mmsxx-touch-knob"></div>`;
 
 /** ショットの入れ物の中身 */
@@ -1324,8 +1357,40 @@ function injectStyle() {
   /* 幹は 30〜70%(太さそのまま)。傘の張り出しは片側 7.5% まで詰めた */
   clip-path: polygon(50% 0%, 77.5% 52%, 70% 52%, 70% 100%, 30% 100%, 30% 52%, 22.5% 52%);
 }
-/* 押されたときの黄色。**輝度を 8 割に落としてある**(素の #ffcc22 は目に痛い) */
+/* 押されたときの黄色。**輝度を 8 割に落としてある**(素の #ffcc22 は目に痛い)。
+   十字の矢印はもう点けない(針が受け持つ)ので、いま効くのは hint のほうだけ */
 .mmsxx-touch-arrow.on { background: #cca31b; }
+
+/* 倒し量の目盛りになる輪。**針がここへ届いたら全速**。
+   どこまで倒せばよいかが、触る前から見えているようにする */
+.mmsxx-touch-dial {
+  position: absolute;
+  left: calc(var(--r) * -1); top: calc(var(--r) * -1);
+  width: calc(var(--r) * 2); height: calc(var(--r) * 2);
+  border-radius: 50%;
+  /* **絵と同じ紺だと消える**(十字の下敷きが紺の丸)。
+     薄い白なら、絵を差し替えても明るくても暗くても残る */
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.22);
+}
+
+/* **倒している向きと強さ。丸めずそのまま出す。**
+   0 度が右(atan2 と同じ)。角度は --deg、長さは --len に JS が入れる。
+   入れ物は大きさを持たない点なので、回しても原点は動かない */
+.mmsxx-touch-needle {
+  position: absolute; left: 0; top: 0; width: 0; height: 0;
+  display: none;
+  transform: rotate(var(--deg, 0deg));
+}
+.mmsxx-touch-needle i {
+  position: absolute;
+  left: 0; top: calc(var(--r) * -0.14);
+  width: var(--len, 0px); height: calc(var(--r) * 0.28);
+  background: #cca31b;
+  /* お尻を細く、先を尖らせる。短いときでも向きが読める形 */
+  clip-path: polygon(0% 32%, 74% 4%, 100% 50%, 74% 96%, 0% 68%);
+}
+/* 振り切っているあいだ。長さはもう伸びないので、色でそれと分かるようにする */
+.mmsxx-touch-needle.full i { background: #ffcc22; }
 /* 大きさはそのまま、4 つとも内側へ 20px 寄せる */
 .mmsxx-touch-arrow[data-code="ArrowUp"]    { left: 0; top: calc(var(--r) * -1.01 + 20px); }
 .mmsxx-touch-arrow[data-code="ArrowDown"]  { left: 0; top: calc(var(--r) * 1.01 - 20px);  transform: rotate(180deg); }

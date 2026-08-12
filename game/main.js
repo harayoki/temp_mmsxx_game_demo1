@@ -13652,10 +13652,24 @@ function applyPadSense(n, tell) {
 
 function bindPadSenseButton() {
   const el = document.getElementById('pad-sense');
-  if (!el) return;
+  const row = document.getElementById('pad-sense-row');
+  if (!el || !row) return;
   // **PC には要らない。** 十字が出ないので効きようがない
-  if (!PAD_ON) { el.style.display = 'none'; return; }
-  el.addEventListener('click', () => { el.blur(); applyPadSense(padSense + 1, true); });
+  if (!PAD_ON) { row.style.display = 'none'; return; }
+  // **ボタンそのものも左右に割れている。**
+  // 矢印は「替えられる」と見せるための目印で、指が行くのは字の出ている
+  // 本体のほう。そちらを押しても、押した側へ動くようにする
+  el.addEventListener('click', (e) => {
+    el.blur();
+    const r = el.getBoundingClientRect();
+    // 幅が測れないとき(隠れている最中など)は今までどおり次へ送る
+    const back = r.width > 0 && (e.clientX - r.left) < r.width / 2;
+    applyPadSense(padSense + (back ? -1 : 1), true);
+  });
+  for (const [id, step] of [['pad-sense-prev', -1], ['pad-sense-next', 1]]) {
+    const b = document.getElementById(id);
+    if (b) b.addEventListener('click', () => { b.blur(); applyPadSense(padSense + step, true); });
+  }
   // 前に決めた段があれば、それで始める。**無くてもボタンには字を入れる**
   applyPadSense((!DEVICE && settings.get('padSenseSet')) ? settings.get('padSense') : padSense,
     false);
@@ -13666,12 +13680,13 @@ function bindPadSenseButton() {
  * 遊んでいる最中に触るものではないし、そのぶん十字の場所を食う
  */
 function showPadSenseButton() {
-  const el = document.getElementById('pad-sense');
-  if (!el) return;
+  // **出し入れするのは矢印ごと**(行そのもの)。本体だけ消すと矢印が残る
+  const row = document.getElementById('pad-sense-row');
+  if (!row) return;
   const on = paused;
   if (padSenseShown === on) return;
   padSenseShown = on;
-  el.style.display = on ? '' : 'none';
+  row.style.display = on ? '' : 'none';
 }
 
 /**
@@ -13930,6 +13945,12 @@ const A2HS_TEXT = {
   },
   add: { ja: 'ホームに追加', en: 'ADD' },
   later: { ja: 'このまま遊ぶ', en: 'PLAY HERE' },
+  // **まだ作りかけだと先に断っておく。** 遊びはじめてから使いにくさに
+  // ぶつかるより、置く前に分かっているほうがよい
+  wip: {
+    ja: '※スマホ版のインターフェースはまだ開発中のため使いづらいです。',
+    en: '* The phone controls are still under construction and rough to use.',
+  },
 };
 
 /** その人の言葉で 1 つ取り出す */
@@ -14002,6 +14023,9 @@ function openHomeInstall() {
   } else {
     how.textContent = a2hsText('other');
   }
+  // **赤で断り書き。** スマホの操作まわりはまだ詰めている最中なので、
+  // ホームへ置いてもらう前にそれと分かるようにしておく
+  line(a2hsText('wip'), { color: '#ff5a5a', marginBottom: '12px' });
 
   const row = document.createElement('div');
   Object.assign(row.style, {
