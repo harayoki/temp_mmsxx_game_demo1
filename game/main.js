@@ -14100,6 +14100,9 @@ function closeHomeInstall() {
 
 // **ここで呼ぶ。** 上の const(IS_STANDALONE)より前では触れない
 setupHomeInstall();
+// スマホの画角への入口(DEV のときだけ)。DEVICE / DEVICES を見るので、
+// **こちらも上の const が出そろってから**
+showDeviceEntry();
 
 /** 端まで来た ＋ / − を灰色にする。**枠ごと**沈めて、押せないことを見せる */
 function updateZoomButtons() {
@@ -14159,6 +14162,39 @@ function showDeviceLinks() {
     langLink('ja'),
     langLink('en'),
   );
+  document.body.appendChild(bar);
+}
+
+/**
+ * **PC からスマホの画角へ入るための入口**(`?device=`)。ページの下端に置く。
+ *
+ * セーフエリアの枠つきで立ち上がるのは `?device=` を付けたときだけなので、
+ * 毎回 URL を打ち直していた。中へ入ってからは上の showDeviceLinks で
+ * 渡り歩けるので、**ここに要るのは「入る」ぶんだけ**。
+ *
+ * **DEV のときだけ。本番には出さない**(遊びに来た人には関わりが無い)。
+ * すでに画角の中に居るときと、指で触る端末では出さない
+ * (あちらは本物のセーフエリアがあるので、作りものの枠は邪魔にしかならない)
+ */
+function showDeviceEntry() {
+  if (!DEV || DEVICE || coarsePointer()) return;
+  const bar = document.createElement('p');
+  bar.style.cssText = 'display:flex;gap:8px;align-items:center;'
+    + 'justify-content:center;flex-wrap:wrap';
+  bar.append(Object.assign(document.createElement('span'), {
+    textContent: 'DEV: OPEN AS PHONE',
+  }));
+  for (const [key, d] of Object.entries(DEVICES)) {
+    const q = new URLSearchParams(location.search);
+    q.set('device', key);
+    const a = document.createElement('a');
+    a.href = location.pathname + '?' + q;
+    a.textContent = d.name;
+    a.title = `${d.w}x${d.h} @${d.dpr}`;
+    a.style.cssText = 'color:#cfe0ff;text-decoration:none;padding:2px 8px;'
+      + 'background:#1b1d2a;border:1px solid #5a6180';
+    bar.appendChild(a);
+  }
   document.body.appendChild(bar);
 }
 
