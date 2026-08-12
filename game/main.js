@@ -156,6 +156,14 @@ const settings = new SaveGroup('starfable-settings', {
   // 十字の効きぐあい(0 = にぶい / 1 = ふつう / 2 = びんかん)と、決めたことがあるかの印
   padSense: { type: T.NUMBER, min: 0, max: 2, digits: 0, label: 'PAD SENSITIVITY' },
   padSenseSet: { type: T.FLAG, label: 'PAD SENSITIVITY SET' },
+  // 切り返しの重さ(0 = 切る / 1 = はっきり戻したときだけ)と、決めたことがあるかの印
+  padFlip: { type: T.NUMBER, min: 0, max: 1, digits: 0, label: 'TURN BACK' },
+  padFlipSet: { type: T.FLAG, label: 'TURN BACK SET' },
+  // パッドレスで置ける行き先の数(0 = 1 つ / 1 = 2 つ / 2 = 3 つ)
+  padTargets: { type: T.NUMBER, min: 0, max: 2, digits: 0, label: 'TARGETS' },
+  padTargetsSet: { type: T.FLAG, label: 'TARGETS SET' },
+  // 遊びかたの案内を一度でも出したか(**出すのは初めての 1 回だけ**)
+  howToSeen: { type: T.FLAG, label: 'HOW TO PLAY SEEN' },
 });
 // 前に音を消したままなら、消した状態で始める。
 // **?mute= は次の行で効く**ので、URL で指定したぶんが優先される
