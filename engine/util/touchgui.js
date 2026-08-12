@@ -609,6 +609,19 @@ export class TouchGui {
   }
 
   /**
+   * **端末に食われるぶんを実機でも見せる**(確かめるときだけ)。
+   *
+   * ふだんは `?device=` で枠を作っているときにしか描かない。実機には本物の
+   * ノッチがあるので描く意味が無いから。ただ**どちら側だと思っているか**は
+   * 目で見ないと分からず、左右を取り違えていても気づけない。
+   * 開発版でこれを出して、**本物のノッチと同じ側に出るか**を見る
+   */
+  showSafeArea(on) {
+    if (this._root) this._root.classList.toggle('showsafe', !!on);
+    return this;
+  }
+
+  /**
    * **撃ちっぱなしを言い直す**(touch.js の idleFire)。**毎コマ呼ぶこと**。
    * 受け取る側が入力を捨てても(画面が非アクティブ・知らせを閉じた)、次のコマで戻る
    */
@@ -618,7 +631,19 @@ export class TouchGui {
    * **こすりかたを指で見せる**(touch.js の rubDemo)。
    * 速く撃てるほど効く場面に来たところで呼ぶ
    */
-  rubDemo(sec) { this.touch.rubDemo(sec); return this; }
+  rubDemo(sec = 6) {
+    this.touch.rubDemo(sec);
+    // **見せているあいだは帯を濃くする**(上の .rubdemo)。
+    // 薄いままだと指が透けて暗く、動きが読み取れなかった
+    if (this._root) {
+      this._root.classList.add('rubdemo');
+      clearTimeout(this._rubDemoTimer);
+      this._rubDemoTimer = setTimeout(() => {
+        if (this._root) this._root.classList.remove('rubdemo');
+      }, sec * 1000);
+    }
+    return this;
+  }
 
   /** 案内の言語を変える */
   setLang(lang) {
@@ -1470,6 +1495,15 @@ function injectStyle() {
    **決め打ちの画角のときだけ。** 実機ではそこに本物のノッチがあるので描かない */
 .mmsxx-gui-safearea { display: none; }
 .mmsxx-gui.framed .mmsxx-gui-safearea { display: block; }
+/* **実機でも出す口**(showSafeArea)。開発版だけの目印で、
+   「エンジンがどこを食われていると思っているか」を目で確かめるためのもの。
+   本物のノッチと**同じ側に出ているか**を見る。斜線は赤で、枠より目立たせる */
+.mmsxx-gui.showsafe .mmsxx-gui-safearea { display: block; }
+.mmsxx-gui.showsafe .mmsxx-gui-safearea i {
+  background: repeating-linear-gradient(45deg,
+    rgba(255, 90, 90, 0.34) 0 5px, rgba(0, 0, 0, 0) 5px 10px);
+  box-shadow: inset 0 0 0 1px rgba(255, 90, 90, 0.6);
+}
 .mmsxx-gui-safearea i {
   position: absolute; pointer-events: none;
   background: repeating-linear-gradient(45deg,
@@ -1519,6 +1553,13 @@ function injectStyle() {
   /* 薄くなるのは**じわりと**。ぱっと変わると目を引いてしまう */
   transition: opacity 400ms linear;
 }
+/* **こすりかたを見せているあいだは、その帯をはっきり出す。**
+   帯ごと薄くしてあるので、そのままでは指も透けて暗い(実機でそうなった)。
+   **指だけ濃くすることはできない** — 薄めているのは親の opacity なので、
+   子で 1 に戻しても親の薄さは戻らない。帯そのものを濃くする。
+   あれは「場所を覚えたら邪魔になるもの」ではなく、**その場で読ませたい
+   一度きりの案内**なので、6 秒のあいだだけ前へ出てよい */
+.mmsxx-gui.rubdemo .mmsxx-gui-right { opacity: 1; }
 
 /* **まだ触られていない / しばらく触られていないときの点滅。**
    薄くしてあるので、背景によっては本当に見えない。1 秒に 1 回ぱっと明るくして

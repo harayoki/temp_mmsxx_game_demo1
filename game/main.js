@@ -405,7 +405,7 @@ const SPRITE_COLORS = {
   chargeOrb0: 1, chargeOrb1: 1, chargeOrb2: 1,
   chargeRing0: 1, chargeRing1: 1, chargeRing2: 1,
   bulletP: 1, bulletE: 1,
-  aimMark: 1,   // パッドレスの行き先の印(赤 1 色)
+  aimMark: 1, aimMark1: 1,   // パッドレスの行き先の印(赤 / ピンクの 2 枚)
   coinItem: 1, autoItem: 1, dragonItem: 1, candyItem: 2,
   boom0: 1, boom1: 1, boom2: 1,
   // ラスボス。シルエットマンは黒 1 色、回転レーザーの粒も単色
@@ -9014,10 +9014,16 @@ function updatePlay() {
     // 復帰した自機が置いた覚えのないところへ いきなり飛んでいく
     if (!playing && padlessMove.state !== 'idle') padlessMove.stop();
     const pts = padlessMove.points;
+    // **2 コマごとに赤とピンクを入れ替える。** 止まった赤い十字は
+    // 背景の中に埋もれるので、色が動いていること自体を目印にする
+    const img = (mmsxx.frame & 2) ? SPRITE_SYMBOLS.aimMark1 : SPRITE_SYMBOLS.aimMark;
     for (let i = 0; i < aimSps.length; i++) {
       const p = (playing && player.visible) ? pts[i] : null;
       aimSps[i].visible = !!p;
-      if (p) { aimSps[i].x = Math.round(p.x) - 8; aimSps[i].y = Math.round(p.y) - 8; }
+      if (p) {
+        aimSps[i].image = img;
+        aimSps[i].x = Math.round(p.x) - 8; aimSps[i].y = Math.round(p.y) - 8;
+      }
     }
   }
 
@@ -10123,9 +10129,6 @@ function updatePlay() {
         // 画面の外で顔だけ出してためているあいだは、逆にダメージが通らない
         const rage = boss.kind === 'dragon' && boss.mode === 'rage';
         const jaws = rage && boss.hide <= 0 && boss.telegraph <= 0;
-        // 顔を出してためている最中と、**突進のあと上から降りてくる間**は硬い。
-        // どちらも「口を閉じて構えている」ところなので、同じ扱いにする
-        const bracing = (rage && !jaws) || (boss.kind === 'dragon' && boss.mode === 'return');
         // 壺に乗っているあいだは「ほんの少しだけ」通る(点滅はさせない)
         // タコの発射口は「壊せる部位」。開いているあいだに撃ち込めば
         // 体力を削らずにそのまま撃破できる(手のひらを全部壊す道もある)
@@ -10144,9 +10147,15 @@ function updatePlay() {
           }
           continue;
         }
+        // **ドラゴンの胴には通らない。** 装甲がはがれたあとも同じ。
+        // 効くのは**突進で口を開けているあいだの口**だけで、
+        // それがこの相手の狙いどころ(ほかのボスのような無防備な間が無い)。
+        // 前は構え中に少しだけ通していたが、胴を撫でているだけで
+        // 削れてしまうので、狙いどころがぼやけていた
+        const dragonBody = boss.kind === 'dragon' && !jaws;
         const dmg = armored ? ((boss.age % 8 === 0) ? 1 : 0)
           : tough ? ((boss.age % 4 === 0) ? 1 : 0)
-          : bracing ? ((boss.age % 3 === 0) ? 1 : 0)   // 構え中は小ダメージ
+          : dragonBody ? 0
           // 突進中のドラゴンの口。効きすぎたので 8 -> 6.4(8 割)に落とした
           : jaws ? DRAGON_JAWS_DMG : (weak ? 3 : 1);
         // 近いほど・上から攻めるほど効く(最大 4 倍)。
@@ -10160,7 +10169,9 @@ function updatePlay() {
         if (dmg > 0 && !armored) boss.flash = 6;
         // カニは 4 発に 1 ダメージなので、通ったときだけ白く光らせて知らせる
         if (dmg > 0 && boss.kind === 'crab') boss.hurt = 10;
-        if (bracing) mmsxx.audio.playSE('armor', SE_HIT);   // ためている最中は硬い
+        // 硬いところに当たった音。ドラゴンは胴ぜんぶが硬いので、
+        // 構えているかどうかにかかわらず、口以外はこの音になる
+        if (dragonBody) mmsxx.audio.playSE('armor', SE_HIT);
         if (boss.kind === 'todo') {
           boss.cry = 60;   // 未実装君は泣く
           // 話しているあいだに撃ち込まれた数を数える。
@@ -13448,8 +13459,14 @@ const PAD_TARGETS = [
   { name: '3', points: 3 },
   { name: 'PAD', points: 0 },   // 0 = パッドレスをやめて十字を出す
 ];
-/** いまの段(PAD_TARGETS の番号)。**1 つから始める** */
-let padTargets = 0;
+/**
+ * いまの段(PAD_TARGETS の番号)。**十字から始める**。
+ *
+ * 行き先を置く遊びかたのほうが後から作ったものだが、
+ * 初めて触る人には十字のほうが読める(見れば何をするものか分かる)。
+ * 置く遊びかたはポーズ中の TARGETS で選んでもらう
+ */
+let padTargets = PAD_TARGETS.length - 1;
 /** いまの段。**まん中から始める** */
 let padSense = 1;
 const ZOOM_STEP = 1.12;   // 1 回で 1 割ちょっと。押した手応えが分かるくらい
@@ -13769,6 +13786,10 @@ if (PAD_ON) {
   // **?areas=1 で受け場所を色分けして見せる。** 絵の外まで受けているので、
   // 見た目からは境目が分からない。効く / 効かないを追うときの最初の一手
   if (OPT.get('areas') === '1') touchGui.showAreas(true);
+  // **開発版では、食われていると思っているところに目印を出す。**
+  // 実機のノッチは本物が見えているので、**同じ側に出ているか**で
+  // 左右を取り違えていないかが分かる(?safe=0 で消せる)
+  if (DEV && OPT.get('safe') !== '0') touchGui.showSafeArea(true);
   // **丸の下の説明は出さない。**
   // 消えるのは一度こすったときだけなので、撃ちっぱなしの遊びでは
   // **触る理由が無いまま出っぱなし**になる(画面のすぐ隣に居座る)。
@@ -15158,7 +15179,17 @@ function updateTouchGui() {
     // (画面が非アクティブになった・知らせの札を閉じた)、次のコマで戻る。
     // これが無いと、一度 連射ボタンを触るまで撃ちっぱなしが返ってこなかった
     touchGui.keepFire();
-    touchGui.setGuide({ left: [], esc: OK.pause, ok: null, opt: null });
+    // **面クリアの集計は飛ばせる。** キーボードなら SPACE で飛ばせるのに、
+    // 指では押すものが 1 つも無く、**終わるまで待つしかなかった**。
+    // 出すのは飛ばせるようになってから(clearTimer < 900。それまでは
+    // ボーナスが出そろっていないので、飛ばしても読むものが無い)
+    // **キーは送らず、直に飛ばす。** OK のふだんの Space は撃つキーでもあり、
+    // 撃ちっぱなしの遊びでは押しっぱなしのままなので、押し直しとして
+    // 数えてもらえない(飛ばすほうは押した瞬間を見ている)
+    const canSkipClear = clearTimer > 0 && clearTimer < 900;
+    touchGui.setGuide({ left: [], esc: OK.pause,
+      ok: canSkipClear ? { en: OK.skip, run: () => { clearTimer = 1; } } : null,
+      opt: null });
     showTuneButtons(false);
     showKeyboardButton();
     showRotateButton();

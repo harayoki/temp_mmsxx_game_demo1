@@ -499,7 +499,9 @@ const bulletP = fromAscii([
 // 大きさは 7x7 まで。これ以上だと、寄せたい場所そのものを覆ってしまう。
 // **あとで波紋の広がるコマ送りに替える**(叩いたところに輪が広がる、よくあるやつ)。
 // そのときはここに何コマか並べて、ゲーム側で送ること。いまは十字 1 枚
-const aimMark = fromAscii([
+// **2 枚あって、ゲーム側が数コマごとに入れ替える**(赤 ⇄ ピンク)。
+// 止まっているとゲームの絵に埋もれるので、色が動いていること自体を目印にする
+const aimMarkRows = [
   '...R...',
   '...R...',
   '.......',
@@ -507,7 +509,9 @@ const aimMark = fromAscii([
   '.......',
   '...R...',
   '...R...',
-], { R: '#f04848' });
+];
+const aimMark = fromAscii(aimMarkRows, { R: '#f04848' });
+const aimMark1 = fromAscii(aimMarkRows, { R: '#ff87c0' });
 
 // ボスの弾。グラディウスのモアイのような、ぽわぽわ飛ぶ 16x16 のリング
 const bulletRing = fromAscii([
@@ -6430,7 +6434,7 @@ const images = {
   player, enemyA, enemyB, enemyC, enemyF, enemyG, enemyH, enemyI, enemyJ,
   glower0, glower1, glower2, weight16t, kingWaveL, kingWaveM, kingWaveS, warper, cube, bouncer, rammer, logo, station, jupiter, saturn, colony, moai, moaiFlip, asteroid, earth, earthBig, blackhole,
   bulletP: pad16(bulletP), bulletE: pad16(bulletE), bulletRing,
-  aimMark: pad16(aimMark),
+  aimMark: pad16(aimMark), aimMark1: pad16(aimMark1),
   item: pad16(item), star: pad16(star), bomb: pad16(bomb),
   speedUp: pad16(speedUp), rapidUp: pad16(rapidUp), oneUp: pad16(oneUp),
   powerUp: pad16(powerUp), barrierItem: pad16(barrierItem), barrier,

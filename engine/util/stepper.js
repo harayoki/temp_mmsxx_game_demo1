@@ -133,6 +133,21 @@ export function createStepper(opts) {
   const halfNext = half('next');
   root.append(main, halfPrev, halfNext, prev, next);
 
+  /**
+   * **指の話を、置かせてもらっている先へ上げない。**
+   *
+   * 置き場所がスマホの器(engine/util/touchgui.js)の中だと、
+   * あちらはメニューのあいだ 払う動きを見分けていて、そこで
+   * setPointerCapture を取る。**取られるとこちらのボタンは押し下げた
+   * だけで終わり、押せたことにならない**。
+   * 実機で「押しづらい」となっていたのがこれで、ときどき効かないのではなく
+   * **払いと見なされたぶんが丸ごと落ちていた**。案内の板でも同じことが
+   * 起きていて、あちらは同じやりかたで塞いである
+   */
+  for (const type of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel']) {
+    root.addEventListener(type, (e) => e.stopPropagation());
+  }
+
   let index = clamp(opts.index || 0);
 
   function clamp(n) {
