@@ -1520,6 +1520,43 @@ const MUST_APPEAR = 3000;
 let moai = null;
 let moaiSpawned = false;
 let moaiToldInside = false;   // 「内側から壊せ」を出したか(1 プレイに 1 回)
+// ---- こすり打ちの案内 ----
+//
+// **手が空いた瞬間に教える。** 撃ちかたの説明を遊びはじめに並べても、
+// そのときは覚える理由が無い。**こすれば効く場面**に出くわしたところで
+// 出せば、その場で試せて身に付く。
+//
+// 出すのは「狙いどきが来た」ところだけ:
+//   モアイ … 内側を撃てるようになった瞬間
+//   タコ / カニ … 装甲がはがれて無防備になった瞬間
+//   貝 … 輪にすき間が空いて、中の生き物を直に叩けるようになった瞬間
+//
+// **出さない相手**: ドラゴン(そういう瞬間が無い)、ラスボスの 1 / 2、未実装さん。
+// **指で遊ぶときだけ**(キーボードには連打の口が最初からある)
+let rubHintShown = false;     // 出したか(1 プレイに 1 回)
+let rubHintIn = 0;            // 出すまでの残りコマ(0 は出さない)
+
+/**
+ * こすり打ちの案内を予約する。
+ *
+ * **すぐには出さない。** 呼ばれる場面ではたいてい別の知らせ
+ * (「内側から壊せ」など)が出たところで、showNotice は前のを消してしまう。
+ * 少し置いてから出せば、どちらも読める
+ */
+function cueRubHint(delay = 150) {
+  if (!PAD_ON || rubHintShown) return;
+  rubHintShown = true;
+  rubHintIn = delay;
+}
+// **開発版だけ**: 狙いどきまで遊び進まなくても、案内の出かたを見られるように
+// (出す場面はどれもボス戦の途中なので、そこまで行くのが手間)
+if (DEV) {
+  mmsxx.expose('mmsxxRubHint', () => {
+    rubHintShown = false;
+    cueRubHint(30);
+    return PAD_ON ? '0.5 秒後に出ます' : '指で遊ぶ端末ではないので出ません';
+  });
+}
 let moaiToldWait = false;     // 「色が変わるまで待て」を出したか(1 プレイに 1 回)
 // 石の表(外側)を撃つと怒る。4 発で赤とピンクになり、壊せなくなる
 // 色が付く前に**切り口(内側)**へ撃ち込んだ数。これだけ当てると怒る。
@@ -1873,6 +1910,9 @@ function updateMoai() {
     if (m.wait === 0 && !moaiToldInside && !m.angry) {
       moaiToldInside = true;
       showNotice('BREAK IT FROM INSIDE!');
+      // **狙いどきが来たところで、こすり打ちも教える**(上の cueRubHint)。
+      // すき間は閉じるので、ここは速く撃てるほど効く場面でもある
+      cueRubHint();
     }
   } else {
     // 合体するまでのカウントダウン
@@ -3893,6 +3933,9 @@ function enterPlay(fromContinue = false) {
   // モアイの案内は 1 プレイに 1 回ずつ。新しいゲームでは出し直す
   moaiToldWait = false;
   moaiToldInside = false;
+  // こすり打ちの案内も 1 プレイに 1 回(下の cueRubHint)
+  rubHintShown = false;
+  rubHintIn = 0;
   bossPractice = false;
   usedKonami = false;  // 隠しコマンドは 1 ゲームに 1 回ずつ
   usedStageWarp = false;
@@ -8192,6 +8235,11 @@ function breakShip() {
     boss.max = 120 + stageNo * 24;
     boss.hp = boss.max;
   }
+  // **無防備になった瞬間に、こすり打ちを教える**(上の cueRubHint)。
+  // ここから先は素直にダメージが通るので、速く撃てるほど効く。
+  // **ドラゴンには出さない** — あちらは装甲がはがれても怒って突進が増えるだけで、
+  // 落ち着いて削れる「狙いどき」にはならない
+  if (boss.kind === 'crab' || boss.kind === 'octopus') cueRubHint();
   for (let i = 0; i < 5; i++) {
     spawnBoom(boss.sx + 8 + Math.random() * 44, boss.sy + HEAD_H + Math.random() * 16);
   }
@@ -9738,6 +9786,8 @@ function updatePlay() {
           g.sp.visible = false;
           boss.phase2 = true;
           boss.ringTarget = NAUT_R_WIDE;   // 輪が広がって入りやすくなる
+          // 中の生き物を直に叩けるようになった = 狙いどき(上の cueRubHint)
+          cueRubHint();
           for (let i = 0; i < 5; i++) spawnBoom(g.sp.x, g.sp.y);
           mmsxx.audio.playSE('bossboom', SE_HIT);
           flashTimer = 3;
@@ -10383,6 +10433,9 @@ function updatePlay() {
   updatePopups();
   updateFlash();
   updateNotice();
+  // 予約しておいたこすり打ちの案内(上の cueRubHint)。
+  // **前の知らせが読み終わるころに出す**ので、ここで数える
+  if (rubHintIn > 0 && --rubHintIn === 0) showNotice('RUB THE CIRCLE TO FIRE FAST!', 180);
   updateGearBlink();
   // 宝珠の七色は HUD に描いているので、少しずつ描き直す
   if ((mmsxx.frame & 1) === 0) drawOrbMarks();
@@ -14755,6 +14808,13 @@ function openHowTo() {
     // 器は遊びの最中 素通しにしてあるので、こちらで受け直す
     pointerEvents: 'auto',
   });
+  // **指の話を器へ上げない。**
+  // 器にはメニュー中だけ払う動きの見分けが付いていて、そこで
+  // setPointerCapture を取られる。取られると、こちらのボタンは
+  // 押し下げただけで終わって**押せたことにならない**(板が閉じなくなった)
+  for (const type of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel']) {
+    el.addEventListener(type, (e) => e.stopPropagation());
+  }
   // **板そのものがページ送りのボタン。**
   // つまみ(TARGETS)と同じ作りにしてある — 左右の端に矢印が居て、
   // **板の左半分を押せば前へ、右半分を押せば次へ**。
