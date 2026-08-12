@@ -4162,7 +4162,9 @@ function captureClipboard() {
   // 代わりにシャッター音を、いちばん強い優先度で鳴らす
   mmsxx.audio.playSE('shutter', SE_JINGLE);
   try {
-    const canvas = mmsxx.capture({ type: 'canvas' });
+    // **板が開いていれば、そこで選んでいるコマ**(下の shareSourceCanvas)。
+    // 見えている絵と貼られる絵を食い違わせない
+    const canvas = shareSourceCanvas() || mmsxx.capture({ type: 'canvas' });
     // 原寸だと小さいので、3 倍のドットのまま大きくして貼りやすくする
     const out = document.createElement('canvas');
     out.width = canvas.width * 3; out.height = canvas.height * 3;
@@ -14435,11 +14437,28 @@ function drawToolIcons() {
 }
 
 /**
- * **いまの画面を PNG にする**(3 倍のドットのまま)。
- * クリップボードへ貼るのも OS へ渡すのも、元はこれ 1 つ
+ * **シェアの板で選んでいるコマ**(原寸)。板が閉じていれば null。
+ *
+ * 板は溜めてあるコマを左右で選べる。**選んだものが送信の絵になる**
+ * のと同じように、OS へ渡す絵も選んだものでなければならない
+ */
+function shareSourceCanvas() {
+  if (!shareOpen) return null;
+  if (shareBack >= 0) return mmsxx.frameBackCanvas(shareBack, 1);
+  return (shareBack === SHARE_EXTRA ? shareExtra : shareFixed) || null;
+}
+
+/**
+ * **画面を PNG にする**(3 倍のドットのまま)。
+ * クリップボードへ貼るのも OS へ渡すのも、元はこれ 1 つ。
+ *
+ * **シェアの板が開いていれば、そこで選んでいるコマ**を撮る。
+ * いつも「いまの画面」を撮っていたので、**左右で選んだコマが
+ * 入っていなかった**(板には選んだ絵が出ているのに、保存されるのは
+ * その裏で動いている今の画面だった)
  */
 function screenshotBlob() {
-  const canvas = mmsxx.capture({ type: 'canvas' });
+  const canvas = shareSourceCanvas() || mmsxx.capture({ type: 'canvas' });
   const out = document.createElement('canvas');
   out.width = canvas.width * 3;
   out.height = canvas.height * 3;
