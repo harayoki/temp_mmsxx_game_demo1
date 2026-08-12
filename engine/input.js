@@ -126,6 +126,9 @@ export class Input {
     }
     // **強く倒しているほうが勝つ。** 指とパッドを同時に触ることは無いが、
     // 片方が 0 を置き続けているだけ、ということはある
+    // **倒した機器も控える**(usedInputs。記録に「何で遊んだか」を添えるため)。
+    // 矢印を出さない遊びかた(叩いた先へ動く・なぞる)は、ここしか通らない
+    this.usedSources.add(source);
     if (this._stickFrom && this._stickFrom !== source && s <= this._stickPower) return;
     this._stickFrom = source;
     this._stickPower = s;

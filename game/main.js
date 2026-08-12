@@ -996,18 +996,21 @@ function rankPlatform() {
  * そのため、パッドが先にできたら pc だけ送る / スマホが先ならmobile だけ送る、
  * というように **platform ごとに判断する**。両方そろったら全部で送る。
  *
- * ## いまは pc だけ
+ * ## いまはどの platform でも送る
  *
- * pc は キーボードとパッドの両方を捕捉できているので送る。
- * mobile は**タッチの入口がまだ無い**ので送らない。
- * ここで mobile も送ると、タッチが入った日から
- * 指で遊んだ人の記録が `key` や `pad` として残りはじめる。
+ * 3 つとも捕捉できている。
  *
- * タッチが入ったら、下の 1 行を消して全部の platform で送るようにする。
- * そのとき、スマホに繋いだパッドも 'pad' として捕捉できているか確かめること
+ *   key   … engine/input.js が窓の keydown を拾う
+ *   touch … 十字も連射も `press(code, 'touch')` を通り、
+ *           行き先を置く / なぞる遊びかたは `setStick('touch', …)` を通る
+ *           (どちらも usedSources に入る)
+ *   pad   … engine/util/gamepad.js が `press(code, 'pad')` を通す。
+ *           スマホに繋いだパッドも同じ道を通るので、そちらも載る
+ *
+ * **ここを触るときは、増やした入力の口も usedSources に入るか確かめること。**
+ * 入っていないものがあると、その人の記録が別の手段として残る
  */
 function rankInput() {
-  if (rankPlatform() !== 'pc') return '';
   return mmsxx.input.usedInputs();
 }
 
