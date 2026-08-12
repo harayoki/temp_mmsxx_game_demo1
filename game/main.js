@@ -15359,6 +15359,62 @@ setupHomeInstall();
 // **こちらも上の const が出そろってから**
 showDeviceEntry();
 
+/**
+ * **PC では、canvas の下に置いてあるぶんを引いてから合わせる。**
+ *
+ * エンジンは窓の高さいっぱいに canvas を合わせる。PC ではその下に
+ * 操作の一覧と断り書きが並んでいるので、**そのぶんページが窓より高くなり、
+ * スクロールバーが出て、上がはみ出す**(実機ならぬ PC でそうなった)。
+ *
+ * 下に何行あるかはゲームしだいなので、ここで測ってエンジンへ渡す
+ * (`fitSize` は「これに収めてほしい大きさ」)。
+ * **指で遊ぶ端末では触らない** — あちらは canvas の下に何も置かず、
+ * 器が窓ぜんぶを覆っている
+ */
+function fitScreenToPage() {
+  if (PAD_ON || DEVICE) return;
+  const el = document.documentElement;
+  if (!el) return;
+  // **はみ出したぶんを引く、をくり返す。**
+  //
+  // 「canvas 以外の高さ」を先に測って引く手も試したが、余白の取りかたで
+  // 数 px 残り、スクロールバーが消えなかった。**実際にはみ出した量**を
+  // 見て引けば、余白が何であろうと収まる。
+  //
+  // まず窓いっぱいに戻してから始めるので、**窓を広げたときも付いてくる**
+  // (縮める一方だと、広げても小さいまま残る)
+  mmsxx.vdp.fitSize = { w: el.clientWidth, h: el.clientHeight };
+  mmsxx.vdp.refitCss();
+  for (let i = 0; i < 5; i++) {
+    // **はみ出しは「いちばん上の子がどこから始まるか」で測る。**
+    //
+    // 中身は縦の真ん中に寄せてあるので、収まらないと**上下へ半分ずつ**
+    // はみ出す。上へ出たぶんは**スクロールでは見えない**(scrollHeight にも
+    // 出てこない)ので、そこだけを見ていると気づけない ──
+    // 実際、スクロールバーは消えたのに上が切れたままになった。
+    // 上へ出た量が分かれば、その 2 倍が収めるべき量
+    const first = document.body.firstElementChild;
+    const top = first ? first.getBoundingClientRect().top : 0;
+    const over = Math.max(
+      Math.max(0, document.body.scrollHeight - el.clientHeight) * 2,
+      Math.max(0, Math.ceil(-top)) * 2,
+    );
+    if (over <= 0) break;
+    // **下限は置く。** 窓を極端に低くしたときに 0 以下にしない
+    const h = Math.max(160, mmsxx.vdp.fitSize.h - over);
+    if (h === mmsxx.vdp.fitSize.h) break;
+    mmsxx.vdp.fitSize = { w: el.clientWidth, h };
+    mmsxx.vdp.refitCss();
+  }
+  // **上へ戻す。** 縮める前にページが下へ送られていると、
+  // 収まったあとも送られたままで、画面の上が切れて見える
+  if (window.scrollY) window.scrollTo(0, 0);
+}
+// **エンジンの合わせ直しのあとに呼ぶ。** あちらは窓いっぱいで合わせるので、
+// そのあとで下の字のぶんを引き直す
+window.addEventListener('resize', fitScreenToPage);
+fitScreenToPage();
+
 /** 端まで来た ＋ / − を灰色にする。**枠ごと**沈めて、押せないことを見せる */
 function updateZoomButtons() {
   const z = mmsxx.vdp.zoom;
