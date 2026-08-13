@@ -113,7 +113,7 @@ class LayerHandle {
 /**
  * MSX1 風仮想マシンのゲームエンジン本体。
  *
- * MMSXX = **MMS-XX (Mock Machine System, model XX)**。実在しなかった機械の型番。
+ * MMSXX = **MMS/XX (Mock Machine System, model XX)**。実在しなかった機械の型番。
  *
  * const mmsxx = new MMSXXEngine(canvas, { scale: 3 });
  * mmsxx.backdrop = 4;

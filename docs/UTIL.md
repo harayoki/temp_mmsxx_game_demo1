@@ -1,4 +1,4 @@
-# MMS-XX Engine UTIL
+# MMS/XX Engine UTIL
 
 `engine/util/` は「ゲームでよくある表現」をまとめた**任意の部品**です。
 エンジン本体（`engine/*.js`）からは切り離してあり、**import しなければ 1 バイトも読み込まれません**。

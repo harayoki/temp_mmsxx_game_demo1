@@ -1,6 +1,6 @@
-# MMS-XX Engine
+# MMS/XX Engine
 
-**MMS-XX** は **Mock Machine System, model XX** の略。実在しなかった機械の型番です。
+**MMS/XX** は **Mock Machine System, model XX** の略。実在しなかった機械の型番です。
 コードの中の識別子(`MMSXXEngine` / `mmsxx`)はハイフン無しのままにしてあります。
 
 MSX1 と同じグラフィックス性能を持つ「ように感じられる」仮想マシンを、簡単に操れる
