@@ -14942,10 +14942,12 @@ const HOWTO_PAGES_PAD = [
       ja: '画面をタップして動かす方法もあります。\n'
         + '赤い十字（ターゲット）を置くと、\n'
         + 'そこへ自機が動きます。\n'
+        + '画面の広いタブレット向けです。\n'
         + 'ポーズ中、CONTROL で切り替えられます。',
       en: 'You can also fly by tapping the screen.\n'
         + 'Drop a red cross (TARGET) and\n'
         + 'your ship flies to it.\n'
+        + 'It suits the wider screen of a tablet.\n'
         + 'Switch with CONTROL while paused.',
     },
   },
