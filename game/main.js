@@ -158,14 +158,15 @@ const settings = new SaveGroup('starfable-settings', {
   // 十字の効きぐあい(0 = にぶい / 1 = ふつう / 2 = びんかん)と、決めたことがあるかの印
   padSense: { type: T.NUMBER, min: 0, max: 2, digits: 0, label: 'PAD SENSITIVITY' },
   padSenseSet: { type: T.FLAG, label: 'PAD SENSITIVITY SET' },
-  // 切り返しの重さ(0 = 切る / 1 = はっきり戻したときだけ)と、決めたことがあるかの印
-  padFlip: { type: T.NUMBER, min: 0, max: 1, digits: 0, label: 'TURN BACK' },
-  padFlipSet: { type: T.FLAG, label: 'TURN BACK SET' },
   // 動かしかた(0 = 十字 / 1 = 行き先 1 つ / 2 = 2 つ / 3 = なぞる)。
   // **並びを変えたら、覚えてある番号の意味も変わる**
   // (前に選んでいた人は、次に開いたとき別のものが選ばれている)
   padTargets: { type: T.NUMBER, min: 0, max: 3, digits: 0, label: 'CONTROL' },
   padTargetsSet: { type: T.FLAG, label: 'CONTROL SET' },
+  // 十字の効きぐあい。**段の番号で覚える**(値そのものではない ——
+  // 表を詰め直したときに、前に選んだ段がそのまま残るように)
+  padfeel: { type: T.NUMBER, min: 0, max: 3, digits: 0, label: 'PAD FEEL' },
+  padfeelSet: { type: T.FLAG, label: 'PAD FEEL SET' },
   // 遊びかたの案内を一度でも出したか(**出すのは初めての 1 回だけ**)
   howToSeen: { type: T.FLAG, label: 'HOW TO PLAY SEEN' },
 });
@@ -13513,7 +13514,7 @@ let padSenseShown = null;
 /** 遊びかたの ? を出しているか(ポーズ中だけ) */
 let howToShown = null;
 /** 段を選ぶ部品(engine/util/stepper.js)。**PAD_ON のときだけ作る** */
-let padFlipUI = null;
+let padFeelUI = null;
 /** 行き先の数を選ぶ部品。**パッドレスのときだけ作る** */
 let padTargetsUI = null;
 /**
@@ -13554,33 +13555,34 @@ const PAD_SENSE = [
 const PAD_SENSE_ON = false;
 
 /**
- * **切り返しの段。** ポーズ中のボタンで選ぶ。
+ * **十字の効きぐあい。ポーズ中のボタンで、組み合わせを選ぶ。**
  *
- * 折り返しを見分ける角度(`stickFlipAngle`)と、
- * 折り返しと見なすのに要る 1 回ぶんの動き(`stickFlipMove`)を組で動かす。
- * **どちらも上げるほど、裏返るのが遅く・重くなる**。
+ * つまみを 1 本ずつ出したこともあったが、**数が多くて選びきれない**
+ * (不感帯・停止域・曲線・折り返しで 4 つあった)。しかも 1 つだけ動かしても
+ * 良くならない ── 「留まってほしい」は不感帯と停止域の両方が要るし、
+ * 「裏返りすぎ」は折り返しと曲線の兼ね合いで決まる。
+ * **効きぐあいは 1 本の軸**にして、きびきび〜落ち着く、で並べてある。
  *
- *   angle … いま出している向きから何度開いたら折り返しと決めるか。
- *           小さいほど、少し斜めへ振っただけで裏返る
- *   move  … その 1 回で何 px 動いていたら見るか。
- *           小さいほど、そっと戻しただけでも裏返る
+ * 中身(engine/util/touch.js のつまみ):
  *
- * OFF は仕掛けそのものを切る(昔どおり原点をまたぐまで逆を向かない)。
- *
- * **既定は OFF。** 効きぐあいに曲線を掛けて手前を這うようにしたら、
- * **切らしたままでも寄せ直せるようになった**。裏返る仕掛けは、効くときは
- * 気持ちよいが、効いてほしくないときに効くと何が起きたか分からない。
- * 要る人だけ FIRM にすればよい。
- *
- * **段は 2 つだけにしてある。** 途中の重さ(100 度 / 120 度)も試したが、
- * 切るか はっきり戻したときだけ効かせるかの 2 つで足りた
+ *   dead  … 原点からこれだけの内は倒し量 0(deadzone)
+ *   home  … **触れた点**のまわりの止まりどころ(stickHome)。原点は引きずりで
+ *           動くがこちらは動かないので、速く払って戻っても必ず止まる
+ *   curve … 手前の割りふり(stickCurve)。大きいほど手前が這う
+ *   angle … 折り返しと決める開き(stickFlipAngle。0 で切)
+ *   move  … 折り返しと見なすのに要る 1 回ぶんの動き(stickFlipMove)
  */
-const PAD_FLIP = [
-  { name: 'OFF', angle: 0, move: 3 },
-  { name: 'FIRM', angle: 145, move: 6 },
+const PAD_FEEL = [
+  // 指に素直。**すぐ効いて、すぐ裏返る**
+  { name: 'QUICK', dead: 2, home: 6, curve: 2, angle: 120, move: 4 },
+  { name: 'NORMAL', dead: 4, home: 10, curve: 3.2, angle: 145, move: 6 },
+  // 留まる域を広げ、裏返りも重くする
+  { name: 'CALM', dead: 7, home: 16, curve: 3.8, angle: 165, move: 8 },
+  // **裏返りは切る。** いちばん落ち着く(狙って止めやすいぶん、切り返しは遅い)
+  { name: 'STEADY', dead: 10, home: 22, curve: 4.5, angle: 0, move: 8 },
 ];
-/** いまの段。**切ったほうから始める**(上の説明を見ること) */
-let padFlip = 0;
+/** いまの段。**まん中から始める** */
+let padFeel = 1;
 
 /**
  * **パッドレスで溜めておける行き先の数**(ポーズ中に選ぶ)。
@@ -13863,14 +13865,14 @@ if (PAD_ON) {
         const v = Number(OPT.get('full'));
         return (v >= 8 && v <= 160) ? { stickFullDist: v } : {};
       })(),
-      ...(() => {
-        const v = Number(OPT.get('curve'));
-        return (v >= 0.2 && v <= 4) ? { stickCurve: v } : {};
-      })(),
-      // **折り返しの段(`?flip=`)はここでは見ない。**
-      // ポーズ中のボタンが持ち主で、立ち上げのときに applyPadFlip() が
-      // 当て直す(startPadFlip() が ?flip= を先に見る)。
-      // ここでも入れると、同じ値の持ち主が 2 つになって食い違う
+      // **`?curve=` はここでは見ない。** 曲線はポーズ中の CURVE が持ち主で、
+      // 立ち上げのときに applyPadCurve() が当て直すので、ここで入れても
+      // 上書きされて消える(持ち主が 2 つあると、どちらが効いているのか
+      // 分からなくなる)。段の名前で選ぶなら `?padcurve=SOFT`
+      // **ポーズ中のつまみが持っているぶんはここでは見ない。**
+      // 不感帯(NEUTRAL)・曲線(CURVE)・折り返し(TURN BACK)は、
+      // 立ち上げのときに applyPadNeutral / applyPadCurve / applyPadFlip が
+      // 当て直す。ここでも入れると、同じ値の持ち主が 2 つになって食い違う
     },
     lang: TG_LANG,
     // 強制したときだけ、器も同じ画角に区切る(canvas 側は下の fitSize)
@@ -14240,39 +14242,23 @@ function applyPadSense(n, tell) {
   settings.flush();
 }
 
-/** 切り返しの段を当てる。**部品へ流して、覚えて、画面に出す** */
-function applyPadFlip(n, tell) {
-  padFlip = ((n % PAD_FLIP.length) + PAD_FLIP.length) % PAD_FLIP.length;
-  const s = PAD_FLIP[padFlip];
-  if (touchGui) {
-    touchGui.touch.setOptions({ stickFlipAngle: s.angle, stickFlipMove: s.move });
-  }
-  // **札の字は部品が書く**(engine/util/stepper.js)。ここでは中身だけ当てる。
-  // 押したときは画面にも出す(ポーズ中なので弾の邪魔にもならない)
-  if (tell) showNotice('TURN: ' + s.name);
-  if (DEVICE) return;
-  settings.set('padFlip', padFlip);
-  settings.set('padFlipSet', true);
-  settings.flush();
-}
-
 /**
- * **ポーズ中のつまみのボタン。** いまは切り返しの段が使っている
- * (効きぐあいのほうは PAD_SENSE_ON を見ること)。
+ * **ポーズ中に出すつまみ。** 2 つ並ぶ。
  *
- * `?flip=` が付いていたら**そちらを先に立てる**。近い段を選ぶので、
- * 表に無い数字を渡しても一番近いところから始まる
+ *   CONTROL  … どうやって動かすか(PAD_TARGETS)
+ *   PAD FEEL … 十字の効きぐあい(PAD_FEEL)。**十字のときだけ出す**
  */
 function bindPadSenseButton() {
   // **PC には要らない。** 十字が出ないので効きようがない
   if (!PAD_ON) return;
   const tools = document.getElementById('tools');
   if (!tools) return;
-  // **出すのは 1 つだけ。** ここは「どうやって動かすか」を選ぶところで、
-  // 行き先の数もパッドに戻すことも同じ並びに入っている(PAD_TARGETS)。
-  // 切り返し(TURN BACK)は十字のときしか効かないつまみなので出さない —
-  // 効かないものが並んでいると、押しても変わらないつまみを探すことになる
-  // (PAD RESPONSE で懲りた)
+  // **並びは 3 つ。** いちばん上が「どうやって動かすか」(PAD_TARGETS)で、
+  // その下の 2 つは**十字の効きぐあい**。
+  //
+  // **下の 2 つは十字を選んでいるときだけ出す。** 効かないつまみが
+  // 並んでいると、押しても変わらないものを探すことになる
+  // (PAD RESPONSE で懲りた)。出し入れは applyPadTargets が受け持つ
   /**
    * **行を折るための当て板。**
    *
@@ -14301,8 +14287,65 @@ function bindPadSenseButton() {
   // 空き行を 1 つ挟めば、**別のものだと見て取れる**
   // (ボタンは 32px、間は 4px。合わせて 1 行ぶん)
   padTargetsUI.el.style.marginTop = '40px';
+
+  // ---- 十字の効きぐあい。**十字のときだけ出す** ----
+  //
+  // 実機で困っていたのは 2 つ ── **すぐ裏返る**のと、
+  // **その場に留まってくれない**。つまみもその 2 つに合わせてある。
+  // 曲線(CURVE)は、そのあいだの速さの割りふり
+  padFeelUI = createStepper({
+    mount: tools,
+    label: 'PAD FEEL',
+    items: PAD_FEEL.map(s => s.name),
+    index: startPadStep('feel', PAD_FEEL, padFeel),
+    wrap: true,
+    onChange: (i, name, byUser) => applyPadFeel(i, byUser),
+  });
+  // **CONTROL のすぐ下に詰めて置く。** 2 つで 1 かたまり(動かしかたの設定)
+  padFeelUI.el.style.marginTop = '8px';
+  
+
   // 部品は作った時点では onChange を呼ばない(**当てるのは借りる側の仕事**)
+  applyPadFeel(padFeelUI.index, false);
   applyPadTargets(padTargetsUI.index, false);
+}
+
+/**
+ * どの段から始めるか。**?pad<名前>= → 前に決めた段 → 既定** の順に見る。
+ * URL からは段の名前でも番号でも渡せる(`?padcurve=SOFT` / `?padcurve=1`)
+ */
+function startPadStep(key, table, fallback) {
+  const raw = (OPT.get('pad' + key) || '').toUpperCase();
+  if (raw) {
+    const at = table.findIndex(s => s.name === raw);
+    if (at >= 0) return at;
+    const n = Number(raw);
+    if (Number.isInteger(n) && n >= 0 && n < table.length) return n;
+  }
+  if (!DEVICE && settings.get('pad' + key + 'Set')) return settings.get('pad' + key);
+  return fallback;
+}
+
+/**
+ * 効きぐあいを当てる。**部品へ流して、覚えて、画面に出す**。
+ * 中身は 5 つのつまみをまとめて動かす(上の PAD_FEEL)
+ */
+function applyPadFeel(n, tell) {
+  padFeel = Math.max(0, Math.min(PAD_FEEL.length - 1, n));
+  const s = PAD_FEEL[padFeel];
+  if (touchGui) {
+    touchGui.touch.setOptions({
+      deadzone: s.dead, stickHome: s.home, stickCurve: s.curve,
+      stickFlipAngle: s.angle, stickFlipMove: s.move,
+    });
+  }
+  // **札の字は部品が書く**(engine/util/stepper.js)。ここでは中身だけ当てる。
+  // 押したときは画面にも出す(ポーズ中なので弾の邪魔にもならない)
+  if (tell) showNotice('PAD FEEL: ' + s.name);
+  if (DEVICE) return;
+  settings.set('padfeel', padFeel);
+  settings.set('padfeelSet', true);
+  settings.flush();
 }
 
 /** 行き先の数を当てる。**部品へ流して、覚えて、画面に出す** */
@@ -14328,6 +14371,11 @@ function applyPadTargets(n, tell) {
     // 連射の受け場所を画面から外すのも、画面を触って動かすときだけ
     touchGui.setOptions({ shotHitOffCanvas: onCanvas });
   }
+  // **効きぐあいのつまみは十字のときだけ。**
+  // 叩いて動かす遊びかたでは 1 つも効かないので、出すと
+  // 「押しても変わらないつまみ」を探させることになる
+  const padOn = !padlessOn && !traceOn;
+  if (padFeelUI) padFeelUI.el.style.display = (padOn && paused) ? 'block' : 'none';
   if (tell) showNotice('CONTROL: ' + s.name);
   if (DEVICE) return;
   settings.set('padTargets', padTargets);
@@ -14357,34 +14405,23 @@ function startPadTargets() {
   return padTargets;
 }
 
-/** どの段から始めるか。**?flip= → 前に決めた段 → 既定** の順に見る */
-function startPadFlip() {
-  const raw = OPT.get('flip');
-  const v = Number(raw);
-  if (raw != null && Number.isFinite(v)) {
-    // 一番近い段を選ぶ(表に無い数字でも、どこかからは始められるように)
-    let at = 0;
-    for (let i = 1; i < PAD_FLIP.length; i++) {
-      if (Math.abs(PAD_FLIP[i].angle - v) < Math.abs(PAD_FLIP[at].angle - v)) at = i;
-    }
-    return at;
-  }
-  if (!DEVICE && settings.get('padFlipSet')) return settings.get('padFlip');
-  return padFlip;
-}
-
 /**
  * つまみのボタンも**ポーズ中だけ**。
  * 遊んでいる最中に触るものではないし、そのぶん十字の場所を食う
  */
 function showPadSenseButton() {
-  // **出しているのはどちらか片方**(遊びかたで出し分ける。bindPadSenseButton)
-  const ui = padTargetsUI || padFlipUI;
-  if (!ui) return;
+  if (!padTargetsUI) return;
   const on = paused;
   if (padSenseShown === on) return;
   padSenseShown = on;
-  ui.show(on);
+  padTargetsUI.show(on);
+  // **効きぐあいのつまみは、さらに十字のときだけ**(applyPadTargets と同じ条件)。
+  // ポーズを抜けたら 3 つとも引っ込める
+  const padOn = !padlessOn && !traceOn;
+  if (padFeelUI) {
+    padFeelUI.show(on && padOn);
+    padFeelUI.el.style.display = (on && padOn) ? 'block' : 'none';
+  }
 }
 
 /**
