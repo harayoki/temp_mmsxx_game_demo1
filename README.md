@@ -16,6 +16,7 @@ MSX1 と同じグラフィックス性能を持つ「ように感じられる」
 - **UTIL(任意の部品)** → [docs/UTIL.md](docs/UTIL.md)
 - **残りの課題・これから作るもの** → [docs/TODO.md](docs/TODO.md)
 - **どこに置くか(配信先の考察)** → [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md)
+- **V2 を Linux ベースにする件(考察)** → [docs/V2_LINUX.md](docs/V2_LINUX.md)
 
 ## できること(要約)
 
