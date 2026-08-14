@@ -14696,6 +14696,14 @@ const A2HS_TEXT = {
     ja: 'ブラウザのメニューから「アプリをインストール」を選んでください。',
     en: 'Open the browser menu and pick "Install app".',
   },
+  // **合図はすぐには来ない。** Chrome は「1 回は触った」あたりを満たすまで
+  // `beforeinstallprompt` を出さないので、開いた直後はボタンが無い。
+  // **待てば出る**ことを言っておかないと、メニューを探しに行かせてしまう
+  // (iOS には来ないので、あちらでは出さない)
+  tapFirst: {
+    ja: '画面を一度タップすると、ここに追加ボタンが出ます。',
+    en: 'Tap the screen once and an ADD button appears here.',
+  },
   add: { ja: 'ホームに追加', en: 'ADD' },
   later: { ja: 'このまま遊ぶ', en: 'PLAY HERE' },
   // **まだ作りかけだと先に断っておく。** 遊びはじめてから使いにくさに
@@ -14777,6 +14785,10 @@ function openHomeInstall() {
     how.append(head, shareGlyph(), tail);
   } else {
     how.textContent = a2hsText('other');
+    // **待てばボタンが出る**ことを添える。
+    // 出たら要らなくなるので、そのときに消す(showInstallButton)
+    const tip = line(a2hsText('tapFirst'), { color: '#bbbbcc', marginBottom: '12px' });
+    tip.id = 'a2hs-tap';
   }
   // **赤で断り書き。** スマホの操作まわりはまだ詰めている最中なので、
   // ホームへ置いてもらう前にそれと分かるようにしておく
@@ -14841,9 +14853,12 @@ function showInstallButton() {
   // ?a2hs=add のときは、合図が無くても出す(手元で並びを見るため)
   const on = !!installPrompt || A2HS_LOOK === 'add';
   add.style.display = on ? '' : 'none';
-  // ボタンが出たら、やりかたの説明はもう要らない(押せば済むので)
-  const how = a2hsEl.querySelector('#a2hs-how');
-  if (how) how.style.display = on ? 'none' : '';
+  // ボタンが出たら、やりかたの説明はもう要らない(押せば済むので)。
+  // 「一度タップすれば出る」の 1 行も、出たあとは用が済んでいる
+  for (const id of ['#a2hs-how', '#a2hs-tap']) {
+    const el = a2hsEl.querySelector(id);
+    if (el) el.style.display = on ? 'none' : '';
+  }
 }
 
 /** 板をしまう。**断られたことは覚えない**(次に開いたらまた出す) */
