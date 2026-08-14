@@ -504,6 +504,10 @@ export class TouchControls {
     if (!this._zones.length) return;
     removeEventListener('resize', this._onResize);
     removeEventListener('orientationchange', this._onResize);
+    if (this._winUp) {
+      window.removeEventListener('pointerup', this._winUp);
+      window.removeEventListener('pointercancel', this._winUp);
+    }
     this.releaseAll();
     for (const z of this._zones) {
       z.classList.remove('mmsxx-touch-zone', 'mmsxx-touch-dpad', 'mmsxx-touch-shot',
@@ -915,7 +919,21 @@ export class TouchControls {
     // 着信やジェスチャで指が消えることがあるので cancel も拾う
     el.addEventListener('pointerup', up);
     el.addEventListener('pointercancel', up);
-    el.addEventListener('lostpointercapture', up);
+    /**
+     * **離したことは窓でも拾う。**
+     *
+     * 捕まえ(setPointerCapture)に失敗していると、指が入れ物の外で
+     * 離されたときに上の 2 つが来ない。**来ないと押している扱いのまま残る**。
+     *
+     * **`lostpointercapture` は使わない。** 以前はこれも「離した」として
+     * いたが、**マウスでは押しっぱなしのまま捕まえが外れることがあり**、
+     * その拍子に倒しているのをやめてしまう(エミュレータで
+     * 「動かしている最中に途切れる」と言われたのがこれ)。指では起きないので
+     * 実機では出ず、気づきにくい
+     */
+    this._winUp = this._winUp || ((e) => up(e));
+    window.addEventListener('pointerup', this._winUp);
+    window.addEventListener('pointercancel', this._winUp);
   }
 
   // ── 相対十字 ──────────────────────────────────────────
