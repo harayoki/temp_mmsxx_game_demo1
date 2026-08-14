@@ -14376,6 +14376,9 @@ function applyPadTargets(n, tell) {
   // 「押しても変わらないつまみ」を探させることになる
   const padOn = !padlessOn && !traceOn;
   if (padFeelUI) padFeelUI.el.style.display = (padOn && paused) ? 'block' : 'none';
+  // **canvas で指を受けるときだけ、ブラウザのジェスチャを止める**(index.html)。
+  // 十字のときに止めると、画面の上でつまんで拡大できなくなる
+  document.body.classList.toggle('touch-canvas', !padOn);
   if (tell) showNotice('CONTROL: ' + s.name);
   if (DEVICE) return;
   settings.set('padTargets', padTargets);

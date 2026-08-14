@@ -80,13 +80,17 @@
     -webkit-touch-callout: none;
     -webkit-tap-highlight-color: transparent;
   }
-  /* **ゲーム画面の上では、ブラウザにジェスチャを渡さない。**
-     画面を叩いて動かす遊びかた(TARGET / DRAW)は canvas で指を受けているが、
-     ここが素のままだと、**押さえたまま動かした拍子にブラウザが送り(スクロール)
-     として横取りし、pointercancel が飛んで指が離れた扱いになる**。
+  /* **画面を叩いて動かすときだけ、ブラウザにジェスチャを渡さない。**
+     TARGET / DRAW は canvas で指を受けているが、ここが素のままだと
+     **押さえたまま動かした拍子にブラウザが送り(スクロール)として横取りし、
+     pointercancel が飛んで指が離れた扱いになる**。
      十字の帯のほうは器が none を張ってあるので、抜けていたのは canvas だけ。
-     指で遊ぶときだけ効かせる(PC ではページを送れなくする理由が無い) */
-  body.touch-gui #screen { touch-action: none; }
+
+     **十字のときは張らない。** あちらは canvas で指を受けていないので要らないし、
+     張ると**画面の上でつまんで拡大できなくなる**。OS のズームが掛かったときに
+     戻る手が、つまみしかない(上の touch-action: manipulation を見ること)。
+     切り替えは game/main.js の applyPadTargets が body の印でする */
+  body.touch-canvas #screen { touch-action: none; }
   /* **板の中は縦に送れるようにする。** 横持ちの短い画面では中身が溢れることがあり、
      上の none のままだと下のボタンまで届かない。打ち込み欄も素のままにしておく
      (文字を選ぶ・カーソルを運ぶのに要る) */
