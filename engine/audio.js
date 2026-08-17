@@ -2,6 +2,7 @@ import { compileMML, WAVEFORMS, ENVELOPES, registerWave, registerFM } from './mm
 import { registerDefaultWaves } from './wavetables.js';
 import { registerDefaultFM } from './fmpresets.js';
 import { renderTalk } from './talk.js';
+import { SE_SYS_PAUSE, SYSTEM_SE } from './demotunes.js';
 
 // 最初から使える波形メモリ(wtBell など)と FM 音色(fmPiano など)を入れておく
 registerDefaultWaves();
@@ -17,42 +18,8 @@ registerDefaultFM();
 
 const MASTER_VOL = 0.14;
 
-/**
- * **エンジンが最初から持っている SE**。
- *
- * どのゲームでも同じであってほしい音だけを置く。名前に `.` を入れてあるのは、
- * ゲームが `defineSE()` で登録する名前と**絶対にぶつからない**ようにするため。
- *
- * `sys.pause` は初期のコナミのファミコン作品を手本にした、
- * 「ぽろろん」と鳴る短いジングル。**矩形波(50%)で C の和音を分散させた 3 音**。
- * e → g → 1 オクターブ上の c と少しずつずらして重ね、
- * 鳴らしっぱなしにして**最後は和音として響かせる**。
- *
- * 和音の音だけを下から順に積むので、鳴らしているものが**和音だと分かる**。
- * 締めを root(c) にしてあるのがきもで、3rd や 5th で終わると
- * 途中で切れたように聞こえ、合図として落ち着かない。
- *
- * 3 音を順に切り替えるとハープを弾いたようにはならず、
- * ただの上昇音 = 効果音に聞こえる。**声を分けて、あとの音が入っても
- * 前の音を切らない**のがジングルらしさの正体。
- * 音を伸ばしたいので、切れのよい percussive ではなく余韻の残る piano。
- * ゲートは q6。音の枠の終わりまで鳴らしきる(q8)と切れ際が詰まるので、
- * **うしろに余白を残して**鳴り終わらせる。
- *
- * **輪郭を立てようとして flat にしてはいけない。** 鳴っているあいだ
- * 音量が落ちなくなるぶん 3 声が対等に鳴りつづけ、うるさくなる。
- * ここは減衰させて、あとの音ほど前の音に埋もれていくのが正しい。
- * 全体で 0.6 秒ほど。ポーズは**ゲームが止まる合図**なので、
- * これより長くすると止まったことが分かりにくくなる。
- */
-export const SE_SYS_PAUSE = 'sys.pause';
-const SYSTEM_SE = {
-  [SE_SYS_PAUSE]: [
-    '@{pulse50} @e{piano} @s6 q6 t200 v12 o5 l16 e4.',
-    '@{pulse50} @e{piano} @s6 q6 t200 v10 o5 l16 r g4.',
-    '@{pulse50} @e{piano} @s7 q6 t200 v8  o5 l16 r r > c4.',
-  ],
-};
+// 最初から入っている SE。曲そのものは見本の曲と一緒に demotunes.js が持っている
+export { SE_SYS_PAUSE };
 
 // 実機(MSX)の PSG のトーン。**クロックを 16 と整数(1〜4095)で割った高さ**しか
 // 出せないので、出せる音程が階段になっている。低いところは細かいが、
