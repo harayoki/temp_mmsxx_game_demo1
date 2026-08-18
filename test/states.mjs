@@ -20,7 +20,7 @@ const check = (name, ok, extra = '') => {
 };
 
 // ---- 1. 宣言そのもの ----
-for (const kind of ['crab', 'dragon', 'king', 'kingActs']) {
+for (const kind of ['crab', 'dragon', 'king', 'kingActs', 'nautilus', 'moai']) {
   const decl = win.mmsxxStates(kind);
   check(kind + ': 宣言を取り出せる', !!decl, decl ? decl.names.join(' / ') : '');
   check(kind + ': 宣言に粗が無い', decl && decl.bad.length === 0, decl ? decl.bad.join(' / ') : '');
@@ -123,6 +123,35 @@ for (const [name, want] of [['moon', 'idle'], ['meditate', 'idle'], ['stun', nul
   const ok = seen[0] === name && (want ? seen[1] === want : ['moon', 'kickWind'].includes(seen[1]));
   check(name + ' から抜けられる', ok, seen.join(' -> '));
 }
+
+// ---- 6. オウムガイとモアイ ----
+//
+// オウムガイはもとは `arrived` と `phase2` の**旗 2 つの組み合わせ**、
+// モアイは `hold` / `wait` / `timer` の**どれが残っているか**で局面を表していた
+win.mmsxxBoss(4);
+const naut = () => win.mmsxxState().stage;
+check('オウムガイは arrive から', naut() === 'arrive', naut());
+for (let i = 0; i < 300 && naut() === 'arrive'; i++) m.advance(1);
+check('降りきると guard', naut() === 'guard', naut());
+win.mmsxxState('core');
+m.advance(60);
+check('装甲が外れると core', naut() === 'core', naut());
+
+// モアイは遊んでいる最中に出る中ボス。合体するまでを順に通る
+win.mmsxxBoss(1);
+m.advance(1);
+win.mmsxxMoai();
+const moai = () => { const o = win.mmsxxDebug().moai; return o && o.state; };
+const shape = () => { const o = win.mmsxxDebug().moai; return o && o.shape; };
+const path = [moai()];
+for (let i = 0; i < 4000; i++) {
+  m.advance(1);
+  const s = moai();
+  if (s && path[path.length - 1] !== s) path.push(s);
+}
+check('モアイが順に合体する',
+  ['hold', 'merge1', 'wait', 'merge2', 'one', 'leave'].every((s, i) => path[i] === s),
+  path.join(' -> '));
 
 console.log(bad ? '\n' + bad + ' 件おかしい' : '\n通りました');
 process.exit(bad ? 1 : 0);

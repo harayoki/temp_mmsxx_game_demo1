@@ -133,7 +133,8 @@ export class StateMachine {
 
     // 行き先を決める。for -> when -> to の順で、先に決まったものが勝つ
     let to = null;
-    if (this.timer === 0 && d.next) to = d.next;
+    // `for: 0`(その場で次へ)も通るように、0 ちょうどではなく 0 以下で見る
+    if (d.for !== undefined && this.timer <= 0 && d.next) to = d.next;
     if (!to && d.when && d.when(ctx, this)) to = d.next;
     if (!to && d.to) to = d.to(ctx, this) || null;
     if (to) this.go(to, ctx);

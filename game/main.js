@@ -1744,7 +1744,7 @@ function moaiActive() { return !!moai; }
  * 上下が寄りはじめて色が付いたら、内側のすき間を狙える合図
  */
 function moaiSafe(m) {
-  return m.state === 'q4' || (m.state === 'q2' && m.wait > 0);
+  return m.fsm.in('hold', 'merge1', 'wait');
 }
 
 function spawnMoai() {
@@ -1759,10 +1759,9 @@ function spawnMoai() {
     return { sp, hp: MOAI_PART_HP, quad, flash: 0 };
   };
   moai = {
-    state: 'q4', timer: MOAI_MERGE1, hp: MOAI_HP, max: MOAI_HP, lost: 0,
+    hp: MOAI_HP, max: MOAI_HP, lost: 0,
     // 合体しきったあとに居座る場所
-    x: cx, y: 40, vx: 0.5, age: 0, stay: MOAI_STAY, insideHp: 0,
-    hold: MOAI_HOLD,   // 四隅で構えている時間
+    x: cx, y: 40, vx: 0.5, age: 0, insideHp: 0,
     tellIn: 0,         // 「まだ撃つな」を出すまでの残り(0 は出さない)
     // 左右がくっついたあとの待ち時間。**先に決めておく**ことで、
     // 「まだ撃つな」を合体の動きだしから待ち終わりまで出しっぱなしにできる
@@ -1775,6 +1774,7 @@ function spawnMoai() {
       mk(BG_SYMBOLS.moaiBR, cx + MOAI_QW + 48, SCREEN_H + 8, 3),
     ],
   };
+  moai.fsm = new StateMachine(MOAI_STATES, { start: 'hold' });
   // 怒ると赤とピンクに変わる(色だけで伝える)
   moai.rage = 0;
   moai.angry = false;
@@ -1796,15 +1796,15 @@ function clearMoai() {
  * 外側を撫でても怒らない(流れ弾で理不尽に怒らせないため)
  */
 function angerMoai(m) {
-  if (m.angry || m.state === 'one') return;   // 合体してからでは怒らない
+  if (m.angry || !m.fsm.in('hold', 'merge1', 'wait', 'merge2')) return;   // 合体してからでは怒らない
   if (++m.rage < MOAI_RAGE_HITS) return;
   m.angry = true;
   m.angryTimer = MOAI_ANGRY_LEAVE;
   // 赤くなったらもう手出しできないので、じらす意味が無い。
   // 構えている時間と待ち時間をやめて、そのまま合体の動きに入る。
   // (合体そのものの動き = m.timer は残す。飛ばすと絵が飛んでしまう)
-  m.hold = 0;
-  m.wait = 0;
+  if (m.fsm.is('hold')) m.fsm.go('merge1', m);
+  else if (m.fsm.is('wait')) m.fsm.go('merge2', m);
   // 赤くなること自体が合図なので、文字は出さない
   mmsxx.audio.playSE('nobreak', SE_HIT);
   flashTimer = 2;
@@ -1842,25 +1842,25 @@ const MOAI_BOT_Y = SCREEN_H - MOAI_QH - 16;
 const MOAI_MEET_Y = Math.round((MOAI_TOP_Y + MOAI_BOT_Y - MOAI_QH) / 2 / 8) * 8;
 
 function moaiPartTarget(m, p) {
-  if (m.hold > 0) {
+  if (m.fsm.is('hold')) {
     // 出てきたあと、しばらく四隅で止まっている(構える時間)
     const left = (p.quad === 0 || p.quad === 2);
     const top = p.quad < 2;
     return [left ? 8 : SCREEN_W - MOAI_QW - 8, top ? MOAI_TOP_Y : MOAI_BOT_Y];
   }
-  if (m.state === 'q4') {
+  if (moaiShape(m) === 'q4') {
     // 上の 2 つは画面の上のほうで、下の 2 つは下のほうで、それぞれ横にくっつく
-    const t = 1 - m.timer / MOAI_MERGE1;
+    const t = m.fsm.is('merge1') ? 1 - m.fsm.timer / MOAI_MERGE1 : 0;
     const gap = Math.round(40 * (1 - t) / 8) * 8;
     const left = (p.quad === 0 || p.quad === 2);
     const top = p.quad < 2;
     return [m.x + (left ? -gap : MOAI_QW + gap),
       top ? MOAI_TOP_Y : MOAI_BOT_Y];
   }
-  if (m.state === 'q2') {
+  if (moaiShape(m) === 'q2') {
     // 上半分と下半分が画面の真ん中へ寄ってくる。
     // 閉じきるまでのあいだ、そのすき間から内部を撃てる
-    const t = 1 - m.timer / MOAI_MERGE2;
+    const t = m.fsm.is('merge2') ? 1 - m.fsm.timer / MOAI_MERGE2 : 0;
     const top = p.quad === 0;
     const from = top ? MOAI_TOP_Y : MOAI_BOT_Y;
     const to = MOAI_MEET_Y + (top ? 0 : MOAI_QH);
@@ -1871,7 +1871,7 @@ function moaiPartTarget(m, p) {
 
 function mergeMoaiParts() {
   const m = moai;
-  if (m.state === 'q4') {
+  if (moaiShape(m) === 'q4') {
     // 左右をくっつけて、上半分・下半分の 2 つにする(継ぎ目なしの 1 枚絵)
     const top = m.parts.find(p => p.quad === 0) || m.parts.find(p => p.quad === 1);
     const bot = m.parts.find(p => p.quad === 2) || m.parts.find(p => p.quad === 3);
@@ -1887,15 +1887,12 @@ function mergeMoaiParts() {
     m.parts = [];
     if (top) m.parts.push(mk(BG_SYMBOLS.moaiTop, 0));
     if (bot) m.parts.push(mk(BG_SYMBOLS.moaiBottom, 1));
-    m.state = 'q2';
     // すぐ上下合体に入らず、2〜5 秒のあいだ そのまま待つ。
     // 待ち終わりに一瞬白く光ってから合体に入るので、合図は出るが
     // タイミングは毎回ちがう
     // 待ちの長さは出てきたときに決めてある(「まだ撃つな」を
     //  出しっぱなしにする長さを、先に知っておきたいため)。
     // すでに怒っているときは待たない。そのまま上下合体の動きへ
-    m.wait = m.angry ? 0 : m.waitLen;
-    m.timer = MOAI_MERGE2;
     // 「まだ撃つな」は左右合体の動きだしのところで出してある。
     // 「内側から撃て」は、**狙えるようになってから**出す(下の待ちが明けたところ)
   } else {
@@ -1910,7 +1907,6 @@ function mergeMoaiParts() {
     // 途中の姿は 1 枚絵として用意してあるので、絵を差し替えるだけでよい
     // (重ね絵にすると BG スプライトのセルが黒く埋まってしまうため)
     m.tintStep = 0;
-    m.state = 'one';
     // 合体前に壊されたパーツのぶんだけ、はじめから傷んでいる
     m.max = Math.max(60, MOAI_HP - m.lost * MOAI_LOST_DAMAGE);
     m.hp = m.max;
@@ -1927,7 +1923,7 @@ function mergeMoaiParts() {
  * 内側から壊したときのボーナスと、押しつぶしの両方で使う
  */
 function playerInMoaiGap(m) {
-  if (!m || m.state !== 'q2' || m.parts.length !== 2) return false;
+  if (!m || moaiShape(m) !== 'q2' || m.parts.length !== 2) return false;
   const top = m.parts.find(p => p.quad === 0);
   const bot = m.parts.find(p => p.quad === 1);
   if (!top || !bot) return false;
@@ -1986,9 +1982,9 @@ function killMoaiPart(p) {
  * 例外は「上下 2 つになったあと、閉じかけのすき間の内側から撃つ」ときだけ。
  */
 function moaiInnerHit(m, p, x, y) {
-  if (m.state === 'one') return true;
+  if (m.fsm.in('one', 'leave')) return true;
   const sx = p.sp.x, sy = p.sp.y;
-  if (m.state === 'q2') {
+  if (moaiShape(m) === 'q2') {
     // 上下 2 つのとき: 上半分は下のふち、下半分は上のふち(すき間の内側)
     return p.quad === 0 ? y > sy + MOAI_QH - 14 : y < sy + 14;
   }
@@ -1998,37 +1994,73 @@ function moaiInnerHit(m, p, x, y) {
   return right || inner;
 }
 
-function updateMoai() {
-  const m = moai;
-  if (!m) return;
-  m.age++;
-  // 「まだ撃つな」を、合体の動きだしから少し遅らせて出す。
-  // 待ちが明けるまで出しっぱなしにするので、遅らせたぶんは長さから引く
-  if (m.tellIn > 0 && --m.tellIn === 0 && !moaiToldWait && !m.angry) {
-    moaiToldWait = true;
-    showNotice('DO NOT SHOOT THE MOAI YET!',
-      MOAI_MERGE1 - MOAI_TELL_DELAY + m.waitLen + 30);
-  }
-  // 怒って赤くなったあとは壊せない。30 秒たったら上へ帰っていく
-  if (m.angry && m.angryTimer > 0 && --m.angryTimer <= 0) m.leaving = true;
-  if (m.leaving) {
-    // 逃げるのは下(画面の流れと同じ向き)。上へ帰ると出てきた側へ戻る形になり、
-    // 追ってきたようにも見えるので、そのまま流れ去らせる。
-    // **姿は必ず出す**(ホログラムの明滅で消えたままだと、
-    //  見えないものに当たったように見えてしまう)
-    for (const p of m.parts) { p.sp.y += 2; p.sp.visible = true; }
-    if (m.parts.every(p => p.sp.y > SCREEN_H + 8)) { clearMoai(); return; }
-    return;
-  }
-  if (m.state === 'one') {
-    // 画面のやや上をゆっくり左右に漂いながら、リング弾を撒く
-    m.x += m.vx;
-    if (m.x < 8) { m.x = 8; m.vx = Math.abs(m.vx); }
-    if (m.x > SCREEN_W - MOAI_W - 8) { m.x = SCREEN_W - MOAI_W - 8; m.vx = -Math.abs(m.vx); }
-    // くっついた場所(画面の中ほど)から、居座る高さへゆっくり上がっていく。
-    // 直に代入すると、合体しきった瞬間に上へ飛んでしまう
-    m.y += (24 + Math.sin(m.age * 0.02) * 8 - m.y) * 0.05;
-    if (state === 'play' && --m.fire <= 0) {
+/**
+ * **モアイの局面。**
+ *
+ *   hold -> merge1 -> wait -> merge2 -> one -> leave
+ *
+ * もとは `hold` / `wait` / `timer` の**どれが残っているか**で局面を表していて、
+ * そこに「何個に分かれているか」(`state` の q4 / q2 / one)が混ざっていた。
+ * 形は局面から決まるので、moaiShape() で導く
+ */
+const MOAI_STATES = {
+  // 出てきたあと、四隅で構えている(プレイヤーの準備時間)
+  hold: {
+    for: MOAI_HOLD,
+    next: 'merge1',
+    // 左右合体の動きだしから **0.5 秒おいて**「まだ撃つな」を出す。
+    // 大きな動きと文字が同時に出ると、目が散って両方とも入ってこない
+    exit: (m) => { if (!moaiToldWait && !m.angry) m.tellIn = MOAI_TELL_DELAY; },
+  },
+  // 左右がくっつくまで(1 段階目はさっと)
+  merge1: {
+    viaGo: true,   // 怒らせると構えを飛ばしてここへ来る
+    for: MOAI_MERGE1,
+    next: 'wait',
+    exit: () => mergeMoaiParts(),
+  },
+  // 左右がくっついたあとの待ち。終わりぎわに一瞬白くする。
+  // すでに怒っているときは待たない(そのまま上下合体の動きへ)
+  wait: {
+    for: (m) => (m.angry ? 0 : m.waitLen),
+    next: 'merge2',
+    update: (m, f) => {
+      if (f.timer === MOAI_WAIT_FLASH) {
+        for (const p of m.parts) p.flash = MOAI_WAIT_FLASH;
+        mmsxx.audio.playSE('clink', SE_HIT);
+      }
+    },
+    // 待ちが明けた = 色が付いて、内側を狙えるようになった合図。
+    // ここで初めて狙いどころを教える(1 回だけ)。
+    // 怒らせたあとは内側からも壊せないので、こちらも言わない
+    exit: (m) => {
+      if (moaiToldInside || m.angry) return;
+      moaiToldInside = true;
+      showNotice('BREAK IT FROM INSIDE!');
+      // **狙いどきが来たところで、こすり打ちも教える**。
+      // すき間は閉じるので、ここは速く撃てるほど効く場面でもある
+      cueRubHint('moai');
+    },
+  },
+  // 上下がくっつくまで
+  merge2: {
+    viaGo: true,   // 怒らせると待ちを飛ばしてここへ来る
+    for: MOAI_MERGE2,
+    next: 'one',
+    exit: () => mergeMoaiParts(),
+  },
+  // 合体して 1 体。画面のやや上をゆっくり左右に漂いながら、リング弾を撒く
+  one: {
+    for: MOAI_STAY,
+    next: 'leave',
+    update: (m) => {
+      m.x += m.vx;
+      if (m.x < 8) { m.x = 8; m.vx = Math.abs(m.vx); }
+      if (m.x > SCREEN_W - MOAI_W - 8) { m.x = SCREEN_W - MOAI_W - 8; m.vx = -Math.abs(m.vx); }
+      // くっついた場所(画面の中ほど)から、居座る高さへゆっくり上がっていく。
+      // 直に代入すると、合体しきった瞬間に上へ飛んでしまう
+      m.y += (24 + Math.sin(m.age * 0.02) * 8 - m.y) * 0.05;
+      if (state !== 'play' || --m.fire > 0) return;
       m.fire = Math.max(50, 90 - shotLevel * 4);
       // 口から放射状にリング弾(撃ち落とせる)
       const cx = m.x + MOAI_W / 2 - 8, cy = m.y + MOAI_H - 24;
@@ -2045,49 +2077,53 @@ function updateMoai() {
         fireEnemyBullet(cx, cy, Math.cos(a) * spd, Math.sin(a) * spd, true);
       }
       mmsxx.audio.playSE('shot', SE_HIT);
-    }
+    },
     // 時間切れ。**まず赤くなってから**、あきらめて流れ去っていく。
     // 赤くなるのは「もう壊せない」の合図なので、逃げる前にも見せる。
-    // 逃げる動きは上の m.leaving の枝にまかせる。
-    // (ここで m.y を足しても、すぐ上の「漂う」行が毎コマ上書きしてしまい、
-    //  いつまでも居座っていた)
-    if (--m.stay <= 0 && !m.leaving) {
+    // (怒って帰るときは angryTimer のほうから go() で来るので、ここは通らない)
+    exit: (m, f) => {
+      if (f.timer > 0) return;
       m.angry = true;
-      m.leaving = true;
       mmsxx.audio.playSE('nobreak', SE_HIT);
       showNotice('IT IS LEAVING!');
-    }
-  } else if (m.hold > 0) {
-    // 四隅で構えているあいだは合体しない(プレイヤーの準備時間)
-    m.hold--;
-    // 左右合体の動きだしから **0.5 秒おいて**「まだ撃つな」を出す。
-    // 大きな動きと文字が同時に出ると、目が散って両方とも入ってこない
-    if (m.hold === 0 && !moaiToldWait && !m.angry) m.tellIn = MOAI_TELL_DELAY;
-  } else if (m.wait > 0) {
-    // 左右がくっついたあとの待ち。終わりぎわに一瞬白くする
-    m.wait--;
-    if (m.wait === MOAI_WAIT_FLASH) {
-      for (const p of m.parts) p.flash = MOAI_WAIT_FLASH;
-      mmsxx.audio.playSE('clink', SE_HIT);
-    }
-    // 待ちが明けた = 色が付いて、内側を狙えるようになった合図。
-    // ここで初めて狙いどころを教える(1 回だけ)
-    // 怒らせたあとは内側からも壊せないので、こちらも言わない
-    if (m.wait === 0 && !moaiToldInside && !m.angry) {
-      moaiToldInside = true;
-      showNotice('BREAK IT FROM INSIDE!');
-      // **狙いどきが来たところで、こすり打ちも教える**(上の cueRubHint)。
-      // すき間は閉じるので、ここは速く撃てるほど効く場面でもある
-      cueRubHint('moai');
-    }
-  } else {
-    // 合体するまでのカウントダウン
-    if (--m.timer <= 0) {
-      if (m.parts.length === 0) { clearMoai(); return; }
-      mergeMoaiParts();
-    }
+    },
+  },
+  // 逃げるのは下(画面の流れと同じ向き)。上へ帰ると出てきた側へ戻る形になり、
+  // 追ってきたようにも見えるので、そのまま流れ去らせる。
+  // **姿は必ず出す**(ホログラムの明滅で消えたままだと、
+  //  見えないものに当たったように見えてしまう)
+  leave: {
+    viaGo: true,   // 怒って 30 秒たったときにも来る
+    update: (m) => { for (const p of m.parts) { p.sp.y += 2; p.sp.visible = true; } },
+  },
+};
+
+/** いま何個に分かれているか。**局面から決まる** */
+const moaiShape = (m) => (m.fsm.in('hold', 'merge1') ? 'q4'
+  : m.fsm.in('wait', 'merge2') ? 'q2' : 'one');
+
+function updateMoai() {
+  const m = moai;
+  if (!m) return;
+  m.age++;
+  // 「まだ撃つな」を、合体の動きだしから少し遅らせて出す。
+  // 待ちが明けるまで出しっぱなしにするので、遅らせたぶんは長さから引く
+  if (m.tellIn > 0 && --m.tellIn === 0 && !moaiToldWait && !m.angry) {
+    moaiToldWait = true;
+    showNotice('DO NOT SHOOT THE MOAI YET!',
+      MOAI_MERGE1 - MOAI_TELL_DELAY + m.waitLen + 30);
   }
-  if (m.state === 'one' && m.parts[0]) {
+  // 怒って赤くなったあとは壊せない。30 秒たったら上へ帰っていく
+  if (m.angry && m.angryTimer > 0 && --m.angryTimer <= 0) m.fsm.go('leave', m);
+  // 合体しきる前にパーツが全部なくなったら、そこで終わり
+  if (m.fsm.in('merge1', 'merge2') && m.fsm.timer <= 1 && m.parts.length === 0) {
+    clearMoai(); return;
+  }
+  // 動きと移り先は MOAI_STATES に書いてある
+  m.fsm.step(m);
+  if (!moai) return;   // 合体の途中で片づいた
+  if (m.fsm.is('leave') && m.parts.every(p => p.sp.y > SCREEN_H + 8)) { clearMoai(); return; }
+  if (moaiShape(m) === 'one' && m.parts[0]) {
     // 全体を 1 コマおきに消して、ホログラムのようにちらつかせる
     const holo = (mmsxx.frame & 1) === 0;
     const p0 = m.parts[0];
@@ -2109,9 +2145,9 @@ function updateMoai() {
   const holoNow = (mmsxx.frame & 1) === 0;
   for (const p of m.parts) {
     const [tx, ty] = moaiPartTarget(m, p);
-    const rate = m.state === 'q4' ? 0.3 : 0.12;
+    const rate = moaiShape(m) === 'q4' ? 0.3 : 0.12;
     p.sp.x += (tx - p.sp.x) * rate;
-    p.sp.y += (ty - p.sp.y) * (m.state === 'q4' ? 0.2 : 0.08);
+    p.sp.y += (ty - p.sp.y) * (moaiShape(m) === 'q4' ? 0.2 : 0.08);
     if (p.flash > 0) p.flash--;
     // 光っているあいだは**必ず見せる**。
     // 「光る = 1 コマおきに消す」にしていたが、ホログラムの明滅と
@@ -2120,8 +2156,8 @@ function updateMoai() {
     // 合体前も、緑 -> 青 -> 緑 と「線で」色が変わっていく。
     // 途中の姿は 1 枚絵として用意してあるので、絵を差し替えるだけでよい。
     // 合体後(one)は 1 枚絵なので、ここでは触らない(別のところで差し替える)
-    if (m.state !== 'one') {
-      const key = MOAI_PART_KEY[m.state === 'q4' ? p.quad : (p.quad ? 'BOT' : 'TOP')];
+    if (moaiShape(m) !== 'one') {
+      const key = MOAI_PART_KEY[moaiShape(m) === 'q4' ? p.quad : (p.quad ? 'BOT' : 'TOP')];
       if (m.angry) {
         // 怒ったら色変わりを止めて、赤とピンクで固定する
         p.sp.image = moaiWaveImage(0, key);
@@ -2134,7 +2170,7 @@ function updateMoai() {
         // 左右合体の動きだしと同時に青緑になる
         // (合体の移動中も石のままにしていたが、色が無い時間が長すぎた)
         // 合体に入る直前は、白と灰色にして「一瞬光った」ように見せる
-        p.sp.colorMap = (p.flash > 0 || (m.state === 'q4' && m.hold > 0))
+        p.sp.colorMap = (p.flash > 0 || m.fsm.is('hold'))
           ? MOAI_STONE_MAP : null;
       }
     }
@@ -6524,6 +6560,42 @@ const NAUT_WEAK_HITS = 12;     // 弱点の装甲は「装備によらず 12 発
 const NAUT_CORE_HP = 70;       // 中の生き物(弱い)
 const NAUT_SPIN = 0.011;
 
+/**
+ * **KING NAUTILUS の局面。**
+ *
+ *   arrive -> guard -> core
+ *
+ * もとは `arrived` と `phase2` の**旗 2 つの組み合わせ**で 3 とおりを表していた。
+ * (「y < 40 なら降りてくる」で見ていたころは、下の段へ動いたとたんに
+ *  また登場中とみなされて、上下を行ったり来たりしていた)
+ */
+const NAUT_STATES = {
+  // 登場: ゆっくり降りてきて、画面の上のほうに居座る
+  arrive: {
+    update: (b) => { b.y += 0.6; },
+    when: (b) => b.y >= 40,
+    next: 'guard',
+    exit: (b) => { b.y = 40; },
+  },
+  // 装甲の輪をまとっているあいだ。輪が回り、電撃を撒く
+  guard: {
+    update: (b) => {
+      // BG スプライトは 8 ドット刻みでしか置けないので、なめらかに上下させると
+      // 境目を行き来するたびにガタついて暴れて見える。
+      // **行き先そのものを 8 ドット刻み**にして、1 段ごとに間を置く
+      const HOLD = 100;                                   // 1 段に留まるコマ数
+      const n = Math.floor(b.age / HOLD) % 4;             // 0,1,2,3
+      b.y = 32 + (n === 3 ? 1 : n) * 8;                   // 32 -> 40 -> 48 -> 40
+      b.x = (SCREEN_W - NAUT_CORE) / 2 + Math.sin(b.age * 0.008) * 40;
+      b.spin += NAUT_SPIN;
+      b.orbSpin += NAUT_SPIN * 3;
+    },
+  },
+  // 装甲が外れたあと。**オウムガイは動かない**(狙いやすくする)。
+  // 輪の回転も電撃も止まる
+  core: { viaGo: true },
+};
+
 function spawnNautilusBoss() {
   const blocks = [];
   const weakAt = Math.floor(rndBoss() * NAUT_BLOCKS);
@@ -6570,6 +6642,7 @@ function spawnNautilusBoss() {
     blocks, orbs, core, spin: 0, orbSpin: 0, fire: 90,
     ringR: NAUT_R, ringTimer: 300,
   };
+  boss.fsm = new StateMachine(NAUT_STATES, { start: 'arrive' });
   drawBossBody();
   playBGM('boss', true);
 }
@@ -6591,27 +6664,8 @@ function nautilusInside(b) {
 }
 
 function updateNautilusBoss(b) {
-  // 登場: ゆっくり降りてきて、画面の上のほうに居座る
-  // 「y < 40 なら降りてくる」で見ていたころは、下の段(32)へ動いたとたんに
-  // また登場中とみなされて、上下を行ったり来たりしていた。降りきったかは旗で持つ
-  if (!b.arrived) {
-    b.y += 0.6;
-    if (b.y >= 40) { b.y = 40; b.arrived = true; }
-  } else if (!b.phase2) {
-    // BG スプライトは 8 ドット刻みでしか置けないので、なめらかに上下させると
-    // 境目を行き来するたびにガタついて暴れて見える。
-    // **行き先そのものを 8 ドット刻み**にして、1 段ごとに間を置く
-    const HOLD = 100;                                   // 1 段に留まるコマ数
-    const n = Math.floor(b.age / HOLD) % 4;             // 0,1,2,3
-    b.y = 32 + (n === 3 ? 1 : n) * 8;                   // 32 -> 40 -> 48 -> 40
-  }
-  // 装甲が外れたあとは、オウムガイは動かない(狙いやすくする)
-  if (!b.phase2) b.x = (SCREEN_W - NAUT_CORE) / 2 + Math.sin(b.age * 0.008) * 40;
-  // 装甲が外れたら、輪の回転も電撃も止まる
-  if (!b.phase2) {
-    b.spin += NAUT_SPIN;
-    b.orbSpin += NAUT_SPIN * 3;
-  }
+  // 動きと移り先は NAUT_STATES に書いてある
+  b.fsm.step(b);
   // ときどき輪が大きく広がって、また元に戻る
   if (--b.ringTimer <= 0) {
     const wide = b.ringTarget === NAUT_R_WIDE;
@@ -10141,6 +10195,7 @@ function updatePlay() {
           g.alive = false;
           g.sp.visible = false;
           boss.phase2 = true;
+          boss.fsm.go('core', boss);       // 輪も電撃も止まり、その場から動かない
           boss.ringTarget = NAUT_R_WIDE;   // 輪が広がって入りやすくなる
           // 中の生き物を直に叩けるようになった = 狙いどき(上の cueRubHint)
           cueRubHint('nautilus');
@@ -11209,8 +11264,8 @@ mmsxx.expose('mmsxxState', (name, which = 'auto') => {
  */
 mmsxx.expose('mmsxxStates', (kind = 'crab') => {
   const defs = {
-    crab: CRAB_STATES, dragon: DRAGON_STATES,
-    king: KING_STAGES, kingActs: KING_ACTS,
+    crab: CRAB_STATES, dragon: DRAGON_STATES, nautilus: NAUT_STATES,
+    king: KING_STAGES, kingActs: KING_ACTS, moai: MOAI_STATES,
   }[kind];
   if (!defs) return null;
   const fsm = new StateMachine(defs);
@@ -11410,7 +11465,7 @@ mmsxx.expose('mmsxxDebug', () => ({
     legs: (boss.legs || []).map(g => g.hp),
     bullets: bullets.length,
   } : null,
-  moai: moai ? { state: moai.state, hp: moai.hp, max: moai.max,
+  moai: moai ? { state: moai.fsm.state, shape: moaiShape(moai), hp: moai.hp, max: moai.max,
     parts: moai.parts.map(p => p.hp), lost: moai.lost,
     rage: moai.rage, angry: moai.angry } : null,
 }));
