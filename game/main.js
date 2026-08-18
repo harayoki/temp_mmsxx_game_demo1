@@ -3831,8 +3831,62 @@ function updateModeLine() {
   drawModeNeighbors(mmsxx.frame % 2 === 0);
 }
 
+/**
+ * **面の頭の控え。** 撮り直しのために、その面を始めたときの持ちものを覚えておく。
+ *
+ * 通しで録っていて失敗したとき、**その面のはじめからやり直せる**ようにするもの。
+ * コンティニューは面番号しか覚えていないので、点も装備も初期化されてしまい、
+ * 「続きを撮る」には使えなかった。
+ *
+ * **持つのは数だけ**(点・残機・装備・乱数の進み具合)。敵や弾は覚えない ──
+ * 面の頭は `startStage()` が作り直すので、そちらに任せれば足りる。
+ * 数十バイトで済むぶん、**画面を溜めるのとは桁が 3 つちがう**
+ */
+let stageMark = null;
+
+/** いまの持ちものを控える(面の頭で自動的に呼ばれる) */
+function markStage() {
+  stageMark = {
+    build: BUILD.version,      // 版が違えば戻しても同じにはならない
+    stageNo, score, ships, shotLevel, speedLevel, maxVolleys, damageLevel,
+    barrierHP, coinValue, autoFire, dragonFlame, rushFrames,
+    modeIndex,
+    rng: mmsxx.rng.saveAll(),
+  };
+  return stageMark;
+}
+
+/**
+ * 控えたところへ戻して、その面をはじめからやり直す。
+ *
+ * **音は切れ目で止める。** 戻した拍子に前の曲や爆発の尾が残っていると、
+ * つないだときにそこだけ音が飛ぶ
+ */
+function rewindStage() {
+  if (!stageMark) return '控えがありません';
+  if (stageMark.build !== BUILD.version) return '版が違います(' + stageMark.build + ')';
+  const m = stageMark;
+  stageNo = m.stageNo; score = m.score; ships = m.ships;
+  shotLevel = m.shotLevel; speedLevel = m.speedLevel; maxVolleys = m.maxVolleys;
+  damageLevel = m.damageLevel; barrierHP = m.barrierHP; coinValue = m.coinValue;
+  autoFire = m.autoFire; dragonFlame = m.dragonFlame; rushFrames = m.rushFrames;
+  modeIndex = m.modeIndex;
+  mmsxx.rng.restoreAll(m.rng);
+  // **切れ目で黙らせる。** 曲・ジングル・SE・声を全部止めてから作り直す
+  mmsxx.audio.stopBGM();
+  mmsxx.audio.stopJingle();
+  mmsxx.audio.stopSE();
+  mmsxx.audio.stopTalk();
+  currentBGM = null;
+  state = 'play';
+  startStage();
+  return 'STAGE ' + stageNo + ' をやり直します(SCORE ' + score + ')';
+}
+
 function startStage() {
   if (currentBGM === 'elise') { mmsxx.audio.stopBGM(); currentBGM = null; }
+  // **面の頭の持ちものを控える**(上の markStage)。撮り直しの起点になる
+  markStage();
   // ここまでタイトル用の背景だったので、面の背景に切り替える。
   // (以前はボスが出るまで解除されず、1 面がずっとタイトルの背景のままだった)
   titleScene = false;
@@ -11016,6 +11070,21 @@ mmsxx.expose('mmsxxContinue', (n) => {
   return { ...continueStages, modes: MODES.map(m => m.id) };
 });
 
+/**
+ * **その面をはじめからやり直す**(撮り直し用)。
+ *
+ * 面の頭で控えた持ちもの(点・残機・装備・乱数の進み具合)へ戻してから
+ * 面を作り直す。**音は切れ目で止める**ので、あとでつないでも継ぎ目が鳴らない。
+ *
+ *   mmsxxMark()     … いまの持ちものを控え直す(面の途中を起点にしたいとき)
+ *   mmsxxRewind()   … 控えたところへ戻す
+ */
+mmsxx.expose('mmsxxMark', () => {
+  const m = markStage();
+  return 'STAGE ' + m.stageNo + ' / SCORE ' + m.score + ' を控えました';
+});
+mmsxx.expose('mmsxxRewind', () => rewindStage());
+
 /** デバッグ用: 敵や障害物をその場に出す(引数なしで一覧が返る) */
 mmsxx.expose('mmsxxEnemy', (kind) => {
   if (kind === 'count') return { 敵: enemies.length, 敵弾: enemyBullets.length,
@@ -11135,6 +11204,7 @@ mmsxx.expose('mmsxxSymbols', () => mmsxx.symbols()
 mmsxx.expose('mmsxxDebug', () => ({
   state, modeIndex, mode: gameMode(), titlePage, charPage, stageNo,
   playFrame, bossIntro, bossMode, stars, need: starsNeeded(), paused,
+  score,
   gear: { shotLevel, speedLevel, maxVolleys, damageLevel, barrierHP, ships },
   playerX: Math.round(player.x), bullets: bullets.length,
   talkHold, continueStages: { ...continueStages },
