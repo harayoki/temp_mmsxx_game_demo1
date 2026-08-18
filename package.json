@@ -12,7 +12,7 @@
     "movie": "node tools/rec2mp4.mjs",
     "font": "node tools/subset-font.mjs",
     "uishot": "node tools/uishot.mjs",
-    "test": "node test/game-headless.mjs && node test/rewind.mjs && node test/bg-stop.mjs"
+    "test": "node test/game-headless.mjs && node test/rewind.mjs && node test/bg-stop.mjs && node test/leftover.mjs"
   },
   "devDependencies": {
     "joyo-kanji": "^0.2.1",

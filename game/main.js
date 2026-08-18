@@ -11104,6 +11104,9 @@ mmsxx.expose('mmsxxContinue', (n) => {
  * **クリアの流れへ飛ばす**(結果画面まで進める)。
  * 撮り直しのときに、そこまで遊ばずに継ぎ目の絵を確かめるためのもの
  */
+/** **タイトルへ戻す**(片づけ忘れを見るときに使う) */
+mmsxx.expose('mmsxxTitle', () => { resetToTitle(); return 'タイトルへ戻りました'; });
+
 mmsxx.expose('mmsxxClear', (frames = 960) => {
   if (state !== 'play') return '遊びの最中ではありません(' + state + ')';
   clearTimer = frames;
