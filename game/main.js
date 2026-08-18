@@ -2545,7 +2545,7 @@ function burnBossBehind(fx, fy, r) {
   // 上から覆いかぶさって焼くだけでは倒せない(口をねらうか小惑星にぶつける)
   if (boss.kind === 'dragon') return;
   if (boss.kind === 'king' && !bossIs(boss, 'man', 'pose')) return;
-  if (boss.kind === 'king' && boss.meditate > 0) return;   // 瞑想中は炎も通らない
+  if (kingIs(boss, 'meditate')) return;   // 瞑想中は炎も通らない
   // **必ず先に「炎が当たっているか」を見る**。
   // (ここを飛ばして先に削っていたため、出てくるだけで体力が減っていた)
   const c = bossCenter(boss);
@@ -2586,7 +2586,7 @@ function burnBossBehind(fx, fy, r) {
     else {
       boss.dying = 90;
       clearChicks(boss);   // 気絶のひよこを残さない
-      if (boss.stun) boss.stun = 0;
+      kingCancelStun(boss);
       mmsxx.audio.stopBGM();
       mmsxx.audio.playSE('bossboom', SE_HIT);
     }
@@ -7651,7 +7651,7 @@ function clearChicks(b) {
  * 姿は立ったままなので、**これが気絶の目印**になる
  */
 function updateChicks(b) {
-  if (!b || b.stun <= 0) { clearChicks(b); return; }
+  if (!kingIs(b, 'stun')) { clearChicks(b); return; }
   if (!b.chicks) {
     b.chicks = [];
     for (let i = 0; i < CHICKS; i++) {
@@ -7699,9 +7699,7 @@ function kingWins(b) {
   if (!b || b.kind !== 'king' || b.fsm.is('won')) return;
   clearChicks(b);           // ピヨっていたら片づける
   b.fsm.go('won', b);
-  b.act = 'idle';
-  b.meditate = 0;
-  b.stun = 0;
+  if (b.actFsm) b.actFsm.go('idle', b);
   b.wonY = RIFT_CY - KING_MAN_H / 2;
   b.y = b.wonY;
   b.x = RIFT_CX - KING_MAN_W / 2;
@@ -7734,12 +7732,12 @@ function updateKingBoss(b) {
   // 当たったことが姿ではっきり分かるようにするため
   if (b.hurtVoice > 0) b.hurtVoice--;
   if (b.man) {
-    if (b.meditate <= 0 && b.man.colorMap) b.man.colorMap = null;   // 七色を戻す
+    if (!kingIs(b, 'meditate') && b.man.colorMap) b.man.colorMap = null;   // 七色を戻す
     if (b.hurtPose > 0) {
       b.hurtPose--;
       if (b.man.frames) b.man.frames = null;
       b.man.image = (b.hurtPose & 4) ? SPRITE_SYMBOLS.kingMan05 : SPRITE_SYMBOLS.kingMan05b;
-    } else if (b.meditate > 0) {
+    } else if (kingIs(b, 'meditate')) {
       // 座って瞑想。撃たれても姿は変わらない(無敵)。
       // 体力が戻っていくあいだは、黒ではなく**青 1 色**にして、
       // ふだんの黒いシルエットと見分けられるようにする
@@ -7747,7 +7745,7 @@ function updateKingBoss(b) {
       b.man.image = SPRITE_SYMBOLS.kingMan11;
       // 6 コマごとに色が変わる(黒いシルエットとはっきり見分けられる)
       b.man.colorMap = kingZenMap();
-    } else if (b.stun > 0) {
+    } else if (kingIs(b, 'stun')) {
       // 気絶。**立ち姿から腕だけを垂らした姿**(頭と足は同じ)。
       // 気絶そのものは頭の上のひよこで見せる
       if (b.man.frames) b.man.frames = null;
@@ -7759,8 +7757,8 @@ function updateKingBoss(b) {
       b.man.image = SPRITE_SYMBOLS.kingMan02;
     } else {
       // いまの技に合わせた姿。構えだけ 2 コマで呼吸させる
-      if (!['kick', 'kickCircle', 'kickWind', 'orbit'].includes(b.act)) b.man.flipX = false;
-    if (b.act !== 'moon' && b.man.rotate) b.man.rotate = 0;   // 宙返りの回転を戻す
+      if (!kingIs(b, 'kick', 'kickCircle', 'kickWind', 'orbit')) b.man.flipX = false;
+    if (!kingIs(b, 'moon') && b.man.rotate) b.man.rotate = 0;   // 宙返りの回転を戻す
       const pose = kingFightPose(b);
       if (pose.length > 1) {
         b.man.frames = pose;
@@ -7845,189 +7843,228 @@ function kickRate(b) {
  */
 function startKingMeditate(b) {
   b.shotSince = false;   // また弾で削られるまでは座らない
-  b.meditate = KING_MEDITATE_LEN;
   b.meditateCount = (b.meditateCount || 0) + 1;
   // 息を整えるので、ピヨりのたくわえが 1 つ戻る(上限 2)
   b.stunStock = Math.min(KING_STUN_MAX, (b.stunStock || 0) + 1);
-  b.healPer = (b.max * 0.5) / KING_MEDITATE_LEN;
   b.slowMul = 1;
-  b.stun = 0;
   b.guard = 0;
-  b.act = 'idle';
-  b.actTimer = KING_ACT_GAP;
+  b.actFsm.go('meditate', b);
   showNotice('IT IS MEDITATING!');
   mmsxx.audio.playSE('heal', SE_EVENT + 2);
 }
 
+/** ラスボスがその技(局面)のどれかか。第 2 段階に入る前なら常に false */
+const kingIs = (b, ...names) => !!(b && b.actFsm && b.actFsm.in(...names));
+
+/**
+ * ピヨりを外から解く。**技は出させずに構えへ戻す** —
+ * 自然に明けたときだけ、起き上がりざまの 1 発が返ってくる
+ */
+function kingCancelStun(b) {
+  if (kingIs(b, 'stun')) b.actFsm.go('idle', b);
+}
+
+/** 自機の置き場所(シルエットマンの左上に合わせた座標) */
+const kingPX = () => player.x + 8 - KING_MAN_W / 2;
+const kingPY = () => player.y + 8 - KING_MAN_H / 2;
+
+/** 自機のまわりを回るときの置き場所 */
+function kingOrbit(b) {
+  b.x = kingPX() + Math.cos(b.orbA) * b.orbR;
+  b.y = kingPY() + Math.sin(b.orbA) * b.orbR;
+}
+
+/** 蹴り込む向きを決める。**下からは蹴らない**ので、横〜上へ寄せる */
+function kingKickAngle(a) {
+  if (Math.sin(a) > -0.15) return Math.cos(a) >= 0 ? -0.35 : Math.PI + 0.35;
+  return a;
+}
+
+/** 待機から次に出す技を選ぶ。選ぶだけで、置き場所は移った先の enter が決める */
+function pickKingAct(b) {
+  const r = rndBoss();
+  const kiai = (n) => mmsxx.audio.playTalk(n, SE_EVENT);
+  // ムーンサルトだけは下から。体力が減ってきたときだけ出す
+  if (b.hp / b.max < KING_MOON_HP && r < 0.28) { kiai('kiaiC'); return 'moon'; }
+  // (B は撃たれたときの声に使うので、攻撃では鳴らさない)
+  kiai('kiaiA');
+  if (r < kickRate(b)) {
+    // 蹴りの前ぶり。波動より近い輪をうろうろする
+    b.orbR = KING_KICK_R;
+    b.orbA = Math.atan2(b.y - kingPY(), b.x - kingPX());
+    b.orbV = (rndBoss() < 0.5 ? 1 : -1) * 0.030;
+    return 'kickCircle';
+  }
+  // 波動。少し離れた輪を回りながら 3 回撃つ
+  b.orbR = KING_WAVE_R;
+  b.orbA = Math.atan2(b.y - kingPY(), b.x - kingPX());
+  b.orbV = (rndBoss() < 0.5 ? 1 : -1) * 0.022;
+  b.waveLeft = KING_WAVE_SHOTS;
+  return 'orbit';
+}
+
+/**
+ * 気絶から息を吹き返したところ。**すぐに 1 発返してくる**。
+ * 自機が上にいるならサマーソルト(下から上へ)、それ以外は起き上がりざまのキック
+ */
+function kingStunRecover(b) {
+  b.slowMul = 1;
+  if (player.y + 8 < b.y + KING_MAN_H / 2) {
+    mmsxx.audio.playTalk('kiaiC', SE_EVENT);
+    return 'moon';
+  }
+  mmsxx.audio.playTalk('kiaiA', SE_EVENT);
+  b.orbA = Math.atan2(b.y - kingPY(), b.x - kingPX());
+  b.orbR = KING_KICK_R;
+  b.kickA = kingKickAngle(b.orbA);
+  return 'kickWind';
+}
+
+/**
+ * **ラスボス第 2 段階の技。**
+ *
+ *   idle -> orbit / kickCircle -> kickWind -> kick / moon -> idle
+ *   ( どこからでも meditate(座禅) と stun(ピヨり) )
+ *
+ * もとは `act` の 6 つに加えて `meditate` と `stun` を**数え上げで**持っていて、
+ * 「いま技を出せるのか」が `stun > 0` と `meditate > 0` の組み合わせに散っていた。
+ * 8 つ並べてしまえば `is('stun')` だけで済む。
+ */
+const KING_ACTS = {
+  // 構え。裂け目のあたりをゆらゆらしながら、次の技を選ぶまでの間
+  idle: {
+    for: KING_ACT_GAP,
+    goes: ['moon', 'kickCircle', 'orbit'],
+    to: (b, f) => (f.timer > 0 ? null : pickKingAct(b)),
+    update: (b) => {
+      b.x += ((RIFT_CX - KING_MAN_W / 2 + Math.sin(b.age * 0.013) * 56) - b.x) * 0.06;
+      b.y += ((RIFT_CY - KING_MAN_H / 2 + Math.sin(b.age * 0.021) * 24) - b.y) * 0.06;
+    },
+  },
+  // 波動。一定の距離を保ったまま弧を描いて動き、その間に 3 回撃つ
+  orbit: {
+    for: KING_WAVE_SHOTS * KING_WAVE_GAP,
+    next: 'idle',
+    update: (b, f) => {
+      if (b.waveShot > 0) b.waveShot--;   // 突き出した姿を見せている残り
+      b.orbA += b.orbV;
+      b.orbR += (KING_WAVE_R - b.orbR) * 0.08;
+      kingOrbit(b);
+      // **撃つのはこの場では予約だけ。**
+      // ここで撃つと、このあとの「画面の中へ収める」補正より前の位置から
+      // 弾が出てしまい、姿の無いところから飛んできたように見えていた
+      if (f.timer % KING_WAVE_GAP === 0 && b.waveLeft > 0) {
+        b.waveLeft--;
+        b.wantWave = true;
+        b.waveShot = KING_WAVE_POSE;   // 撃つ瞬間だけ突きの姿にする
+      }
+    },
+  },
+  // 蹴りの前ぶり。波動より近い輪を、ゆらぎながらうろうろする。
+  // ここは下側へ回ってもよい
+  kickCircle: {
+    for: KING_KICK_CIRCLE,
+    next: 'kickWind',
+    update: (b) => {
+      b.orbA += b.orbV + Math.sin(b.age * 0.05) * 0.006;
+      b.orbR += ((KING_KICK_R + Math.sin(b.age * 0.03) * 12) - b.orbR) * 0.08;
+      kingOrbit(b);
+    },
+    // 助走に入る位置は「横」か「真上」に寄せる(いまいる側の反対へ回り込む)
+    exit: (b) => { b.kickA = kingKickAngle(b.orbA + Math.PI); },
+  },
+  // 助走。自機の反対側へ回り込みながら、少し離れて勢いをつける
+  kickWind: {
+    viaGo: true,   // 気絶から息を吹き返したときにも、ここから返してくる
+    for: KING_KICK_WIND,
+    next: 'kick',
+    update: (b) => {
+      b.orbA += (((b.kickA - b.orbA + Math.PI * 3) % (Math.PI * 2)) - Math.PI) * 0.18;
+      b.orbR += (KING_KICK_BACK - b.orbR) * 0.10;
+      kingOrbit(b);
+    },
+    exit: (b) => {
+      const d = Math.hypot(kingPX() - b.x, kingPY() - b.y) || 1;
+      b.dvx = ((kingPX() - b.x) / d) * KING_KICK_SPEED;
+      b.dvy = ((kingPY() - b.y) / d) * KING_KICK_SPEED;
+      b.side = b.dvx >= 0 ? 1 : -1;
+    },
+  },
+  // 決めた向きへまっすぐ突き抜ける
+  kick: {
+    for: 120,
+    next: 'idle',
+    update: (b) => { b.x += b.dvx; b.y += b.dvy; },
+    when: (b) => (b.y > SCREEN_H + 16 || b.y < -KING_MAN_H - 16 ||
+                  b.x < -KING_MAN_W - 16 || b.x > SCREEN_W + 16),
+    exit: (b) => { b.y = RIFT_CY - KING_MAN_H / 2; },
+  },
+  // サマーソルト。画面の下から一気に上がってくる
+  moon: {
+    viaGo: true,   // 気絶から息を吹き返したときにも、ここから返してくる
+    for: 150,
+    next: 'idle',
+    enter: (b) => { b.x = kingPX(); b.y = SCREEN_H + 8; b.moonT = 0; },
+    update: (b) => {
+      b.moonT += 0.016;
+      const t = Math.min(1, b.moonT);
+      b.y = SCREEN_H + 8 - t * (SCREEN_H + 40);
+      b.x += (kingPX() - b.x) * 0.03 + Math.sin(t * Math.PI * 2) * 1.6;
+    },
+    when: (b) => b.moonT >= 1,
+  },
+  // 座禅。**無敵で体力を戻す。**技は出さない
+  meditate: {
+    viaGo: true,   // 体力が減ったとき(startKingMeditate)
+    for: KING_MEDITATE_LEN,
+    next: 'idle',
+    // 戻す量はここで決める。**局面の中で完結させる** —
+    // 呼ぶ側に置いていたら、飛ばして入ったときに体力が NaN になった
+    enter: (b) => { b.healPer = (b.max * 0.5) / KING_MEDITATE_LEN; },
+    update: (b, f) => {
+      // 体力は少しずつ戻す(見ていて分かるように)
+      b.hp = Math.min(b.max, b.hp + b.healPer);
+      if (f.timer % 30 === 0) drawBossBar();
+    },
+    exit: (b) => { b.slowMul = 1; drawBossBar(); },
+  },
+  // ピヨり。息が上がって固まっているあいだは技を出さない
+  stun: {
+    viaGo: true,   // 崩されたとき
+    for: KING_STUN_LEN,
+    // 明けたら足は元どおりになって、**すぐに 1 発返してくる**
+    goes: ['moon', 'kickWind'],
+    to: (b, f) => (f.timer > 0 ? null : kingStunRecover(b)),
+  },
+};
+
 function updateKingFight(b) {
-  if (b.act === undefined) { b.act = 'idle'; b.actTimer = KING_ACT_GAP; }
-  if (b.slowMul == null) {
-    b.slowMul = 1; b.guard = 0; b.stun = 0;
+  if (!b.actFsm) {
+    b.actFsm = new StateMachine(KING_ACTS, { start: 'idle' });
+    b.slowMul = 1; b.guard = 0;
     b.stunStock = KING_STUN_MAX;   // ピヨらせられる残り回数
-    b.meditate = 0; b.meditateCount = 0;
+    b.meditateCount = 0;
   }
   if (b.guard > 0) b.guard--;
-  // ---- 瞑想(座禅)。無敵で体力を戻す ----
-  if (b.meditate > 0) {
-    b.meditate--;
-    b.act = 'idle';
-    b.actTimer = KING_ACT_GAP;
-    // 体力は少しずつ戻す(見ていて分かるように)
-    b.hp = Math.min(b.max, b.hp + b.healPer);
-    if (b.meditate % 30 === 0) drawBossBar();
-    if (b.meditate === 0) { b.slowMul = 1; drawBossBar(); }
-    return;
-  }
   // 体力が 4 分の 1 を切ったら座って立て直す(1 戦で 4 回まで)。
   // **弾で削られたときだけ**。炎だけで削っているあいだは座らない
   // (座られると無敵になるので、焼き続ける攻めが成り立たなくなる)
-  if (b.hp / b.max < KING_MEDITATE_HP && b.meditateCount < KING_MEDITATE_MAX && b.shotSince) {
+  if (!b.actFsm.is('meditate') && b.hp / b.max < KING_MEDITATE_HP &&
+      b.meditateCount < KING_MEDITATE_MAX && b.shotSince) {
     startKingMeditate(b);
     return;
   }
-  if (b.stun > 0) {
-    // 息が上がって固まっているあいだは技を出さない。
-    // 明けたら足は元どおりになる(また崩しにいける)
-    b.stun--;
-    b.act = 'idle';
-    b.actTimer = KING_ACT_GAP;
-    if (b.stun === 0) {
-      b.slowMul = 1;
-      // px / py はこの下で作るので、ここでは自分で出す
-      const ppx = player.x + 8 - KING_MAN_W / 2, ppy = player.y + 8 - KING_MAN_H / 2;
-      // 息を吹き返したら、**すぐに 1 発返してくる**。
-      // 自機が上にいるならサマーソルト(下から上へ)、
-      // それ以外は起き上がりざまのキック
-      if (player.y + 8 < b.y + KING_MAN_H / 2) {
-        mmsxx.audio.playTalk('kiaiC', SE_EVENT);
-        b.act = 'moon';
-        b.actTimer = 150;
-        b.x = ppx; b.y = SCREEN_H + 8;
-        b.moonT = 0;
-      } else {
-        mmsxx.audio.playTalk('kiaiA', SE_EVENT);
-        b.act = 'kickWind';
-        b.actTimer = KING_KICK_WIND;
-        b.orbA = Math.atan2(b.y - ppy, b.x - ppx);
-        b.orbR = KING_KICK_R;
-        // 蹴り込む向きは、自機の横〜上から(下からは蹴らない)
-        let a2 = b.orbA;
-        if (Math.sin(a2) > -0.15) a2 = Math.cos(a2) >= 0 ? -0.35 : Math.PI + 0.35;
-        b.kickA = a2;
-      }
-    }
-    return;
-  }
-  const wasX = b.x, wasY = b.y;
-  const lowHp = b.hp / b.max < KING_MOON_HP;
-  const px = player.x + 8 - KING_MAN_W / 2, py = player.y + 8 - KING_MAN_H / 2;
-  // 自機のまわりを回るときの置き場所
-  const orbit = () => {
-    b.x = px + Math.cos(b.orbA) * b.orbR;
-    b.y = py + Math.sin(b.orbA) * b.orbR;
-  };
 
-  if (b.act === 'idle') {
-    b.x += ((RIFT_CX - KING_MAN_W / 2 + Math.sin(b.age * 0.013) * 56) - b.x) * 0.06;
-    b.y += ((RIFT_CY - KING_MAN_H / 2 + Math.sin(b.age * 0.021) * 24) - b.y) * 0.06;
-    if (--b.actTimer <= 0) {
-      const r = rndBoss();
-      const kiai = (n) => mmsxx.audio.playTalk(n, SE_EVENT);
-      if (lowHp && r < 0.28) {
-        // ムーンサルトだけは下から
-        kiai('kiaiC');
-        b.act = 'moon';
-        b.actTimer = 150;
-        b.x = px; b.y = SCREEN_H + 8;
-        b.moonT = 0;
-      } else if (r < kickRate(b)) {
-        // 蹴りの前ぶり。波動より近い輪をうろうろする
-        // (B は撃たれたときの声に使うので、攻撃では鳴らさない)
-        kiai('kiaiA');
-        b.act = 'kickCircle';
-        b.actTimer = KING_KICK_CIRCLE;
-        b.orbR = KING_KICK_R;
-        b.orbA = Math.atan2(b.y - py, b.x - px);
-        b.orbV = (rndBoss() < 0.5 ? 1 : -1) * 0.030;
-      } else {
-        // 波動。少し離れた輪を回りながら 3 回撃つ
-        kiai('kiaiA');
-        b.act = 'orbit';
-        b.actTimer = KING_WAVE_SHOTS * KING_WAVE_GAP;
-        b.orbR = KING_WAVE_R;
-        b.orbA = Math.atan2(b.y - py, b.x - px);
-        b.orbV = (rndBoss() < 0.5 ? 1 : -1) * 0.022;
-        b.waveLeft = KING_WAVE_SHOTS;
-      }
-    }
-  } else if (b.act === 'orbit') {
-    // 一定の距離を保ったまま弧を描いて動き、その間に 3 回撃つ
-    if (b.waveShot > 0) b.waveShot--;   // 突き出した姿を見せている残り
-    b.orbA += b.orbV;
-    b.orbR += (KING_WAVE_R - b.orbR) * 0.08;
-    orbit();
-    // **撃つのはこの場では予約だけ**。
-    // ここで撃つと、このあとの「画面の中へ収める」補正より前の位置から
-    // 弾が出てしまい、姿の無いところから飛んできたように見えていた
-    if (b.actTimer % KING_WAVE_GAP === 0 && b.waveLeft > 0) {
-      b.waveLeft--;
-      b.wantWave = true;
-      b.waveShot = KING_WAVE_POSE;   // 撃つ瞬間だけ突きの姿にする
-    }
-    if (--b.actTimer <= 0) { b.act = 'idle'; b.actTimer = KING_ACT_GAP; }
-  } else if (b.act === 'kickCircle') {
-    // 波動より近い輪を、ゆらぎながらうろうろする。ここは下側へ回ってもよい
-    b.orbA += b.orbV + Math.sin(b.age * 0.05) * 0.006;
-    b.orbR += ((KING_KICK_R + Math.sin(b.age * 0.03) * 12) - b.orbR) * 0.08;
-    orbit();
-    if (--b.actTimer <= 0) {
-      // 蹴り込む向きを決める。**下からは蹴らない**ので、
-      // 助走に入る位置は「横」か「真上」に寄せる
-      let a = b.orbA + Math.PI;                 // いまいる側の反対へ回り込む
-      const s0 = Math.sin(a);
-      if (s0 > -0.15) {
-        // そのままだと下側になるので、近いほうの横〜上へ寄せる
-        a = Math.cos(a) >= 0 ? -0.35 : Math.PI + 0.35;
-      }
-      b.kickA = a;
-      b.act = 'kickWind';
-      b.actTimer = KING_KICK_WIND;
-    }
-  } else if (b.act === 'kickWind') {
-    // 助走。自機の反対側へ回り込みながら、少し離れて勢いをつける
-    b.orbA += (((b.kickA - b.orbA + Math.PI * 3) % (Math.PI * 2)) - Math.PI) * 0.18;
-    b.orbR += (KING_KICK_BACK - b.orbR) * 0.10;
-    orbit();
-    if (--b.actTimer <= 0) {
-      b.act = 'kick';
-      b.actTimer = 120;
-      const d = Math.hypot(px - b.x, py - b.y) || 1;
-      b.dvx = ((px - b.x) / d) * KING_KICK_SPEED;
-      b.dvy = ((py - b.y) / d) * KING_KICK_SPEED;
-      b.side = b.dvx >= 0 ? 1 : -1;
-    }
-  } else if (b.act === 'kick') {
-    // 決めた向きへまっすぐ突き抜ける
-    b.x += b.dvx;
-    b.y += b.dvy;
-    if (--b.actTimer <= 0 || b.y > SCREEN_H + 16 || b.y < -KING_MAN_H - 16 ||
-        b.x < -KING_MAN_W - 16 || b.x > SCREEN_W + 16) {
-      b.act = 'idle'; b.actTimer = KING_ACT_GAP;
-      b.y = RIFT_CY - KING_MAN_H / 2;
-    }
-  } else if (b.act === 'moon') {
-    b.moonT += 0.016;
-    const t = Math.min(1, b.moonT);
-    b.y = SCREEN_H + 8 - t * (SCREEN_H + 40);
-    b.x += (px - b.x) * 0.03 + Math.sin(t * Math.PI * 2) * 1.6;
-    if (t >= 1 || --b.actTimer <= 0) { b.act = 'idle'; b.actTimer = KING_ACT_GAP; }
-  }
+  const wasX = b.x, wasY = b.y;
+  b.actFsm.step(b);
+  // 座っているあいだと固まっているあいだは、位置に手を入れない
+  if (b.actFsm.in('meditate', 'stun')) return;
+
   // 自機のまわりを回る動きは、自機が速く動くと置き場所が飛んでしまう。
   // 1 コマで動ける量に上限をかけて、目で追える速さに抑える
   {
-    // 撃たれて鈍っているぶんだけ、1 コマで動ける量を減らす。
-    // 固まっているあいだ(stun)は 0 = その場から動かない
-    const mul = b.stun > 0 ? 0 : (b.slowMul == null ? 1 : b.slowMul);
+    // 撃たれて鈍っているぶんだけ、1 コマで動ける量を減らす
+    const mul = b.slowMul == null ? 1 : b.slowMul;
     const dx = b.x - wasX, dy = b.y - wasY;
     const d = Math.hypot(dx, dy);
     const cap = KING_MAX_SPEED * mul;
@@ -8040,14 +8077,14 @@ function updateKingFight(b) {
   b.x = Math.max(-KING_MAN_W, Math.min(SCREEN_W, b.x));
   // 技を出しているあいだ(波動・キックの助走)は、画面の中に収める。
   // 画面の外から撃たれると避けようがないため
-  if (b.act === 'orbit' || b.act === 'kickCircle' || b.act === 'kickWind') {
+  if (b.actFsm.in('orbit', 'kickCircle', 'kickWind')) {
     b.x = Math.max(0, Math.min(SCREEN_W - KING_MAN_W, b.x));
     b.y = Math.max(0, b.y);
   }
   // 横や上へは画面の外まで出てよいが、**下側へは降りてこない**。
   // 自機のほうが下にいる形を保って、正面から撃つ人が弱点(頭)に
   // 気づきにくいようにするため。サマーソルトだけは下から上がってくる
-  if (b.act !== 'moon') b.y = Math.min(b.y, KING_MAX_Y);
+  if (!b.actFsm.is('moon')) b.y = Math.min(b.y, KING_MAX_Y);
   // 置き場所が決まってから撃つ。これで弾はいつも見えている体から出る
   if (b.wantWave) { b.wantWave = false; fireKingWave(b); }
 }
@@ -8055,28 +8092,25 @@ function updateKingFight(b) {
 /** いまの技に合わせて姿を切り替える */
 function kingFightPose(b) {
   // キックは進む向きへ体を向ける(絵は右向きなので、左へ行くときは反転)
-  if (b.act === 'kick') {
+  if (kingIs(b, 'kick')) {
     if (b.man) b.man.flipX = b.dvx < 0;
     return [SPRITE_SYMBOLS.kingMan07];
   }
   // うろうろ〜助走のあいだは構えたまま。自機のいるほうへ体を向ける
-  if (b.act === 'kickCircle' || b.act === 'kickWind') {
+  if (kingIs(b, 'kickCircle', 'kickWind')) {
     if (b.man) b.man.flipX = (player.x + 8) < b.x + KING_MAN_W / 2;
     return [SPRITE_SYMBOLS.kingMan06];
   }
-  if (b.act === 'moon') {
+  if (kingIs(b, 'moon')) {
     // サマーソルト。ただ逆さで昇るだけだと跳んでいるようにしか見えないので、
     // 上がりながら 90 度ずつ回して**宙返り**にする。
     // スプライトの回転は 0/90/180/270 の 4 とおり。1 回転を 2 度ぶん回す
     if (b.man) b.man.rotate = [0, 90, 180, 270][Math.floor((b.moonT || 0) * 8) & 3];
     return [SPRITE_SYMBOLS.kingMan10];   // 横を向いて足を抱え込んだ姿
   }
-  if (b.act === 'punch') {
-    return b.actTimer > KING_PUNCH_HOLD ? [SPRITE_SYMBOLS.kingMan06] : [SPRITE_SYMBOLS.kingMan06b];
-  }
   // 波動。回っているあいだは構え、**撃つ瞬間だけ突き出す**。
   // ここを待機の姿のままにしていたので、棒立ちで撃っているように見えていた
-  if (b.act === 'orbit') {
+  if (kingIs(b, 'orbit')) {
     if (b.man) b.man.flipX = (player.x + 8) < b.x + KING_MAN_W / 2;
     return b.waveShot > 0 ? [SPRITE_SYMBOLS.kingMan06b] : [SPRITE_SYMBOLS.kingMan06];
   }
@@ -10140,7 +10174,7 @@ function updatePlay() {
         if (boss.hp <= 0) {
           boss.dying = 90;
           clearChicks(boss);   // 気絶のひよこを残さない
-          if (boss.stun) boss.stun = 0;
+          kingCancelStun(boss);
           mmsxx.audio.stopBGM();
           mmsxx.audio.playSE('bossboom', SE_HIT);
         }
@@ -10156,7 +10190,7 @@ function updatePlay() {
       if (boss.hp <= 0) {
         boss.dying = 90;
         clearChicks(boss);   // 気絶のひよこを残さない
-        if (boss.stun) boss.stun = 0;
+        kingCancelStun(boss);
         mmsxx.audio.stopBGM();
         mmsxx.audio.playSE('bossboom', SE_HIT);
       }
@@ -10344,7 +10378,7 @@ function updatePlay() {
         if (rift) { hitKingRift(boss, b.sp.x, b.sp.y); continue; }
         // 瞑想中は無敵。弾ははじかれるだけで、点滅もさせない
         // (七色に光っているので、点滅すると何が起きているか分からなくなる)
-        if (boss.meditate > 0) { mmsxx.audio.playSE('armor'); continue; }
+        if (kingIs(boss, 'meditate')) { mmsxx.audio.playSE('armor'); continue; }
         // 頭に当たると 2 倍。上から攻めるのが効く相手にする
         const head = (b.sp.y + 8) < boss.y + KING_MAN_H * KING_HEAD_RATIO;
         // 頭は 2 倍。さらに近いほど効く(上からの倍率は頭の判定と重なるので入れない)
@@ -10364,12 +10398,12 @@ function updatePlay() {
           // 撃たれるほど遅くなり、ほとんど動けなくなると 3 秒その場に固まる。
           // (**後ろへ回り込む隙**を作るための、崩しの仕組み)
           boss.guard = KING_GUARD_LEN;
-          if (boss.stun <= 0 && boss.meditate <= 0) {
+          if (!kingIs(boss, 'stun', 'meditate')) {
             boss.slowMul = Math.max(0, (boss.slowMul == null ? 1 : boss.slowMul) - KING_SLOW_STEP);
             if (boss.slowMul <= 0.1) {
               if ((boss.stunStock || 0) > 0) {
                 boss.stunStock--;
-                boss.stun = KING_STUN_LEN;
+                boss.actFsm.go('stun', boss);
                 showNotice('IT IS EXHAUSTED!');
               } else if (boss.hp / boss.max < KING_MEDITATE_HP) {
                 // たくわえを使い切ったら、弱っていれば座って立て直してくる
@@ -10383,9 +10417,8 @@ function updatePlay() {
           }
         }
         // 撃たれると技をやめる。踏み込みも助走も、途中で崩れて構えへ戻る
-        if (boss.act && boss.act !== 'idle') {
-          boss.act = 'idle';
-          boss.actTimer = KING_ACT_GAP;
+        if (boss.actFsm && !boss.actFsm.is('idle')) {
+          boss.actFsm.go('idle', boss);
         }
         mmsxx.audio.playSE('weak');
         if (boss.hp <= 0) killKingWithRoar();
@@ -10431,7 +10464,7 @@ function updatePlay() {
             boss.hp = 0;
             boss.dying = 90;
             clearChicks(boss);   // 気絶のひよこを残さない
-            if (boss.stun) boss.stun = 0;
+            kingCancelStun(boss);
             mmsxx.audio.stopBGM();
             mmsxx.audio.playSE('bossboom', SE_HIT);
           }
@@ -10479,7 +10512,7 @@ function updatePlay() {
         if (boss.hp <= 0) {
           boss.dying = 90;
           clearChicks(boss);   // 気絶のひよこを残さない
-          if (boss.stun) boss.stun = 0;
+          kingCancelStun(boss);
           mmsxx.audio.stopBGM();
           mmsxx.audio.playSE('bossboom', SE_HIT);
         }
@@ -11152,12 +11185,33 @@ function kingToPhase2() {
 }
 
 /**
+ * デバッグ用: **いまのボスを好きな局面へ飛ばす。**
+ * `mmsxxState('charge')` でドラゴンの突進、`mmsxxState('moon')` でラスボスの
+ * サマーソルト。第 2 引数に 'act' を渡すと技の機械のほうを動かす。
+ * 引数なしで呼ぶと、いまの局面と行き先を返す
+ */
+mmsxx.expose('mmsxxState', (name, which = 'auto') => {
+  if (!boss) return null;
+  const stages = boss.fsm, acts = boss.actFsm;
+  const pick = which === 'act' ? acts
+    : which === 'stage' ? stages
+    : (name && acts && acts.defs[name]) ? acts : stages;
+  if (!pick) return null;
+  if (name) pick.go(name, boss);
+  return { kind: boss.kind, stage: stages && stages.state, act: acts && acts.state,
+    残り: pick.timer, 通ってきた道: pick.trail.join(' -> ') };
+});
+
+/**
  * デバッグ用: **局面の宣言を取り出す。**
  * 試験はここから `bad`(粗さがしの結果)を見て、図は `mermaid` をそのまま使う。
  * 宣言が 1 か所にあるので、**仕様書のほうが古くなることがない**
  */
 mmsxx.expose('mmsxxStates', (kind = 'crab') => {
-  const defs = { crab: CRAB_STATES, dragon: DRAGON_STATES, king: KING_STAGES }[kind];
+  const defs = {
+    crab: CRAB_STATES, dragon: DRAGON_STATES,
+    king: KING_STAGES, kingActs: KING_ACTS,
+  }[kind];
   if (!defs) return null;
   const fsm = new StateMachine(defs);
   return { kind, names: fsm.names, bad: fsm.check(), mermaid: fsm.toMermaid(kind) };
@@ -11349,7 +11403,7 @@ mmsxx.expose('mmsxxDebug', () => ({
     kind: boss.kind, hp: boss.hp, max: boss.max,
     phase2: !!boss.phase2, firing: boss.firing | 0,
     mode: boss.fsm ? boss.fsm.state : boss.mode,
-    stage: boss.fsm ? boss.fsm.state : null, act: boss.act, beams: kingBeams.length,
+    stage: boss.fsm ? boss.fsm.state : null, act: boss.actFsm ? boss.actFsm.state : null, beams: kingBeams.length,
     bx: Math.round(boss.x), by: Math.round(boss.y), py: Math.round(player.y),
     blink: boss.man ? boss.man.blink + ':' + boss.man.blinkOn : null,
     guards: (boss.guards || []).map(g => g.hp),

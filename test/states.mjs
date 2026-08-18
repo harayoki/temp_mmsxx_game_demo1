@@ -20,7 +20,7 @@ const check = (name, ok, extra = '') => {
 };
 
 // ---- 1. 宣言そのもの ----
-for (const kind of ['crab', 'dragon', 'king']) {
+for (const kind of ['crab', 'dragon', 'king', 'kingActs']) {
   const decl = win.mmsxxStates(kind);
   check(kind + ': 宣言を取り出せる', !!decl, decl ? decl.names.join(' / ') : '');
   check(kind + ': 宣言に粗が無い', decl && decl.bad.length === 0, decl ? decl.bad.join(' / ') : '');
@@ -92,6 +92,37 @@ check('撃ち抜くと break', stage() === 'break', stage());
 
 for (let i = 0; i < 400 && stage() !== 'man'; i++) m.advance(1);
 check('break から man まで進む', stage() === 'man', stage());
+
+// ---- 5. ラスボスの技 ----
+//
+// 第 2 段階に入ってからの 8 つ。**もとは act の 6 つに加えて
+// `meditate` と `stun` を数え上げで持っていた**ので、「いま技を出せるのか」が
+// その組み合わせに散っていた。並べたぶん、1 つずつ確かめられる
+const act = () => win.mmsxxDebug().boss.act;
+for (let i = 0; i < 400 && stage() !== 'man'; i++) m.advance(1);
+check('第 2 段階に入ったコマはまだ戦わない', act() === null, String(act()));
+m.advance(1);
+check('その次のコマから技が始まる', act() === 'idle', String(act()));
+
+// ふつうに回していると出る技(サマーソルトと座禅は条件つきなので出ない)
+const acts = new Set([act()]);
+for (let i = 0; i < 3000; i++) { m.advance(1); acts.add(act()); }
+check('蹴りと波動がひととおり出る',
+  ['idle', 'orbit', 'kickCircle', 'kickWind', 'kick'].every((a) => acts.has(a)),
+  [...acts].join(' / '));
+
+// 珍しい技は mmsxxState で飛ばして確かめる。
+// **ピヨりから明けたら、その場で 1 発返してくる**のがここの見どころ
+for (const [name, want] of [['moon', 'idle'], ['meditate', 'idle'], ['stun', null]]) {
+  win.mmsxxState(name, 'act');
+  const seen = [act()];
+  for (let i = 0; i < 900 && seen.length < 2; i++) {
+    m.advance(1);
+    if (seen[seen.length - 1] !== act()) seen.push(act());
+  }
+  const ok = seen[0] === name && (want ? seen[1] === want : ['moon', 'kickWind'].includes(seen[1]));
+  check(name + ' から抜けられる', ok, seen.join(' -> '));
+}
 
 console.log(bad ? '\n' + bad + ' 件おかしい' : '\n通りました');
 process.exit(bad ? 1 : 0);

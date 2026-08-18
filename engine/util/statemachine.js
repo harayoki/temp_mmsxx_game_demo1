@@ -33,6 +33,8 @@
  * - `when(ctx, fsm)` … 真を返したら `next` へ
  * - `next` … 行き先の名前
  * - `to(ctx, fsm)` … 行き先を自分で決める(名前を返す。まだなら偽)
+ * - `goes` … `to` が選びうる行き先を並べる。**`to` を書いたら必ず添える**
+ *   (中身は読めないので、宣言に書いてもらわないと図にも試験にも出てこない)
  * - `cues` … `{ 残りコマ数: 合図の名前 }`。`on` へ渡る
  * - `viaGo` … `go()` でしか来ない局面だと書き添える(`check()` が見逃す)
  *
@@ -153,10 +155,18 @@ export class StateMachine {
         else if (!known.has(d.next)) bad.push(name + ': 行き先が無い -> ' + d.next);
         else reached.add(d.next);
       }
-      if ((d.for !== undefined || d.when) && !d.next) bad.push(name + ': for/when があるのに next が無い');
+      if ((d.for !== undefined || d.when) && !d.next && !d.to) {
+        bad.push(name + ': for/when があるのに行き先(next か to)が無い');
+      }
       if (d.next && d.for === undefined && !d.when) bad.push(name + ': next があるのに for も when も無い(いつ移るのか決まらない)');
       if (d.cues && d.for === undefined) bad.push(name + ': cues は for のある局面にしか書けない');
-      if (d.to) for (const n of this._targetsOf(d.to)) { if (known.has(n)) reached.add(n); }
+      // `to` の中身は読めないので、行き先は `goes` に書いてもらう
+      if (d.to && !d.goes) bad.push(name + ': to があるのに goes が無い(選びうる行き先を並べる)');
+      if (d.goes && !d.to) bad.push(name + ': goes があるのに to が無い');
+      for (const n of d.goes || []) {
+        if (!known.has(n)) bad.push(name + ': goes の行き先が無い -> ' + n);
+        else reached.add(n);
+      }
     }
     // 誰も来ない局面。消し忘れか、`go()` でしか来ないもの。
     // **後者は `viaGo: true` と書き添える。**書いてあれば見逃す
@@ -168,19 +178,9 @@ export class StateMachine {
     return bad;
   }
 
-  /** `to` の本文から行き先らしい文字列を拾う。粗さがし用の当てずっぽう */
-  _targetsOf(fn) {
-    const out = [];
-    const src = String(fn);
-    const re = /['"]([A-Za-z][A-Za-z0-9_]*)['"]/g;
-    let m;
-    while ((m = re.exec(src))) out.push(m[1]);
-    return out;
-  }
-
   /**
    * 図を吐く。**仕様書のほうが古くなることがない**のが狙い。
-   * `to` で決める行き先は当てずっぽうなので、点線にして見分けられるようにする
+   * `to` で選ぶ行き先(`goes`)は点線にして、決まった移りと見分けられるようにする
    */
   toMermaid(title = '') {
     const L = ['stateDiagram-v2'];
@@ -193,10 +193,8 @@ export class StateMachine {
           : (d.when ? '条件' : '');
         L.push('  ' + name + ' --> ' + d.next + (why ? ' : ' + why : ''));
       }
-      if (d.to) {
-        for (const n of this._targetsOf(d.to)) {
-          if (this.defs[n] && n !== name) L.push('  ' + name + ' -.-> ' + n);
-        }
+      for (const n of d.goes || []) {
+        if (this.defs[n] && n !== name) L.push('  ' + name + ' -.-> ' + n);
       }
       if (d.cues) {
         for (const [t, cue] of Object.entries(d.cues)) L.push('  note right of ' + name + ': 残り ' + t + ' で ' + cue);
