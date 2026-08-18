@@ -2544,7 +2544,7 @@ function burnBossBehind(fx, fy, r) {
   // **ドラゴンには炎が通らない**。自分が炎を吐く相手なので、
   // 上から覆いかぶさって焼くだけでは倒せない(口をねらうか小惑星にぶつける)
   if (boss.kind === 'dragon') return;
-  if (boss.kind === 'king' && boss.stage !== 'man' && boss.stage !== 'pose') return;
+  if (boss.kind === 'king' && !bossIs(boss, 'man', 'pose')) return;
   if (boss.kind === 'king' && boss.meditate > 0) return;   // 瞑想中は炎も通らない
   // **必ず先に「炎が当たっているか」を見る**。
   // (ここを飛ばして先に削っていたため、出てくるだけで体力が減っていた)
@@ -2565,7 +2565,7 @@ function burnBossBehind(fx, fy, r) {
   const dmg = bossFlameDamage();
   // 出てくる(つま先立ち)あいだは体力がまだ入っていないので、
   // 焼いたぶんを覚えておいて、構え終わった時に体力から引く
-  if (boss.kind === 'king' && boss.stage === 'pose') {
+  if (boss.kind === 'king' && bossIs(boss, 'pose')) {
     // 予約できるのは **1 撃ぶんだけ**。
     // 出てくるあいだ焼き続けても、そこで打ち止めにする
     // (構える前に大半を削れてしまうと、第 2 段階が始まらなくなるため)
@@ -2629,8 +2629,8 @@ function updateBGM() {
   // ラスボスは専用の曲。ふつうのボス曲で上書きしないよう、ここで打ち切る
   if (boss && boss.kind === 'king') {
     // 裂け目が壊れてからシルエットが構え終わるまでは、わざと無音にしている
-    if (boss.stage === 'break' || boss.stage === 'pose') return;
-    const k = boss.stage === 'man' ? 'finalbattle' : 'lastboss';
+    if (bossIs(boss, 'break', 'pose')) return;
+    const k = bossIs(boss, 'man') ? 'finalbattle' : 'lastboss';
     if (k !== currentBGM) playBGM(k, true);
     return;
   }
@@ -2788,7 +2788,7 @@ function bossTimeCounts() {
   if (bossIntro > 0 || talkHold > 0) return false;
   if (state !== 'play') return false;
   // ラスボスは段階によって、当たる時間と当たらない時間がある
-  if (boss.kind === 'king') return boss.stage === 'rift' || boss.stage === 'man';
+  if (boss.kind === 'king') return bossIs(boss, 'rift', 'man');
   return true;
 }
 function spawnUfoWave(noFire = false) {
@@ -3373,7 +3373,7 @@ function drawBossBar() {
   hud.print(8, BAR_Y, 'BOSS', 8);
   // **登場の演出のあいだは満タンに見せる**。中の数はまだ入っていないので、
   // そのまま出すと減って見える。実際に減るのは演出が終わってから
-  const posing = bossIntro > 0 || (boss.kind === 'king' && boss.stage === 'pose');
+  const posing = bossIntro > 0 || (boss.kind === 'king' && bossIs(boss, 'pose'));
   const w = posing ? BAR_W : Math.max(0, Math.round(BAR_W * boss.hp / boss.max));
   for (let i = 0; i * 8 < BAR_W; i++) {
     const n = Math.max(0, Math.min(8, w - i * 8));
@@ -4450,7 +4450,7 @@ function enterGameOver() {
   // 聞こえるのはおかしいので、シルエットが出てから(pose / man)にする。
   // **練習モードでも同じにする**。シーン選択から入ると練習あつかいになるので、
   // 外すと開発中に確かめられなくなる(シーン選択そのものが開発版だけの機能)
-  const kingShown = boss && (boss.stage === 'pose' || boss.stage === 'man');
+  const kingShown = bossIs(boss, 'pose', 'man');
   kingWon = !!(boss && boss.kind === 'king' && kingShown && boss.dying <= 0);
   // 次にコンティニューできるよう、遊び終わった面を覚えておく。
   // シーンセレクトで飛んだ先で死んだときも、その面から続けられてよい
@@ -6168,6 +6168,12 @@ const CRAB_TOP = 24, CRAB_BOTTOM = SCREEN_H - 40;
 const CRAB_TILT_PAD = 24;
 let clawMissiles = [];
 
+/**
+ * ボスがその局面のどれかか。**局面を持たないボスなら常に false**。
+ * ボスの種類を見ずに局面だけ読むところで使う
+ */
+const bossIs = (b, ...names) => !!(b && b.fsm && b.fsm.in(...names));
+
 /** 生えかけのハサミを伸ばし、生えそろっている本数を数え直す */
 function growCrabClaws(b) {
   for (let i = 0; i < CRAB_CLAWS; i++) {
@@ -7482,6 +7488,108 @@ function restoreSpace() {
   far.visible = mid.visible = near.visible = true;
 }
 
+/**
+ * **ラスボスの段階。**
+ *
+ *   open -> rift -> break -> pose -> man   ( どこからでも won )
+ *
+ * `rift` から出るのは**撃ち抜かれたとき**だけなので、そこは hitKingRift から
+ * `go('break')` で移す。`man`(第 2 段階)の中の技は別の機械(KING_ACTS)。
+ */
+const KING_STAGES = {
+  // まだ攻撃してこない。ひびが縦に伸びて、じわじわ口を開けていくのを見せる。
+  // 広がるたびに「バキョ」と鳴らす
+  open: {
+    for: KING_OPEN_LEN,
+    next: 'rift',
+    update: (b, f) => { if (f.timer % 36 === 0) mmsxx.audio.playSE('rifttear', SE_EVENT + 1); },
+  },
+  // 開ききった裂け目。360 度へ回転レーザーを撃つ
+  rift: {
+    update: (b) => {
+      // 少し戦わせてから、狙いどころを 1 回だけ教える
+      if (!b.toldRift && b.age > 240) {
+        b.toldRift = true;
+        showNotice('SHOOT FROM INSIDE!');
+      }
+      // 腕ごとに時間をずらして撃つ。ずっと撃ち続けると単調なので、
+      // 連射と休みを交互にする
+      b.spin += KING_ROT;
+      const cycle = b.age % (KING_BURST + KING_REST);
+      b.resting = cycle >= KING_BURST;
+      if (state === 'play' && !b.resting) {
+        for (let i = 0; i < KING_ARMS; i++) {
+          const off = Math.round((KING_FIRE_GAP * i) / KING_ARMS);
+          if ((b.age + off) % KING_FIRE_GAP === 0) {
+            fireKingBeam(b.spin + (Math.PI * 2 * i) / KING_ARMS);
+          }
+        }
+        // 音は鳴らしっぱなしにせず、間引いて「連射している感じ」だけ出す
+        if (b.age % 30 === 0) mmsxx.audio.playSE('shot', SE_EVENT);
+      }
+      // 休みの終わりぎわに、次が来ることを音で知らせる
+      if (b.resting && cycle === KING_BURST + KING_REST - 30) {
+        mmsxx.audio.playSE('charging', SE_EVENT);
+      }
+    },
+  },
+  // 中から無理やり押し広げられて、まわりにひびが走り、やがて砕ける
+  break: {
+    viaGo: true,   // 裂け目を撃ち抜いたとき(hitKingRift)
+    for: KING_BREAK_LEN,
+    next: 'pose',
+    update: (b, f) => {
+      if (b.rift) b.rift.image = BG_SYMBOLS.kingRift2;
+      if (f.timer % 30 === 0) mmsxx.audio.playSE('rifttear', SE_EVENT + 1);
+      if (f.timer % 5 === 0) {
+        spawnBoom(Math.random() * (SCREEN_W - 16), Math.random() * (SCREEN_H - 16));
+        mmsxx.audio.playSE('boom', SE_HIT);
+      }
+      // 途中で宇宙が暗い赤に染まる(ここから星は出てこない)。
+      // このとき、もう 2:2 のちらつきで姿が見えはじめている
+      if (f.timer === Math.floor(KING_BREAK_LEN / 2)) {
+        enterRedSpace();
+        // 出てくるときは腕組み。まだ構えもしない = 相手にしていない、を見せる
+        makeKingMan(b);
+      }
+    },
+    // ばーんと出てくる
+    exit: () => mmsxx.audio.playSE('bossboom', SE_HIT),
+  },
+  // 決めポーズ。出てくるあいだにちらつきを落としていく。
+  // 2:2(まだ実体が定まらない) -> 1:1 -> ちらつき無し(そこにいる)
+  pose: {
+    for: KING_POSE_LEN,
+    next: 'man',
+    update: (b, f) => {
+      if (!b.man) return;
+      const t = 1 - f.timer / KING_POSE_LEN;
+      if (t < 0.35) { b.man.blink = 4; b.man.blinkOn = 2; }
+      else if (t < 0.7) { b.man.blink = 2; b.man.blinkOn = 1; }
+      else { b.man.blink = 1; b.man.blinkOn = 1; }
+    },
+    // 構え終わったら曲を FINAL BATTLE に切り替える
+    exit: (b) => {
+      b.max = KING_MAN_HP;
+      // 出てくるあいだに炎で焼かれていたぶんは、ここで差し引く
+      b.hp = Math.max(1, KING_MAN_HP - (b.preBurn || 0));
+      // 頭に当てると 2 倍。炎(バックファイヤー)がいちばん効くことを教える
+      showNotice('BURN ITS HEAD!');
+      // 待機(コマ 00)。2 コマでゆっくり呼吸させる
+      if (b.man) {
+        b.man.frames = [SPRITE_SYMBOLS.kingMan00, SPRITE_SYMBOLS.kingMan00b];
+        b.man.frameRate = 24;
+      }
+      drawBossBar();
+      playBGM('finalbattle', true, true);
+    },
+  },
+  // 第 2 段階。格闘家として構え、3 つの技を使い分ける(中身は updateKingFight)
+  man: {},
+  // 自機がやられたあと。**動きも攻撃も止める**
+  won: { viaGo: true },
+};
+
 function spawnKingBoss() {
   markMet('kingMet');   // 図鑑の ? が外れる(VOICE 欄が出るのは倒してから)
   // シーン選択で「第 2 段階から」を選んでいたら、出たところで切り替える
@@ -7492,9 +7600,9 @@ function spawnKingBoss() {
     // 裂け目は動かない。共通処理(爆発の位置など)のために x/y も持っておく
     x: RIFT_X, y: RIFT_Y, sx: RIFT_X, sy: RIFT_Y,
     hp: RIFT_HITS, max: RIFT_HITS, age: 0, flash: 0, dying: 0, phase2: false,
-    stage: 'open',      // 'open' -> 'rift' -> 'break' -> 'pose' -> 'man'
-    timer: KING_OPEN_LEN, spin: 0, hits: 0, man: null,
+    spin: 0, hits: 0, man: null,
   };
+  boss.fsm = new StateMachine(KING_STAGES, { start: 'open' });
   boss.rift = bossPart(KING_RIFT_OPEN[0], 1);
   // 壊れるときにまわりへ走るひび(裂け目より奥)
   // ひびは絵ではなくマス目で広げる(絵だと黒い余白が四角く見えてしまう)
@@ -7588,9 +7696,9 @@ function clearKing(b) {
  * まだ戦う気でいるように見えてしまう)
  */
 function kingWins(b) {
-  if (!b || b.kind !== 'king' || b.stage === 'won') return;
+  if (!b || b.kind !== 'king' || b.fsm.is('won')) return;
   clearChicks(b);           // ピヨっていたら片づける
-  b.stage = 'won';
+  b.fsm.go('won', b);
   b.act = 'idle';
   b.meditate = 0;
   b.stun = 0;
@@ -7608,97 +7716,17 @@ function kingWins(b) {
 function updateKingBoss(b) {
   // 自機がやられたあと。**動きも攻撃も止める**。
   // 出てきたときと同じつま先立ちのまま、ゆっくり上下に浮かべておく
-  if (b.stage === 'won') {
+  if (b.fsm.is('won')) {
     b.y = b.wonY + Math.sin(mmsxx.frame / 24) * 3;
     drawBossBody();
     return;
   }
   drawBossBody();
-  if (b.stage === 'open') {
-    // まだ攻撃してこない。ひびが縦に伸びて、じわじわ口を開けていくのを見せる。
-    // 広がるたびに「バキョ」と鳴らす
-    if (b.timer % 36 === 0) mmsxx.audio.playSE('rifttear', SE_EVENT + 1);
-    if (--b.timer <= 0) b.stage = 'rift';
-    return;
-  }
-  if (b.stage === 'rift') {
-    // 少し戦わせてから、狙いどころを 1 回だけ教える
-    if (!b.toldRift && b.age > 240) {
-      b.toldRift = true;
-      showNotice('SHOOT FROM INSIDE!');
-    }
-    // 360 度へ、腕ごとに時間をずらしながら回転レーザーを撃つ。
-    // ずっと撃ち続けると単調なので、連射と休みを交互にする
-    b.spin += KING_ROT;
-    const cycle = b.age % (KING_BURST + KING_REST);
-    b.resting = cycle >= KING_BURST;
-    if (state === 'play' && !b.resting) {
-      for (let i = 0; i < KING_ARMS; i++) {
-        const off = Math.round((KING_FIRE_GAP * i) / KING_ARMS);
-        if ((b.age + off) % KING_FIRE_GAP === 0) {
-          fireKingBeam(b.spin + (Math.PI * 2 * i) / KING_ARMS);
-        }
-      }
-      // 音は鳴らしっぱなしにせず、間引いて「連射している感じ」だけ出す
-      if (b.age % 30 === 0) mmsxx.audio.playSE('shot', SE_EVENT);
-    }
-    // 休みの終わりぎわに、次が来ることを音で知らせる
-    if (b.resting && cycle === KING_BURST + KING_REST - 30) {
-      mmsxx.audio.playSE('charging', SE_EVENT);
-    }
-    return;
-  }
-  if (b.stage === 'break') {
-    // 中から無理やり押し広げられて、まわりにひびが走り、やがて砕ける
-    b.timer--;
-    if (b.rift) b.rift.image = BG_SYMBOLS.kingRift2;
-    if (b.timer % 30 === 0) mmsxx.audio.playSE('rifttear', SE_EVENT + 1);
-    if (b.timer % 5 === 0) {
-      spawnBoom(Math.random() * (SCREEN_W - 16), Math.random() * (SCREEN_H - 16));
-      mmsxx.audio.playSE('boom', SE_HIT);
-    }
-    // 途中で宇宙が暗い赤に染まる(ここから星は出てこない)。
-    // このとき、もう 2:2 のちらつきで姿が見えはじめている
-    if (b.timer === Math.floor(KING_BREAK_LEN / 2)) {
-      enterRedSpace();
-      // 出てくるときは腕組み。まだ構えもしない = 相手にしていない、を見せる
-      makeKingMan(b);
-    }
-    if (b.timer <= 0) {
-      b.stage = 'pose';
-      b.timer = KING_POSE_LEN;
-      // ばーんと出てくる。ちらつきは 2:2 -> 1:1 -> 無し と落としていく
-      mmsxx.audio.playSE('bossboom', SE_HIT);
-    }
-    return;
-  }
-  if (b.stage === 'pose') {
-    // 出てくるあいだにちらつきを落としていく。
-    // 2:2(まだ実体が定まらない) -> 1:1 -> ちらつき無し(そこにいる)
-    if (b.man) {
-      const t = 1 - b.timer / KING_POSE_LEN;
-      if (t < 0.35) { b.man.blink = 4; b.man.blinkOn = 2; }
-      else if (t < 0.7) { b.man.blink = 2; b.man.blinkOn = 1; }
-      else { b.man.blink = 1; b.man.blinkOn = 1; }
-    }
-    // 構えているあいだは動かない。構え終わったら曲を FINAL BATTLE に切り替える
-    if (--b.timer <= 0) {
-      b.stage = 'man';
-      b.max = KING_MAN_HP;
-      // 出てくるあいだに炎で焼かれていたぶんは、ここで差し引く
-      b.hp = Math.max(1, KING_MAN_HP - (b.preBurn || 0));
-      // 頭に当てると 2 倍。炎(バックファイヤー)がいちばん効くことを教える
-      showNotice('BURN ITS HEAD!');
-      // 待機(コマ 00)。2 コマでゆっくり呼吸させる
-      if (b.man) {
-        b.man.frames = [SPRITE_SYMBOLS.kingMan00, SPRITE_SYMBOLS.kingMan00b];
-        b.man.frameRate = 24;
-      }
-      drawBossBar();
-      playBGM('finalbattle', true, true);
-    }
-    return;
-  }
+  // 段階と移り先は KING_STAGES に書いてある。
+  // **第 2 段階に入ったコマは、まだ戦わない**(もとの作りに合わせる)
+  const fighting = b.fsm.is('man');
+  b.fsm.step(b);
+  if (!fighting) return;
   // ---- 第 2 段階。格闘家として構え、3 つの技を使い分ける ----
   updateKingFight(b);
   updateChicks(b);   // 気絶のあいだだけ、頭の上でひよこが回る
@@ -8124,8 +8152,7 @@ function hitKingRift(b, x, y) {
   if (++b.hits % 4 === 0) spawnWeakSpark(x, y);
   if (b.hp > 0) return;
   b.hp = 0;
-  b.stage = 'break';
-  b.timer = KING_BREAK_LEN;
+  b.fsm.go('break', b);
   b.flash = 0;
   crackCells = null;      // 広がりを作り直す
   crackSpread = 0;
@@ -8303,11 +8330,11 @@ function drawBossBody() {
   if (b.kind === 'king') {
     // 裂け目は動かない。削れるほど大きく口を開け、1 コマおきに色を入れ替えて脈打たせる
     if (b.rift) {
-      b.rift.visible = vis && (b.stage === 'open' || b.stage === 'rift');
+      b.rift.visible = vis && b.fsm.in('open', 'rift');
       b.rift.x = RIFT_X; b.rift.y = RIFT_Y;
-      if (b.stage === 'open') {
+      if (b.fsm.is('open')) {
         // 開くまでの途中。細い線から開ききった姿まで順に切り替える
-        const t = 1 - b.timer / KING_OPEN_LEN;
+        const t = 1 - b.fsm.timer / KING_OPEN_LEN;
         const n = Math.min(KING_RIFT_OPEN.length - 1,
           Math.floor(t * KING_RIFT_OPEN.length));
         b.rift.image = KING_RIFT_OPEN[n];
@@ -8321,7 +8348,7 @@ function drawBossBody() {
       b.rift.colorMap = (mmsxx.frame & beat) ? { 6: 8, 8: 9, 9: 15 } : null;
     }
     // 壊れるときは、4 ドットのマスが割れ目の形から外へ ぞわぞわ 広がる
-    if (b.stage === 'break') updateCrackSpread(1 - b.timer / KING_BREAK_LEN);
+    if (b.fsm.is('break')) updateCrackSpread(1 - b.fsm.timer / KING_BREAK_LEN);
     if (b.man) {
       b.man.visible = vis;
       b.man.x = Math.round(b.x); b.man.y = Math.round(b.y);
@@ -10303,8 +10330,8 @@ function updatePlay() {
   // 裂け目は「256 発当てる」ので、弾の強さに関係なく 1 発 1 ダメージで数える。
   // シルエットマンはふつうに削れる。
   if (boss && boss.kind === 'king' && boss.dying <= 0) {
-    const rift = boss.stage === 'rift';   // 開ききるまでは当たらない
-    const man = boss.stage === 'man';
+    const rift = bossIs(boss, 'rift');   // 開ききるまでは当たらない
+    const man = bossIs(boss, 'man');
     if (rift || man) {
       const cx = rift ? RIFT_CX : boss.x + KING_MAN_W / 2;
       const cy = rift ? RIFT_CY : boss.y + KING_MAN_H / 2;
@@ -10643,7 +10670,7 @@ function updatePlay() {
       // ことになるので、頭に当たり判定があると焼きに行けない。
       // こちらの弾と炎は、頭にも胴にも当たる
       const bodyTop = boss.y + KING_MAN_H * KING_HEAD_RATIO;
-      if (!hit && boss.stage === 'man' && py > bodyTop &&
+      if (!hit && bossIs(boss, 'man') && py > bodyTop &&
           Math.abs((boss.x + KING_MAN_W / 2) - px) < (KING_MAN_W / 2 - 14) * R &&
           Math.abs((boss.y + KING_MAN_H / 2) - py) < (KING_MAN_H / 2 - 6) * R) {
         criticalHit('THE KING');
@@ -10789,7 +10816,7 @@ const KING_PRE_BURN_MAX = 1;
 function bossCenter(b) {
   if (!b) return null;
   if (b.kind === 'king') {
-    if (b.stage === 'rift') return [RIFT_CX, RIFT_CY];
+    if (b.fsm.is('rift')) return [RIFT_CX, RIFT_CY];
     return [b.x + KING_MAN_W / 2, b.y + KING_MAN_H / 2];
   }
   const w = b.kind === 'todo' ? TODO_W : b.kind === 'dragon' ? DRAGON_W
@@ -10866,8 +10893,8 @@ function updateHitArea() {
   }
   if (boss && boss.dying <= 0) {
     if (boss.kind === 'king') {
-      if (boss.stage === 'rift') haAt(RIFT_CX, RIFT_CY, 14, RIFT_H / 2 - 2, HA_BOSS);
-      if (boss.stage === 'man') {
+      if (bossIs(boss, 'rift')) haAt(RIFT_CX, RIFT_CY, 14, RIFT_H / 2 - 2, HA_BOSS);
+      if (bossIs(boss, 'man')) {
         haAt(boss.x + KING_MAN_W / 2, boss.y + KING_MAN_H / 2,
           KING_MAN_W / 2 - 12, KING_MAN_H / 2 - 4, HA_BOSS);
       }
@@ -11116,12 +11143,12 @@ function kingToPhase2() {
   if (!boss || boss.kind !== 'king') return null;
   boss.hp = 1;
   hitKingRift(boss, RIFT_CX, RIFT_CY);   // 'break' へ入る
-  boss.timer = 1;                        // 次の更新で 'pose' へ進む
+  boss.fsm.timer = 1;                    // 次の更新で 'pose' へ進む
   enterRedSpace();
   // シルエットは 'break' の**まん中**で作られるので、飛ばすと作られないまま
   // 'man' に入ってしまい、姿が無いのに攻撃してくる状態になっていた
   makeKingMan(boss);
-  return boss.stage;
+  return boss.fsm.state;
 }
 
 /**
@@ -11130,7 +11157,7 @@ function kingToPhase2() {
  * 宣言が 1 か所にあるので、**仕様書のほうが古くなることがない**
  */
 mmsxx.expose('mmsxxStates', (kind = 'crab') => {
-  const defs = { crab: CRAB_STATES, dragon: DRAGON_STATES }[kind];
+  const defs = { crab: CRAB_STATES, dragon: DRAGON_STATES, king: KING_STAGES }[kind];
   if (!defs) return null;
   const fsm = new StateMachine(defs);
   return { kind, names: fsm.names, bad: fsm.check(), mermaid: fsm.toMermaid(kind) };
@@ -11217,9 +11244,9 @@ mmsxx.expose('mmsxxMoai', (what) => {
  */
 mmsxx.expose('mmsxxKing', (stage) => {
   if (!boss || boss.kind !== 'king') { mmsxxBoss(6); }
-  if (stage === 'die' && boss.stage === 'man') {
+  if (stage === 'die' && bossIs(boss, 'man')) {
     killKingWithRoar();
-    return boss.stage;
+    return boss.fsm.state;
   }
   if (stage === 'break') {
     boss.hp = 1;
@@ -11227,7 +11254,7 @@ mmsxx.expose('mmsxxKing', (stage) => {
   } else if (stage === 'pose' || stage === 'man') {
     kingToPhase2();
   }
-  return boss.stage;
+  return boss.fsm.state;
 });
 
 /** デバッグ用: 名前入力の画面をその場で出す(第 2 引数で得点を決められる) */
@@ -11322,7 +11349,7 @@ mmsxx.expose('mmsxxDebug', () => ({
     kind: boss.kind, hp: boss.hp, max: boss.max,
     phase2: !!boss.phase2, firing: boss.firing | 0,
     mode: boss.fsm ? boss.fsm.state : boss.mode,
-    stage: boss.stage, act: boss.act, beams: kingBeams.length,
+    stage: boss.fsm ? boss.fsm.state : null, act: boss.act, beams: kingBeams.length,
     bx: Math.round(boss.x), by: Math.round(boss.y), py: Math.round(player.y),
     blink: boss.man ? boss.man.blink + ':' + boss.man.blinkOn : null,
     guards: (boss.guards || []).map(g => g.hp),

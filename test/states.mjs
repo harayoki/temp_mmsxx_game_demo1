@@ -20,7 +20,7 @@ const check = (name, ok, extra = '') => {
 };
 
 // ---- 1. 宣言そのもの ----
-for (const kind of ['crab', 'dragon']) {
+for (const kind of ['crab', 'dragon', 'king']) {
   const decl = win.mmsxxStates(kind);
   check(kind + ': 宣言を取り出せる', !!decl, decl ? decl.names.join(' / ') : '');
   check(kind + ': 宣言に粗が無い', decl && decl.bad.length === 0, decl ? decl.bad.join(' / ') : '');
@@ -71,6 +71,27 @@ for (let i = 0; i < 3600 && !order.includes('descend'); i++) {
 }
 const want = ['spiral', 'leave', 'hide', 'telegraph', 'charge', 'rest', 'descend'];
 check('怒りが順に進む', want.every((s, i) => order[i] === s), order.join(' -> '));
+
+// ---- 4. ラスボスの段階 ----
+//
+// open -> rift は時間で、rift -> break は**撃ち抜いたとき**だけ。
+// そこから先は時間で pose -> man まで進む
+win.mmsxxBoss(5);
+const stage = () => win.mmsxxDebug().boss.stage;
+check('ラスボスは open から', stage() === 'open', stage());
+
+for (let i = 0; i < 400 && stage() === 'open'; i++) m.advance(1);
+check('裂け目が開くと rift', stage() === 'rift', stage());
+
+// 撃ち抜くまでは rift のまま(時間では進まない)
+m.advance(600);
+check('撃つまで rift のまま', stage() === 'rift', stage());
+
+win.mmsxxKing('break');
+check('撃ち抜くと break', stage() === 'break', stage());
+
+for (let i = 0; i < 400 && stage() !== 'man'; i++) m.advance(1);
+check('break から man まで進む', stage() === 'man', stage());
 
 console.log(bad ? '\n' + bad + ' 件おかしい' : '\n通りました');
 process.exit(bad ? 1 : 0);
