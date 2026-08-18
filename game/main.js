@@ -1172,6 +1172,27 @@ let enterDelay = 0;    // ステージ開始時、自機が入ってくるまで
 let respawnDelay = 0;  // ミス後、復帰するまでの待ちフレーム
 let stateTimer = 0;
 let clearTimer = 0;
+/**
+ * **クリアしてから何コマたったか**(0 = クリアしていない)。
+ * 背景を減速して止めるのに使う(下の bgStopMul)
+ */
+let bgStopFrames = 0;
+/** 減速にかけるコマ数。**ボスラッシュの短い間(120)でも止まりきる長さ**にする */
+const BG_STOP_LEN = 90;
+
+/**
+ * **背景の流れる速さの倍率。** ふだんは 1、クリアしたら 0 へ落ちる。
+ *
+ * 面ごとに録った動画をつなぐとき、**継ぎ目で背景が飛ぶ**のが困りもの。
+ * 結果画面のあいだ宇宙が止まっていれば、そこが必ず同じ絵になるので、
+ * 次のテイクの頭とつながる。急に止めると不自然なので、1.5 秒かけて落とす
+ */
+function bgStopMul() {
+  if (clearTimer > 0) bgStopFrames++;
+  else bgStopFrames = 0;
+  if (bgStopFrames === 0) return 1;
+  return Math.max(0, 1 - bgStopFrames / BG_STOP_LEN);
+}
 
 // 自機は**2 色**。実機なら単色 2 枚重ねなので、**色ごとに分けて置く**。
 // こうすると 1 行に出せる枚数の取り合いでも 2 枚ぶんの席を食い、
@@ -11079,6 +11100,16 @@ mmsxx.expose('mmsxxContinue', (n) => {
  *   mmsxxMark()     … いまの持ちものを控え直す(面の途中を起点にしたいとき)
  *   mmsxxRewind()   … 控えたところへ戻す
  */
+/**
+ * **クリアの流れへ飛ばす**(結果画面まで進める)。
+ * 撮り直しのときに、そこまで遊ばずに継ぎ目の絵を確かめるためのもの
+ */
+mmsxx.expose('mmsxxClear', (frames = 960) => {
+  if (state !== 'play') return '遊びの最中ではありません(' + state + ')';
+  clearTimer = frames;
+  return 'クリアの流れへ入りました(' + frames + ' コマ)';
+});
+
 mmsxx.expose('mmsxxMark', () => {
   const m = markStage();
   return 'STAGE ' + m.stageNo + ' / SCORE ' + m.score + ' を控えました';
@@ -16071,10 +16102,15 @@ mmsxx.run(() => {
   // レイヤーごとの速度差を大きくして遠近感を出す(最背面 : 中景 : 近景 = 1 : 3 : 8)
   // 星は 3 段階で速度差をつける(遠い星ほどゆっくり)
   // 壁紙のページだけは、絵として見せたいので星も止める
+  //
+  // **面をクリアしたら、宇宙は減速して止まる**(下の bgStopMul)。
+  // 結果画面のあいだは動かないので、**そこが必ず同じ絵になる**。
+  // 面ごとに録った動画をつなぐとき、継ぎ目で背景が飛ばずに済む
+  const bgMul = bgStopMul();
   if (!(state === 'chars' && CHAR_PAGES[charPage] && CHAR_PAGES[charPage].bare)) {
-    far.scrollBy(0, -0.25);
-    mid.scrollBy(0, -0.9);
-    near.scrollBy(0, -2.0);
+    far.scrollBy(0, -0.25 * bgMul);
+    mid.scrollBy(0, -0.9 * bgMul);
+    near.scrollBy(0, -2.0 * bgMul);
   }
   // 大きな背景オブジェクトは手前のレイヤーに描いているが、
   // 速度は最背面と同じにして遠くにあるように見せる
@@ -16084,7 +16120,7 @@ mmsxx.run(() => {
   updateHitArea();   // 当たり判定の枠(HITAREA のときだけ)
   // 図鑑とストーリー画面は絵を止めて見せるので、このレイヤーは動かさない
   if (!bossMode && state !== 'chars' && state !== 'story' && state !== 'staff') {
-    neb.scrollBy(0, -0.25);
+    neb.scrollBy(0, -0.25 * bgMul);
   }
 
   if (state === 'title') {
