@@ -412,11 +412,11 @@ V2 の大工事を待たなくてよいもの。**どれも今の作りのまま
 **種つき乱数はもう入っている**ので、同じ種＋同じ入力 → 同じ結果が既に成立している。
 回帰試験の前提としてこれが大きい。
 
-### 3. 状態機械（M-1）
+### 3. 状態機械（M-1）— 済
 
-`mode` / `stage` / `act` / `timer` / `hide` がボスごとにばらばらで、
-**その組み合わせが当たり判定の側にも写っている**。宣言にすると 2 の assert が書けるようになり、
-M-6 の図もそこから出せる。
+`engine/util/statemachine.js`。仕様は [UTIL.md](UTIL.md) の 14 節へ移した。
+ボス 7 体ぶんとラスボスの技（8 つ）が宣言になっていて、
+[test/states.mjs](../test/states.mjs) が宣言の粗さがしと、順に進むかの両方を見る。
 
 ### 4. 当たりのスナップを、ビューから独立させる
 
@@ -447,30 +447,21 @@ MSX 以外（ファミコン、PC-88 の 3 プレーンなど）を**受け止�
 
 **困ったら MSX の再現を優先**し、ほかの機械の表現はゲーム側で独自にやる。
 
-## M-1. 状態機械(StateMachine)
+## M-1. 状態機械(StateMachine) — 済
 
-いまは `mode` / `stage` / `act` / `timer` / `hide` / `telegraph` / `wait` が
-ボスごとにばらばらで、**どの組み合わせが何の局面か**が当たり判定の側にも写っている。
-(例: 突進中の判定が `rage && hide<=0 && telegraph<=0`。
-「顔を出すときも大ダメージが残っていないか」を確かめるのに、3 か所を読む必要があった)
+`engine/util/statemachine.js`。**仕様は [UTIL.md](UTIL.md) の 14 節**。
 
-```js
-const fsm = new StateMachine({
-  spiral: { update: ..., after: 300, next: 'leave' },
-  leave:  { update: ..., when: (b) => b.offScreen, next: 'hide' },
-  hide:   { for: 60, next: 'peek' },
-  peek:   { for: 200, cues: { 150: 'count3', 100: 'count2', 50: 'count1' }, next: 'charge' },
-  charge: { update: ..., when: (b) => b.offScreen, next: 'return' },
-  return: { for: 90, next: 'spiral' },
-});
-fsm.is('charge')           // 当たり判定はこれだけ見る
-fsm.in('peek', 'return')   // 「硬い」局面をまとめて書ける
-```
+ボス 7 体ぶん(カニ・ドラゴン・オウムガイ・ラスボス・モアイ・タコ・未実装さん)と、
+ラスボスの技 8 つが宣言になっている。狙いだった
+「突進中の判定が 3 か所で `rage && hide<=0 && telegraph<=0`」は
+`is('charge')` 1 つになった。
 
-- **状態の名前が 1 か所にしかない**のが肝。局面ごとの調整が 1 行で済む
-- `fsm.toMermaid()` で**図を吐く**。仕様書が古くならない(下の M-6)
-- 開発中は画面の隅に「いまの状態・残りコマ・次の行き先」を出す。
-  `mmsxxState('charge')` で飛べるようにする(いまは `mmsxxKing('man')` だけがある)
+**残っているもの**。
+
+- 開発中は**画面の隅に**「いまの状態・残りコマ・次の行き先」を出したい
+  (いまは `mmsxxState()` をコンソールから呼ぶだけ)
+- 目玉 x2 はやらない(局面と言えるほどの中身が無い)
+- 未実装さんの命ごい(`begT`)は局面ではなく**演出の順番**なので M-3 で
 
 ## M-2. 当たりの表(HitMatrix)
 

@@ -620,6 +620,58 @@ if (notice.open) return;   // 出ているあいだはゲームを進めない(*
   （ボタンを押したときは `audio.unlock()` を呼ぶ）
 - **音は持たない。** 鳴らすかどうか・どの音かはゲームが決める（返事を受けたところで鳴らす）
 
+## 14. `statemachine.js` — `StateMachine`
+
+**局面を宣言で持つ。** ほかの道具と違って `mmsxx` を受け取らず、画面にも触りません
+（進行の側の道具なので、[ヘッドレス](TODO.md)でもそのまま動きます）。
+
+```js
+import { StateMachine } from '../engine/util/statemachine.js';
+
+const CRAB = {
+  enter:  { update: (b) => { b.y += 1; }, when: (b) => b.y >= TOP, next: 'attach' },
+  attach: { update: (b) => { ... } },              // 出口は攻撃の側から go()
+  wait:   { enter: (b) => { ... }, for: 120, next: 'enter' },
+  peek:   { for: 200, cues: { 150: 'count3', 100: 'count2' }, next: 'charge' },
+  float:  { viaGo: true },                          // 行き止まり
+};
+const fsm = new StateMachine(CRAB, { start: 'enter', on: (cue) => playSE(cue) });
+
+fsm.step(boss);              // 1 コマ進める
+fsm.is('charge')             // 当たり判定はこれだけ見る
+fsm.in('peek', 'return')     // 「硬い」局面をまとめて書ける
+fsm.go('float', boss)        // どこからでも起きること(甲羅が割れた、など)
+```
+
+局面ひとつに書けるもの。**どれも省いてよい**。
+
+| | |
+|---|---|
+| `enter` / `update` / `exit` | 入った瞬間 / いるあいだ毎コマ / 出る瞬間 |
+| `for` | このコマ数が過ぎたら `next` へ。**毎回ちがうなら関数**で書く |
+| `when` | 真を返したら `next` へ |
+| `next` | 行き先の名前 |
+| `to` / `goes` | 行き先を自分で決める。**選びうる先は `goes` に並べる** |
+| `cues` | `{ 残りコマ数: 合図の名前 }`。`on` へ渡る |
+| `viaGo` | `go()` でしか来ない局面だと書き添える |
+
+- **状態の名前が 1 か所にしかない**のが肝。もとは `mode` / `stage` / `act` /
+  `hide` / `telegraph` がばらばらで、**その組み合わせが当たり判定の側にも写っていた**
+  （突進中の判定が 3 か所で `rage && hide<=0 && telegraph<=0`。いまは `is('charge')`）
+- **行き先を決める順番は `for` → `when` → `to`。**先に決まったものが勝つ
+- **移ったコマは、移った先を走らせない。** 行き先が決まるのはコマの終わりで、
+  `enter` と `update` は次のコマからそろって走る。こうしないと 1 コマのうちに
+  2 つの局面が動いて、**何コマ目に何が起きたか**が追えなくなる
+- **`check()` が宣言の粗をさがす。** 行き先の綴り間違い、誰も来ない局面、
+  いつ移るのか決まらない局面。試験（[test/states.mjs](../test/states.mjs)）から呼ぶ
+- **`toMermaid()` が図を吐く。**宣言が 1 か所にあるので、
+  **仕様書のほうが古くなることがない**
+- 局面の中で完結させること。呼ぶ側に置いた値に頼ると、
+  `mmsxxState()` で飛ばして入ったときに壊れる（実際に体力が NaN になった）
+
+STAR FABLE ではボス 7 体ぶんと、ラスボスの技（8 つ）に使っています。
+開発版では `mmsxxState('charge')` で好きな局面へ飛ばせます。
+
 ## これから作るもの
 
 - **バーチャルパッド** … 同じ考え方で、見た目と配置を差し替えられる形にする（[TODO.md](TODO.md) J-2）
