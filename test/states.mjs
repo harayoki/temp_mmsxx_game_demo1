@@ -218,5 +218,46 @@ for (let i = 0; i < 3600; i++) {
 check('怒ったら帰りきって片づく', left,
   left ? '片づいた' : ('居座り: ' + JSON.stringify(win.mmsxxDebug().moai.state)));
 
+// ---- 10. ドラゴンに弾が通るか ----
+//
+// 局面ごとに通り方が変わる相手なので、**実際に撃って削れるか**を見る。
+//   突進の口 > ふだんの目 > 構え中の顔 > 胴(0)
+// 「宣言は正しいのに当たり判定の側が古い」たぐいは、これでしか見つからない
+// 倒しきってしまうと boss が消えるので、そのときは「じゅうぶん通った」とみなす
+const dragonHp = () => { const b = win.mmsxxDebug().boss; return b ? b.hp : 0; };
+
+/**
+ * ドラゴンの真下へ寄りながら撃ち、減ったぶんを返す。
+ * **自機は左端から始まる**ので、狙わせないと弾がどこにも当たらない
+ * (これに気づかず「通らない」と読み違えたことがある)
+ */
+// **局面は固定しない。** go() で引き戻すと exit が走って頭が飛ぶので、
+// 弾が当たらなくなる。ふつうに戦わせて、通しで削れるかを見る
+const shootDragon = (n) => {
+  win.mmsxxBoss(3);
+  m.advance(90);            // 登場が終わるまで
+  const before = dragonHp();
+  const seen = new Set();
+  for (let i = 0; i < n; i++) {
+    const d = win.mmsxxDebug();
+    if (!d.boss) break;
+    seen.add(win.mmsxxState().stage);
+    const aim = d.boss.bx + 16;   // 頭のまん中へ寄る
+    if (d.playerX < aim - 2) m.input.press('ArrowRight');
+    else if (d.playerX > aim + 2) m.input.press('ArrowLeft');
+    m.input.press('Space');
+    m.advance(1);
+    m.input.release('Space');
+    m.input.release('ArrowRight');
+    m.input.release('ArrowLeft');
+    m.advance(1);
+  }
+  return { 減り: before - dragonHp(), 通った局面: [...seen].join(' ') };
+};
+
+const shot = shootDragon(600);
+check('狙って撃てば削れる', shot.減り > 0,
+  '減ったぶん ' + shot.減り.toFixed(1) + ' / ' + shot.通った局面);
+
 console.log(bad ? '\n' + bad + ' 件おかしい' : '\n通りました');
 process.exit(bad ? 1 : 0);

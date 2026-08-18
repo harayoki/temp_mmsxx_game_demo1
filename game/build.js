@@ -10,7 +10,7 @@ export const BUILD = {
    * ビルドするたびに 1 つ増える(build-deploy.ps1 が build-number.txt を見る)。
    * 版の頭(v1.01)は手元用も公開版も同じ
    */
-  version: 'v1.06',
+  version: 'v1.07',
   /** 開発用の機能(シーン選択・コンソール関数・画面の保存など)を入れるか */
   dev: true,
   /**

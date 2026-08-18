@@ -14,6 +14,49 @@ const PORT = process.env.PORT || 8080;
 // キャプチャの保存先と、残しておく枚数
 const CAPTURE_DIR = path.join(ROOT, 'capture');
 const CAPTURE_KEEP = 10;
+
+// ---- 手元用のビルド番号 ----
+// 見るのは game / engine の中の .js。いちばん新しい更新時刻が前と違えば 1 つ増やす。
+// 番号は dev-build-number.txt に置く(公開版の build-number.txt とは別)
+const DEV_NUM_FILE = path.join(ROOT, 'dev-build-number.txt');
+const DEV_WATCH = ['game', 'engine'];
+
+/** 下まで潜って、いちばん新しい .js の更新時刻を返す */
+function newestJs(dir) {
+  let newest = 0;
+  let ents;
+  try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return 0; }
+  for (const e of ents) {
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) newest = Math.max(newest, newestJs(full));
+    else if (e.name.endsWith('.js')) {
+      try { newest = Math.max(newest, fs.statSync(full).mtimeMs); } catch { /* 消えた */ }
+    }
+  }
+  return newest;
+}
+
+let devCache = null;
+function devBuild() {
+  // 連打されても数え直さない(1 秒だけ使い回す)
+  if (devCache && Date.now() - devCache.checked < 1000) return devCache.value;
+  let newest = 0;
+  for (const d of DEV_WATCH) newest = Math.max(newest, newestJs(path.join(ROOT, d)));
+
+  let n = 0, was = 0;
+  try {
+    const [a, b] = fs.readFileSync(DEV_NUM_FILE, 'utf8').trim().split(/\s+/);
+    n = Number(a) || 0;
+    was = Number(b) || 0;
+  } catch { /* はじめて */ }
+  if (newest !== was) {
+    n += 1;
+    try { fs.writeFileSync(DEV_NUM_FILE, n + ' ' + newest + '\n'); } catch { /* 読み取り専用でも困らない */ }
+  }
+  const value = { n, at: new Date(newest).toTimeString().slice(0, 8) };
+  devCache = { checked: Date.now(), value };
+  return value;
+}
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -86,6 +129,17 @@ http.createServer((req, res) => {
         res.end(JSON.stringify({ ok: false, error: String(e && e.message || e) }));
       }
     });
+    return;
+  }
+
+  // **手元用のビルド番号。** 公開版は build-deploy.ps1 が build-number.txt で
+  // 数えるが、手元は固めないので番号が付かず、
+  // **ブラウザが古いままなのか直っていないのか**が見分けられなかった。
+  // ソース(game / engine)のいちばん新しい更新時刻を見て、
+  // 前に配ったときと違えば 1 つ増やす = 直すたびに増える
+  if (p === '/__devbuild') {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify(devBuild()));
     return;
   }
 

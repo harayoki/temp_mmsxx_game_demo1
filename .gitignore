@@ -30,3 +30,4 @@ desktop.ini
 .idea/
 *.swp
 ~*.*
+dev-build-number.txt
