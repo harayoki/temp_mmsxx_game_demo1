@@ -6724,11 +6724,9 @@ function updateNautilusBoss(b) {
 const DRAGON_W = 48, DRAGON_H = 48;
 // 突進中に開いた口へ撃ち込んだときのダメージ。もとは 8 だったが効きすぎたので 8 割
 const DRAGON_JAWS_DMG = 6.4;
-// ふだんの顔の中央(目)。**狙って当てないと通らない**ので厚めに。
-// ここを 0 にすると「突進を待つだけ」に戻る(胴はどのみち通らない)
-const DRAGON_EYE_DMG = 4;
-// 顔だけ出して構えているあいだ。当たりはするが、**目の 4 分の 1 だけ**。
-// このときは頭のほとんどが画面の外なので、見えているところはどこでもよい
+// ふだんの頭。**顔ぜんぶ**で受ける(うしろの節には当たり判定が無い)
+const DRAGON_FACE_DMG = 4;
+// 顔だけ出して構えているあいだ。当たりはするが、ふだんの 4 分の 1 だけ
 const DRAGON_PEEK_DMG = 1;
 const DRAGON_SEGS = 12;             // 胴体の節の数(すき間ができないよう多め)
 const DRAGON_SEG = 24;
@@ -9210,15 +9208,12 @@ const OCTO_STATES = {
 function isBossWeakPoint(b, x, y, bullet) {
   if (b.kind === 'todo') return true;   // 仮のボスはどこでも当たる
   if (b.kind === 'dragon') {
-    // 突っ込んできているあいだは口を大きく開けている = 頭ぜんぶが弱点
-    if (b.fsm.is('charge')) return true;
-    // 顔だけ出して構えているあいだは、**見えているところならどこでも**。
-    // このとき頭は画面の端に半分めり込んでいて、下の目の枠は画面の外へ出る。
-    // 枠で見ると「当てられないのに硬い」ことになるので、ここだけ広く取る
-    if (b.fsm.is('telegraph')) return true;
-    // ふだんは顔の中央(目のあたり)だけ。目の絵は sx+9 / sx+25、sy+14 に置く
-    return x > b.sx + 8 && x < b.sx + DRAGON_W - 8 &&
-           y > b.sy + 16 && y < b.sy + 36;
+    // **頭はどこに当てても通る。** 弾が当たるのはもともと頭の 48x48 だけで、
+    // うしろに続く節(胴)には当たり判定が無い。
+    // 目の枠だけに絞っていたころは、構え中に枠が画面の外へ出てしまい、
+    // 「当てられないのに硬い」ことになっていた。
+    // どれだけ通るかは局面で変える(突進の口 > ふだん > 構え中)
+    return true;
   }
   // カニは本体に弱点が無い。狙うのはジャンプ中の脚(別に判定している)
   if (b.kind === 'crab') return false;
@@ -10606,19 +10601,14 @@ function updatePlay() {
           }
           continue;
         }
-        // **ドラゴンの胴には通らない。** 装甲がはがれたあとも同じ。
-        // 通るのは 3 か所 ── 突進で開けている口 / ふだんの目 / 構え中の見えている顔。
-        // 胴を撫でているだけでは削れないので、狙いどころはぼやけない
-        const dragonBody = boss.kind === 'dragon' && !jaws && !weak;
         const dmg = armored ? ((boss.age % 8 === 0) ? 1 : 0)
           : tough ? ((boss.age % 4 === 0) ? 1 : 0)
-          : dragonBody ? 0
           // 突進中のドラゴンの口。効きすぎたので 8 -> 6.4(8 割)に落とした
           : jaws ? DRAGON_JAWS_DMG
-          // ドラゴンは局面で通り方が変わる。
-          // 構え中は当たりはするが薄く、ふだんは目に当てれば厚く通る
+          // ドラゴンは局面で通り方が変わる。頭のどこでも通るが、
+          // **構え中は薄く**(予告の姿なので)、ふだんは顔ぜんぶで受ける
           : boss.kind === 'dragon'
-            ? (boss.fsm.is('telegraph') ? DRAGON_PEEK_DMG : DRAGON_EYE_DMG)
+            ? (boss.fsm.is('telegraph') ? DRAGON_PEEK_DMG : DRAGON_FACE_DMG)
             : (weak ? 3 : 1);
         // 近いほど・上から攻めるほど効く(最大 4 倍)。
         // 装甲などで 0 ダメージのものは 0 のまま
@@ -10631,9 +10621,6 @@ function updatePlay() {
         if (dmg > 0 && !armored) boss.flash = 6;
         // カニは 4 発に 1 ダメージなので、通ったときだけ白く光らせて知らせる
         if (dmg > 0 && boss.kind === 'crab') boss.hurt = 10;
-        // 硬いところに当たった音。ドラゴンは胴ぜんぶが硬いので、
-        // 構えているかどうかにかかわらず、口以外はこの音になる
-        if (dragonBody) mmsxx.audio.playSE('armor', SE_HIT);
         if (boss.kind === 'todo') {
           boss.cry = 60;   // 未実装君は泣く
           // 話しているあいだに撃ち込まれた数を数える。
