@@ -13661,7 +13661,8 @@ function altDown() {
 const fpsMeter = DEV ? new FpsMeter() : null;
 // いまの局面(ボスの段階と技)も**開発版だけ**。これも DOM なので写らない。
 // ?states=0 で消せる(演出を見たいときにじゃまなことがある)
-const stateMeter = DEV && OPT.get('states') !== '0' ? new StateMeter() : null;
+const stateMeter = DEV && OPT.get('states') !== '0'
+  ? new StateMeter({ canvas: document.getElementById('screen') }) : null;
 // 丸ごと録画(ALT+R)は **localhost のときだけ**。目印の REC も DOM に出すので写らない。
 // dev:true のまま固めた手元用ビルドを人に渡しても、そちらでは動かない。
 // **読み込むのも localhost のときだけ**にしてある(公開版には 1 バイトも入らない)

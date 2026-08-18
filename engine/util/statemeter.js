@@ -13,17 +13,20 @@
 
 export class StateMeter {
   /**
-   * @param {{corner?:'tl'|'tr'|'bl'|'br', color?:string}} [opts]
-   *   corner = 出す隅(既定は左下。右上は FpsMeter が使う)
+   * @param {{canvas?:HTMLCanvasElement, corner?:'tl'|'tr'|'bl'|'br', color?:string,
+   *          size?:number}} [opts]
+   *   canvas = **ゲーム画面のすぐ上**に置く(渡さなければ画面の隅)
+   *   corner = canvas が無いときの隅(既定は左下。右上は FpsMeter が使う)
+   *   size   = 文字の大きさ(既定 24px。読めることを優先して大きめ)
    */
   constructor(opts = {}) {
+    this.canvas = opts.canvas || null;
     this.el = document.createElement('div');
     const corner = opts.corner || 'bl';
     Object.assign(this.el.style, {
       position: 'fixed',
-      [corner[0] === 't' ? 'top' : 'bottom']: '4px',
-      [corner[1] === 'l' ? 'left' : 'right']: '4px',
-      font: '12px monospace',
+      font: (opts.size ?? 24) + 'px monospace',
+      lineHeight: '1.15',
       color: opts.color || '#7f7',
       background: 'rgba(0,0,0,.55)',
       padding: '2px 6px',
@@ -33,8 +36,29 @@ export class StateMeter {
       zIndex: 9999,
       display: 'none',
     });
+    if (!this.canvas) {
+      // 隅に貼るとき。canvas があるときは tick のたびに置き直す
+      this.el.style[corner[0] === 't' ? 'top' : 'bottom'] = '4px';
+      this.el.style[corner[1] === 'l' ? 'left' : 'right'] = '4px';
+    }
     document.body.appendChild(this.el);
     this.last = '';
+    this.lastBox = '';
+  }
+
+  /**
+   * ゲーム画面のすぐ上へ置き直す。**画面の外へはみ出さない**ように上で止める
+   * (拡大率を上げると canvas が窓いっぱいになり、上に空きが無くなるため)
+   */
+  _place() {
+    if (!this.canvas) return;
+    const r = this.canvas.getBoundingClientRect();
+    const h = this.el.offsetHeight || 0;
+    const box = r.left + ',' + r.top + ',' + h;
+    if (box === this.lastBox) return;
+    this.lastBox = box;
+    this.el.style.left = Math.round(r.left) + 'px';
+    this.el.style.top = Math.round(Math.max(2, r.top - h - 4)) + 'px';
   }
 
   /**
@@ -51,10 +75,14 @@ export class StateMeter {
       lines.push(label + ' ' + fsm.state + '  残り ' + left + '  → ' + fsm.nextName());
     }
     const text = lines.join('\n');
-    if (text === this.last) return;
-    this.last = text;
-    this.el.textContent = text;
-    this.el.style.display = text ? 'block' : 'none';
+    if (text !== this.last) {
+      this.last = text;
+      this.el.textContent = text;
+      this.el.style.display = text ? 'block' : 'none';
+    }
+    // 画面の大きさが変わることがあるので、置き場所は毎コマ見る
+    // (変わっていなければ何も書き換えない)
+    if (text) this._place();
   }
 
   /** 片づける(場面を抜けるときなど) */
