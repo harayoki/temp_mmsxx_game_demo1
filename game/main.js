@@ -6985,6 +6985,7 @@ function spawnTodoBoss() {
     x: (SCREEN_W - TODO_W) / 2, y: -TODO_H, hp, max: hp, age: 0, flash: 0, dying: 0,
     eyeL, eyeR, charge: null, phase2: false,
   };
+  boss.fsm = new StateMachine(TODO_STATES, { start: 'arrive' });
   boss.partFace = bossPart(BG_SYMBOLS.todoFace);
   boss.crown = mmsxx.sprite(SPRITE_SYMBOLS.crownCyan);   // 顔と色がかぶるので水色
   boss.crown.priority = 15;
@@ -7215,20 +7216,42 @@ function todoGiveUp(b) {
   mmsxx.audio.playSE('bossboom', SE_HIT);
 }
 
+/**
+ * **未実装さんの局面。**
+ *
+ *   arrive -> drift -> gone
+ *
+ * 攻撃はしてこないので、これだけ。命ごいの流れ(`begT`)は別の話で、
+ * 局面ではなく**演出の順番**なのでここには入れない
+ */
+const TODO_STATES = {
+  // まず定位置まで降りる
+  arrive: {
+    update: (b) => { b.y += 0.6; },
+    when: (b) => b.y >= 40,
+    next: 'drift',
+    exit: (b) => { b.y = 40; },
+  },
+  // ふわふわ漂うだけ(動きも控えめ)。
+  // **話しているあいだは横に動かない**(ふきだしがふらつくと読みにくい)。
+  // 縦にぶるぶるすると落ち着かないので、横にだけゆっくり動く
+  drift: {
+    update: (b) => {
+      b.y = 40;
+      if (todoTalking()) return;
+      b.x = (SCREEN_W - TODO_W) / 2 + Math.sin(b.age * 0.012) * 24;
+    },
+  },
+  // 命ごいが通って帰っていったあと。位置は演出の側が動かす
+  gone: { viaGo: true },
+};
+
 function updateTodoBoss(b) {
   // 体力が減ると命ごいを始める。帰ってしまったらここで終わり
   if (updateTodoBeg(b)) return;
-  // ふわふわ漂うだけ。攻撃はしてこない(動きも控えめ)。
-  // **話しているあいだは横に動かない**(ふきだしがふらつくと読みにくい)。
-  // ただし降りてくる途中なら、まず定位置まで降りる
-  if (b.y < 40 && !b.begGone) b.y += 0.6;
-  else if (!b.begGone) {
-    // 縦にぶるぶるすると落ち着かないので、横にだけゆっくり動く
-    b.y = 40;
-    if (!todoTalking()) {
-      b.x = (SCREEN_W - TODO_W) / 2 + Math.sin(b.age * 0.012) * 24;
-    }
-  }
+  // 動きと移り先は TODO_STATES に書いてある
+  if (b.begGone) { if (!b.fsm.is('gone')) b.fsm.go('gone', b); }
+  else b.fsm.step(b);
   if (b.cry > 0) b.cry--;
   if (b.tearBurst > 0) b.tearBurst--;
   // 涙は目の下から放物線を描いて画面の下まで落ちる。当たるとクリティカル
@@ -8333,10 +8356,11 @@ function spawnBoss() {
     x: (SCREEN_W - BOSS_W) / 2, y: -60, hp, max: hp, age: 0, flash: 0, dying: 0,
     eyeL, eyeR, eyeL2, eyeR2, mouth, guards, charge, chargeRing, arms, brow,
     phase2: false,      // 船が壊れてタコだけになった状態
-    laserTimer: 90,     // 1 回目のレーザーは早め(弱点が 10 秒以内に開く)
+    laserGap: 90,       // 1 回目のレーザーは早め(弱点が 10 秒以内に開く)
     muzzleHp: 12,       // 発射口の耐久。壊すとその場で撃破(手のひらを削る道もある)
-    charging: 0, firing: 0, laserLen: 0,
+    laserLen: 0,
   };
+  boss.fsm = new StateMachine(OCTO_STATES, { start: 'arrive' });
   boss.partHead = bossPart(BG_SYMBOLS.bossHead);
   boss.partShip = bossPart(BG_SYMBOLS.bossShip);
   drawBossBody();
@@ -8581,16 +8605,15 @@ function drawLaser(len, w = LASER_DRAW_W, color = 15) {
 
 // レーザーのいまの段階。'grow' 太くなる / 'full' 最大 / 'fade' 細くなる(当たらない)
 function laserPhase(b) {
-  if (!b.firing || b.firing <= 0) return null;
+  if (!b || b.kind !== 'octopus' || !b.fsm || !b.fsm.is('fire')) return null;
   // 溜めてから撃つので、出だしから最大の太さ。最後は 1 ドットずつ細くなる。
-  return b.firing > LASER_FADE_LEN ? 'full' : 'fade';
+  return b.fsm.timer > LASER_FADE_LEN ? 'full' : 'fade';
 }
 
 /** 船が壊れて第2形態(タコだけ)へ移行する */
 function breakShip() {
   boss.phase2 = true;
-  boss.charging = 0;
-  boss.firing = 0;
+  boss.fsm.go('swing', boss);   // 撃つのをやめて、体当たりだけになる
   boss.laserLen = 0;
   drawLaser(0);        // 撃ちかけのレーザーが残らないように消す
   // 撃っている途中で船が壊れることがある。くり返しの音を残さない
@@ -9021,97 +9044,142 @@ function stopLaserSE() {
   if (laserSEId) { mmsxx.audio.stopSE(laserSEId); laserSEId = 0; }
 }
 
-function updateLaser(b) {
-  // 溜めも発射もゆっくりにして、避ける余裕を作る
-  const CHARGE = 220, FIRE = LASER_FIRE_LEN;   // 溜めは長め
-  if (b.firing > 0) {
-    b.firing--;
-    // 発射音は矩形波の和音を 1 回鳴らすだけ(切り分けていない長い SE)。
-    // **太いあいだは半音高い音、細くなったら元の高さ**にして、
-    // 「弱まった = いまが弱点」を音でも分かるようにする
-    const sePhase = laserPhase(b);
-    if (sePhase === 'full') {
-      // レーザーは見せ場なので、ほかの SE より優先して鳴らす。
-      // 1 回では撃っている時間に足りないので 3 回くり返す。
-      // **撃ち終わりで必ず止める**(下の else)
-      if (!b.laserSE) {
-        b.laserSE = true;
-        // ポーズから戻したら、止めたところの続きから鳴らす
-        laserSEId = mmsxx.audio.playSE('laserHi', SE_HIT + 2, { loop: 3, resume: 'continue' });
+// 溜めも発射もゆっくりにして、避ける余裕を作る
+const OCTO_CHARGE = 220;              // 溜めは長め
+const OCTO_FIRE = LASER_FIRE_LEN;
+const OCTO_GAP = 420;                 // 撃ち終わってから次の溜めまで
+
+/**
+ * **タコ(壺のUFO)の局面。**
+ *
+ *   arrive -> swing -> charge -> fire -> swing
+ *
+ * もとは `charging` と `firing` の**数え上げが残っているか**で局面を表していて、
+ * 動きの側も当たり判定の側も `charging > 0 || firing > 0` と書いていた。
+ * 船が壊れたあと(phase2)はレーザーを撃たないので、swing から出なくなる。
+ */
+const OCTO_STATES = {
+  // HUD のすぐ下に陣取る(画面を広く使えるよう高めの位置)
+  arrive: {
+    update: (b) => { b.y += 0.5; },
+    when: (b) => b.y >= 16,
+    next: 'swing',
+    exit: (b) => { b.y = 16; },
+  },
+  // 左右の往復。次のレーザーまでの間。
+  // 一度定位置に着いたら上下には動かさない(8 ドット単位スクロールだと
+  // 細かい上下動がガタつきに見えるため)
+  swing: {
+    viaGo: true,   // 船が壊れたときは、撃つのをやめてここへ戻る
+    for: (b) => b.laserGap,
+    goes: ['charge'],
+    // **壺から出たあと(第 2 形態)は弾を撃たず、体当たりだけで襲ってくる**
+    to: (b, f) => (f.timer > 0 || b.phase2 ? null : 'charge'),
+    update: (b) => {
+      b.y = 16;
+      // 溜めや発射で止まっているあいだは進み方も止めておかないと、
+      // 動き出したときに位置が飛んでしまう(急にワープして見えた原因)
+      b.swing = (b.swing || 0) + (b.phase2 ? 0.008 : 0.015);
+      const target = (SCREEN_W - BOSS_W) / 2 + Math.sin(b.swing) * (b.phase2 ? 18 : 56);
+      b.x += (target - b.x) * 0.08;   // 目標へなめらかに寄せる(急に飛ばない)
+    },
+  },
+  // 溜め。砲口の前で光の玉がふくらみ、外の輪が縮んでいく。
+  // **溜め〜発射中は停止する**
+  charge: {
+    for: OCTO_CHARGE,
+    next: 'fire',
+    update: (b, f) => {
+      b.y = 16;
+      // 溜めの音も 0.4 秒のかたまりをくり返す
+      if (f.timer % SE_CHUNK === 0) mmsxx.audio.playSE('charging', SE_EVENT + 1);
+      const t = 1 - f.timer / OCTO_CHARGE;
+      // 白 -> 黄 -> 水色 を 2 コマごとに回して、はっきり分かる明滅にする。
+      // 玉と輪は位相をずらして、ぶつかり合うように光らせる
+      const c = Math.floor(mmsxx.frame / 2) % 3;
+      const cr = (Math.floor(mmsxx.frame / 2) + 2) % 3;
+      const orb = t < 0.4 ? SPRITE_SYMBOLS['chargeOrb0' + c]
+        : t < 0.75 ? SPRITE_SYMBOLS['chargeOrb1' + c] : SPRITE_SYMBOLS['chargeOrb2' + c];
+      const ring = t < 0.4 ? SPRITE_SYMBOLS['chargeRing0' + cr]
+        : t < 0.75 ? SPRITE_SYMBOLS['chargeRing1' + cr] : SPRITE_SYMBOLS['chargeRing2' + cr];
+      const cx = b.sx + BOSS_W / 2, cy = b.sy + BOSS_H - 4;
+      b.charge.image = orb;
+      b.charge.visible = true;
+      b.charge.x = cx - orb.width / 2;
+      b.charge.y = cy - orb.height / 2;
+      if (b.chargeRing) {
+        b.chargeRing.image = ring;
+        b.chargeRing.visible = true;
+        b.chargeRing.x = cx - ring.width / 2;
+        b.chargeRing.y = cy - ring.height / 2;
+        b.chargeRing.blink = 0;   // 消さずに、色だけ 1 コマごとに変える
       }
-    } else if (sePhase === 'fade') {
-      if (!b.laserFadeSE) {
-        b.laserFadeSE = true;
-        stopLaserSE();   // 太いときの音を切ってから、元の高さへ落とす
-        laserSEId = mmsxx.audio.playSE('laser', SE_HIT + 2, { loop: 3, resume: 'continue' });
-      }
-    } else if (b.laserSE || b.laserFadeSE) {
-      stopLaserSE();
-      b.laserSE = false;
-      b.laserFadeSE = false;
-    }
-    b.charge.visible = false;
-    if (b.chargeRing) b.chargeRing.visible = false;
-    // 発射中は先端がじわじわ伸び、太さと色も段階で変わる
-    const grown = Math.min(LASER_MAX, (FIRE - b.firing) * LASER_SPEED);
-    const phase = laserPhase(b);
-    let w = LASER_DRAW_W;
-    // 効いている帯は白と水色、消えかけは黄と白を 2 コマごとに入れ替えて
-    // はっきり明滅させる
-    let color = (mmsxx.frame & 2) ? 15 : 7;
-    if (phase === 'fade') {
-      // 残り時間を 1 ドットぶんずつに割って、確実に 1 ドットずつ細くする
-      w = Math.max(1, Math.ceil(b.firing / LASER_FADE_STEP));
-      color = (mmsxx.frame & 2) ? 11 : 15;   // 黄と白。ここは当たらない
-    }
-    b.laserLen = grown;
-    drawLaser(grown, w, color);
-    // 消えかけに入ったら「いまが弱点」だと知らせる
-    if (phase === 'fade' && !b.toldWeak) {
-      b.toldWeak = true;
-      showNotice('SHOOT THE MUZZLE!');
-    }
-    if (b.firing === 0) { b.laserLen = 0; b.toldWeak = false; drawLaser(0); b.laserTimer = 420; }
-    return;
-  }
-  if (b.charging > 0) {
-    b.charging--;
-    // 溜めの音も 0.4 秒のかたまりをくり返す
-    if (b.charging % SE_CHUNK === 0) mmsxx.audio.playSE('charging', SE_EVENT + 1);
-    // 砲口の前で光の玉がふくらみ、外の輪が縮んでいく
-    const t = 1 - b.charging / CHARGE;
-    // 白 -> 黄 -> 水色 を 2 コマごとに回して、はっきり分かる明滅にする。
-    // 玉と輪は位相をずらして、ぶつかり合うように光らせる
-    const c = Math.floor(mmsxx.frame / 2) % 3;
-    const cr = (Math.floor(mmsxx.frame / 2) + 2) % 3;
-    const orb = t < 0.4 ? SPRITE_SYMBOLS['chargeOrb0' + c]
-      : t < 0.75 ? SPRITE_SYMBOLS['chargeOrb1' + c] : SPRITE_SYMBOLS['chargeOrb2' + c];
-    const ring = t < 0.4 ? SPRITE_SYMBOLS['chargeRing0' + cr]
-      : t < 0.75 ? SPRITE_SYMBOLS['chargeRing1' + cr] : SPRITE_SYMBOLS['chargeRing2' + cr];
-    const cx = b.sx + BOSS_W / 2, cy = b.sy + BOSS_H - 4;
-    b.charge.image = orb;
-    b.charge.visible = true;
-    b.charge.x = cx - orb.width / 2;
-    b.charge.y = cy - orb.height / 2;
-    if (b.chargeRing) {
-      b.chargeRing.image = ring;
-      b.chargeRing.visible = true;
-      b.chargeRing.x = cx - ring.width / 2;
-      b.chargeRing.y = cy - ring.height / 2;
-      b.chargeRing.blink = 0;   // 消さずに、色だけ 1 コマごとに変える
-    }
-    if (b.charging === 0) {
-      b.firing = FIRE;
+    },
+    exit: (b) => {
       b.chargeSE = false;
       b.toldWeak = false;
       if (b.chargeRing) b.chargeRing.visible = false;
       b.laserLen = 0;
       drawLaser(0);
-    }
-    return;
-  }
-  if (--b.laserTimer <= 0) b.charging = CHARGE;
-}
+    },
+  },
+  // 発射。先端がじわじわ伸び、太さと色も段階で変わる
+  fire: {
+    for: OCTO_FIRE,
+    next: 'swing',
+    update: (b, f) => {
+      b.y = 16;
+      // 発射音は矩形波の和音を 1 回鳴らすだけ(切り分けていない長い SE)。
+      // **太いあいだは半音高い音、細くなったら元の高さ**にして、
+      // 「弱まった = いまが弱点」を音でも分かるようにする
+      const phase = laserPhase(b);
+      if (phase === 'full') {
+        // レーザーは見せ場なので、ほかの SE より優先して鳴らす。
+        // 1 回では撃っている時間に足りないので 3 回くり返す
+        if (!b.laserSE) {
+          b.laserSE = true;
+          // ポーズから戻したら、止めたところの続きから鳴らす
+          laserSEId = mmsxx.audio.playSE('laserHi', SE_HIT + 2, { loop: 3, resume: 'continue' });
+        }
+      } else if (phase === 'fade') {
+        if (!b.laserFadeSE) {
+          b.laserFadeSE = true;
+          stopLaserSE();   // 太いときの音を切ってから、元の高さへ落とす
+          laserSEId = mmsxx.audio.playSE('laser', SE_HIT + 2, { loop: 3, resume: 'continue' });
+        }
+      }
+      b.charge.visible = false;
+      if (b.chargeRing) b.chargeRing.visible = false;
+      const grown = Math.min(LASER_MAX, (OCTO_FIRE - f.timer) * LASER_SPEED);
+      let w = LASER_DRAW_W;
+      // 効いている帯は白と水色、消えかけは黄と白を 2 コマごとに入れ替えて
+      // はっきり明滅させる
+      let color = (mmsxx.frame & 2) ? 15 : 7;
+      if (phase === 'fade') {
+        // 残り時間を 1 ドットぶんずつに割って、確実に 1 ドットずつ細くする
+        w = Math.max(1, Math.ceil(f.timer / LASER_FADE_STEP));
+        color = (mmsxx.frame & 2) ? 11 : 15;   // 黄と白。ここは当たらない
+      }
+      b.laserLen = grown;
+      drawLaser(grown, w, color);
+      // 消えかけに入ったら「いまが弱点」だと知らせる
+      if (phase === 'fade' && !b.toldWeak) {
+        b.toldWeak = true;
+        showNotice('SHOOT THE MUZZLE!');
+      }
+    },
+    // **撃ち終わりで音は必ず止める**
+    exit: (b) => {
+      stopLaserSE();
+      b.laserSE = false;
+      b.laserFadeSE = false;
+      b.laserLen = 0;
+      b.toldWeak = false;
+      drawLaser(0);
+      b.laserGap = OCTO_GAP;
+    },
+  },
+};
 
 /**
  * ボスの弱点かどうか。タコはレーザーの発射口、カニロボはハサミの付け根が弱点。
@@ -9133,7 +9201,6 @@ function isBossWeakPoint(b, x, y, bullet) {
   // 黄色く細くなっている時間はレーザーに当たり判定が無いので、
   // ここが実際に潜り込めるタイミングになる。
   // 発射口の左右にはガードがあるので、斜めの弾は弾かれる。
-  if (!b.firing || b.firing <= 0) return false;
   if (laserPhase(b) !== 'fade') return false;
   if (bullet && Math.abs(bullet.vx) > 2.5) return false;   // 斜めの弾は弾く
   const lx = b.sx + LASER_X;
@@ -9207,19 +9274,8 @@ function updateBoss() {
   // HUD のすぐ下に陣取る(画面を広く使えるよう高めの位置)。
   // 一度定位置に着いたら上下には動かさない(8 ドット単位スクロールだと
   // 細かい上下動がガタつきに見えるため)。
-  if (b.y < 16) {
-    b.y += 0.5; // 登場演出
-  } else if (b.charging > 0 || b.firing > 0) {
-    b.y = 16;   // 溜め〜発射中は停止する
-  } else {
-    b.y = 16;
-    // 左右の往復。溜めや発射で止まっているあいだは進み方も止めておかないと、
-    // 動き出したときに位置が飛んでしまう(いままで急にワープして見えた原因)。
-    b.swing = (b.swing || 0) + (b.phase2 ? 0.008 : 0.015);
-    const target = (SCREEN_W - BOSS_W) / 2 + Math.sin(b.swing) * (b.phase2 ? 18 : 56);
-    // 目標へなめらかに寄せる(急に飛ばない)
-    b.x += (target - b.x) * 0.08;
-  }
+  // 動きと移り先は OCTO_STATES に書いてある(レーザーの溜めと発射もそこ)
+  b.fsm.step(b);
 
   // BG スクロールでボスを動かす。レイヤーは 8 ドット単位なので、
   // 実際に表示される位置(sx, sy)を求めて目のスプライトと当たり判定に使う。
@@ -9246,7 +9302,7 @@ function updateBoss() {
     // レーザーを撃っているあいだは顔のまわりに縮こまって、
     // 発射口を狙う攻撃のじゃまにならないようにする。
     // 縮こまっているあいだ(レーザー発射中)はグーを握って無敵になる
-    const tight = b.firing > 0;
+    const tight = b.fsm.is('fire');
     b.guardTight = tight;
     const targetR = tight ? GUARD_R_TIGHT : GUARD_R;
     const targetY = b.sy + (tight ? HEAD_H / 2 : BOSS_H / 2) - 8;
@@ -9285,10 +9341,9 @@ function updateBoss() {
   if (state !== 'play') return;
 
   // --- レーザー(第1形態のみ): 停止 -> 溜め -> 発射 ---
-  if (!b.phase2) updateLaser(b);
 
   // 溜めているあいだ・撃っているあいだは、ほかの攻撃はしてこない
-  if (b.charging > 0 || b.firing > 0) return;
+  if (b.fsm.in('charge', 'fire')) return;
   // 壺から出たあと(第2形態)は弾を撃たず、体当たりだけで襲ってくる
   if (b.phase2) return;
   // 第1形態のリング弾は、回っているガードが吐き出す。
@@ -10780,7 +10835,7 @@ function updatePlay() {
         return;
       }
       // レーザーの帯に触れたら即死(バリアでも防げない)
-      if (boss.firing > 0 && laserPhase(boss) !== 'fade') {
+      if (laserPhase(boss) === 'full') {
         const lx = boss.sx + LASER_X;
         const top = boss.sy + BOSS_H;
         if (px > lx - 2 && px < lx + LASER_W + 2 &&
@@ -11265,7 +11320,7 @@ mmsxx.expose('mmsxxState', (name, which = 'auto') => {
 mmsxx.expose('mmsxxStates', (kind = 'crab') => {
   const defs = {
     crab: CRAB_STATES, dragon: DRAGON_STATES, nautilus: NAUT_STATES,
-    king: KING_STAGES, kingActs: KING_ACTS, moai: MOAI_STATES,
+    king: KING_STAGES, kingActs: KING_ACTS, moai: MOAI_STATES, octopus: OCTO_STATES, todo: TODO_STATES,
   }[kind];
   if (!defs) return null;
   const fsm = new StateMachine(defs);
@@ -11456,7 +11511,7 @@ mmsxx.expose('mmsxxDebug', () => ({
   secret: secretSpots ? secretSpots.map(s => ({ x: s.x, y: s.y, hits: s.hits, done: s.done })) : null,
   boss: boss ? {
     kind: boss.kind, hp: boss.hp, max: boss.max,
-    phase2: !!boss.phase2, firing: boss.firing | 0,
+    phase2: !!boss.phase2, firing: boss.fsm && boss.fsm.is('fire') ? 1 : 0,
     mode: boss.fsm ? boss.fsm.state : boss.mode,
     stage: boss.fsm ? boss.fsm.state : null, act: boss.actFsm ? boss.actFsm.state : null, beams: kingBeams.length,
     bx: Math.round(boss.x), by: Math.round(boss.y), py: Math.round(player.y),
