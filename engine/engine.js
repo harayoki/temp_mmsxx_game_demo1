@@ -869,6 +869,9 @@ export class MMSXXEngine {
   run(update) {
     this._running = true;
     this._update = update;
+    // **画面が無いときは回さない。** 進めるのは advance() の仕事。
+    // ここで rAF を呼ぶと、窓の無いところでその場で落ちる
+    if (this.vdp.headless) return;
     let last = performance.now();
     let acc = 0;
     const tick = (now) => {
@@ -922,6 +925,36 @@ export class MMSXXEngine {
 
   /** メインループを停止する */
   stop() { this._running = false; }
+
+  /** **画面を持たないか**(canvas を渡さずに作ったとき)。試験のための道 */
+  get headless() { return this.vdp.headless; }
+
+  /**
+   * **画面なしで n コマ進める**(試験用)。
+   *
+   *   const mmsxx = new MMSXXEngine(null);   // 画面を持たない
+   *   mmsxx.run(update);                     // 回さずに update を覚えるだけ
+   *   mmsxx.advance(10000);                  // 1 万コマ回す
+   *
+   * `step()` との違いは**描かないこと**と、**時間を見ないこと**。
+   * コマ落ちも rAF も関わらないので、**同じ入力から必ず同じ結果**になる
+   * (乱数は種つき、時計は見ない)。回帰試験はこれを土台にする。
+   *
+   * **入力はこちらで入れる。** 窓が無いところではキーが飛んでこないので、
+   * `mmsxx.input.press('ArrowRight')` のように直に入れてから進める
+   * @param {number} [n=1] 進めるコマ数
+   * @param {(m:MMSXXEngine, i:number)=>void} [before] 1 コマごと、進める前に呼ぶ
+   */
+  advance(n = 1, before) {
+    for (let i = 0; i < n; i++) {
+      if (before) before(this, i);
+      if (this._replay) this._tickReplay();
+      if (this._update) this._update(this);
+      this.input.endFrame();
+      this.frame++;
+    }
+    return this.frame;
+  }
 
   /** デバッグ用: 手動で n フレームぶん進めて描画する */
   step(n = 1) {

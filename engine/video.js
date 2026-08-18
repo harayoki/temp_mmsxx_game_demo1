@@ -251,8 +251,19 @@ export class VDP {
     // 既定の裏画面サイズ。2 の冪なので & でラップできる
     this.vw = checkVirtualSize(virtualWidth, 'virtualWidth');
     this.vh = checkVirtualSize(virtualHeight, 'virtualHeight');
-    canvas.style.imageRendering = 'pixelated';
-    this.canvas = canvas;
+    /**
+     * **画面を持たないか**(canvas を渡さなかったとき)。
+     *
+     * 試験のために**画面なしで回す**ための道。合成も書き出しもしないので、
+     * 1 コマが桁違いに軽くなる。**進行そのものは何も変わらない** ──
+     * レイヤーもスプライトもただの持ちものなので、描かないだけで済む。
+     *
+     * **丸め(snap)は効いたままにする。** 当たりが見た目に追従しているところが
+     * あるので、ここで丸めをやめると**画面が無いだけで当たりが変わる**
+     */
+    this.headless = !canvas;
+    if (canvas) canvas.style.imageRendering = 'pixelated';
+    this.canvas = canvas || null;
     this.scale = scale;
     /**
      * **指で触る端末として扱うか**。null なら自分で見分ける(`pointer: coarse`)。
@@ -307,8 +318,8 @@ export class VDP {
      * 見えている場所と触った場所がずれる
      */
     this.viewAngle = 0;
-    this.ctx = canvas.getContext('2d');
-    this.ctx.imageSmoothingEnabled = false;
+    this.ctx = canvas ? canvas.getContext('2d') : null;
+    if (this.ctx) this.ctx.imageSmoothingEnabled = false;
 
     /** 描画領域(実機の表示画面にあたる。8 ドット単位) */
     this.width = SCREEN_W;
@@ -884,13 +895,20 @@ export class VDP {
     this.borderY = checkBorder(borderY, 'screen.borderY');
     const ow = this.outWidth, oh = this.outHeight;
     // 中身は等倍。見た目の大きさは CSS で決める(拡大はブラウザがやる)
-    this.canvas.width = ow;
-    this.canvas.height = oh;
-    this.ctx.imageSmoothingEnabled = false;
-    this._applyCssSize();
-    this.imageData = this.ctx.createImageData(ow, oh);
-    /** 画面に出るぶん全部(ボーダー込み) */
-    this.frame32 = new Uint32Array(this.imageData.data.buffer);
+    if (this.headless) {
+      // **画面が無いときも入れものは同じ形で持つ。**
+      // 合成の道筋を分岐させないため(書き出す先が canvas か素の配列かだけの違い)
+      this.imageData = null;
+      this.frame32 = new Uint32Array(ow * oh);
+    } else {
+      this.canvas.width = ow;
+      this.canvas.height = oh;
+      this.ctx.imageSmoothingEnabled = false;
+      this._applyCssSize();
+      this.imageData = this.ctx.createImageData(ow, oh);
+      /** 画面に出るぶん全部(ボーダー込み) */
+      this.frame32 = new Uint32Array(this.imageData.data.buffer);
+    }
     // 合成は描画領域の大きさで行い、最後にボーダーとずらしを付けて写す。
     // ボーダーもずらしも無いときは写す手間すら要らないので、同じものを指す
     this._plain = (this.borderX === 0 && this.borderY === 0);
@@ -912,6 +930,7 @@ export class VDP {
    * 余ったところは、まわりの余白になる。
    */
   _applyCssSize() {
+    if (this.headless) return;   // 見た目の大きさは、画面が無ければ意味を持たない
     const st = this.canvas.style;
     const ow = this.outWidth, oh = this.outHeight;
     let n = this.scale;
@@ -1900,6 +1919,10 @@ export class VDP {
   render() {
     this.frames = (this.frames || 0) + 1;
     this.shownSprites = 0;
+    // **画面が無いときは合成しない。** ここが 1 コマの重さのほとんどなので、
+    // 飛ばすと試験が桁違いに速くなる。**進行は何も変わらない**
+    // (レイヤーもスプライトも、書き込まれた値はそのまま残る)
+    if (this.headless) return;
     const profAt = this.profile ? performance.now() : 0;
     // **溜めたコマをそのまま出す**ときは、合成をまるごと飛ばす。
     // レイヤーもスプライトも割り込めないので、ドットが完全に一致する

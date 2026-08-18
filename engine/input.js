@@ -34,6 +34,10 @@ export class Input {
     this._stickY = 0;
     this.onFirstInput = onFirstInput;
 
+    // **窓が無いところでも作れるようにする。**
+    // 画面なしで回すとき(試験)は、キーは press() / release() で直に入れる。
+    // ここで窓を触ると、その場で落ちて何も回せない
+    if (typeof window === 'undefined') return;
     window.addEventListener('keydown', (e) => {
       if (this.onFirstInput) { this.onFirstInput(); }
       this.press(e.code, 'key');
