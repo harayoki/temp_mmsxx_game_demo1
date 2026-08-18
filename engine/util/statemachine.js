@@ -142,6 +142,17 @@ export class StateMachine {
   }
 
   /**
+   * 次にどこへ行くのかを、読める形で返す。開発中の表示用。
+   * `to` で選ぶものは候補を並べる(まだ決まっていないので)
+   */
+  nextName() {
+    const d = this.def;
+    if (d.next) return d.next;
+    if (d.goes) return d.goes.join(' | ');
+    return d.to ? '?' : '-';
+  }
+
+  /**
    * **宣言の粗さがしをする。**試験から呼ぶ。
    * @returns {string[]} 見つかった問題。空なら健全
    */

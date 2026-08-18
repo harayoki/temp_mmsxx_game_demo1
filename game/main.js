@@ -15,6 +15,7 @@ import { StaffRoll } from '../engine/util/staffroll.js';
 import { Gallery } from '../engine/util/gallery.js';
 import { SoundTest } from '../engine/util/soundtest.js';
 import { FpsMeter } from '../engine/util/fps.js';
+import { StateMeter } from '../engine/util/statemeter.js';
 import { demoFor, scaleDemo, drumKitDemo, beatTune } from '../vendor/mmsxx-mml-studio/sound/demotunes.js';
 import { SaveGroup, T, R } from '../engine/util/savedata.js';
 import { pickLanguage } from '../engine/util/lang.js';
@@ -64,6 +65,7 @@ import { gameStop } from './console-stop.js';
 //   ?palette=rf     … 画面の色合い(tms9918 / toshiba / rf / v9938)
 //   ?scale=4        … 画面の拡大率(1〜8。既定 8)
 //   ?fps=60         … 1 秒あたりのコマ数(1〜120。既定 60。50 で実機の PAL ふう)
+//   ?states=0       … 隅の「いまの局面」を消す(開発版だけ。既定は出す)
 //   ?slow=24        … スプライトがこの数を超えたら処理落ちさせる(0 = しない)
 //   ?slowfps=30     … 処理落ちしているときのコマ数(既定 30)
 //   ?mute=1         … 音を消した状態で始める
@@ -106,7 +108,7 @@ useUAParser(() => {
 });
 const URL_OPT = urlOptions(OPT, {
   dev: BUILD.dev,
-  devOnly: ['fps'],
+  devOnly: ['fps', 'states'],
   defaults: { linesprites: 4, maxsprites: 32, scale: 8 },
 });
 
@@ -11307,9 +11309,17 @@ mmsxx.expose('mmsxxState', (name, which = 'auto') => {
     : which === 'stage' ? stages
     : (name && acts && acts.defs[name]) ? acts : stages;
   if (!pick) return null;
+  // **知らない名前で落とさない。**技の機械はラスボスが第 2 段階に入るまで
+  // 無いので、そこへ 'stun' と打つと段階のほうへ行って例外になっていた
+  if (name && !pick.defs[name]) {
+    const here = Object.keys(pick.defs).join(' / ');
+    const other = acts && acts !== pick ? Object.keys(acts.defs).join(' / ') : null;
+    return { エラー: '「' + name + '」という局面は無い', 選べるもの: here,
+      技のほう: other || '(まだ無い)' };
+  }
   if (name) pick.go(name, boss);
   return { kind: boss.kind, stage: stages && stages.state, act: acts && acts.state,
-    残り: pick.timer, 通ってきた道: pick.trail.join(' -> ') };
+    残り: pick.timer, 次: pick.nextName(), 通ってきた道: pick.trail.join(' -> ') };
 });
 
 /**
@@ -13649,6 +13659,9 @@ function altDown() {
 // ---- メインループ ----
 // コマ数の表示は**開発版だけ**。DOM に出すので画面写真には写らない
 const fpsMeter = DEV ? new FpsMeter() : null;
+// いまの局面(ボスの段階と技)も**開発版だけ**。これも DOM なので写らない。
+// ?states=0 で消せる(演出を見たいときにじゃまなことがある)
+const stateMeter = DEV && OPT.get('states') !== '0' ? new StateMeter() : null;
 // 丸ごと録画(ALT+R)は **localhost のときだけ**。目印の REC も DOM に出すので写らない。
 // dev:true のまま固めた手元用ビルドを人に渡しても、そちらでは動かない。
 // **読み込むのも localhost のときだけ**にしてある(公開版には 1 バイトも入らない)
@@ -16241,6 +16254,12 @@ mmsxx.run(() => {
   // 読んでもらう間に敵が寄ってきたり、パッドの入力で画面が変わったりしない
   if (padNotice.open) return;
   if (fpsMeter) fpsMeter.tick();
+  // ボスの段階と技。中ボスのモアイも出す
+  if (stateMeter) {
+    stateMeter.tick({
+      ボス: boss && boss.fsm, 技: boss && boss.actFsm, モアイ: moai && moai.fsm,
+    });
+  }
   // 名乗りのあいだは、画面も HUD もいっさい動かさない
   if (talkHold > 0) {
     talkHold--;
