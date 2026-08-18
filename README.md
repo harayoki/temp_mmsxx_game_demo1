@@ -16,6 +16,7 @@ MSX1 と同じグラフィックス性能を持つ「ように感じられる」
 - **UTIL(任意の部品)** → [docs/UTIL.md](docs/UTIL.md)
 - **残りの課題・これから作るもの** → [docs/TODO.md](docs/TODO.md)
 - **どこに置くか(配信先の考察)** → [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md)
+- **フォントデータ作成ツール(中断中)** → [docs/FONT_TOOL.md](docs/FONT_TOOL.md)
 
 ## できること(要約)
 
@@ -26,6 +27,24 @@ MSX1 と同じグラフィックス性能を持つ「ように感じられる」
 - スプライトは反転と回転(0/90/180/270)ができ、1 枚の絵から向き違いを作れる
 - MML で BGM / SE を登録・再生(波形 8 種・エンベロープ 6 種・デチューン・ビブラート・エコー)
 - ビルド不要。素の ES Modules なので、フォルダごと静的ホスティングに上げるだけで動く
+
+## 取ってくる
+
+**サウンドは別のリポジトリに置いてあり、submodule で繋いでいます**
+（[mmsxx-mml-studio](https://github.com/harayoki/mmsxx-mml-studio) の `sound/`）。
+**取り忘れると音の部品がまるごと欠けて、ゲームは起動しません**（読み込みで落ちます）。
+
+```
+git clone --recurse-submodules <このリポジトリ>
+```
+
+もう取ってしまったあとなら、次で足せます。
+
+```
+git submodule update --init --recursive
+```
+
+配布物に入るのは `sound/` だけです（作曲ツールなどは `build-deploy.ps1` が落とします）。
 
 ## 動かし方
 
