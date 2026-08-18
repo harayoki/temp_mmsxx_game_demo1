@@ -1,0 +1,99 @@
+/* MMSXXフォントデータ作成ツールの見た目。中身は font-tool.js にある */
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 16px;
+  background: #1b1b20;
+  color: #ddd;
+  font: 13px/1.6 system-ui, sans-serif;
+}
+
+h1 { margin: 0 0 12px; font-size: 18px; }
+h1 .sub { font-size: 12px; font-weight: normal; color: #999; }
+h2 { margin: 0 0 8px; font-size: 14px; color: #9cf; }
+
+.cols { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+.panel { flex: 1 1 380px; min-width: 340px; }
+
+section {
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  background: #24242c;
+  border: 1px solid #35353f;
+  border-radius: 6px;
+}
+
+.row { margin: 6px 0; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.row > label { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+label.check { cursor: pointer; }
+
+input[type="text"], input[type="number"], select, textarea {
+  background: #15151a;
+  color: #ddd;
+  border: 1px solid #44444f;
+  border-radius: 4px;
+  padding: 3px 5px;
+  font: inherit;
+}
+input[type="number"] { width: 64px; }
+input[type="text"], textarea, select { min-width: 120px; }
+textarea { width: 100%; resize: vertical; }
+#font-list { width: 100%; }
+#extra-ranges { width: 100%; }
+
+button {
+  background: #3a3a48;
+  color: #eee;
+  border: 1px solid #555;
+  border-radius: 4px;
+  padding: 4px 12px;
+  font: inherit;
+  cursor: pointer;
+}
+button:hover:not(:disabled) { background: #4a4a5c; }
+button:disabled { opacity: .45; cursor: default; }
+button.primary { background: #2b5f8a; border-color: #3f7fb0; }
+button.primary:hover:not(:disabled) { background: #35719f; }
+
+.presets { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.presets label { display: inline-flex; gap: 4px; align-items: center; cursor: pointer; }
+
+.note { margin: 6px 0 0; color: #999; font-size: 12px; }
+.note.warn { color: #e9a; }
+
+details { margin: 6px 0; font-size: 12px; color: #aaa; }
+details summary { cursor: pointer; color: #9cf; }
+.paths { margin: 4px 0; padding-left: 18px; }
+.paths li { margin: 2px 0; }
+code {
+  background: #15151a;
+  border: 1px solid #3a3a44;
+  border-radius: 3px;
+  padding: 0 4px;
+  color: #cdd;
+  user-select: all;
+}
+
+.atlas-box {
+  max-height: 70vh;
+  overflow: auto;
+  background: #000;
+  border: 1px solid #35353f;
+  border-radius: 4px;
+  padding: 8px;
+}
+.atlas-stack { position: relative; display: inline-block; }
+#atlas {
+  image-rendering: pixelated;
+  display: block;
+}
+/* 線はドットの上に重ねる。拡大しても太くしないので、こちらは拡大しない */
+#guide-cv {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+}
+
+button.copy { padding: 0 8px; font-size: 11px; margin-left: 4px; }

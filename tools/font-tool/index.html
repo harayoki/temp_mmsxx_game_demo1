@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>MMSXXフォントデータ作成ツール</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<h1>MMSXXフォントデータ作成ツール <span class="sub">(フォントデータ書き出し)</span></h1>
+
+<div class="cols">
+
+  <!-- ============ 左: 設定 ============ -->
+  <div class="panel">
+
+    <section>
+      <h2>1. フォント</h2>
+      <div class="row">
+        <button id="btn-local">PCのフォント一覧を取得</button>
+        <label class="check"><input type="checkbox" id="jp-only" checked> 日本語が入っているものだけ</label>
+      </div>
+      <div class="row">
+        <select id="font-list" size="1"><option value="">(未取得)</option></select>
+      </div>
+      <div class="row">
+        <label>ファイルから読む <input type="file" id="font-file" accept=".ttf,.otf,.ttc,.woff,.woff2"></label>
+      </div>
+      <details>
+        <summary>フォントの入っている場所</summary>
+        <p class="note">ファイル選択のダイアログが別の場所を開いたときは、コピーして上のアドレス欄に貼ってください。</p>
+        <ul class="paths" id="paths">
+          <li data-path="C:\Windows\Fonts">Windows(みんなの分)</li>
+          <li data-path="%LOCALAPPDATA%\Microsoft\Windows\Fonts">Windows(自分だけに入れた分)</li>
+          <li data-path="/System/Library/Fonts">Mac(みんなの分)</li>
+          <li data-path="/Library/Fonts">Mac(あとから入れた分)</li>
+          <li data-path="~/Library/Fonts">Mac(自分の分)</li>
+        </ul>
+        <div class="row">
+          <label>よく使う場所を足す <input type="text" id="path-add" placeholder="D:\myfonts"></label>
+          <button type="button" id="btn-path-add">覚える</button>
+        </div>
+        <p class="note">足した場所はこのブラウザに覚えておくので、次に開いたときも出ます。</p>
+        <p class="note">Windows の <code>.ttc</code>(msgothic.ttc など)は何書体か束ねたファイルで、
+          ブラウザでは開けないことが多い。その場合は上の一覧か、フォント名の直接指定を使ってください。</p>
+      </details>
+      <div class="row">
+        <label>フォント名を直接指定 <input type="text" id="font-name" placeholder="MS Gothic など"></label>
+      </div>
+      <p class="note" id="font-now">いま使うフォント: (未選択)</p>
+      <p class="note" id="font-msg"></p>
+    </section>
+
+    <section>
+      <h2>2. 文字範囲</h2>
+      <div id="presets" class="presets"></div>
+      <div class="row">
+        <label>追加する文字(そのまま書く)<br>
+          <textarea id="extra-chars" rows="2" placeholder="★☆♪"></textarea></label>
+      </div>
+      <div class="row">
+        <label>コードポイント範囲(16進, 空白かカンマ区切り)<br>
+          <input type="text" id="extra-ranges" placeholder="3005 4E00-4E10"></label>
+      </div>
+    </section>
+
+    <section>
+      <h2>3. グリフ</h2>
+      <div class="row">
+        <label>サイズ <input type="number" id="glyph-w" value="12" min="4" max="32"> ×
+          <input type="number" id="glyph-h" value="12" min="4" max="32"> ドット</label>
+      </div>
+      <div class="row">
+        <label>描画サイズ <input type="number" id="draw-size" value="12" min="4" max="48" step="0.5"> px</label>
+        <label>横ずらし <input type="number" id="off-x" value="0" step="0.5"></label>
+        <label>縦ずらし <input type="number" id="off-y" value="0" step="0.5"></label>
+      </div>
+      <div class="row">
+        <label>しきい値 <input type="range" id="threshold" min="1" max="254" value="128">
+          <span id="threshold-v">128</span></label>
+      </div>
+      <div class="row">
+        <label class="check"><input type="checkbox" id="fit" checked> 枠からはみ出たら形のまま縮める</label>
+      </div>
+      <div class="row">
+        <label class="check"><input type="checkbox" id="half-width" checked> 半角は横半分の幅で描く</label>
+        <span class="note" id="half-note"></span>
+      </div>
+      <div class="row">
+        <span>縦の余りドット(行間)の寄せかた:</span>
+        <label class="check"><input type="radio" name="vpad" value="top"> 上寄せ</label>
+        <label class="check"><input type="radio" name="vpad" value="bottom"> 下寄せ</label>
+        <label class="check"><input type="radio" name="vpad" value="center" checked> 上下均等</label>
+      </div>
+      <p class="note">余りドットの寄せかたは JSON に書くだけで、絵そのものは変わりません。</p>
+    </section>
+
+    <section>
+      <h2>4. 書き出し</h2>
+      <div class="row">
+        <label>アトラスの横の数 <input type="number" id="atlas-cols" value="16" min="1" max="64"></label>
+        <label>ファイル名 <input type="text" id="out-name" value="msxfont"></label>
+      </div>
+      <div class="row">
+        <button id="btn-build" class="primary">変換する</button>
+        <button id="btn-export" disabled>JSON + PNG を書き出す</button>
+      </div>
+      <p class="note" id="status">まだ変換していません。</p>
+    </section>
+
+  </div>
+
+  <!-- ============ 右: プレビュー ============ -->
+  <div class="panel">
+    <section>
+      <h2>プレビュー</h2>
+      <div class="row">
+        <label>拡大 <select id="zoom">
+          <option value="1">1x</option>
+          <option value="2">2x</option>
+          <option value="3">3x</option>
+          <option value="4" selected>4x</option>
+        </select></label>
+        <label class="check"><input type="checkbox" id="guide"> 書き出したときの大きさを線で出す</label>
+      </div>
+      <p class="note" id="guide-note"></p>
+      <div class="atlas-box">
+        <div class="atlas-stack">
+          <canvas id="atlas"></canvas>
+          <canvas id="guide-cv"></canvas>
+        </div>
+      </div>
+      <p class="note" id="skipped"></p>
+    </section>
+  </div>
+
+</div>
+
+<script src="font-tool.js"></script>
+</body>
+</html>
