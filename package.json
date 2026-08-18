@@ -11,7 +11,8 @@
     "preview": "node assets-src/preview.mjs",
     "movie": "node tools/rec2mp4.mjs",
     "font": "node tools/subset-font.mjs",
-    "uishot": "node tools/uishot.mjs"
+    "uishot": "node tools/uishot.mjs",
+    "test": "node test/game-headless.mjs"
   },
   "devDependencies": {
     "joyo-kanji": "^0.2.1",
