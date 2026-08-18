@@ -175,5 +175,22 @@ check('未実装さんは arrive から', todo() === 'arrive', todo());
 for (let i = 0; i < 300 && todo() === 'arrive'; i++) m.advance(1);
 check('降りきると drift', todo() === 'drift', todo());
 
+// ---- 8. 装甲を壊す道は、どのボスでも通るか ----
+//
+// `breakShip()` は**ボス共通の入り口**で、体力が 2 割を切ったときにも呼ばれる。
+// ここへタコ専用の `go('swing')` を置いてしまい、カニで例外になったことがある。
+// 局面の名前はボスごとに違うので、**共通の道から go() を呼ぶときは種類を見る**
+for (const [name, n] of [['crab', 2], ['dragon', 3], ['nautilus', 4],
+  ['king', 5], ['octopus', 6], ['todo', 103]]) {
+  win.mmsxxBoss(n);
+  m.advance(2);
+  let err = null;
+  try {
+    win.mmsxxPhase2();
+    m.advance(60);
+  } catch (e) { err = String(e.message || e); }
+  check(name + ': 装甲を壊しても落ちない', !err, err || win.mmsxxState().stage);
+}
+
 console.log(bad ? '\n' + bad + ' 件おかしい' : '\n通りました');
 process.exit(bad ? 1 : 0);

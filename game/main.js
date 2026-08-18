@@ -8615,7 +8615,6 @@ function laserPhase(b) {
 /** 船が壊れて第2形態(タコだけ)へ移行する */
 function breakShip() {
   boss.phase2 = true;
-  boss.fsm.go('swing', boss);   // 撃つのをやめて、体当たりだけになる
   boss.laserLen = 0;
   drawLaser(0);        // 撃ちかけのレーザーが残らないように消す
   // 撃っている途中で船が壊れることがある。くり返しの音を残さない
@@ -8644,6 +8643,8 @@ function breakShip() {
     boss.hp = boss.max;
   }
   if (boss.kind === 'octopus') {
+    // 撃つのをやめて、体当たりだけになる
+    boss.fsm.go('swing', boss);
     // 壺から出たタコは体力を持ち直す(残りカスだと連打だけで終わってしまう)
     boss.max = 120 + stageNo * 24;
     boss.hp = boss.max;
@@ -11335,6 +11336,17 @@ mmsxx.expose('mmsxxStates', (kind = 'crab') => {
   if (!defs) return null;
   const fsm = new StateMachine(defs);
   return { kind, names: fsm.names, bad: fsm.check(), mermaid: fsm.toMermaid(kind) };
+});
+
+/**
+ * デバッグ用: **いまのボスの装甲を壊す**(第 2 形態へ)。
+ * breakShip() はボス共通の入り口なので、どの種類でも通ることを試験から見る
+ * (タコ専用の go() をここへ置いてしまい、カニで例外になったことがある)
+ */
+mmsxx.expose('mmsxxPhase2', () => {
+  if (!boss || boss.phase2) return null;
+  breakShip();
+  return { kind: boss.kind, phase2: !!boss.phase2, stage: boss.fsm && boss.fsm.state };
 });
 
 /** デバッグ用: カニの脚を全部折って第 2 形態(斜めの姿)にする */
