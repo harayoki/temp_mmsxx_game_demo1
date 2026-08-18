@@ -123,7 +123,7 @@ class LayerHandle {
  */
 export class MMSXXEngine {
   /** エンジンの版(コンソールの名乗りなどに使う) */
-  static get version() { return '0.50'; }
+  static get version() { return '2.00'; }
 
   /**
    * @param {HTMLCanvasElement} canvas
