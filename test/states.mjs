@@ -192,5 +192,31 @@ for (const [name, n] of [['crab', 2], ['dragon', 3], ['nautilus', 4],
   check(name + ': 装甲を壊しても落ちない', !err, err || win.mmsxxState().stage);
 }
 
+// ---- 9. モアイは怒らせたら帰りきるか ----
+//
+// 局面を宣言に移したとき、**当たり判定の側の `moai.state` を 11 か所取りこぼした**。
+// 形は moaiShape() から導くようにしたので、持ちものは残っていない。
+// (`undefined === 'q2'` は黙って false になるだけなので、
+//  エラーも出ずに「撃っても怒らない」という形で出た)
+win.mmsxxBoss(1);
+m.advance(1);
+win.mmsxxMoai();
+m.advance(2);
+check('形を導ける', win.mmsxxDebug().moai.shape === 'q4', String(win.mmsxxDebug().moai.shape));
+
+win.mmsxxMoai('angry');
+const angry = win.mmsxxDebug().moai;
+check('怒らせられる', !!angry.angry, JSON.stringify({ angry: angry.angry, state: angry.state }));
+
+// 怒ったら 30 秒で帰る。**帰りきって片づく**か
+// (leave のまま画面に居座るのを見つけるため、消えるまで回す)
+let left = false;
+for (let i = 0; i < 3600; i++) {
+  m.advance(1);
+  if (!win.mmsxxDebug().moai) { left = true; break; }
+}
+check('怒ったら帰りきって片づく', left,
+  left ? '片づいた' : ('居座り: ' + JSON.stringify(win.mmsxxDebug().moai.state)));
+
 console.log(bad ? '\n' + bad + ' 件おかしい' : '\n通りました');
 process.exit(bad ? 1 : 0);

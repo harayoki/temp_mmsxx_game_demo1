@@ -2124,7 +2124,12 @@ function updateMoai() {
   // 動きと移り先は MOAI_STATES に書いてある
   m.fsm.step(m);
   if (!moai) return;   // 合体の途中で片づいた
-  if (m.fsm.is('leave') && m.parts.every(p => p.sp.y > SCREEN_H + 8)) { clearMoai(); return; }
+  if (m.fsm.is('leave')) {
+    // 流れ去っていくあいだは**ここで終わり**。下の置き場所の計算へ進むと、
+    // 毎コマ元の位置へ引き戻されて、画面に居座ってしまう
+    if (m.parts.every(p => p.sp.y > SCREEN_H + 8)) clearMoai();
+    return;
+  }
   if (moaiShape(m) === 'one' && m.parts[0]) {
     // 全体を 1 コマおきに消して、ホログラムのようにちらつかせる
     const holo = (mmsxx.frame & 1) === 0;
@@ -6711,6 +6716,9 @@ function updateNautilusBoss(b) {
 const DRAGON_W = 48, DRAGON_H = 48;
 // 突進中に開いた口へ撃ち込んだときのダメージ。もとは 8 だったが効きすぎたので 8 割
 const DRAGON_JAWS_DMG = 6.4;
+// ふだんの顔の中央(眼窩)。**突進の口が主役のまま**になるよう、その 3 分の 1 弱。
+// ここを 0 にすると「突進を待つだけ」に戻る(胴はどのみち通らない)
+const DRAGON_FACE_DMG = 2;
 const DRAGON_SEGS = 12;             // 胴体の節の数(すき間ができないよう多め)
 const DRAGON_SEG = 24;
 const DRAGON_TRAIL = 5;             // 節どうしの間隔(フレーム)
@@ -10158,11 +10166,11 @@ function updatePlay() {
   //   ・四隅で構えているあいだ(まだ動き出していない)
   //     出てきたところを撃っただけで怒らせてしまわないため
   //   ・逃げていくあいだ(もう手出しできないので、当たっても意味がない)
-  if (moai && !moai.leaving && !(moai.state === 'q4' && moai.hold > 0)) {
+  if (moai && !moai.fsm.in('leave', 'hold')) {
     for (const b of [...bullets]) {
       for (const p of [...moai.parts]) {
-        const w = moai.state === 'q4' ? MOAI_QW : MOAI_W;
-        const h = moai.state === 'one' ? MOAI_H : MOAI_QH;
+        const w = moaiShape(moai) === 'q4' ? MOAI_QW : MOAI_W;
+        const h = moaiShape(moai) === 'one' ? MOAI_H : MOAI_QH;
         const bx = b.sp.x + 8, by = b.sp.y + 8;
         if (bx < p.sp.x || bx > p.sp.x + w || by < p.sp.y || by > p.sp.y + h) continue;
         bulletHits(b);
@@ -10177,7 +10185,7 @@ function updatePlay() {
         if (moaiSafe(moai)) {
           // 切り口を撃ってしまったときは、**専用の調子はずれな音**で知らせる。
           // 「いま撃つと怒らせる」ことを音で気づかせたい
-          if (inner && moai.state === 'q2') {
+          if (inner && moaiShape(moai) === 'q2') {
             mmsxx.audio.playSE('scold', SE_HIT);
             angerMoai(moai);
           } else {
@@ -10191,7 +10199,7 @@ function updatePlay() {
           break;
         }
         const dmg = DAMAGE_TABLE[damageLevel - 1];
-        if (moai.state === 'one') {
+        if (moaiShape(moai) === 'one') {
           moai.hp -= dmg;
           p.flash = 4;
           mmsxx.audio.playSE('weak');
@@ -10584,16 +10592,18 @@ function updatePlay() {
           continue;
         }
         // **ドラゴンの胴には通らない。** 装甲がはがれたあとも同じ。
-        // 効くのは**突進で口を開けているあいだの口**だけで、
-        // それがこの相手の狙いどころ(ほかのボスのような無防備な間が無い)。
-        // 前は構え中に少しだけ通していたが、胴を撫でているだけで
-        // 削れてしまうので、狙いどころがぼやけていた
-        const dragonBody = boss.kind === 'dragon' && !jaws;
+        // 通るのは 2 か所だけ ── 突進で開けている口(大)と、顔の中央の眼窩(小)。
+        // 胴を撫でているだけでは削れないので、狙いどころはぼやけない。
+        // (眼窩を外していたころは突進を待つしかなく、
+        //  isBossWeakPoint のドラゴンの枝が誰にも使われていなかった)
+        const dragonBody = boss.kind === 'dragon' && !jaws && !weak;
         const dmg = armored ? ((boss.age % 8 === 0) ? 1 : 0)
           : tough ? ((boss.age % 4 === 0) ? 1 : 0)
           : dragonBody ? 0
           // 突進中のドラゴンの口。効きすぎたので 8 -> 6.4(8 割)に落とした
-          : jaws ? DRAGON_JAWS_DMG : (weak ? 3 : 1);
+          : jaws ? DRAGON_JAWS_DMG
+          // ふだんの顔の中央(眼窩)。狙って当てないと通らない
+          : (boss.kind === 'dragon' ? DRAGON_FACE_DMG : (weak ? 3 : 1));
         // 近いほど・上から攻めるほど効く(最大 4 倍)。
         // 装甲などで 0 ダメージのものは 0 のまま
         boss.hp -= dmg > 0 ? Math.max(1, Math.round(dmg * bossDamageMul(boss))) : 0;
@@ -10746,18 +10756,18 @@ function updatePlay() {
     // 構えている(まだ動き出していない)あいだは当たらないことにする
     // 逃げているあいだは当たらない。画面の外へ流れていく途中で、
     // 姿が見えないのに当たってしまうことがあったため
-    if (!hit && moai && !moai.leaving && !(moai.state === 'q4' && moai.hold > 0)) {
+    if (!hit && moai && !moai.fsm.in('leave', 'hold')) {
       // 上下のすき間へ**もぐり込んで内側を撃つ**のが正しい狙いかた。
       // ただし寄ってくるので、**閉じ切る前に抜けないと押しつぶされて即死**。
       // すき間が自機より狭くなったら、その中にいる者は潰れる
-      if (moai.state === 'q2' && moai.wait <= 0 &&
+      if (moai.fsm.is('merge2') &&
           playerInMoaiGap(moai) && moaiGapSize(moai) < MOAI_CRUSH_GAP) {
         destroyPlayer('MOAI CRUSH');
         return;
       }
       for (const p of moai.parts) {
-        const w = moai.state === 'q4' ? MOAI_QW : MOAI_W;
-        const h = moai.state === 'one' ? MOAI_H : MOAI_QH;
+        const w = moaiShape(moai) === 'q4' ? MOAI_QW : MOAI_W;
+        const h = moaiShape(moai) === 'one' ? MOAI_H : MOAI_QH;
         if (px > p.sp.x && px < p.sp.x + w && py > p.sp.y && py < p.sp.y + h) {
           criticalHit('MOAI');
           return;
@@ -11033,8 +11043,8 @@ function updateHitArea() {
     }
   }
   if (moai) {
-    const w = moai.state === 'q4' ? MOAI_QW : MOAI_W;
-    const h = moai.state === 'one' ? MOAI_H : MOAI_QH;
+    const w = moaiShape(moai) === 'q4' ? MOAI_QW : MOAI_W;
+    const h = moaiShape(moai) === 'one' ? MOAI_H : MOAI_QH;
     for (const p of moai.parts) haBox(p.sp.x, p.sp.y, w, h, HA_BOSS);
   }
   if (boss && boss.dying <= 0) {
