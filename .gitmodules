@@ -1,0 +1,3 @@
+[submodule "vendor/mmsxx-mml-studio"]
+	path = vendor/mmsxx-mml-studio
+	url = git@github.com:harayoki/mmsxx-mml-studio.git

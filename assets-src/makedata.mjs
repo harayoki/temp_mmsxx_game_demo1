@@ -5123,7 +5123,7 @@ const SE = {
   // 「これは壊せない」ことを伝える、低くつまった音
   nobreak: ['@{saw} @e{percussive} t255 v14 o2 l16 c c32 o1 b32 c8',
             '@{noise} @e{percussive} t255 v11 o2 l16 c c32 c32 c8'],
-  // ポーズの出入りの音は**エンジンが持っている**(engine/audio.js の SYSTEM_SE)。
+  // ポーズの出入りの音は**エンジンが持っている**(vendor/mmsxx-mml-studio/sound/demotunes.js の SYSTEM_SE)。
   // どのゲームでも同じ音にしたいので、ここには置かない
   powerdown: '@{saw} @e{percussive} t255 v12 o6 l16 g e c <g e c',   // 下降音(パワーダウン)
   appear: '@{pulse50} @e{soft} t255 v11 o3 l32 c e g > c e g > c', // 上昇音(復帰時)

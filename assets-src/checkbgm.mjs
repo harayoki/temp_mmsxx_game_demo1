@@ -1,5 +1,5 @@
 // 各 BGM のトラック長がそろっているか確認する(開発用)
-import { compileMML } from '../engine/mml.js';
+import { compileMML } from '../vendor/mmsxx-mml-studio/sound/mml.js';
 import { GAME_DATA } from '../game/gamedata.js';
 
 let ng = 0;

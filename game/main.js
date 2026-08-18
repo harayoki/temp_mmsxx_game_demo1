@@ -15,7 +15,7 @@ import { StaffRoll } from '../engine/util/staffroll.js';
 import { Gallery } from '../engine/util/gallery.js';
 import { SoundTest } from '../engine/util/soundtest.js';
 import { FpsMeter } from '../engine/util/fps.js';
-import { demoFor, scaleDemo, drumKitDemo, beatTune } from '../engine/demotunes.js';
+import { demoFor, scaleDemo, drumKitDemo, beatTune } from '../vendor/mmsxx-mml-studio/sound/demotunes.js';
 import { SaveGroup, T, R } from '../engine/util/savedata.js';
 import { pickLanguage } from '../engine/util/lang.js';
 import { SpriteCombo } from '../engine/util/spritecombo.js';

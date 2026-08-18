@@ -81,6 +81,15 @@ Copy-Item -Recurse (Join-Path $root 'game') (Join-Path $deploy 'game')
 # ブラウザから読むものはここに写してある。無ければ入れない
 if (Test-Path (Join-Path $root 'vendor')) {
   Copy-Item -Recurse (Join-Path $root 'vendor') (Join-Path $deploy 'vendor')
+  # サウンドは submodule(mmsxx-mml-studio)で入っている。**出すのは sound/ だけ。**
+  # 同じリポジトリに作曲ツール(tool/)とサンプル(samples/)が同居していて、
+  # そちらは非公開。配布物へ写すと公開版から見えてしまう
+  $studio = Join-Path $deploy 'vendor/mmsxx-mml-studio'
+  if (Test-Path $studio) {
+    Get-ChildItem $studio -Force |
+      Where-Object { $_.Name -ne 'sound' } |
+      Remove-Item -Recurse -Force
+  }
 }
 # サーバへ繋ぐ実装(公開しない置き場)。無ければ入れない。
 # 入っていない配布物は、ランキングが手元の保存のままになるだけで遊べる

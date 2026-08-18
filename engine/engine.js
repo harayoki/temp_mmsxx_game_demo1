@@ -1,5 +1,5 @@
 ﻿import { VDP, SCREEN_W, SCREEN_H, VIRTUAL_W, VIRTUAL_H } from './video.js';
-import { PSGPlayer } from './audio.js';
+import { PSGPlayer } from '../vendor/mmsxx-mml-studio/sound/audio.js';
 import { Input } from './input.js';
 import { ErrorLog } from './errorlog.js';
 import { createRng } from './rng.js';
