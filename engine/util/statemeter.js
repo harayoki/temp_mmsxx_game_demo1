@@ -70,6 +70,9 @@ export class StateMeter {
     const lines = [];
     for (const [label, fsm] of Object.entries(machines || {})) {
       if (!fsm) continue;
+      // **文字列を渡したらそのまま出す。** 局面では表せない値
+      // (きんぐの崩れ具合など)を並べて見たいことがある
+      if (typeof fsm === 'string') { lines.push(label + ' ' + fsm); continue; }
       // 残りは `for` のある局面だけ。無い局面は「-」(何かが起きるまで居座る)
       const left = fsm.timer >= 0 ? String(fsm.timer) : '-';
       lines.push(label + ' ' + fsm.state + '  残り ' + left + '  → ' + fsm.nextName());

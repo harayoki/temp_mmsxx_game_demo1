@@ -16284,8 +16284,17 @@ mmsxx.run(() => {
   if (fpsMeter) fpsMeter.tick();
   // ボスの段階と技。中ボスのモアイも出す
   if (stateMeter) {
+    // 崩し(ピヨらせ)は局面では表せないので、数のまま並べる。
+    // 撃たれるほど「動き」が下がり、0.1 で 3 秒固まる。
+    // 頭に当てても下がらない(腕で受けたぶんだけ溜まる)ので、
+    // **狙いどころによって崩れかたが変わる**のがここで見える
+    const kingBreak = boss && boss.actFsm
+      ? '動き ' + (boss.slowMul == null ? 1 : boss.slowMul).toFixed(2)
+        + '  たくわえ ' + (boss.stunStock | 0)
+      : null;
     stateMeter.tick({
-      ボス: boss && boss.fsm, 技: boss && boss.actFsm, モアイ: moai && moai.fsm,
+      ボス: boss && boss.fsm, 技: boss && boss.actFsm, 崩し: kingBreak,
+      モアイ: moai && moai.fsm,
     });
   }
   // 名乗りのあいだは、画面も HUD もいっさい動かさない
