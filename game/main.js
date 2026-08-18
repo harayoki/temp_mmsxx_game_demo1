@@ -19,6 +19,7 @@ import { demoFor, scaleDemo, drumKitDemo, beatTune } from '../vendor/mmsxx-mml-s
 import { SaveGroup, T, R } from '../engine/util/savedata.js';
 import { pickLanguage } from '../engine/util/lang.js';
 import { SpriteCombo } from '../engine/util/spritecombo.js';
+import { StateMachine } from '../engine/util/statemachine.js';
 import { StatsLog } from '../engine/stats.js';
 import { GAME_DATA } from './gamedata.js';
 import { BUILD } from './build.js';
@@ -6167,6 +6168,101 @@ const CRAB_TOP = 24, CRAB_BOTTOM = SCREEN_H - 40;
 const CRAB_TILT_PAD = 24;
 let clawMissiles = [];
 
+/** 生えかけのハサミを伸ばし、生えそろっている本数を数え直す */
+function growCrabClaws(b) {
+  for (let i = 0; i < CRAB_CLAWS; i++) {
+    if (b.grow[i] < CRAB_CLAW_GROW) b.grow[i]++;
+  }
+  b.claws = b.grow.filter((g, i) => g >= CRAB_CLAW_GROW && b.clawAlive[i]).length;
+}
+
+/** 壁に張り付く x。左右どちらの壁にいるかで決まる */
+const crabWallX = (b) => (b.side < 0 ? 0 : SCREEN_W - CRAB_W);
+
+/**
+ * **カニロボの局面。**動きと移り先はここだけに書く。
+ * 当たり判定や攻撃の側は `b.fsm.is(...)` を見るだけにして、
+ * `mode` の組み合わせを読み解かなくて済むようにする。
+ *
+ *   enter -> attach <-> jump
+ *              |
+ *              v
+ *   wait  <-  exit  -> (2 秒待って) enter
+ *
+ * ハサミを撃ち尽くしたときの attach -> jump / exit は、飛んでいるハサミが
+ * 消えるのを待つなど**攻撃の都合**で決まるので、攻撃の側から `go()` で移す。
+ */
+const CRAB_STATES = {
+  // 登場は必ず画面の上から、ゆっくり降りてくる(狙いを付けやすいように)。
+  // 降りてくる途中でもハサミは伸ばし続ける
+  enter: {
+    update: (b) => { b.x = crabWallX(b); b.y += 1.0; growCrabClaws(b); },
+    when: (b) => b.y >= CRAB_TOP,
+    next: 'attach',
+    exit: (b) => { b.y = CRAB_TOP; b.vy = Math.abs(b.vy); b.wallTimer = 0; },
+  },
+  // 壁を足場にして上下に動きつづける(自機の位置では止まらない)。
+  // ハサミはまっすぐ横に飛ぶので、たまたま高さが合った瞬間だけ撃ってくる
+  attach: {
+    viaGo: true,   // jump からの復帰と、攻撃の側からの go() で来る
+    update: (b) => {
+      growCrabClaws(b);
+      b.x = crabWallX(b);
+      b.y += b.vy;
+      if (b.y <= CRAB_TOP) { b.y = CRAB_TOP; b.vy = Math.abs(b.vy); }
+      if (b.y >= CRAB_BOTTOM) { b.y = CRAB_BOTTOM; b.vy = -Math.abs(b.vy); }
+    },
+  },
+  // 反対の壁へ跳んで移動する(このあいだは攻撃しない)。
+  // まず画面の上まで一気に上がってから山なりに渡るので、
+  // 伸びた脚をじっくり狙える
+  jump: {
+    viaGo: true,   // ハサミを撃ち尽くしたときに攻撃の側から
+    update: (b) => {
+      b.jumpT = Math.min(1, b.jumpT + 0.006);   // ゆっくり渡る
+      const t = b.jumpT;
+      b.x = b.jumpFrom + (b.jumpTo - b.jumpFrom) * t;
+      const rise = Math.min(1, t * 4);
+      const top = CRAB_TOP - 16;   // 画面のいちばん上あたりを大きく回る
+      b.y = b.jumpY + (top - b.jumpY) * rise - Math.sin(t * Math.PI) * 12;
+    },
+    when: (b) => b.jumpT >= 1,
+    next: 'attach',
+    // ここで描き直すと、脚が 1 つ前のコマの位置のまま描かれて
+    // 体から離れて見えていた。呼び出し元でまとめて描くので、ここでは描かない
+    exit: (b) => {
+      b.fireTimer = 90;
+      b.y = Math.max(CRAB_TOP, Math.min(CRAB_BOTTOM, b.y));
+    },
+  },
+  // 退場は必ず上へ、すばやく抜けていく
+  exit: {
+    viaGo: true,   // 壁で粘りすぎたときに攻撃の側から
+    update: (b) => { b.x = crabWallX(b); b.y -= 5.0; },
+    when: (b) => b.y < -CRAB_H - 8,
+    next: 'wait',
+  },
+  // 画面の外で待っている(次にどちらの壁から来るかを読ませる間)。
+  // 反対の壁へ回り込んでから 2 秒おいて、また上に現れる
+  wait: {
+    enter: (b) => { b.side = -b.side; },
+    update: (b) => { b.x = crabWallX(b); b.y = -CRAB_H - 8; },
+    for: 120,
+    next: 'enter',
+  },
+  // 脚を失うと壁につかまれない。画面の真ん中あたりでふわふわ漂うだけになる
+  float: {
+    viaGo: true,   // 甲羅が割れたとき。**どの局面からでも起きる**
+    update: (b) => {
+      const tx = (SCREEN_W - CRAB_W) / 2 + Math.sin(b.age * 0.012) * 56;
+      b.x += (tx - b.x) * 0.02;
+      b.y += b.vy * 0.4;
+      if (b.y <= CRAB_TOP) { b.y = CRAB_TOP; b.vy = Math.abs(b.vy); }
+      if (b.y >= CRAB_BOTTOM) { b.y = CRAB_BOTTOM; b.vy = -Math.abs(b.vy); }
+    },
+  },
+};
+
 function spawnCrabBoss() {
   const hp = 40 + stageNo * 16;
   // 目はタコと同じ水色 1 色。自機のいる方へ少し寄る
@@ -6179,7 +6275,7 @@ function spawnCrabBoss() {
     eyeL, eyeR, charge: null,
     phase2: false,          // 甲羅がはがれてひっくり返った状態
     side: rndBoss() < 0.5 ? -1 : 1,  // -1 = 左の壁, 1 = 右の壁
-    mode: 'attach', claws: CRAB_CLAWS, clawStock: CRAB_CLAWS, vy: 0.8,
+    claws: CRAB_CLAWS, clawStock: CRAB_CLAWS, vy: 0.8,
     // ハサミ 1 本ずつの生き死に。**本数だけで管理していたため**、
     // 下のハサミを壊しても「最後の 1 本」が消え、壊したはずの位置から
     // 撃ってくることがあった
@@ -6210,7 +6306,7 @@ function spawnCrabBoss() {
   });
   boss.x = boss.side < 0 ? 0 : SCREEN_W - CRAB_W;
   boss.y = -CRAB_H;        // 画面の上から降りてくる
-  boss.mode = 'enter';
+  boss.fsm = new StateMachine(CRAB_STATES, { start: 'enter' });
   boss.wallTimer = 0;
   drawBossBody();
   playBGM('boss', true);
@@ -6288,79 +6384,9 @@ function updateClawMissiles() {
 }
 
 function updateCrabBoss(b) {
-  if (b.phase2) {
-    // 脚を失うと壁につかまれない。画面の真ん中あたりでふわふわ漂う
-    const tx = (SCREEN_W - CRAB_W) / 2 + Math.sin(b.age * 0.012) * 56;
-    b.x += (tx - b.x) * 0.02;
-    b.y += b.vy * 0.4;
-    if (b.y <= CRAB_TOP) { b.y = CRAB_TOP; b.vy = Math.abs(b.vy); }
-    if (b.y >= CRAB_BOTTOM) { b.y = CRAB_BOTTOM; b.vy = -Math.abs(b.vy); }
-  } else if (b.mode === 'enter') {
-    // 登場は必ず画面の上から、ゆっくり降りてくる(狙いを付けやすいように)
-    b.x = b.side < 0 ? 0 : SCREEN_W - CRAB_W;
-    b.y += 1.0;
-    if (b.y >= CRAB_TOP) {
-      b.y = CRAB_TOP;
-      b.vy = Math.abs(b.vy);
-      b.mode = 'attach';
-      b.wallTimer = 0;
-    }
-  } else if (b.mode === 'exit') {
-    // 退場は必ず上へ、すばやく抜けていく
-    b.x = b.side < 0 ? 0 : SCREEN_W - CRAB_W;
-    b.y -= 5.0;
-    if (b.y < -CRAB_H - 8) {
-      // 反対の壁へ回り込み、2 秒おいてから画面の上に現れる
-      b.side = -b.side;
-      b.x = b.side < 0 ? 0 : SCREEN_W - CRAB_W;
-      b.y = -CRAB_H - 8;
-      b.mode = 'wait';
-      b.waitTimer = 120;   // 2 秒
-    }
-  } else if (b.mode === 'wait') {
-    // 画面の外で待っている(次にどちらの壁から来るか読ませる間)
-    b.x = b.side < 0 ? 0 : SCREEN_W - CRAB_W;
-    b.y = -CRAB_H - 8;
-    if (--b.waitTimer <= 0) b.mode = 'enter';
-  } else if (b.mode === 'attach') {
-    // 壁につかまっているあいだにハサミが伸びていく
-    for (let i = 0; i < CRAB_CLAWS; i++) {
-      if (b.grow[i] < CRAB_CLAW_GROW) b.grow[i]++;
-    }
-    b.claws = b.grow.filter((g, i) => g >= CRAB_CLAW_GROW && b.clawAlive[i]).length;
-    // 壁を足場にして上下に動きつづける(自機の位置では止まらない)。
-    // ハサミはまっすぐ横に飛ぶので、たまたま高さが合った瞬間だけ撃ってくる
-    b.x = b.side < 0 ? 0 : SCREEN_W - CRAB_W;
-    b.y += b.vy;
-    if (b.y <= CRAB_TOP) { b.y = CRAB_TOP; b.vy = Math.abs(b.vy); }
-    if (b.y >= CRAB_BOTTOM) { b.y = CRAB_BOTTOM; b.vy = -Math.abs(b.vy); }
-  } else {
-    // 反対の壁へ跳んで移動する(このあいだは攻撃しない)
-    b.jumpT = Math.min(1, b.jumpT + 0.006);   // ゆっくり渡る
-    const t = b.jumpT;
-    b.x = b.jumpFrom + (b.jumpTo - b.jumpFrom) * t;
-    // まず画面の上まで一気に上がってから、山なりに渡る。
-    // 伸びた脚を狙いやすいよう、跳んでいるあいだはずっと画面の上のほうにいる
-    const rise = Math.min(1, t * 4);
-    // 画面のいちばん上あたりを大きく回るので、伸びた脚をじっくり狙える
-    const top = CRAB_TOP - 16;
-    b.y = b.jumpY + (top - b.jumpY) * rise - Math.sin(t * Math.PI) * 12;
-    if (t >= 1) {
-      b.mode = 'attach';
-      b.fireTimer = 90;
-      b.y = Math.max(CRAB_TOP, Math.min(CRAB_BOTTOM, b.y));
-      // ここで描き直すと、脚が 1 つ前のコマの位置のまま描かれて
-      // 体から離れて見えていた。すぐ下でまとめて描くので、ここでは描かない
-    }
-  }
+  // 動きと移り先は CRAB_STATES に書いてある。ここは 1 コマ進めるだけ
+  b.fsm.step(b);
 
-  // ハサミが伸びているあいだは、登場で降りてくる途中でも伸ばし続ける
-  if (b.mode === 'enter') {
-    for (let i = 0; i < CRAB_CLAWS; i++) {
-      if (b.grow[i] < CRAB_CLAW_GROW) b.grow[i]++;
-    }
-    b.claws = b.grow.filter((g, i) => g >= CRAB_CLAW_GROW && b.clawAlive[i]).length;
-  }
   // 自機と高さが合っているか。壁にいるときだけでなく、
   // 降りてくる途中(登場中)でも見る = 高さが合えば撃ってくる
   {
@@ -6430,7 +6456,7 @@ function updateCrabBoss(b) {
   }
   // 壁にいるあいだ、ハサミが残っていれば撃つ。2 本撃ち尽くしたら跳んで移動する
   // 壁に付いているときだけでなく、降りてくる途中でも撃つ
-  if ((b.mode === 'attach' || b.mode === 'enter') &&
+  if (b.fsm.in('attach', 'enter') &&
       b.claws > 0 && --b.fireTimer <= 0 && b.aimed) {
     b.fireTimer = Math.max(70, 150 - shotLevel * 12);
     // 前面に付いているハサミを、そのまま自機めがけて飛ばす。
@@ -6449,17 +6475,20 @@ function updateCrabBoss(b) {
   }
   // ハサミを撃ち尽くし、飛ばしたハサミが画面から消えてから反対の壁へ跳ぶ
   // (武器が無くなったあとも、脚を狙わせるために跳び続ける)
-  if (b.clawStock <= 0 && b.mode === 'attach') { b.fireTimer--; b.needJump = true; }
+  if (b.clawStock <= 0 && b.fsm.is('attach')) { b.fireTimer--; b.needJump = true; }
   // どちらに移るかの決まり:
   //   ハサミを撃ち尽くした -> 反対の壁へジャンプ(脚が伸びて狙える)
   //   撃つ用が無いまま 7 秒粘った -> 画面の上へ抜けて出直す
   // ジャンプのほうを先に見るので、撃ち尽くしていれば必ず跳ぶ。
+  //
+  // **飛んでいるハサミが消えるのを待つ**ので、ここだけは局面の宣言では決められない。
+  // 攻撃の都合で移るぶんは go() で移す(CRAB_STATES の viaGo)
   ++b.wallTimer;
-  if (b.mode === 'attach' && !b.needJump && b.wallTimer > CRAB_WALL_LIMIT &&
+  if (b.fsm.is('attach') && !b.needJump && b.wallTimer > CRAB_WALL_LIMIT &&
       clawMissiles.length === 0) {
-    b.mode = 'exit';
+    b.fsm.go('exit', b);
   }
-  if (b.mode === 'attach' && b.needJump && clawMissiles.length === 0 &&
+  if (b.fsm.is('attach') && b.needJump && clawMissiles.length === 0 &&
       (b.clawStock > 0 || b.fireTimer <= 0)) {
     b.needJump = false;
     // はじめて跳ぶときだけ、狙いどころを教える
@@ -6467,12 +6496,12 @@ function updateCrabBoss(b) {
       b.toldLegs = true;
       showNotice('BREAK THE LEGS!');
     }
-    b.mode = 'jump';
     b.jumpT = 0;
     b.jumpFrom = b.x;
     b.jumpY = b.y;
     b.jumpTo = b.side < 0 ? SCREEN_W - CRAB_W : 0;
     b.side = -b.side;
+    b.fsm.go('jump', b);
   }
 }
 
@@ -6631,6 +6660,113 @@ const RAGE_SPEED = 4.5;
 // 出てきてから炎を吐きはじめるまでの間(2 秒)。入ってくる姿を見せる時間
 const DRAGON_CALM = 120;
 
+/** 旋回に戻るときの「次に怒るまで」。毎回ちがう */
+const dragonCalmSpan = () => 260 + Math.floor(rndBoss() * 180);
+
+/**
+ * **宇宙ドラゴンの局面。**
+ *
+ *   spiral -> leave -> hide -> telegraph -> charge -> rest -> descend -> spiral
+ *
+ * もとは `mode` が 4 つで、そのうち `rage` の中身を `hide` と `telegraph` の
+ * 2 つの数え上げで分けていた。**その組み合わせが当たり判定の側にも写っていて**、
+ * 「突っ込んできているあいだ」は 3 か所で `rage && hide<=0 && telegraph<=0` と
+ * 書かれていた。開いてしまえば `is('charge')` だけで済む。
+ */
+const DRAGON_STATES = {
+  // うずまきを描きながら、じわじわ動きまわる
+  spiral: {
+    viaGo: true,   // 小惑星をぶつけられたときに、途中からでも戻される
+    for: dragonCalmSpan,
+    next: 'leave',
+    update: (b) => {
+      const cx = SCREEN_W / 2 - DRAGON_W / 2, cy = 44;   // 旋回の中心は画面の奥
+      b.spiralA += 0.045;
+      b.spiralR = 72 + Math.sin(b.age * 0.01) * 32;
+      // 横は画面いっぱいに近いところまで振る(左右の動きを大きく見せる)。
+      // 縦はそのままなので、平たい輪を描いて泳ぐ形になる
+      const tx = cx + Math.cos(b.spiralA) * b.spiralR * 1.5;
+      const ty = cy + Math.sin(b.spiralA * 1.3) * (b.spiralR * 0.38);
+      b.x += (tx - b.x) * 0.06;
+      b.y += (ty - b.y) * 0.06;
+    },
+    // その場で消えないよう、まず画面の外まで泳いで抜けていく。
+    // 近いほうの上下へ、しっぽまで見えなくなるまで泳いで出る
+    exit: (b) => {
+      b.leaveDir = (b.y + DRAGON_H / 2 < SCREEN_H / 2) ? -1 : 1;
+      mmsxx.audio.playSE('warning');
+    },
+  },
+  // 画面の外へ泳いで抜ける(胴体が全部出きるまで待つ)
+  leave: {
+    update: (b) => {
+      b.y += 3.2 * b.leaveDir;
+      b.x += (SCREEN_W / 2 - DRAGON_W / 2 - b.x) * 0.02;
+    },
+    when: (b) => (b.leaveDir < 0
+      ? b.y < -DRAGON_H - DRAGON_SEGS * 8
+      : b.y > SCREEN_H + DRAGON_SEGS * 8),
+    next: 'hide',
+    // 顔を出すのは画面の上か下。左右からは来ない
+    exit: (b) => {
+      b.side = rndBoss() < 0.5 ? 0 : 1;   // 0 = 上, 1 = 下
+      b.x = Math.max(0, Math.min(SCREEN_W - DRAGON_W,
+        player.x - 16 + (rndBoss() - 0.5) * 96));
+      b.y = b.side === 0 ? -DRAGON_H - 8 : SCREEN_H + 8;
+    },
+  },
+  // 画面の外へ完全に消えている(1 秒)
+  hide: {
+    for: RAGE_HIDE,
+    next: 'telegraph',
+    // 顔の先だけを画面に見せる(どこから来るかが分かる)
+    exit: (b) => {
+      b.y = b.side === 0 ? -DRAGON_H + 22 : SCREEN_H - 22;
+      // はじめて構えたときだけ、狙いどころを教える
+      if (!b.toldRage) {
+        b.toldRage = true;
+        showNotice('COUNTER THE CHARGE!');
+      }
+    },
+  },
+  // 顔だけ出してためる。**ここは当たり判定なし**(予告の姿なので、
+  // いきなりぶつかることがないようにする)
+  telegraph: {
+    for: RAGE_TELEGRAPH,
+    next: 'charge',
+    // 「3・2・1」の声。1 回 0.8 秒(48 コマ)なので 50 コマ間隔で置き、
+    // 最後の「1」が鳴り終わってから突っ込む
+    cues: { 150: 'count3', 100: 'count2', 50: 'count1' },
+    // 構えているあいだ、溜めの音を鳴らし続ける(短いかたまりのくり返し)
+    update: (b, fsm) => {
+      if (fsm.timer % SE_CHUNK === 0) mmsxx.audio.playSE('charging', SE_EVENT + 1);
+    },
+    exit: (b) => {
+      const a = Math.atan2(player.y + 8 - (b.y + DRAGON_H / 2),
+                           player.x + 8 - (b.x + DRAGON_W / 2));
+      b.rvx = Math.cos(a) * RAGE_SPEED;
+      b.rvy = Math.sin(a) * RAGE_SPEED;
+      mmsxx.audio.playSE('dragonRoar', SE_EVENT);   // 「ゴギャ――――」と叫んで飛ぶ
+    },
+  },
+  // 怒りの突進。**口を大きく開けているので、頭ぜんぶが弱点**
+  charge: {
+    update: (b) => { b.x += b.rvx; b.y += b.rvy; },
+    when: (b) => (b.x < -DRAGON_W - 40 || b.x > SCREEN_W + 40 ||
+                  b.y < -DRAGON_H - 40 || b.y > SCREEN_H + 40),
+    next: 'rest',
+    exit: (b) => { b.x = SCREEN_W / 2 - DRAGON_W / 2; b.y = -DRAGON_H - 40; },
+  },
+  // 画面の外で息をひそめる(1.5 秒)
+  rest: { for: 90, next: 'descend' },
+  // 画面の上からゆっくり降りてきて旋回に戻る
+  descend: {
+    update: (b) => { b.y += 0.7; },
+    when: (b) => b.y >= 24,
+    next: 'spiral',
+  },
+};
+
 function spawnDragonBoss() {
   const hp = 40 + stageNo * 16;
   // 眼窩の奥にタコと同じ水色の目を入れる
@@ -6650,13 +6786,17 @@ function spawnDragonBoss() {
     kind: 'dragon',
     x: (SCREEN_W - DRAGON_W) / 2, y: -DRAGON_H, hp, max: hp, age: 0, flash: 0, dying: 0,
     eyeL, eyeR, charge: null, phase2: false,
-    mode: 'spiral',        // spiral -> rage(怒って突進) -> spiral
     spiralA: 0, spiralR: 60,
-    rageTimer: 300, telegraph: 0, rvx: 0, rvy: 0,
+    rvx: 0, rvy: 0,
     trail: [],             // 頭の通った跡
     segs,
   };
   // 頭は胴体の節より手前に置く(顔が埋もれないように)
+  // 「3・2・1」の声は宣言(cues)から届く。何コマ目で鳴らすかは局面の側が持つ
+  boss.fsm = new StateMachine(DRAGON_STATES, {
+    start: 'spiral',
+    on: (cue) => mmsxx.audio.playSE(cue, SE_EVENT + 2),
+  });
   boss.partHead = bossPart(BG_SYMBOLS.dragonHead, 1);
   // 王冠(タコ・カニと同じもの)。頭蓋のてっぺんにかぶせる
   boss.crown = mmsxx.sprite(SPRITE_SYMBOLS.octoCrown);
@@ -6671,98 +6811,8 @@ function clearDragonSegs(b) {
 }
 
 function updateDragonBoss(b) {
-  // 旋回の中心は画面の奥(上のほう)。自機からは離れた位置で回る
-  const cx = SCREEN_W / 2 - DRAGON_W / 2, cy = 44;
-  if (b.mode === 'spiral') {
-    // うずまきを描きながら、じわじわ動きまわる
-    b.spiralA += 0.045;
-    b.spiralR = 72 + Math.sin(b.age * 0.01) * 32;
-    // 横は画面いっぱいに近いところまで振る(左右の動きを大きく見せる)。
-    // 縦はそのままなので、平たい輪を描いて泳ぐ形になる
-    const tx = cx + Math.cos(b.spiralA) * b.spiralR * 1.5;
-    const ty = cy + Math.sin(b.spiralA * 1.3) * (b.spiralR * 0.38);
-    b.x += (tx - b.x) * 0.06;
-    b.y += (ty - b.y) * 0.06;
-    // しばらくすると怒って突進の構えに入る。
-    // その場で消えないよう、まず画面の外まで泳いで抜けていく
-    if (--b.rageTimer <= 0) {
-      b.mode = 'leave';
-      // 近いほうの上下へ、しっぽまで見えなくなるまで泳いで出る
-      b.leaveDir = (b.y + DRAGON_H / 2 < SCREEN_H / 2) ? -1 : 1;
-      mmsxx.audio.playSE('warning');
-    }
-  } else if (b.mode === 'leave') {
-    // 画面の外へ泳いで抜ける(胴体が全部出きるまで待つ)
-    b.y += 3.2 * b.leaveDir;
-    b.x += (SCREEN_W / 2 - DRAGON_W / 2 - b.x) * 0.02;
-    const gone = b.leaveDir < 0
-      ? b.y < -DRAGON_H - DRAGON_SEGS * 8
-      : b.y > SCREEN_H + DRAGON_SEGS * 8;
-    if (gone) {
-      b.mode = 'rage';
-      b.hide = RAGE_HIDE;
-      b.telegraph = RAGE_TELEGRAPH;
-      // 顔を出すのは画面の上か下。左右からは来ない
-      const side = rndBoss() < 0.5 ? 0 : 1;   // 0 = 上, 1 = 下
-      b.side = side;
-      b.x = Math.max(0, Math.min(SCREEN_W - DRAGON_W,
-        player.x - 16 + (rndBoss() - 0.5) * 96));
-      b.y = side === 0 ? -DRAGON_H - 8 : SCREEN_H + 8;
-    }
-  } else if (b.mode === 'rage') {
-    // 怒りの突進。画面外に隠れる -> 顔だけ出してためる -> まっすぐ飛ぶ
-    if (b.hide > 0) {
-      b.hide--;
-      if (b.hide === 0) {
-        // 顔の先だけを画面に見せる(どこから来るかが分かる)
-        b.y = b.side === 0 ? -DRAGON_H + 22 : SCREEN_H - 22;
-        // はじめて構えたときだけ、狙いどころを教える
-        if (!b.toldRage) {
-          b.toldRage = true;
-          showNotice('COUNTER THE CHARGE!');
-        }
-      }
-    } else if (b.telegraph > 0) {
-      b.telegraph--;
-      // 構えているあいだ、溜めの音を鳴らし続ける(短いかたまりのくり返し)
-      if (b.telegraph % SE_CHUNK === 0) mmsxx.audio.playSE('charging', SE_EVENT + 1);
-      // そこへ「3・2・1」の声を重ねて、飛んでくる瞬間を数えさせる
-      // 1 回 0.8 秒(48 コマ)なので、50 コマ間隔で置く。
-      // 最後の「1」が鳴り終わってから突っ込む
-      if (b.telegraph === 150) mmsxx.audio.playSE('count3', SE_EVENT + 2);
-      if (b.telegraph === 100) mmsxx.audio.playSE('count2', SE_EVENT + 2);
-      if (b.telegraph === 50) mmsxx.audio.playSE('count1', SE_EVENT + 2);
-      if (b.telegraph === 0) {
-        const a = Math.atan2(player.y + 8 - (b.y + DRAGON_H / 2),
-                             player.x + 8 - (b.x + DRAGON_W / 2));
-        b.rvx = Math.cos(a) * RAGE_SPEED;
-        b.rvy = Math.sin(a) * RAGE_SPEED;
-        mmsxx.audio.playSE('dragonRoar', SE_EVENT);   // 「ゴギャ――――」と叫んで飛ぶ
-      }
-    } else {
-      b.x += b.rvx;
-      b.y += b.rvy;
-      // 画面の外まで行ったら、しばらく間を置いてから戻ってくる
-      if (b.x < -DRAGON_W - 40 || b.x > SCREEN_W + 40 ||
-          b.y < -DRAGON_H - 40 || b.y > SCREEN_H + 40) {
-        b.mode = 'return';
-        b.wait = 90;                    // 1.5 秒ぶん、画面の外で息をひそめる
-        b.x = cx; b.y = -DRAGON_H - 40;
-      }
-    }
-  }
-
-  if (b.mode === 'return') {
-    // 間を置いてから、画面の上からゆっくり降りてきて旋回に戻る
-    if (b.wait > 0) { b.wait--; }
-    else {
-      b.y += 0.7;
-      if (b.y >= 24) {
-        b.mode = 'spiral';
-        b.rageTimer = 260 + Math.floor(rndBoss() * 180);
-      }
-    }
-  }
+  // 動きと移り先は DRAGON_STATES に書いてある。ここは 1 コマ進めるだけ
+  b.fsm.step(b);
 
   // 頭が通った跡を覚えて、胴体の節をそこへ置く
   b.trail.unshift({ x: b.x, y: b.y });
@@ -6807,7 +6857,7 @@ function updateDragonBoss(b) {
 
   if (state !== 'play') return;
   // うずまき中は口を開けて炎を連発する(撃ち落とせない)
-  if (b.mode === 'spiral' && b.age > DRAGON_CALM) {
+  if (b.fsm.is('spiral') && b.age > DRAGON_CALM) {
     // 入ってきたばかりのあいだ(DRAGON_CALM)は吐かない。
     // 泳いで入ってくる姿を落ち着いて見せるため
     const cycle = Math.max(60, 110 - shotLevel * 6);
@@ -6846,8 +6896,9 @@ function updateDragonBoss(b) {
       b.flash = 8;
       spawnBoom(b.sx + 16, b.sy + 16);
       mmsxx.audio.playSE('bigboom', SE_HIT);
-      b.mode = 'spiral';
-      b.rageTimer = 300;
+      // 突進の途中でも旋回へ戻す。次に怒るまでの間は取り直し
+      b.fsm.go('spiral', b);
+      b.fsm.timer = 300;
       break;
     }
   }
@@ -8317,7 +8368,7 @@ function drawBossBody() {
   }
   if (b.kind === 'dragon') {
     // 突進のあいだと、炎を吐いているあいだは口を大きく開ける
-    b.partHead.image = (b.mode === 'rage' || b.mouthOpen)
+    b.partHead.image = (b.fsm.in('hide', 'telegraph', 'charge') || b.mouthOpen)
       ? BG_SYMBOLS.dragonHeadOpen : BG_SYMBOLS.dragonHead;
     b.partHead.x = b.x; b.partHead.y = b.y; b.partHead.visible = vis;
     return;
@@ -8350,7 +8401,7 @@ function drawBossBody() {
     });
     // 脚。ジャンプ中は壁から離れてぐっと伸びる(そこだけ狙える)
     // ジャンプ中は関節を伸ばして踏ん張る(この姿のときだけ脚を撃てる)
-    const jumping = b.mode === 'jump';
+    const jumping = b.fsm.is('jump');
     const out = jumping ? 14 : 0;   // 跳んでいるあいだは大きく踏ん張る
     // 壁にいるあいだは 3 コマで曲げ具合を変えて、脚をわしゃわしゃ動かす
     const LEG_ANIM = [BG_SYMBOLS.crabLeg, BG_SYMBOLS.crabLegMid, BG_SYMBOLS.crabLegExt, BG_SYMBOLS.crabLegMid];
@@ -8438,7 +8489,8 @@ function breakShip() {
   for (const g of boss.guards || []) g.sp.visible = false;
   if (boss.kind === 'dragon') {
     // ドラゴンは装甲がはがれると全身が弱点になり、怒りの突進が増える
-    boss.rageTimer = Math.min(boss.rageTimer, 90);
+    // (旋回している最中なら、次に怒るまでを縮める)
+    if (boss.fsm.is('spiral')) boss.fsm.timer = Math.min(boss.fsm.timer, 90);
     mmsxx.audio.playSE('bossboom', SE_HIT);
     flashTimer = 3;
     return;
@@ -8446,7 +8498,7 @@ function breakShip() {
   if (boss.kind === 'crab') {
     // 脚を失って壁につかまれない。ここから先は漂って泡を吹くだけになる
     clearClawMissiles();
-    boss.mode = 'float';
+    boss.fsm.go('float', boss);
     // 無防備になったぶん、ここからは素直にダメージが通る
     boss.max = 60 + stageNo * 10;
     boss.hp = boss.max;
@@ -8955,7 +9007,7 @@ function isBossWeakPoint(b, x, y, bullet) {
   if (b.kind === 'dragon') {
     // 突っ込んできているあいだは口を大きく開けている = 頭ぜんぶが弱点。
     // ふだんは顔の中央(眼窩のあたり)だけ
-    if (b.mode === 'rage' && b.hide <= 0 && b.telegraph <= 0) return true;
+    if (b.fsm.is('charge')) return true;
     return x > b.sx + 8 && x < b.sx + DRAGON_W - 8 &&
            y > b.sy + 16 && y < b.sy + 36;
   }
@@ -10127,7 +10179,7 @@ function updatePlay() {
   // 脚は壁から離れているジャンプ中だけ狙える。ここが本当の弱点で、
   // 硬いハサミや装甲を削るより、脚を 1 本ずつ折るほうがずっと速い。
   if (boss && boss.kind === 'crab' && boss.legs && !boss.phase2 &&
-      boss.dying <= 0 && boss.mode === 'jump') {
+      boss.dying <= 0 && boss.fsm.is('jump')) {
     for (const b of [...bullets]) {
       for (const lg of boss.legs) {
         if (lg.hp <= 0) continue;
@@ -10339,8 +10391,7 @@ function updatePlay() {
         // 突進中のドラゴンは口を開けているので、そこへ撃ち込むと大ダメージ
         // 大ダメージが通るのは、実際に突っ込んできているあいだだけ。
         // 画面の外で顔だけ出してためているあいだは、逆にダメージが通らない
-        const rage = boss.kind === 'dragon' && boss.mode === 'rage';
-        const jaws = rage && boss.hide <= 0 && boss.telegraph <= 0;
+        const jaws = boss.kind === 'dragon' && boss.fsm.is('charge');
         // 壺に乗っているあいだは「ほんの少しだけ」通る(点滅はさせない)
         // タコの発射口は「壊せる部位」。開いているあいだに撃ち込めば
         // 体力を削らずにそのまま撃破できる(手のひらを全部壊す道もある)
@@ -10570,8 +10621,7 @@ function updatePlay() {
     }
     // ドラゴンが画面の外から顔だけ出してためているあいだは当たり判定なし
     // (予告の姿なので、いきなりぶつかることがないようにする)
-    const dragonPeek = boss && boss.kind === 'dragon' &&
-      boss.mode === 'rage' && boss.telegraph > 0;
+    const dragonPeek = boss && boss.kind === 'dragon' && boss.fsm.is('telegraph');
     // 5 面の長いレーザー。絵が長いので、線に沿って 5 か所を見て当たりを取る
     if (!hit) {
       for (const bm of farBeams) {
@@ -11074,12 +11124,24 @@ function kingToPhase2() {
   return boss.stage;
 }
 
+/**
+ * デバッグ用: **局面の宣言を取り出す。**
+ * 試験はここから `bad`(粗さがしの結果)を見て、図は `mermaid` をそのまま使う。
+ * 宣言が 1 か所にあるので、**仕様書のほうが古くなることがない**
+ */
+mmsxx.expose('mmsxxStates', (kind = 'crab') => {
+  const defs = { crab: CRAB_STATES, dragon: DRAGON_STATES }[kind];
+  if (!defs) return null;
+  const fsm = new StateMachine(defs);
+  return { kind, names: fsm.names, bad: fsm.check(), mermaid: fsm.toMermaid(kind) };
+});
+
 /** デバッグ用: カニの脚を全部折って第 2 形態(斜めの姿)にする */
 mmsxx.expose('mmsxxCrabPhase2', () => {
   if (!boss || boss.kind !== 'crab') return null;
   for (const lg of boss.legs) lg.hp = 0;
   boss.phase2 = true;
-  boss.mode = 'attach';
+  boss.fsm.go('float', boss);
   return 'phase2';
 });
 
@@ -11258,7 +11320,8 @@ mmsxx.expose('mmsxxDebug', () => ({
   secret: secretSpots ? secretSpots.map(s => ({ x: s.x, y: s.y, hits: s.hits, done: s.done })) : null,
   boss: boss ? {
     kind: boss.kind, hp: boss.hp, max: boss.max,
-    phase2: !!boss.phase2, firing: boss.firing | 0, mode: boss.mode,
+    phase2: !!boss.phase2, firing: boss.firing | 0,
+    mode: boss.fsm ? boss.fsm.state : boss.mode,
     stage: boss.stage, act: boss.act, beams: kingBeams.length,
     bx: Math.round(boss.x), by: Math.round(boss.y), py: Math.round(player.y),
     blink: boss.man ? boss.man.blink + ':' + boss.man.blinkOn : null,
