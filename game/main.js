@@ -6261,7 +6261,6 @@ const CRAB_STATES = {
   // 壁を足場にして上下に動きつづける(自機の位置では止まらない)。
   // ハサミはまっすぐ横に飛ぶので、たまたま高さが合った瞬間だけ撃ってくる
   attach: {
-    viaGo: true,   // jump からの復帰と、攻撃の側からの go() で来る
     update: (b) => {
       growCrabClaws(b);
       b.x = crabWallX(b);
@@ -8661,7 +8660,7 @@ function breakShip() {
   }
   if (boss.kind === 'octopus') {
     // 撃つのをやめて、体当たりだけになる
-    boss.fsm.go('swing', boss);
+    boss.fsm.go('bare', boss);
     // 壺から出たタコは体力を持ち直す(残りカスだと連打だけで終わってしまう)
     boss.max = 120 + stageNo * 24;
     boss.hp = boss.max;
@@ -9078,6 +9077,18 @@ const OCTO_GAP = 420;                 // 撃ち終わってから次の溜めま
  * 動きの側も当たり判定の側も `charging > 0 || firing > 0` と書いていた。
  * 船が壊れたあと(phase2)はレーザーを撃たないので、swing から出なくなる。
  */
+/**
+ * 左右の往復。**溜めや発射で止まっているあいだは進み方も止めておかないと**、
+ * 動き出したときに位置が飛んでしまう(急にワープして見えた原因)。
+ * 壺から出たあとは、ゆっくり狭く漂う
+ */
+function octoSwing(b) {
+  b.y = 16;
+  b.swing = (b.swing || 0) + (b.phase2 ? 0.008 : 0.015);
+  const target = (SCREEN_W - BOSS_W) / 2 + Math.sin(b.swing) * (b.phase2 ? 18 : 56);
+  b.x += (target - b.x) * 0.08;   // 目標へなめらかに寄せる(急に飛ばない)
+}
+
 const OCTO_STATES = {
   // HUD のすぐ下に陣取る(画面を広く使えるよう高めの位置)
   arrive: {
@@ -9090,19 +9101,16 @@ const OCTO_STATES = {
   // 一度定位置に着いたら上下には動かさない(8 ドット単位スクロールだと
   // 細かい上下動がガタつきに見えるため)
   swing: {
-    viaGo: true,   // 船が壊れたときは、撃つのをやめてここへ戻る
     for: (b) => b.laserGap,
     goes: ['charge'],
-    // **壺から出たあと(第 2 形態)は弾を撃たず、体当たりだけで襲ってくる**
-    to: (b, f) => (f.timer > 0 || b.phase2 ? null : 'charge'),
-    update: (b) => {
-      b.y = 16;
-      // 溜めや発射で止まっているあいだは進み方も止めておかないと、
-      // 動き出したときに位置が飛んでしまう(急にワープして見えた原因)
-      b.swing = (b.swing || 0) + (b.phase2 ? 0.008 : 0.015);
-      const target = (SCREEN_W - BOSS_W) / 2 + Math.sin(b.swing) * (b.phase2 ? 18 : 56);
-      b.x += (target - b.x) * 0.08;   // 目標へなめらかに寄せる(急に飛ばない)
-    },
+    to: (b, f) => (f.timer > 0 ? null : 'charge'),
+    update: (b) => octoSwing(b),
+  },
+  // **壺から出たあと。**弾を撃たず、体当たりだけで襲ってくる。
+  // 局面にしておくと「どれだけ通るか」の表がこの名前で引ける
+  bare: {
+    viaGo: true,   // 船が壊れたとき(breakShip)
+    update: (b) => octoSwing(b),
   },
   // 溜め。砲口の前で光の玉がふくらみ、外の輪が縮んでいく。
   // **溜め〜発射中は停止する**
@@ -9200,6 +9208,55 @@ const OCTO_STATES = {
     },
   },
 };
+
+/**
+ * **自弾がどれだけ通るかの表。** ボスの種類 × 局面で引く。
+ *
+ * もとは `armored` / `tough` / `jaws` という真偽値を並べて、入れ子の三項演算子で
+ * 決めていた。**どこに何が効くのかが読み取れず**、
+ * 「ドラゴンの目の枠が誰にも使われていない」たぐいを見落としていた。
+ *
+ * 書けるもの(数だけなら、そのまま通る量):
+ *
+ * | | |
+ * |---|---|
+ * | `every: n` | **n 発に 1 ダメージ**(硬い装甲) |
+ * | `quiet: true` | 通っても点滅させない(ほんの少ししか通らないので) |
+ * | `onWeak: 'muzzle'` | 弱点に当たったら体力ではなく**部位**を削る |
+ *
+ * `'*'` はその種類の既定。局面の名前があればそちらが勝つ。
+ * ノーチラスとラスボスはこの表を通らない(別の当たり判定を持っている)。
+ */
+const BOSS_HITS = {
+  // 頭のどこに当てても通る。**厚みが局面で変わる**
+  dragon: {
+    telegraph: DRAGON_PEEK_DMG,   // 顔だけ出して構えているあいだは薄く
+    charge: DRAGON_JAWS_DMG,      // 突進で口を開けているあいだは厚く
+    '*': DRAGON_FACE_DMG,
+  },
+  // 甲羅もハサミも硬い。**脚を折るのが本筋**(脚は別の判定)
+  crab: {
+    '*': { every: 4 },
+    float: 3,                     // 甲羅が割れたら素直に通る
+  },
+  // 壺に乗っているあいだ、本体はどこを撃ってもほとんど通らない。
+  // 効くのは「レーザーを撃っているあいだの発射口」だけで、そこは部位として壊せる
+  octopus: {
+    '*': { every: 8, quiet: true, onWeak: 'muzzle' },
+    bare: 3,                      // 壺が割れたら素直に通る
+  },
+  // 仮のボスはどこでも当たる
+  todo: { '*': 3 },
+};
+
+/** いまの局面で、自弾がどう通るか。表に無いボスは null */
+function bossHitRule(b) {
+  const t = b && BOSS_HITS[b.kind];
+  if (!t) return null;
+  const st = b.fsm && b.fsm.state;
+  const r = (st !== undefined && t[st] !== undefined) ? t[st] : t['*'];
+  return typeof r === 'number' ? { dmg: r } : (r || null);
+}
 
 /**
  * ボスの弱点かどうか。タコはレーザーの発射口、カニロボはハサミの付け根が弱点。
@@ -10572,21 +10629,11 @@ function updatePlay() {
         // 弱点に当たると大ダメージ。それ以外の装甲は硬い。
         // 装甲がはがれた第2形態は全体が弱点になる
         const weak = boss.phase2 || isBossWeakPoint(boss, b.sp.x + 8, b.sp.y + 8, b);
-        // 壺(UFO)に乗っているあいだ、本体はどこを撃っても無敵。
-        // 効くのは「レーザーを撃っているあいだの発射口」だけ。
-        // (壺を割るもう 1 つの道は、回っている手のひらを全部壊すこと)
-        const armored = boss.kind === 'octopus' && !boss.phase2 && !weak;
-        // カニは装甲もハサミも硬い。本体を撃ってもごくわずかしか減らない
-        // (脚を折るのが本筋)
-        const tough = boss.kind === 'crab' && !boss.phase2;
-        // 突進中のドラゴンは口を開けているので、そこへ撃ち込むと大ダメージ
-        // 大ダメージが通るのは、実際に突っ込んできているあいだだけ。
-        // 画面の外で顔だけ出してためているあいだは、逆にダメージが通らない
-        const jaws = boss.kind === 'dragon' && boss.fsm.is('charge');
-        // 壺に乗っているあいだは「ほんの少しだけ」通る(点滅はさせない)
+        // **どれだけ通るかは BOSS_HITS の表で決まる**(種類 × 局面)
+        const rule = bossHitRule(boss) || {};
         // タコの発射口は「壊せる部位」。開いているあいだに撃ち込めば
         // 体力を削らずにそのまま撃破できる(手のひらを全部壊す道もある)
-        if (boss.kind === 'octopus' && !boss.phase2 && weak) {
+        if (rule.onWeak === 'muzzle' && weak) {
           boss.muzzleHp -= 1;
           boss.flash = 6;
           mmsxx.audio.playSE('weak');
@@ -10601,15 +10648,9 @@ function updatePlay() {
           }
           continue;
         }
-        const dmg = armored ? ((boss.age % 8 === 0) ? 1 : 0)
-          : tough ? ((boss.age % 4 === 0) ? 1 : 0)
-          // 突進中のドラゴンの口。効きすぎたので 8 -> 6.4(8 割)に落とした
-          : jaws ? DRAGON_JAWS_DMG
-          // ドラゴンは局面で通り方が変わる。頭のどこでも通るが、
-          // **構え中は薄く**(予告の姿なので)、ふだんは顔ぜんぶで受ける
-          : boss.kind === 'dragon'
-            ? (boss.fsm.is('telegraph') ? DRAGON_PEEK_DMG : DRAGON_FACE_DMG)
-            : (weak ? 3 : 1);
+        // 硬い装甲は「n 発に 1 ダメージ」。それ以外は表の数をそのまま
+        const dmg = rule.every ? ((boss.age % rule.every === 0) ? 1 : 0)
+          : (rule.dmg !== undefined ? rule.dmg : (weak ? 3 : 1));
         // 近いほど・上から攻めるほど効く(最大 4 倍)。
         // 装甲などで 0 ダメージのものは 0 のまま
         boss.hp -= dmg > 0 ? Math.max(1, Math.round(dmg * bossDamageMul(boss))) : 0;
@@ -10618,7 +10659,7 @@ function updatePlay() {
         // 発射口を狙う攻略と、ガードを削る攻略のどちらからでも無防備にできる
         if (!boss.phase2 && boss.hp <= boss.max * 0.2) breakShip();
         // 無敵の場所は点滅させない(ほんの少し通るだけなので)
-        if (dmg > 0 && !armored) boss.flash = 6;
+        if (dmg > 0 && !rule.quiet) boss.flash = 6;
         // カニは 4 発に 1 ダメージなので、通ったときだけ白く光らせて知らせる
         if (dmg > 0 && boss.kind === 'crab') boss.hurt = 10;
         if (boss.kind === 'todo') {
@@ -11348,7 +11389,8 @@ mmsxx.expose('mmsxxStates', (kind = 'crab') => {
   }[kind];
   if (!defs) return null;
   const fsm = new StateMachine(defs);
-  return { kind, names: fsm.names, bad: fsm.check(), mermaid: fsm.toMermaid(kind) };
+  // defs もそのまま返す。図を別に起こす道具から、宣言を直に読めるように
+  return { kind, names: fsm.names, bad: fsm.check(), mermaid: fsm.toMermaid(kind), defs };
 });
 
 /**

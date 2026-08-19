@@ -198,6 +198,13 @@ export class StateMachine {
     const L = ['stateDiagram-v2'];
     if (title) L.push('  %% ' + title);
     L.push('  [*] --> ' + this.names[0]);
+    // **`go()` でしか来ない局面も描く。**描かないと図から抜け落ちて、
+    // 「宣言が仕様書」のはずが仕様書のほうが不完全になる
+    const viaGo = this.names.filter((n) => this.defs[n].viaGo);
+    if (viaGo.length) {
+      L.push('  state "go()" as GO');
+      for (const n of viaGo) L.push('  GO -.-> ' + n);
+    }
     for (const [name, d] of Object.entries(this.defs)) {
       if (d.next) {
         const why = d.for !== undefined
