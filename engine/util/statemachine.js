@@ -45,6 +45,7 @@ export class StateMachine {
    * @param {object} defs 局面の宣言。`{ 名前: 書きかた }`
    * @param {object} [opts]
    * @param {string} [opts.start] 始まりの局面(省くと宣言の 1 つめ)
+   * @param {any} [opts.ctx] 相手。**始まりの局面の `for` が関数なら要る**
    * @param {(cue: string, ctx: any) => void} [opts.on] 合図(cues)の受け取り
    * @param {(from: string, to: string, ctx: any) => void} [opts.onChange] 移ったとき
    */
@@ -60,7 +61,7 @@ export class StateMachine {
     /** いまの局面に入ってからのコマ数 */
     this.age = 0;
     /** `for` の残り(`for` が無ければ -1) */
-    this.timer = StateMachine._span(this.defs[this.state], undefined);
+    this.timer = StateMachine._span(this.defs[this.state], opts.ctx);
     /** 通ってきた道(直前の 8 つ)。開発用 */
     this.trail = [this.state];
     this._entered = false;
@@ -69,7 +70,10 @@ export class StateMachine {
   /** `for` を読む。関数なら入った瞬間に 1 回だけ呼ぶ */
   static _span(d, ctx) {
     if (d.for === undefined) return -1;
-    return typeof d.for === 'function' ? d.for(ctx) : d.for;
+    if (typeof d.for !== 'function') return d.for;
+    // **相手が分からないときは -1。**宣言だけを見たいとき(粗さがしや図)は
+    // 相手が無いので、長さを決めようがない
+    return ctx === undefined ? -1 : d.for(ctx);
   }
 
   /** いまその局面か */

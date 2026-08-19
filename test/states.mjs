@@ -20,7 +20,7 @@ const check = (name, ok, extra = '') => {
 };
 
 // ---- 1. 宣言そのもの ----
-for (const kind of ['crab', 'dragon', 'king', 'kingActs', 'nautilus', 'moai', 'octopus', 'todo']) {
+for (const kind of ['crab', 'dragon', 'king', 'kingActs', 'nautilus', 'moai', 'octopus', 'octoGun', 'todo']) {
   const decl = win.mmsxxStates(kind);
   check(kind + ': 宣言を取り出せる', !!decl, decl ? decl.names.join(' / ') : '');
   check(kind + ': 宣言に粗が無い', decl && decl.bad.length === 0, decl ? decl.bad.join(' / ') : '');
@@ -158,15 +158,15 @@ check('モアイが順に合体する',
 // タコはもとは `charging` と `firing` の**数え上げが残っているか**で局面を
 // 表していて、動きの側も当たり判定の側も `charging > 0 || firing > 0` と書いていた
 win.mmsxxBoss(6);
-const octo = () => win.mmsxxState().stage;
+const octo = () => win.mmsxxState().act;   // レーザーは別の機械
 const cycle = [octo()];
 for (let i = 0; i < 2500; i++) {
   m.advance(1);
   if (cycle[cycle.length - 1] !== octo()) cycle.push(octo());
 }
 check('タコがレーザーを回す',
-  ['arrive', 'swing', 'charge', 'fire', 'swing'].every((s, i) => cycle[i] === s),
-  cycle.slice(0, 5).join(' -> '));
+  ['wait', 'charge', 'fire', 'wait'].every((s, i) => cycle[i] === s),
+  cycle.slice(0, 4).join(' -> '));
 
 // 未実装さんは攻撃してこない仮ボス。降りて漂うだけ
 win.mmsxxBoss(103);   // RUSH_TODO(仮ボスの面)

@@ -1784,7 +1784,7 @@ function spawnMoai() {
       mk(BG_SYMBOLS.moaiBR, cx + MOAI_QW + 48, SCREEN_H + 8, 3),
     ],
   };
-  moai.fsm = new StateMachine(MOAI_STATES, { start: 'hold' });
+  moai.fsm = new StateMachine(MOAI_STATES, { start: 'hold', ctx: moai });
   // 怒ると赤とピンクに変わる(色だけで伝える)
   moai.rage = 0;
   moai.angry = false;
@@ -6362,7 +6362,7 @@ function spawnCrabBoss() {
   });
   boss.x = boss.side < 0 ? 0 : SCREEN_W - CRAB_W;
   boss.y = -CRAB_H;        // 画面の上から降りてくる
-  boss.fsm = new StateMachine(CRAB_STATES, { start: 'enter' });
+  boss.fsm = new StateMachine(CRAB_STATES, { start: 'enter', ctx: boss });
   boss.wallTimer = 0;
   drawBossBody();
   playBGM('boss', true);
@@ -6583,10 +6583,18 @@ const NAUT_SPIN = 0.011;
  * (「y < 40 なら降りてくる」で見ていたころは、下の段へ動いたとたんに
  *  また登場中とみなされて、上下を行ったり来たりしていた)
  */
+/** 横の揺れと輪の回転。**装甲があるあいだは降下中も動く** */
+function nautSway(b) {
+  b.x = (SCREEN_W - NAUT_CORE) / 2 + Math.sin(b.age * 0.008) * 40;
+  b.spin += NAUT_SPIN;
+  b.orbSpin += NAUT_SPIN * 3;
+}
+
 const NAUT_STATES = {
-  // 登場: ゆっくり降りてきて、画面の上のほうに居座る
+  // 登場: ゆっくり降りてきて、画面の上のほうに居座る。
+  // **降りている途中も横に揺れて輪は回る**(装甲がある限り)
   arrive: {
-    update: (b) => { b.y += 0.6; },
+    update: (b) => { b.y += 0.6; nautSway(b); },
     when: (b) => b.y >= 40,
     next: 'guard',
     exit: (b) => { b.y = 40; },
@@ -6600,9 +6608,7 @@ const NAUT_STATES = {
       const HOLD = 100;                                   // 1 段に留まるコマ数
       const n = Math.floor(b.age / HOLD) % 4;             // 0,1,2,3
       b.y = 32 + (n === 3 ? 1 : n) * 8;                   // 32 -> 40 -> 48 -> 40
-      b.x = (SCREEN_W - NAUT_CORE) / 2 + Math.sin(b.age * 0.008) * 40;
-      b.spin += NAUT_SPIN;
-      b.orbSpin += NAUT_SPIN * 3;
+      nautSway(b);
     },
   },
   // 装甲が外れたあと。**オウムガイは動かない**(狙いやすくする)。
@@ -6656,7 +6662,7 @@ function spawnNautilusBoss() {
     blocks, orbs, core, spin: 0, orbSpin: 0, fire: 90,
     ringR: NAUT_R, ringTimer: 300,
   };
-  boss.fsm = new StateMachine(NAUT_STATES, { start: 'arrive' });
+  boss.fsm = new StateMachine(NAUT_STATES, { start: 'arrive', ctx: boss });
   drawBossBody();
   playBGM('boss', true);
 }
@@ -6872,7 +6878,7 @@ function spawnDragonBoss() {
   // 頭は胴体の節より手前に置く(顔が埋もれないように)
   // 「3・2・1」の声は宣言(cues)から届く。何コマ目で鳴らすかは局面の側が持つ
   boss.fsm = new StateMachine(DRAGON_STATES, {
-    start: 'spiral',
+    start: 'spiral', ctx: boss,
     on: (cue) => mmsxx.audio.playSE(cue, SE_EVENT + 2),
   });
   boss.partHead = bossPart(BG_SYMBOLS.dragonHead, 1);
@@ -7003,7 +7009,7 @@ function spawnTodoBoss() {
     x: (SCREEN_W - TODO_W) / 2, y: -TODO_H, hp, max: hp, age: 0, flash: 0, dying: 0,
     eyeL, eyeR, charge: null, phase2: false,
   };
-  boss.fsm = new StateMachine(TODO_STATES, { start: 'arrive' });
+  boss.fsm = new StateMachine(TODO_STATES, { start: 'arrive', ctx: boss });
   boss.partFace = bossPart(BG_SYMBOLS.todoFace);
   boss.crown = mmsxx.sprite(SPRITE_SYMBOLS.crownCyan);   // 顔と色がかぶるので水色
   boss.crown.priority = 15;
@@ -7697,7 +7703,7 @@ function spawnKingBoss() {
     hp: RIFT_HITS, max: RIFT_HITS, age: 0, flash: 0, dying: 0, phase2: false,
     spin: 0, hits: 0, man: null,
   };
-  boss.fsm = new StateMachine(KING_STAGES, { start: 'open' });
+  boss.fsm = new StateMachine(KING_STAGES, { start: 'open', ctx: boss });
   boss.rift = bossPart(KING_RIFT_OPEN[0], 1);
   // 壊れるときにまわりへ走るひび(裂け目より奥)
   // ひびは絵ではなくマス目で広げる(絵だと黒い余白が四角く見えてしまう)
@@ -8135,7 +8141,7 @@ const KING_ACTS = {
 
 function updateKingFight(b) {
   if (!b.actFsm) {
-    b.actFsm = new StateMachine(KING_ACTS, { start: 'idle' });
+    b.actFsm = new StateMachine(KING_ACTS, { start: 'idle', ctx: b });
     b.slowMul = 1; b.guard = 0;
     b.stunStock = KING_STUN_MAX;   // ピヨらせられる残り回数
     b.meditateCount = 0;
@@ -8378,7 +8384,8 @@ function spawnBoss() {
     muzzleHp: 12,       // 発射口の耐久。壊すとその場で撃破(手のひらを削る道もある)
     laserLen: 0,
   };
-  boss.fsm = new StateMachine(OCTO_STATES, { start: 'arrive' });
+  boss.fsm = new StateMachine(OCTO_STATES, { start: 'arrive', ctx: boss });
+  boss.gun = new StateMachine(OCTO_GUN, { start: 'wait', ctx: boss });
   boss.partHead = bossPart(BG_SYMBOLS.bossHead);
   boss.partShip = bossPart(BG_SYMBOLS.bossShip);
   drawBossBody();
@@ -8623,9 +8630,9 @@ function drawLaser(len, w = LASER_DRAW_W, color = 15) {
 
 // レーザーのいまの段階。'grow' 太くなる / 'full' 最大 / 'fade' 細くなる(当たらない)
 function laserPhase(b) {
-  if (!b || b.kind !== 'octopus' || !b.fsm || !b.fsm.is('fire')) return null;
+  if (!b || b.kind !== 'octopus' || !b.gun || !b.gun.is('fire')) return null;
   // 溜めてから撃つので、出だしから最大の太さ。最後は 1 ドットずつ細くなる。
-  return b.fsm.timer > LASER_FADE_LEN ? 'full' : 'fade';
+  return b.gun.timer > LASER_FADE_LEN ? 'full' : 'fade';
 }
 
 /** 船が壊れて第2形態(タコだけ)へ移行する */
@@ -8661,6 +8668,7 @@ function breakShip() {
   if (boss.kind === 'octopus') {
     // 撃つのをやめて、体当たりだけになる
     boss.fsm.go('bare', boss);
+    boss.gun.go('wait', boss);
     // 壺から出たタコは体力を持ち直す(残りカスだと連打だけで終わってしまう)
     boss.max = 120 + stageNo * 24;
     boss.hp = boss.max;
@@ -9069,13 +9077,15 @@ const OCTO_FIRE = LASER_FIRE_LEN;
 const OCTO_GAP = 420;                 // 撃ち終わってから次の溜めまで
 
 /**
- * **タコ(壺のUFO)の局面。**
+ * **タコ(壺のUFO)の局面。**動きとレーザーで**機械を 2 つ**持つ。
  *
- *   arrive -> swing -> charge -> fire -> swing
+ *   動き    arrive -> swing            ( 壺が割れたら bare )
+ *   レーザー wait -> charge -> fire -> wait
  *
- * もとは `charging` と `firing` の**数え上げが残っているか**で局面を表していて、
+ * **並行に走る。**1 つにまとめたら、降りきるまで溜めが始まらなくなり、
+ * リリース時と動きが変わってしまった(比較の道具が見つけた)。
+ * もとは `charging` と `firing` の**数え上げが残っているか**で表していて、
  * 動きの側も当たり判定の側も `charging > 0 || firing > 0` と書いていた。
- * 船が壊れたあと(phase2)はレーザーを撃たないので、swing から出なくなる。
  */
 /**
  * 左右の往復。**溜めや発射で止まっているあいだは進み方も止めておかないと**、
@@ -9084,41 +9094,47 @@ const OCTO_GAP = 420;                 // 撃ち終わってから次の溜めま
  */
 function octoSwing(b) {
   b.y = 16;
+  // **溜め〜発射中は止まる。**進み方も止めておかないと、
+  // 動き出したときに位置が飛んでしまう(急にワープして見えた原因)
+  if (b.gun && b.gun.in('charge', 'fire')) return;
   b.swing = (b.swing || 0) + (b.phase2 ? 0.008 : 0.015);
   const target = (SCREEN_W - BOSS_W) / 2 + Math.sin(b.swing) * (b.phase2 ? 18 : 56);
   b.x += (target - b.x) * 0.08;   // 目標へなめらかに寄せる(急に飛ばない)
 }
 
 const OCTO_STATES = {
-  // HUD のすぐ下に陣取る(画面を広く使えるよう高めの位置)
+  // HUD のすぐ下に陣取る(画面を広く使えるよう高めの位置)。
+  // **降りているあいだもレーザーは溜まる**(別の機械なので)
   arrive: {
     update: (b) => { b.y += 0.5; },
     when: (b) => b.y >= 16,
     next: 'swing',
     exit: (b) => { b.y = 16; },
   },
-  // 左右の往復。次のレーザーまでの間。
-  // 一度定位置に着いたら上下には動かさない(8 ドット単位スクロールだと
-  // 細かい上下動がガタつきに見えるため)
-  swing: {
-    for: (b) => b.laserGap,
-    goes: ['charge'],
-    to: (b, f) => (f.timer > 0 ? null : 'charge'),
-    update: (b) => octoSwing(b),
-  },
+  // 左右の往復。一度定位置に着いたら上下には動かさない
+  // (8 ドット単位スクロールだと、細かい上下動がガタつきに見えるため)
+  swing: { update: (b) => octoSwing(b) },
   // **壺から出たあと。**弾を撃たず、体当たりだけで襲ってくる。
   // 局面にしておくと「どれだけ通るか」の表がこの名前で引ける
   bare: {
     viaGo: true,   // 船が壊れたとき(breakShip)
     update: (b) => octoSwing(b),
   },
+};
+
+/**
+ * **タコのレーザー。**動きとは別に走る。
+ * 壺が割れたら止める(呼ぶ側が step しない)
+ */
+const OCTO_GUN = {
+  // 次の溜めまでの間
+  wait: { for: (b) => b.laserGap, next: 'charge' },
   // 溜め。砲口の前で光の玉がふくらみ、外の輪が縮んでいく。
-  // **溜め〜発射中は停止する**
+  // **溜め〜発射中は本体が止まる**(octoSwing がこの局面を見ている)
   charge: {
     for: OCTO_CHARGE,
     next: 'fire',
     update: (b, f) => {
-      b.y = 16;
       // 溜めの音も 0.4 秒のかたまりをくり返す
       if (f.timer % SE_CHUNK === 0) mmsxx.audio.playSE('charging', SE_EVENT + 1);
       const t = 1 - f.timer / OCTO_CHARGE;
@@ -9154,9 +9170,8 @@ const OCTO_STATES = {
   // 発射。先端がじわじわ伸び、太さと色も段階で変わる
   fire: {
     for: OCTO_FIRE,
-    next: 'swing',
+    next: 'wait',
     update: (b, f) => {
-      b.y = 16;
       // 発射音は矩形波の和音を 1 回鳴らすだけ(切り分けていない長い SE)。
       // **太いあいだは半音高い音、細くなったら元の高さ**にして、
       // 「弱まった = いまが弱点」を音でも分かるようにする
@@ -9352,8 +9367,10 @@ function updateBoss() {
   // HUD のすぐ下に陣取る(画面を広く使えるよう高めの位置)。
   // 一度定位置に着いたら上下には動かさない(8 ドット単位スクロールだと
   // 細かい上下動がガタつきに見えるため)。
-  // 動きと移り先は OCTO_STATES に書いてある(レーザーの溜めと発射もそこ)
+  // 動きと移り先は OCTO_STATES に書いてある
   b.fsm.step(b);
+  // **レーザーは別の機械。**壺が割れたら撃たない
+  if (!b.phase2) b.gun.step(b);
 
   // BG スクロールでボスを動かす。レイヤーは 8 ドット単位なので、
   // 実際に表示される位置(sx, sy)を求めて目のスプライトと当たり判定に使う。
@@ -9380,7 +9397,7 @@ function updateBoss() {
     // レーザーを撃っているあいだは顔のまわりに縮こまって、
     // 発射口を狙う攻撃のじゃまにならないようにする。
     // 縮こまっているあいだ(レーザー発射中)はグーを握って無敵になる
-    const tight = b.fsm.is('fire');
+    const tight = b.gun.is('fire');
     b.guardTight = tight;
     const targetR = tight ? GUARD_R_TIGHT : GUARD_R;
     const targetY = b.sy + (tight ? HEAD_H / 2 : BOSS_H / 2) - 8;
@@ -9421,7 +9438,7 @@ function updateBoss() {
   // --- レーザー(第1形態のみ): 停止 -> 溜め -> 発射 ---
 
   // 溜めているあいだ・撃っているあいだは、ほかの攻撃はしてこない
-  if (b.fsm.in('charge', 'fire')) return;
+  if (b.gun.in('charge', 'fire')) return;
   // 壺から出たあと(第2形態)は弾を撃たず、体当たりだけで襲ってくる
   if (b.phase2) return;
   // 第1形態のリング弾は、回っているガードが吐き出す。
@@ -11359,7 +11376,7 @@ function kingToPhase2() {
  */
 mmsxx.expose('mmsxxState', (name, which = 'auto') => {
   if (!boss) return null;
-  const stages = boss.fsm, acts = boss.actFsm;
+  const stages = boss.fsm, acts = boss.actFsm || boss.gun;
   const pick = which === 'act' ? acts
     : which === 'stage' ? stages
     : (name && acts && acts.defs[name]) ? acts : stages;
@@ -11385,7 +11402,8 @@ mmsxx.expose('mmsxxState', (name, which = 'auto') => {
 mmsxx.expose('mmsxxStates', (kind = 'crab') => {
   const defs = {
     crab: CRAB_STATES, dragon: DRAGON_STATES, nautilus: NAUT_STATES,
-    king: KING_STAGES, kingActs: KING_ACTS, moai: MOAI_STATES, octopus: OCTO_STATES, todo: TODO_STATES,
+    king: KING_STAGES, kingActs: KING_ACTS, moai: MOAI_STATES,
+    octopus: OCTO_STATES, octoGun: OCTO_GUN, todo: TODO_STATES,
   }[kind];
   if (!defs) return null;
   const fsm = new StateMachine(defs);
@@ -11588,7 +11606,7 @@ mmsxx.expose('mmsxxDebug', () => ({
   secret: secretSpots ? secretSpots.map(s => ({ x: s.x, y: s.y, hits: s.hits, done: s.done })) : null,
   boss: boss ? {
     kind: boss.kind, hp: boss.hp, max: boss.max,
-    phase2: !!boss.phase2, firing: boss.fsm && boss.fsm.is('fire') ? 1 : 0,
+    phase2: !!boss.phase2, firing: boss.gun && boss.gun.is('fire') ? 1 : 0,
     mode: boss.fsm ? boss.fsm.state : boss.mode,
     stage: boss.fsm ? boss.fsm.state : null, act: boss.actFsm ? boss.actFsm.state : null, beams: kingBeams.length,
     // 崩し(ピヨらせ)の様子。撃たれるほど slowMul が下がり、0.1 で固まる
@@ -16335,7 +16353,7 @@ mmsxx.run(() => {
         + '  たくわえ ' + (boss.stunStock | 0)
       : null;
     stateMeter.tick({
-      ボス: boss && boss.fsm, 技: boss && boss.actFsm, 崩し: kingBreak,
+      ボス: boss && boss.fsm, 技: boss && boss.actFsm, レーザー: boss && boss.gun, 崩し: kingBreak,
       モアイ: moai && moai.fsm,
     });
   }
