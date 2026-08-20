@@ -2,6 +2,7 @@
 //
 //   node test/compare.mjs        … 全部の面
 //   node test/compare.mjs 3      … 3 面だけ
+//   node test/compare.mjs 3 --tally … 当たり方(何発どこに当たったか)も並べる
 //
 // 決め打ちの操作台本を流して、節目ごとの数字を書き出すだけ。
 // 同じものを前の版でも流して diff にかけると、
@@ -43,6 +44,29 @@ function keysAt(t) {
 
 const num = (v) => (typeof v === 'number' ? Math.round(v * 100) / 100 : '');
 
+// **当たり方まで見るか。**既定は見ない —
+// 数える口(mmsxxTally)が無い古い版と突き合わせるときに、全部の行が食い違ってしまう。
+// 両方に口があるとき(これから先どうしの比較)だけ --tally を付ける
+const WITH_TALLY = process.argv.includes('--tally');
+const TALLY_KEYS = ['weak', 'hard', 'head', 'body', 'shield', 'muzzle', 'flame', 'dmg'];
+
+/**
+ * ボスが何をされたかを 1 列に畳む。**局面をまたいで合計する** —
+ * 局面ごとの内訳は mmsxxTally() で見ればよく、ここで見たいのは
+ * 「当たり方そのものが変わっていないか」だけ。
+ * 体力と位置しか見ていないと、**当たる場所が変わっても結果が同じなら気づけない**
+ */
+function tallyCol() {
+  const t = win.mmsxxTally && win.mmsxxTally();
+  if (!t) return TALLY_KEYS.map(() => 0).join('/');
+  const sum = {};
+  for (const [k, row] of Object.entries(t)) {
+    if (typeof row !== 'object') continue;   // 種類 などの見出し
+    for (const [w, v] of Object.entries(row)) sum[w] = (sum[w] || 0) + v;
+  }
+  return TALLY_KEYS.map((k) => Math.round(sum[k] || 0)).join('/');
+}
+
 function digest(frame) {
   const d = win.mmsxxDebug();
   const b = d.boss || {};
@@ -51,7 +75,7 @@ function digest(frame) {
     frame, d.state, d.stageNo, num(d.playerX), d.bullets, d.stars,
     b.kind || '-', num(b.hp), num(b.bx), num(b.by), b.phase2 ? 1 : 0,
     mo.hp === undefined ? '-' : num(mo.hp), mo.angry ? 1 : 0,
-  ].join('\t');
+  ].concat(WITH_TALLY ? [tallyCol()] : []).join('\t');
 }
 
 const lines = [];
