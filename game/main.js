@@ -6729,10 +6729,12 @@ function updateNautilusBoss(b) {
 const DRAGON_W = 48, DRAGON_H = 48;
 // 突進中に開いた口へ撃ち込んだときのダメージ。もとは 8 だったが効きすぎたので 8 割
 const DRAGON_JAWS_DMG = 6.4;
-// ふだんの頭。**顔ぜんぶ**で受ける(うしろの節には当たり判定が無い)
-const DRAGON_FACE_DMG = 4;
-// 顔だけ出して構えているあいだ。当たりはするが、ふだんの 4 分の 1 だけ
-const DRAGON_PEEK_DMG = 1;
+// ふだん(旋回中)の顔。**それなりに通る**。
+// 3 にすると倒すまでの手数が 3 分の 1 になってしまう(公開版は実質これくらい)
+const DRAGON_FACE_DMG = 2;
+// 顔だけ出して構えているあいだ。**n 発に 1 しか通らない** —
+// ここは連射しどきなので、そのままだと倒しきれてしまう
+const DRAGON_PEEK_EVERY = 3;
 const DRAGON_SEGS = 12;             // 胴体の節の数(すき間ができないよう多め)
 const DRAGON_SEG = 24;
 const DRAGON_TRAIL = 5;             // 節どうしの間隔(フレーム)
@@ -6744,8 +6746,15 @@ const RAGE_SPEED = 4.5;
 // 出てきてから炎を吐きはじめるまでの間(2 秒)。入ってくる姿を見せる時間
 const DRAGON_CALM = 120;
 
-/** 旋回に戻るときの「次に怒るまで」。毎回ちがう */
-const dragonCalmSpan = () => 260 + Math.floor(rndBoss() * 180);
+/**
+ * 旋回に戻るときの「次に怒るまで」。毎回ちがう。
+ * **1 回目だけは決め打ちの 300 コマ**で、乱数を引かない —
+ * 出だしを毎回同じにするため(公開版がそうなっている)
+ */
+function dragonCalmSpan(b) {
+  if (!b.spunOnce) { b.spunOnce = true; return 300; }
+  return 260 + Math.floor(rndBoss() * 180);
+}
 
 /**
  * **宇宙ドラゴンの局面。**
@@ -9236,6 +9245,7 @@ const OCTO_GUN = {
  * | | |
  * |---|---|
  * | `every: n` | **n 発に 1 ダメージ**(硬い装甲) |
+ * | `weak` / `hard` | 弱点に当たったか、それ以外か で分ける |
  * | `quiet: true` | 通っても点滅させない(ほんの少ししか通らないので) |
  * | `onWeak: 'muzzle'` | 弱点に当たったら体力ではなく**部位**を削る |
  *
@@ -9243,11 +9253,15 @@ const OCTO_GUN = {
  * ノーチラスとラスボスはこの表を通らない(別の当たり判定を持っている)。
  */
 const BOSS_HITS = {
-  // 頭のどこに当てても通る。**厚みが局面で変わる**
+  // **通るのは顔だけ。**胴はうねって弾を止める盾(下の当たり判定)。
+  // 局面で厚みが変わる ── 突っ込んでくるときが最大の好機
   dragon: {
-    telegraph: DRAGON_PEEK_DMG,   // 顔だけ出して構えているあいだは薄く
-    charge: DRAGON_JAWS_DMG,      // 突進で口を開けているあいだは厚く
-    '*': DRAGON_FACE_DMG,
+    charge: DRAGON_JAWS_DMG,                    // 高リスクだが大きく削れる
+    // 顔だけ出して構えているあいだは**連射しどき**なのだが、
+    // そのまま倒しきれてしまうので硬くしてある。戻りも同じ扱い
+    hide: { every: DRAGON_PEEK_EVERY }, telegraph: { every: DRAGON_PEEK_EVERY },
+    rest: { every: DRAGON_PEEK_EVERY }, descend: { every: DRAGON_PEEK_EVERY },
+    '*': DRAGON_FACE_DMG,                       // 旋回中。それなりに通る
   },
   // 甲羅もハサミも硬い。**脚を折るのが本筋**(脚は別の判定)
   crab: {
@@ -9280,11 +9294,8 @@ function bossHitRule(b) {
 function isBossWeakPoint(b, x, y, bullet) {
   if (b.kind === 'todo') return true;   // 仮のボスはどこでも当たる
   if (b.kind === 'dragon') {
-    // **頭はどこに当てても通る。** 弾が当たるのはもともと頭の 48x48 だけで、
-    // うしろに続く節(胴)には当たり判定が無い。
-    // 目の枠だけに絞っていたころは、構え中に枠が画面の外へ出てしまい、
-    // 「当てられないのに硬い」ことになっていた。
-    // どれだけ通るかは局面で変える(突進の口 > ふだん > 構え中)
+    // **顔ならどこでも同じ。**目に特別な枠は置かない。
+    // 弾が当たるのは頭だけで、うしろに続く節は別に見ている(そちらは盾)
     return true;
   }
   // カニは本体に弱点が無い。狙うのはジャンプ中の脚(別に判定している)
@@ -10665,8 +10676,10 @@ function updatePlay() {
           }
           continue;
         }
-        // 硬い装甲は「n 発に 1 ダメージ」。それ以外は表の数をそのまま
+        // 硬い装甲は「n 発に 1 ダメージ」。
+        // weak / hard があれば当たった場所で分け、数だけならそのまま
         const dmg = rule.every ? ((boss.age % rule.every === 0) ? 1 : 0)
+          : rule.weak !== undefined ? (weak ? rule.weak : rule.hard)
           : (rule.dmg !== undefined ? rule.dmg : (weak ? 3 : 1));
         // 近いほど・上から攻めるほど効く(最大 4 倍)。
         // 装甲などで 0 ダメージのものは 0 のまま
