@@ -10642,6 +10642,26 @@ function updatePlay() {
     }
   }
 
+  // --- 当たり判定: 自弾 vs ドラゴンの胴 ---
+  // **体は無敵で、弾を止める。**うねった胴がそのまま盾になるので、
+  // 顔を狙うには体のすき間を抜かないといけない。
+  // (顔に重なっている節は描いていないので、そこは盾にしない。
+  //  盾にすると顔の前に見えない壁ができてしまう)
+  if (boss && boss.kind === 'dragon' && boss.dying <= 0 && boss.segs) {
+    const R = DRAGON_SEG / 2 - 3;
+    for (const b of [...bullets]) {
+      for (const sp of boss.segs) {
+        if (!sp.visible) continue;
+        if (Math.abs((b.sp.x + 8) - (sp.x + DRAGON_SEG / 2)) < R &&
+            Math.abs((b.sp.y + 8) - (sp.y + DRAGON_SEG / 2)) < R) {
+          bulletHits(b);
+          mmsxx.audio.playSE('armor', SE_HIT);
+          break;
+        }
+      }
+    }
+  }
+
   // --- 当たり判定: 自弾 vs ボス ---
   if (boss && boss.dying <= 0 && boss.y > -10 &&
       boss.kind !== 'nautilus' && boss.kind !== 'king') {
