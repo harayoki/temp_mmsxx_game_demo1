@@ -2629,6 +2629,7 @@ function burnBossBehind(fx, fy, r) {
     return;
   }
   boss.hp -= dmg;
+  tallyHit(boss, 'flame', dmg);
   boss.flash = 4;
   mmsxx.audio.playSE('weak');
   spawnWeakSpark(fx - 8, fy - 8);
@@ -9278,6 +9279,34 @@ const BOSS_HITS = {
   todo: { '*': 3 },
 };
 
+/**
+ * **ボスが何をされたかを数える。**局面ごとに数えるので、
+ * 「この局面で何発当たったか」が**そのまま試験の言葉になる**。
+ *
+ *   mmsxxTally()
+ *   // { 'man/idle': { head: 14, body: 0, dmg: 112 }, 'man/stun': { ... } }
+ *
+ * 「きんぐがピヨらない」を追ったとき、当たった先を数えるために手でコードを
+ * 埋め込んだ。**最初からこれがあれば数分で済んだ**(答えは「14 発とも頭に
+ * 当たっていて、崩しは胴にしか溜まらない」だった)。
+ *
+ * @param {object} b ボス
+ * @param {string} where どこに当たったか(weak / hard / head / body / shield / muzzle / flame / part)
+ * @param {number} [dmg] 実際に通った量
+ */
+let lastTally = null;   // 倒したあとも見られるように、最後のぶんを覚えておく
+
+function tallyHit(b, where, dmg = 0) {
+  if (!b) return;
+  // **いちばん細かい局面で引く。**ラスボスは段階と技の 2 段あるので両方
+  const st = ((b.fsm && b.fsm.state) || '-') + (b.actFsm ? '/' + b.actFsm.state : '');
+  const t = b.tally || (b.tally = { 種類: b.kind });
+  lastTally = t;
+  const row = t[st] || (t[st] = {});
+  row[where] = (row[where] || 0) + 1;
+  if (dmg) row.dmg = Math.round(((row.dmg || 0) + dmg) * 10) / 10;
+}
+
 /** いまの局面で、自弾がどう通るか。表に無いボスは null */
 function bossHitRule(b) {
   const t = b && BOSS_HITS[b.kind];
@@ -10598,7 +10627,11 @@ function updatePlay() {
         // 頭に当たると 2 倍。上から攻めるのが効く相手にする
         const head = (b.sp.y + 8) < boss.y + KING_MAN_H * KING_HEAD_RATIO;
         // 頭は 2 倍。さらに近いほど効く(上からの倍率は頭の判定と重なるので入れない)
-        boss.hp -= Math.max(1, Math.round(BOSS_DMG * (head ? 2 : 1) * bossDamageMul(boss, false)));
+        const kingDmg = Math.max(1, Math.round(BOSS_DMG * (head ? 2 : 1) * bossDamageMul(boss, false)));
+        boss.hp -= kingDmg;
+        // **崩しは胴にしか溜まらない。**頭と胴を分けて数えておくと、
+        // 「頭ばかり当てていてピヨらない」が数字で見える
+        tallyHit(boss, head ? 'head' : 'body', kingDmg);
         // **弾で削ったという印**。座って立て直すのは、これがあるときだけ
         boss.shotSince = true;
         boss.flash = 6;
@@ -10655,6 +10688,7 @@ function updatePlay() {
         if (Math.abs((b.sp.x + 8) - (sp.x + DRAGON_SEG / 2)) < R &&
             Math.abs((b.sp.y + 8) - (sp.y + DRAGON_SEG / 2)) < R) {
           bulletHits(b);
+          tallyHit(boss, 'shield');
           mmsxx.audio.playSE('armor', SE_HIT);
           break;
         }
@@ -10682,6 +10716,7 @@ function updatePlay() {
         // タコの発射口は「壊せる部位」。開いているあいだに撃ち込めば
         // 体力を削らずにそのまま撃破できる(手のひらを全部壊す道もある)
         if (rule.onWeak === 'muzzle' && weak) {
+          tallyHit(boss, 'muzzle', 1);
           boss.muzzleHp -= 1;
           boss.flash = 6;
           mmsxx.audio.playSE('weak');
@@ -10703,7 +10738,9 @@ function updatePlay() {
           : (rule.dmg !== undefined ? rule.dmg : (weak ? 3 : 1));
         // 近いほど・上から攻めるほど効く(最大 4 倍)。
         // 装甲などで 0 ダメージのものは 0 のまま
-        boss.hp -= dmg > 0 ? Math.max(1, Math.round(dmg * bossDamageMul(boss))) : 0;
+        const applied = dmg > 0 ? Math.max(1, Math.round(dmg * bossDamageMul(boss))) : 0;
+        boss.hp -= applied;
+        tallyHit(boss, weak ? 'weak' : 'hard', applied);
         // 装甲を 8 割削っても壊れる。
         // タコの場合は「回るガードを全部壊す」でも壺が割れるので、
         // 発射口を狙う攻略と、ガードを削る攻略のどちらからでも無防備にできる
@@ -11400,6 +11437,13 @@ function kingToPhase2() {
   makeKingMan(boss);
   return boss.fsm.state;
 }
+
+/**
+ * デバッグ用: **ボスが何をされたかを局面ごとに見る。**
+ * 「当てているつもりで当たっていない」「当たっているのに効いていない」を
+ * 数で切り分けるためのもの
+ */
+mmsxx.expose('mmsxxTally', () => (boss && boss.tally) || lastTally);
 
 /**
  * デバッグ用: **いまのボスを好きな局面へ飛ばす。**
