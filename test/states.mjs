@@ -27,6 +27,56 @@ for (const kind of ['crab', 'dragon', 'king', 'kingActs', 'nautilus', 'moai', 'o
   check(kind + ': 図を吐ける', !!decl && decl.mermaid.includes('stateDiagram-v2'));
 }
 
+// ---- 2. 挙動確認の面(いちばん先にやる) ----
+//
+// **動かない的を決まった場所に並べた面**(`mmsxxBoss(110)`)。
+// ふつうの面は敵の湧きが時間まかせで、狙ったものに当てられない。
+//
+// **自機を定位置へ置くのが肝。** `mmsxxBoss()` で入ると自機は前にいた場所
+// (たいてい画面の上)のままで、上へ飛ぶ弾が的に永久に届かない。
+// これに気づかず「当たらない」を何度も読み違えた。
+let diag = '';
+const shotAt = (X) => {
+  win.mmsxxBoss(110);
+  m.advance(90);
+  for (let i = 0; i < 500; i++) {
+    const cur = win.mmsxxHitTargets().find((z) => z.x === X);
+    if (!cur || !cur.生きている) return i;
+    const d = win.mmsxxDebug();
+    // **幅を広めに取る。**狭いと自機が行き過ぎて往復し、撃つ回数が安定しない
+    if (d.playerX < X - 5) m.input.press('ArrowRight');
+    else if (d.playerX > X + 5) m.input.press('ArrowLeft');
+    m.input.press('Space');
+    m.advance(1);
+    m.input.release('Space'); m.input.release('ArrowRight'); m.input.release('ArrowLeft');
+    m.advance(1);
+    // 撃ったあとにも見る(最後の 1 発で壊れたのを取りこぼさない)
+    const now2 = win.mmsxxHitTargets().find((z) => z.x === X);
+    if (!now2 || !now2.生きている) return i + 1;
+  }
+  const d = win.mmsxxDebug();
+  diag = '自機 ' + d.playerX + ',' + d.playerY + ' / ' + d.state + ' / 弾 ' + d.bullets
+    + ' / 的 ' + win.mmsxxHitTargets().map((z) => z.x + (z.生きている ? '' : '×')).join(' ');
+  return -1;
+};
+
+win.mmsxxBoss(110);
+m.advance(2);
+const targets = win.mmsxxHitTargets();
+check('的が並ぶ', targets.length >= 5, targets.map((t) => t.種類 + t.型).join(' '));
+
+const before = win.mmsxxHitTargets().map((t) => t.x + ',' + t.y).join(' ');
+m.advance(600);
+const after = win.mmsxxHitTargets().map((t) => t.x + ',' + t.y).join(' ');
+check('的は動かない', before === after, after);
+
+// **数えるのは 1 回だけ。**呼ぶたびに入り直すので、2 回呼ぶと判定と表示がずれる
+const soft = shotAt(24), hard = shotAt(104), ring = shotAt(32), plain = shotAt(72);
+check('やわらかい敵は壊せる', soft > 0, soft + ' 回 ' + (soft < 0 ? diag : ''));
+check('硬い敵のほうが手数が要る', hard > soft, hard + ' 回');
+check('撃ち落とせる弾は落とせる', ring > 0, ring + ' 回');
+check('撃ち落とせない弾は残る', plain === -1, plain === -1 ? '残った' : '落ちた');
+
 // ---- 2. 実際に回るか ----
 // カニロボは 2 面のボス。出したあと、**上から降りてくる(enter)** ので、
 // しばらく回せば必ず壁に着く(attach)
@@ -40,15 +90,20 @@ let seen = new Set([now()]);
 for (let i = 0; i < 200 && now() === 'enter'; i++) { m.advance(1); seen.add(now()); }
 check('降りきると attach', now() === 'attach', now());
 
-// ハサミを撃ち尽くすと跳ぶ(jump)。撃つには自機と高さが合う必要があるので、
-// **待つのではなく、跳ぶ条件をそろえて**確かめる。
-// 何コマで跳ぶかは狙いが合うかどうか次第なので、上限だけ決めて回す
-for (let i = 0; i < 3600 && !seen.has('jump'); i++) { m.advance(1); seen.add(now()); }
-check('いずれ jump へ移る', seen.has('jump'), [...seen].join(' -> '));
-
-// 渡りきったら壁へ戻る
-for (let i = 0; i < 600 && now() === 'jump'; i++) m.advance(1);
-check('渡りきると attach へ戻る', now() === 'attach', now());
+// ハサミを撃ち尽くすと跳ぶ(jump)。何コマで跳ぶかは狙いが合うかどうか次第。
+//
+// **跳ぶのは最初の 1 回だけ**なので、「跳んだか」と「渡りきったか」を
+// 1 回の走査で拾う。あとから jump を待ち直すと、もう来なくて空振りする
+let wasJump = false, afterJump = null;
+for (let i = 0; i < 3600 && !afterJump; i++) {
+  m.advance(1);
+  const s = now();
+  seen.add(s);
+  if (s === 'jump') wasJump = true;
+  else if (wasJump) afterJump = s;
+}
+check('いずれ jump へ移る', wasJump, [...seen].join(' -> '));
+check('渡りきると attach へ戻る', afterJump === 'attach', String(afterJump));
 
 // 甲羅が割れたら、どの局面からでも float。**行き止まり**なので戻らない
 win.mmsxxCrabPhase2();

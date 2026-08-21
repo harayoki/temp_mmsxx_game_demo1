@@ -1463,8 +1463,11 @@ function clearAsteroids() {
 function updateAsteroids() {
   for (const a of [...asteroids]) {
     a.age++;
-    a.sp.y += 0.55;
-    a.sp.x += Math.sin(a.age * 0.012) * 0.4;
+    // **挙動確認の的は流れない**
+    if (!a.frozen) {
+      a.sp.y += 0.55;
+      a.sp.x += Math.sin(a.age * 0.012) * 0.4;
+    }
     // 本体はいつも同じ絵。光るのは重ねたハイライトのスプライトだけにする
     a.sp.image = BG_SYMBOLS.asteroid;
     if (a.hi) {
@@ -2239,7 +2242,7 @@ function clearRockets() {
 
 function updateRockets() {
   for (const r of [...rockets]) {
-    r.sp.y += 1.1;
+    if (!r.frozen) r.sp.y += 1.1;   // **挙動確認の的は流れない**
     if (r.flash > 0) {
       r.flash--;
       // 被弾中だけ白く光らせる(ふだんは frames の色替えにまかせる)
@@ -3833,6 +3836,9 @@ const MODE_PUSH_Y = MODE_Y + 24;
 const RUSH_EYES = 101;   // 目玉 2 体
 const RUSH_MOAI = 102;   // 合体モアイ
 const RUSH_TODO = 103;   // 仮ボス「未実装君」(6 面がラスボスになったので本編から外れた)
+// **挙動確認の面。**動かない的を決まった場所に並べるだけで、ボスは出ない。
+// 本編からもボスラッシュからも来ない(mmsxxBoss(110) でだけ入る)
+const RUSH_HITTEST = 110;
 
 // ボスラッシュで戦う相手。0 = 4 体タイムアタック / それ以外はその相手だけ。
 // 相手の選択はボスラッシュのメニュー(rushMenuList)で行う
@@ -8322,7 +8328,85 @@ function beginBossMode() {
   bossVisible = true;
 }
 
+/**
+ * **挙動確認の面。**当たり判定を確かめるための的を、決まった場所に並べる。
+ *
+ * ふつうの面は敵の湧きが時間まかせなので、**狙ったものに当てられない**。
+ * (きんぐの崩しを調べたとき「13 発とも頭に当たる」で行き詰まった。
+ *  ドラゴンの尻尾にも当てられなかった)
+ * ここは全部止まっているので、x を指定すれば必ずそこへ当たる。
+ *
+ * 的の場所は `mmsxxHitTargets()` で取れる。試験はそれを見て狙う。
+ */
+const HITTEST_LAYOUT = [
+  // 型・x・y。**y は自機(160 あたり)より上**にして、まっすぐ撃てば当たるように
+  { kind: 'enemy', type: 'A', x: 24, y: 60 },
+  { kind: 'enemy', type: 'C', x: 64, y: 60 },   // 硬い(6 発)
+  { kind: 'enemy', type: 'K', x: 104, y: 60 },  // とても硬い(10 発)
+  { kind: 'asteroid', x: 152, y: 52 },          // 壊せるが硬い
+  { kind: 'rocket', x: 200, y: 56 },
+  { kind: 'bullet', x: 32, y: 108, breakable: true },   // 撃ち落とせる
+  { kind: 'bullet', x: 72, y: 108, breakable: false },  // 撃ち落とせない(すり抜ける)
+];
+
+/** 並べた的。null なら確認の面ではない */
+let hitTargets = null;
+
+function spawnHitTest() {
+  hitTargets = [];
+  // **自機を定位置(画面の下)へ置き、前の場面の名残を消す。**
+  // mmsxxBoss() で入ると自機は前にいた場所のまま(たいてい画面の上)で、
+  // 上へ飛ぶ弾が的に永久に届かない。今日の測定を全部ゆがめていたのがこれ。
+  // 面クリアの上昇(leaving)が残っていると、置いてもまた上がっていく
+  player.x = 8; player.y = SCREEN_H - 32;
+  player.visible = true;
+  leaving = false; entering = false; enterDelay = 0; respawnDelay = 0;
+  // 前の面がボス戦だと bossMode が残り、ボスがいないので「倒した」とみなされる
+  bossMode = false;
+  for (const t of HITTEST_LAYOUT) {
+    let sp = null, obj = null, list = null;
+    if (t.kind === 'enemy') {
+      const e = spawnEnemy(t.type, t.x, 0);
+      if (!e) continue;
+      e.sp.x = t.x; e.sp.y = t.y;
+      e.fireTimer = 1e9;         // 撃ってこない(確かめたいのは当たりだけ)
+      e.frozen = true;
+      sp = e.sp; obj = e; list = enemies;
+    } else if (t.kind === 'asteroid') {
+      spawnAsteroid();
+      const a = asteroids[asteroids.length - 1];
+      if (!a) continue;
+      a.sp.x = t.x; a.sp.y = t.y;
+      a.vx = 0; a.vy = 0; a.frozen = true;
+      sp = a.sp; obj = a; list = asteroids;
+    } else if (t.kind === 'rocket') {
+      spawnRocket();
+      const r = rockets[rockets.length - 1];
+      if (!r) continue;
+      r.sp.x = t.x; r.sp.y = t.y; r.frozen = true;
+      sp = r.sp; obj = r; list = rockets;
+    } else if (t.kind === 'bullet') {
+      fireEnemyBullet(t.x, t.y, 0, 0, t.breakable);
+      const eb = enemyBullets[enemyBullets.length - 1];
+      if (!eb) continue;
+      eb.frozen = true;
+      sp = eb.sp; obj = eb; list = enemyBullets;
+    }
+    if (sp) hitTargets.push({ sp, x: t.x, y: t.y, 中身: t, obj, list });
+  }
+}
+
 function spawnBoss() {
+  // **挙動確認の面はボスを出さない。**的を並べて終わり
+  if (stageNo === RUSH_HITTEST) {
+    // **ボス戦にはしない。**ボスがいないまま bossMode にすると
+    // 「倒した」とみなされて面クリアの流れに入ってしまう。
+    // 敵の湧きは canEnemy の門(!hitTargets)で止める
+    hud.clear(); drawHUD();
+    spawnHitTest();
+    return;
+  }
+  hitTargets = null;
   beginBossMode();
   // 出てきた時点で図鑑の姿が出るようになる。
   // どこから出しても(本編・ボスラッシュ・シーン選択)同じ扱い
@@ -9698,7 +9782,8 @@ function updatePlay() {
   // キューブは 3 秒、敵は 6 秒たってから出てくる。
   // モアイが出ているあいだは、ほかの敵もアイテムも出さない
   const canCube = canSpawn && playFrame >= INTRO_QUIET && !moaiActive();
-  const canEnemy = canSpawn && playFrame >= INTRO_QUIET_ENEMY && !moaiActive();
+  // **挙動確認の面では何も湧かせない。**動くものが混ざると確認台にならない
+  const canEnemy = canSpawn && playFrame >= INTRO_QUIET_ENEMY && !moaiActive() && !hitTargets;
   while (waveIndex < STAGE.list.length && STAGE.list[waveIndex].frame <= stageTime) {
     const w = STAGE.list[waveIndex++];
     if (canEnemy) spawnEnemy(w.type, w.x, w.phase);
@@ -9912,6 +9997,8 @@ function updatePlay() {
   // --- 敵の行動 ---
   for (const e of [...enemies]) {
     e.age++;
+    // **挙動確認の的は動かない。**当てたいところへ必ず当てられるように
+    if (e.frozen) continue;
     const sp = e.sp;
     if (e.type === 'D') {
       // キューブ: まっすぐ落ちてくるだけ(自機を追わない・撃ってこない)
@@ -10086,6 +10173,8 @@ function updatePlay() {
       b.sp.image = ((Math.floor(mmsxx.frame / 3) + (b.sp.__ringPhase || 0)) & 1)
         ? SPRITE_SYMBOLS.bulletRingCyan : SPRITE_SYMBOLS.bulletRing;
     }
+    // **挙動確認の的は動かない**(追いかけもしない)
+    if (b.frozen) continue;
     // リング弾(撃ち落とせる弾)は、ゆっくり自機の方へ向きを変える
     // 自機より下まで来たら追うのをやめる(引き返してこない)
     if (b.breakable && state === 'play' && b.sp.y < player.y) {
@@ -11463,6 +11552,18 @@ function kingToPhase2() {
 }
 
 /**
+ * デバッグ用: **挙動確認の面に並べた的の場所**を返す。
+ * 試験はこれを見て狙う(`mmsxxBoss(110)` で入る)
+ */
+mmsxx.expose('mmsxxHitTargets', () => (hitTargets || []).map((t) => ({
+  種類: t.中身.kind, 型: t.中身.type || '-',
+  // **いまの場所**を返す(置いたつもりの場所ではなく)。
+  // ここを「置いたつもり」にしていたせいで、動いている的が止まって見えていた
+  x: Math.round(t.sp.x), y: Math.round(t.sp.y),
+  生きている: t.list.includes(t.obj),
+})));
+
+/**
  * デバッグ用: **ボスが何をされたかを局面ごとに見る。**
  * 「当てているつもりで当たっていない」「当たっているのに効いていない」を
  * 数で切り分けるためのもの
@@ -11689,7 +11790,7 @@ mmsxx.expose('mmsxxDebug', () => ({
   playFrame, bossIntro, bossMode, stars, need: starsNeeded(), paused,
   score,
   gear: { shotLevel, speedLevel, maxVolleys, damageLevel, barrierHP, ships },
-  playerX: Math.round(player.x), bullets: bullets.length,
+  playerX: Math.round(player.x), playerY: Math.round(player.y), bullets: bullets.length,
   talkHold, continueStages: { ...continueStages },
   // こすり打ちの案内(出すまでの残りコマ / もう出した場面)
   rub: { in: rubHintIn, done: [...rubHintDone] },
