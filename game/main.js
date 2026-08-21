@@ -9493,6 +9493,93 @@ function updateBoss() {
   }
 }
 
+/**
+ * **自弾が当たる相手の表。**「誰と誰が当たるか」をここで一覧にする。
+ *
+ * もとは 1 組ごとに二重ループを手書きしていて、**関係が 17 か所に散っていた**。
+ * 形は全部同じ(箱が重なったら弾が消えて、何かが起きる)なので、
+ * **変わるところ ── 箱と、当たったときにすること ── だけ**を書く。
+ *
+ * | | |
+ * |---|---|
+ * | `list` | 相手の一覧を返す |
+ * | `box`  | 相手の中心と、半分の大きさ `[cx, cy, hw, hh]` |
+ * | `hit`  | 当たったときにすること。**弾はここへ来る前に消えている** |
+ * | `skip` | 見ないものを外す(撃ち落とせない弾など) |
+ *
+ * **まだ手書きのまま**: モアイ / ノーチラスの装甲 / ハサミ / カニの脚 /
+ * UFO のガード / 隠し場所 / ラスボス / ドラゴンの胴 / ボス本体。
+ * どれも部位ごとに効きが違うので、[BOSS_HITS](#) と合わせて追い追い。
+ *
+ * **まだ当たらないもの**(ここに 1 行足せば当たるようになる):
+ * 敵弾どうし / 敵どうし / 敵と敵弾。
+ */
+const SHOT_HITS = [
+  // ふつうの敵。**小惑星は絵が大きいので判定も広い**
+  { list: () => enemies, box: (e) => [e.sp.x + 8, e.sp.y + 8, 10, 10],
+    hit: (e) => hitEnemy(e, DAMAGE_TABLE[damageLevel - 1], true) },
+  // 小惑星。とても硬いぶん、壊すと派手に爆発する
+  { list: () => asteroids, box: (a) => [astCX(a), astCY(a), AST_SIZE / 2 - 4, AST_SIZE / 2 - 4],
+    hit: (a) => hitAsteroid(a) },
+  // ボスの弾。**撃ち落とせるものだけ**
+  { list: () => enemyBullets, box: (eb) => [eb.sp.x + 8, eb.sp.y + 8, 7, 7],
+    skip: (eb) => !eb.breakable, hit: (eb) => shootDownBullet(eb) },
+  // ロケット弾
+  { list: () => rockets,
+    box: (r) => [r.sp.x + ROCKET_W / 2, r.sp.y + ROCKET_H / 2, ROCKET_W / 2, ROCKET_H / 2],
+    hit: (r) => hitRocket(r) },
+];
+
+/**
+ * 表の 1 行を回す。**当たったら弾は消えて、その弾はそこで終わり**
+ * (1 発が 2 つの相手に当たることはない)
+ */
+function shotsInto(pair) {
+  const list = pair.list();
+  if (!list || !list.length) return;
+  for (const b of [...bullets]) {
+    for (const o of [...list]) {
+      if (pair.skip && pair.skip(o)) continue;
+      const [cx, cy, hw, hh] = pair.box(o);
+      if (Math.abs((b.sp.x + 8) - cx) < hw && Math.abs((b.sp.y + 8) - cy) < hh) {
+        bulletHits(b);
+        pair.hit(o, b);
+        break;
+      }
+    }
+  }
+}
+
+/** 小惑星に当たったとき。硬いので削り、壊れたら派手に散る */
+function hitAsteroid(a) {
+  if ((a.hp -= DAMAGE_TABLE[damageLevel - 1]) > 0) { pingAsteroid(a); return; }
+  for (let i = 0; i < 4; i++) {
+    spawnBoom(a.sp.x + Math.random() * AST_SIZE, a.sp.y + Math.random() * AST_SIZE);
+  }
+  mmsxx.audio.playSE('bigboom', SE_HIT);
+  bigKills++;
+  score += 5000;
+  spawnPopup(a.sp.x, a.sp.y, 5000);
+  mmsxx.removeBgSprite(a.sp);
+  if (a.hi) mmsxx.removeSprite(a.hi);
+  asteroids.splice(asteroids.indexOf(a), 1);
+}
+
+/** 撃ち落とせる敵弾を落としたとき。タコの弾は高得点 */
+function shootDownBullet(eb) {
+  mmsxx.removeSprite(eb.sp);
+  enemyBullets.splice(enemyBullets.indexOf(eb), 1);
+  score += 300;
+  drawHUD();
+}
+
+/** ロケット弾に当たったとき */
+function hitRocket(r) {
+  r.hp -= DAMAGE_TABLE[damageLevel - 1];
+  if (r.hp <= 0) breakRocket(r);
+  else { r.flash = 4; mmsxx.audio.playSE('thud', SE_HIT); }
+}
+
 function updatePlay() {
   playFrame++;
   if (recordOn()) { tally.frames++; updateRapid(); }
@@ -10180,73 +10267,10 @@ function updatePlay() {
     }
   }
 
-  // --- 当たり判定: 自弾 vs 敵 ---
-  for (const b of [...bullets]) {
-    for (const e of [...enemies]) {
-      // 小惑星は絵が大きいので判定も広い
-      if (Math.abs((b.sp.x + 8) - (e.sp.x + 8)) < 10 &&
-          Math.abs((b.sp.y + 8) - (e.sp.y + 8)) < 10) {
-        bulletHits(b);
-        hitEnemy(e, DAMAGE_TABLE[damageLevel - 1], true);
-        break;
-      }
-    }
-  }
-
-  // --- 当たり判定: 自弾 vs 小惑星 (壊せないので弾が消えるだけ) ---
-  for (const b of [...bullets]) {
-    for (const a of asteroids) {
-      if (Math.abs((b.sp.x + 8) - astCX(a)) < AST_SIZE / 2 - 4 &&
-          Math.abs((b.sp.y + 8) - astCY(a)) < AST_SIZE / 2 - 4) {
-        bulletHits(b);
-        if ((a.hp -= DAMAGE_TABLE[damageLevel - 1]) <= 0) {
-          // とても硬いぶん、壊すと派手に爆発する
-          for (let i = 0; i < 4; i++) {
-            spawnBoom(a.sp.x + Math.random() * AST_SIZE, a.sp.y + Math.random() * AST_SIZE);
-          }
-          mmsxx.audio.playSE('bigboom', SE_HIT);
-          bigKills++;
-          score += 5000;
-          spawnPopup(a.sp.x, a.sp.y, 5000);
-          mmsxx.removeBgSprite(a.sp);
-          if (a.hi) mmsxx.removeSprite(a.hi);
-          asteroids.splice(asteroids.indexOf(a), 1);
-        } else {
-          pingAsteroid(a);
-        }
-        break;
-      }
-    }
-  }
-
-  // --- 当たり判定: 自弾 vs ボスの弾 (ボスの弾は撃ち落とせる) ---
-  for (const b of [...bullets]) {
-    for (const eb of enemyBullets) {
-      if (!eb.breakable) continue;
-      if (Math.abs(b.sp.x - eb.sp.x) < 7 && Math.abs(b.sp.y - eb.sp.y) < 7) {
-        bulletHits(b);
-        mmsxx.removeSprite(eb.sp);
-        enemyBullets.splice(enemyBullets.indexOf(eb), 1);
-        score += 300; // タコの弾は高得点
-        drawHUD();
-        break;
-      }
-    }
-  }
-
-  // --- 当たり判定: 自弾 vs ロケット弾 ---
-  for (const b of [...bullets]) {
-    for (const r of [...rockets]) {
-      if (b.sp.x + 8 > r.sp.x && b.sp.x + 8 < r.sp.x + ROCKET_W &&
-          b.sp.y + 8 > r.sp.y && b.sp.y + 8 < r.sp.y + ROCKET_H) {
-        bulletHits(b);
-        r.hp -= DAMAGE_TABLE[damageLevel - 1];
-        if (r.hp <= 0) breakRocket(r);
-        else { r.flash = 4; mmsxx.audio.playSE('thud', SE_HIT); }
-        break;
-      }
-    }
-  }
+  // --- 当たり判定: 自弾 vs ふつうの相手 ---
+  // **形がそろっているものは表で持つ。**下に続く「ボスの部位」は
+  // それぞれ事情が違うので、いまは手書きのまま(一覧は SHOT_HITS の上に書いた)
+  for (const pair of SHOT_HITS) shotsInto(pair);
 
   // --- 当たり判定: 自弾 vs 目玉 ---
   for (const b of [...bullets]) {
