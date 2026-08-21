@@ -94,16 +94,16 @@ check('降りきると attach', now() === 'attach', now());
 //
 // **跳ぶのは最初の 1 回だけ**なので、「跳んだか」と「渡りきったか」を
 // 1 回の走査で拾う。あとから jump を待ち直すと、もう来なくて空振りする
-let wasJump = false, afterJump = null;
-for (let i = 0; i < 3600 && !afterJump; i++) {
-  m.advance(1);
-  const s = now();
-  seen.add(s);
-  if (s === 'jump') wasJump = true;
-  else if (wasJump) afterJump = s;
-}
-check('いずれ jump へ移る', wasJump, [...seen].join(' -> '));
-check('渡りきると attach へ戻る', afterJump === 'attach', String(afterJump));
+// **1 コマごとに覗くのではなく、移り変わりの記録を見る。**
+// 渡りきった直後に壁の粘り時間が尽きて、`jump -> attach` と
+// `attach -> exit` が**同じコマ**で起きることがある
+for (let i = 0; i < 3600 && !seen.has('jump'); i++) { m.advance(1); seen.add(now()); }
+check('いずれ jump へ移る', seen.has('jump'), [...seen].join(' -> '));
+m.advance(600);
+const crabLog = win.mmsxxLog(60).filter((l) => l.includes('カニ'));
+check('渡りきると attach へ戻る',
+  crabLog.some((l) => l.includes('jump -> attach')),
+  crabLog.slice(-4).join(' / '));
 
 // 甲羅が割れたら、どの局面からでも float。**行き止まり**なので戻らない
 win.mmsxxCrabPhase2();

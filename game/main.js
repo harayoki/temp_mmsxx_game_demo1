@@ -300,6 +300,9 @@ if (shareBtnEl) {
 }
 
 // 色合いと音は、エンジンを作ったあとに効かせる(?palette= / ?mute= / ?volume=)
+// 局面の移り変わりの記録に、コマ番号を入れてもらう
+// (道具はエンジンを知らないので、こちらから渡す)
+StateMachine.clock = () => mmsxx.frame;
 URL_OPT.apply(mmsxx);
 // **開発版だけ**: 乱数の種を決める。同じ出かたをくり返し見られる
 if (DEV) {
@@ -1787,7 +1790,7 @@ function spawnMoai() {
       mk(BG_SYMBOLS.moaiBR, cx + MOAI_QW + 48, SCREEN_H + 8, 3),
     ],
   };
-  moai.fsm = new StateMachine(MOAI_STATES, { start: 'hold', ctx: moai });
+  moai.fsm = new StateMachine(MOAI_STATES, { start: 'hold', ctx: moai, name: 'モアイ' });
   // 怒ると赤とピンクに変わる(色だけで伝える)
   moai.rage = 0;
   moai.angry = false;
@@ -6369,7 +6372,7 @@ function spawnCrabBoss() {
   });
   boss.x = boss.side < 0 ? 0 : SCREEN_W - CRAB_W;
   boss.y = -CRAB_H;        // 画面の上から降りてくる
-  boss.fsm = new StateMachine(CRAB_STATES, { start: 'enter', ctx: boss });
+  boss.fsm = new StateMachine(CRAB_STATES, { start: 'enter', ctx: boss, name: 'カニ' });
   boss.wallTimer = 0;
   drawBossBody();
   playBGM('boss', true);
@@ -6669,7 +6672,7 @@ function spawnNautilusBoss() {
     blocks, orbs, core, spin: 0, orbSpin: 0, fire: 90,
     ringR: NAUT_R, ringTimer: 300,
   };
-  boss.fsm = new StateMachine(NAUT_STATES, { start: 'arrive', ctx: boss });
+  boss.fsm = new StateMachine(NAUT_STATES, { start: 'arrive', ctx: boss, name: '貝' });
   drawBossBody();
   playBGM('boss', true);
 }
@@ -6894,7 +6897,7 @@ function spawnDragonBoss() {
   // 頭は胴体の節より手前に置く(顔が埋もれないように)
   // 「3・2・1」の声は宣言(cues)から届く。何コマ目で鳴らすかは局面の側が持つ
   boss.fsm = new StateMachine(DRAGON_STATES, {
-    start: 'spiral', ctx: boss,
+    start: 'spiral', ctx: boss, name: '竜',
     on: (cue) => mmsxx.audio.playSE(cue, SE_EVENT + 2),
   });
   boss.partHead = bossPart(BG_SYMBOLS.dragonHead, 1);
@@ -7025,7 +7028,7 @@ function spawnTodoBoss() {
     x: (SCREEN_W - TODO_W) / 2, y: -TODO_H, hp, max: hp, age: 0, flash: 0, dying: 0,
     eyeL, eyeR, charge: null, phase2: false,
   };
-  boss.fsm = new StateMachine(TODO_STATES, { start: 'arrive', ctx: boss });
+  boss.fsm = new StateMachine(TODO_STATES, { start: 'arrive', ctx: boss, name: '未実装' });
   boss.partFace = bossPart(BG_SYMBOLS.todoFace);
   boss.crown = mmsxx.sprite(SPRITE_SYMBOLS.crownCyan);   // 顔と色がかぶるので水色
   boss.crown.priority = 15;
@@ -7719,7 +7722,7 @@ function spawnKingBoss() {
     hp: RIFT_HITS, max: RIFT_HITS, age: 0, flash: 0, dying: 0, phase2: false,
     spin: 0, hits: 0, man: null,
   };
-  boss.fsm = new StateMachine(KING_STAGES, { start: 'open', ctx: boss });
+  boss.fsm = new StateMachine(KING_STAGES, { start: 'open', ctx: boss, name: '王' });
   boss.rift = bossPart(KING_RIFT_OPEN[0], 1);
   // 壊れるときにまわりへ走るひび(裂け目より奥)
   // ひびは絵ではなくマス目で広げる(絵だと黒い余白が四角く見えてしまう)
@@ -8157,7 +8160,7 @@ const KING_ACTS = {
 
 function updateKingFight(b) {
   if (!b.actFsm) {
-    b.actFsm = new StateMachine(KING_ACTS, { start: 'idle', ctx: b });
+    b.actFsm = new StateMachine(KING_ACTS, { start: 'idle', ctx: b, name: '技' });
     b.slowMul = 1; b.guard = 0;
     b.stunStock = KING_STUN_MAX;   // ピヨらせられる残り回数
     b.meditateCount = 0;
@@ -8478,8 +8481,8 @@ function spawnBoss() {
     muzzleHp: 12,       // 発射口の耐久。壊すとその場で撃破(手のひらを削る道もある)
     laserLen: 0,
   };
-  boss.fsm = new StateMachine(OCTO_STATES, { start: 'arrive', ctx: boss });
-  boss.gun = new StateMachine(OCTO_GUN, { start: 'wait', ctx: boss });
+  boss.fsm = new StateMachine(OCTO_STATES, { start: 'arrive', ctx: boss, name: 'タコ' });
+  boss.gun = new StateMachine(OCTO_GUN, { start: 'wait', ctx: boss, name: '光線' });
   boss.partHead = bossPart(BG_SYMBOLS.bossHead);
   boss.partShip = bossPart(BG_SYMBOLS.bossShip);
   drawBossBody();
@@ -10778,8 +10781,11 @@ function updatePlay() {
             }
           }
         }
-        // 撃たれると技をやめる。踏み込みも助走も、途中で崩れて構えへ戻る
-        if (boss.actFsm && !boss.actFsm.is('idle')) {
+        // 撃たれると技をやめる。踏み込みも助走も、途中で崩れて構えへ戻る。
+        // **ピヨりと座禅は別。**もとは技(act)とピヨり(stun)が別の持ちもので、
+        // 技を待機へ戻してもピヨりは残った。1 つの機械にまとめたとき、
+        // ここでピヨりごと解いてしまっていた(崩したそばから立ち直っていた)
+        if (boss.actFsm && !kingIs(boss, 'idle', 'stun', 'meditate')) {
           boss.actFsm.go('idle', boss);
         }
         mmsxx.audio.playSE('weak');
@@ -11550,6 +11556,29 @@ function kingToPhase2() {
   makeKingMan(boss);
   return boss.fsm.state;
 }
+
+/**
+ * デバッグ用: **局面の移り変わりの記録**を読む。
+ * 「何コマ目に、どの機械が、どこからどこへ移ったか」が並ぶ
+ */
+mmsxx.expose('mmsxxLog', (n = 40) => StateMachine.history(n));
+
+/**
+ * デバッグ用: **自機を定位置(画面の下)へ置く。**
+ *
+ * mmsxxBoss() で入っただけだと、自機は**前にいた場所のまま**(たいてい画面の上)。
+ * 上へ飛ぶ弾が相手の下へ回り込めず、当たる場所が偏る。
+ * (きんぐを調べたとき「13 発とも頭に当たる」で行き詰まった原因がこれ)
+ *
+ * **mmsxxBoss() の中ではやらない。**公開版と突き合わせるとき、
+ * 向こうにこの直しは無いので、自機の位置が全部食い違ってしまう
+ */
+mmsxx.expose('mmsxxPlacePlayer', (x = (SCREEN_W - 16) / 2) => {
+  player.x = x; player.y = SCREEN_H - 32;
+  player.visible = true;
+  leaving = false; entering = false; enterDelay = 0; respawnDelay = 0;
+  return { x: Math.round(player.x), y: Math.round(player.y) };
+});
 
 /**
  * デバッグ用: **挙動確認の面に並べた的の場所**を返す。

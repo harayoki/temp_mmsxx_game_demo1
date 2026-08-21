@@ -42,10 +42,36 @@
  */
 export class StateMachine {
   /**
+   * **移り変わりをぜんぶ書き留める場所。**機械をまたいで 1 本にまとめる。
+   *
+   *   StateMachine.history()
+   *   // [ '  1820  技 idle -> stun', '  1821  技 stun -> idle', ... ]
+   *
+   * 「崩したのにピヨらない」を追ったとき、`onChange` を手で仕込んで
+   * やっと `idle>stun, stun>idle` が見えた。**はじめから残しておけば
+   * その場で分かる**ので、常に取る(1 回の移りにつき 1 つ積むだけ)。
+   */
+  static log = [];
+  /** ためておく数。古いものから捨てる */
+  static logMax = 300;
+  /** いまが何コマ目か。**呼ぶ側が入れ替える**(エンジンを知らないため) */
+  static clock = () => 0;
+
+  /** 記録を読める形で返す。新しいものが後ろ */
+  static history(n = 40) {
+    return StateMachine.log.slice(-n).map((e) =>
+      String(e.at).padStart(6) + '  ' + e.who + ' ' + e.from + ' -> ' + e.to);
+  }
+
+  /** 記録を捨てる(場面を変えるときなど) */
+  static clearLog() { StateMachine.log.length = 0; }
+
+  /**
    * @param {object} defs 局面の宣言。`{ 名前: 書きかた }`
    * @param {object} [opts]
    * @param {string} [opts.start] 始まりの局面(省くと宣言の 1 つめ)
    * @param {any} [opts.ctx] 相手。**始まりの局面の `for` が関数なら要る**
+   * @param {string} [opts.name] 記録に出す名前(「技」「ボス」など)
    * @param {(cue: string, ctx: any) => void} [opts.on] 合図(cues)の受け取り
    * @param {(from: string, to: string, ctx: any) => void} [opts.onChange] 移ったとき
    */
@@ -54,6 +80,8 @@ export class StateMachine {
     this.names = Object.keys(defs);
     if (!this.names.length) throw new Error('StateMachine: 局面がひとつも無い');
     this.on = opts.on || null;
+    /** 記録に出す名前 */
+    this.name = opts.name || '?';
     this.onChange = opts.onChange || null;
     /** いまの局面の名前 */
     this.state = opts.start || this.names[0];
@@ -101,6 +129,9 @@ export class StateMachine {
     this._entered = false;
     this.trail.push(name);
     if (this.trail.length > 8) this.trail.shift();
+    // **移り変わりを 1 本の記録へ。**あとから「何コマ目に何が起きたか」を追える
+    StateMachine.log.push({ at: StateMachine.clock(), who: this.name, from, to: name });
+    if (StateMachine.log.length > StateMachine.logMax) StateMachine.log.shift();
     if (this.onChange) this.onChange(from, name, ctx);
     return name;
   }
