@@ -1,4 +1,4 @@
-﻿import { VDP, SCREEN_W, SCREEN_H, VIRTUAL_W, VIRTUAL_H } from './video.js';
+﻿import { VDP, SCREEN_W, SCREEN_H, VIRTUAL_W, VIRTUAL_H, snapTo } from './video.js';
 import { PSGPlayer } from '../vendor/mmsxx-mml-studio/sound/audio.js';
 import { Input } from './input.js';
 import { ErrorLog } from './errorlog.js';
@@ -124,6 +124,34 @@ class LayerHandle {
 export class MMSXXEngine {
   /** エンジンの版(コンソールの名乗りなどに使う) */
   static get version() { return '0.60'; }
+
+  /**
+   * **当たり判定で位置を丸める単位。**`0` なら丸めない。
+   *
+   * MSX の BG スプライトは 8 ドット刻みでしか置けないので、
+   * 見た目に合わせるなら当たりも 8 で丸める(既定)。
+   * **吸着するかどうかも、いくつで丸めるかも、ゲームごとに変わる** ──
+   * 8 ドット刻みを持たない機械もあるし、数のまま当てたいゲームもある。
+   *
+   *   mmsxx.hitSnap = 8;   // 見た目に合わせる(MSX の既定)
+   *   mmsxx.hitSnap = 0;   // 丸めない(数のまま)
+   *   mmsxx.hitSnap = 16;  // 別の機械
+   *
+   * 見た目のほうの丸めは `snapView()`。**あちらは機械の決まり**なので変えない。
+   */
+  hitSnap = 8;
+
+  /**
+   * **当たりに使う位置。**丸めるかどうかは `hitSnap` が決める。
+   * 当たり判定はここだけを通す(式を写して持たない)
+   */
+  snapHit(v) { return snapTo(v, this.hitSnap); }
+
+  /**
+   * **見た目に合わせる丸め。**BG スプライトを置くときと同じ 8 ドット刻み。
+   * 絵の重ね合わせ(目・王冠・炎)を本体とそろえるのに使う
+   */
+  snapView(v) { return snapTo(v, 8); }
 
   /**
    * @param {HTMLCanvasElement} canvas

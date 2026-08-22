@@ -92,8 +92,18 @@ function fillCells(px, w, h, backdrop) {
   }
 }
 
+/**
+ * **好きな単位に丸める。**負の値でも下方向に丸める。
+ * `unit` が 0 以下なら丸めない(数のまま)。
+ *
+ * 当たり判定でも同じ式を使いたいので、ここから出しておく。
+ * **写しを 2 つ持つと、片方だけ変わったときに
+ * 当たりと見た目が黙って食い違う**(実際そうなりかけていた)。
+ */
+export const snapTo = (v, unit) => (unit > 0 ? Math.floor(Math.round(v) / unit) * unit : v);
+
 /** BG の座標は 8 ドット単位に丸める(負の値でも下方向に丸める) */
-const snap8 = v => Math.floor(Math.round(v) / 8) * 8;
+const snap8 = v => snapTo(v, 8);
 /** 幅・高さは 8 の倍数に切り上げる */
 const ceil8 = v => Math.ceil(Math.round(v) / 8) * 8;
 

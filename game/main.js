@@ -1427,8 +1427,9 @@ const AST_HP = 170;   // とても硬いが壊せる(256 の 2/3 ほど)
 // 小惑星は BG スプライトなので、画面には 8 ドット単位に丸めた位置で出る。
 // 当たり判定を持っている値(丸める前)のまま使うと、見えている絵と最大 7 ドット
 // ずれてしまう。判定も描画と同じ丸めかた(snap8)にそろえる
-const astCX = a => snap8(a.sp.x) + AST_SIZE / 2;
-const astCY = a => snap8(a.sp.y) + AST_SIZE / 2;
+// **当たりに使う中心。**丸めるかどうかはゲームの決めごと
+const astCX = a => snapHit(a.sp.x) + AST_SIZE / 2;
+const astCY = a => snapHit(a.sp.y) + AST_SIZE / 2;
 let asteroids = [];
 // 弾が当たったときの点滅用。当たるたびに白と黄で交互に光らせて存在を目立たせる
 let astFlashImgs = null;
@@ -1488,7 +1489,7 @@ function updateAsteroids() {
       }
     }
     // ハイライトは本体(8 ドット単位)にぴたりと合わせる
-    if (a.hi) { a.hi.x = snap8(a.sp.x); a.hi.y = snap8(a.sp.y); }
+    if (a.hi) { a.hi.x = snapView(a.sp.x); a.hi.y = snapView(a.sp.y); }
     if (a.sp.y > SCREEN_H + AST_SIZE) {
       // 壊せずに流れていった小惑星は、どれだけ削れていたかを記録しておく
       stats.log('asteroidGone', { damage: AST_HP - a.hp, stage: stageNo });
@@ -1603,7 +1604,7 @@ function updateEyeballs() {
     // 瞳は自機の方を向く。動いているあいだは本体(BG スプライト)と同じ
     // 8 ドット刻みにしてずれを防ぎ、止まっているあいだは滑らかに動かす
     const moving = e.state !== 'hover';
-    const bx = snap8(e.sp.x), by = snap8(e.sp.y);
+    const bx = snapView(e.sp.x), by = snapView(e.sp.y);
     const cx = bx + EYE_SIZE / 2, cy = by + EYE_SIZE / 2;
     const a = Math.atan2(player.y + 8 - cy, player.x + 8 - cx);
     if (moving) {
@@ -2224,7 +2225,7 @@ function spawnRocket() {
   // 当たり判定のある BG は、背景と見間違えないよう毎コマ色を入れ替える
   sp.frameRate = 1;
   sp.x = Math.max(0, Math.min(SCREEN_W - ROCKET_W,
-    snap8(player.x - 4 + (rnd() - 0.5) * 64)));
+    snapView(player.x - 4 + (rnd() - 0.5) * 64)));
   sp.y = -ROCKET_H;
   // 弾頭の光は、**BG スプライトのコマ送り**で見せる(重ねるスプライトは使わない)。
   // 4 コマに 1 回だけ黄色いコマが混ざって、光ったように見える
@@ -2261,8 +2262,8 @@ function updateRockets() {
     }
     // 炎はミサイルのお尻(上側)に付ける
     if (r.flame) {
-      r.flame.x = snap8(r.sp.x);
-      r.flame.y = snap8(r.sp.y) - 44;
+      r.flame.x = snapView(r.sp.x);
+      r.flame.y = snapView(r.sp.y) - 44;
       r.flame.visible = true;
     }
     if (r.sp.y > SCREEN_H + 8) {
@@ -6094,9 +6095,14 @@ const LASER_W = 16;                       // 当たり判定の幅
 const LASER_DRAW_W = 12;                  // 見た目の幅
 const LASER_X = (BOSS_W - LASER_W) / 2;   // 船の左端からの位置(中央)
 const LASER_DRAW_X = (BOSS_W - LASER_DRAW_W) / 2;
-// エンジンが BG スプライトを置くときと同じ式にそろえる。
-// (片方が切り捨てだけだと 8 ドットずれて、重ねた目や王冠が外れる)
-const snap8 = v => Math.floor(Math.round(v) / 8) * 8;
+// **丸めの式はエンジンが持つ。**ここに写しを置くと、
+// 片方だけ変わったときに当たりと見た目が黙って食い違う。
+//
+// 分けて呼ぶ ── 絵をそろえるのは snapView、当たりに使うのは snapHit。
+// **当たりを丸めるかどうかはゲームの決めごと**(mmsxx.hitSnap)なので、
+// 8 ドット刻みを持たない機械へ移しても、ここを直さずに済む
+const snapView = v => mmsxx.snapView(v);
+const snapHit = v => mmsxx.snapHit(v);
 
 /**
  * ボス戦を終えて layer3 を背景プレーンに戻す。
@@ -6468,7 +6474,11 @@ function updateCrabBoss(b) {
 
   // BG スプライトは 8 ドット単位に丸められるので、
   // 当たり判定などに使う画面座標もそろえておく
-  b.sx = snap8(b.x); b.sy = snap8(b.y);
+  // **見た目は 8 ドット刻み**(BG スプライトがそこにしか置けない)。
+  // **当たりは別**にして、丸めるかどうかをゲームが決められるようにする。
+  // 既定(hitSnap = 8)ではどちらも同じ値になるので、いまの手ざわりは変わらない
+  b.sx = snapView(b.x); b.sy = snapView(b.y);
+  b.hx = snapHit(b.x); b.hy = snapHit(b.y);
   drawBossBody();
   if (b.crown) {
     b.crown.visible = bossVisible;
@@ -6708,7 +6718,11 @@ function updateNautilusBoss(b) {
     b.ringTimer = wide ? 300 + Math.floor(rndBoss() * 180) : 180;
   }
   b.ringR += ((b.ringTarget || NAUT_R) - b.ringR) * 0.03;
-  b.sx = snap8(b.x); b.sy = snap8(b.y);
+  // **見た目は 8 ドット刻み**(BG スプライトがそこにしか置けない)。
+  // **当たりは別**にして、丸めるかどうかをゲームが決められるようにする。
+  // 既定(hitSnap = 8)ではどちらも同じ値になるので、いまの手ざわりは変わらない
+  b.sx = snapView(b.x); b.sy = snapView(b.y);
+  b.hx = snapHit(b.x); b.hy = snapHit(b.y);
   drawBossBody();
 
   if (state !== 'play') return;
@@ -6942,7 +6956,11 @@ function updateDragonBoss(b) {
 
   // BG スプライトは 8 ドット単位に丸められるので、
   // 当たり判定などに使う画面座標もそろえておく
-  b.sx = snap8(b.x); b.sy = snap8(b.y);
+  // **見た目は 8 ドット刻み**(BG スプライトがそこにしか置けない)。
+  // **当たりは別**にして、丸めるかどうかをゲームが決められるようにする。
+  // 既定(hitSnap = 8)ではどちらも同じ値になるので、いまの手ざわりは変わらない
+  b.sx = snapView(b.x); b.sy = snapView(b.y);
+  b.hx = snapHit(b.x); b.hy = snapHit(b.y);
 
   // 冠と目は、**位置を出し直したあとに**置く。
   // 前は動かす前の座標で置いていたので、頭が速く動くと 1 コマぶん遅れて
@@ -6998,8 +7016,8 @@ function updateDragonBoss(b) {
   }
   // 小惑星にぶつかると大ダメージ(うまく誘導すると一気に削れる)
   for (const a of asteroids) {
-    if (Math.abs(astCX(a) - (b.sx + DRAGON_W / 2)) < 32 &&
-        Math.abs(astCY(a) - (b.sy + DRAGON_H / 2)) < 32) {
+    if (Math.abs(astCX(a) - (b.hx + DRAGON_W / 2)) < 32 &&
+        Math.abs(astCY(a) - (b.hy + DRAGON_H / 2)) < 32) {
       b.hp -= 12;
       b.flash = 8;
       spawnBoom(b.sx + 16, b.sy + 16);
@@ -7334,7 +7352,11 @@ function updateTodoBoss(b) {
   }
   // BG スプライトは 8 ドット単位に丸められるので、
   // 当たり判定などに使う画面座標もそろえておく
-  b.sx = snap8(b.x); b.sy = snap8(b.y);
+  // **見た目は 8 ドット刻み**(BG スプライトがそこにしか置けない)。
+  // **当たりは別**にして、丸めるかどうかをゲームが決められるようにする。
+  // 既定(hitSnap = 8)ではどちらも同じ値になるので、いまの手ざわりは変わらない
+  b.sx = snapView(b.x); b.sy = snapView(b.y);
+  b.hx = snapHit(b.x); b.hy = snapHit(b.y);
   drawBossBody();
   b.eyeL.visible = b.eyeR.visible = false;
 }
@@ -7723,7 +7745,7 @@ function spawnKingBoss() {
   boss = {
     kind: 'king',
     // 裂け目は動かない。共通処理(爆発の位置など)のために x/y も持っておく
-    x: RIFT_X, y: RIFT_Y, sx: RIFT_X, sy: RIFT_Y,
+    x: RIFT_X, y: RIFT_Y, sx: RIFT_X, sy: RIFT_Y, hx: RIFT_X, hy: RIFT_Y,
     hp: RIFT_HITS, max: RIFT_HITS, age: 0, flash: 0, dying: 0, phase2: false,
     spin: 0, hits: 0, man: null,
   };
@@ -8546,7 +8568,7 @@ function drawBossBody() {
   if (b.kind === 'todo') {
     b.partFace.x = b.x; b.partFace.y = b.y; b.partFace.visible = vis;
     if (b.crown) {
-      const kx = snap8(b.x), ky = snap8(b.y);
+      const kx = snapView(b.x), ky = snapView(b.y);
       b.crown.visible = vis;
       // 王冠は頭の右上にちょこんと乗せる
       b.crown.x = kx + TODO_W - 28;
@@ -8555,13 +8577,13 @@ function drawBossBody() {
     // ほおの赤みは顔の横のほうへ。目の中には白い反射を入れる
     for (const [i, sp] of (b.blush || []).entries()) {
       sp.visible = vis;
-      sp.x = snap8(b.x) + (i ? 34 : 2);
-      sp.y = snap8(b.y) + 26;
+      sp.x = snapView(b.x) + (i ? 34 : 2);
+      sp.y = snapView(b.y) + 26;
     }
     if (b.glint) {
       b.glint.visible = vis;
-      b.glint.x = snap8(b.x) + 15;
-      b.glint.y = snap8(b.y) + 20;
+      b.glint.x = snapView(b.x) + 15;
+      b.glint.y = snapView(b.y) + 20;
     }
     // 涙は下で位置を決めるので、ここでは何もしない
     return;
@@ -8617,14 +8639,14 @@ function drawBossBody() {
       o.sp.y = cy + Math.sin(a) * r - 8;
     }
     if (b.crown) {
-      const kx = snap8(b.x), ky = snap8(b.y);
+      const kx = snapView(b.x), ky = snapView(b.y);
       b.crown.visible = vis;
       b.crown.x = kx + 10; b.crown.y = ky - 8;
     }
     if (b.eyeL) {
       // 殻は BG スプライトなので 8 ドット刻みで動く。
       // 目もその刻みに吸着させる。向きは黒目だけで見せる
-      const ex = snap8(b.x), ey = snap8(b.y);
+      const ex = snapView(b.x), ey = snapView(b.y);
       b.eyeL.visible = vis;
       b.eyeL.x = ex + 11;
       b.eyeL.y = ey + 22;
@@ -9089,7 +9111,7 @@ let kingEscape = null;
  */
 function startKingEscape(cx, cy) {
   clearKingEscape();
-  const manX = snap8(cx - KING_MAN_W / 2);
+  const manX = snapView(cx - KING_MAN_W / 2);
   const x = manX + (KING_MAN_W - 32) / 2;
   const y = cy;
   // 評価の文字(レイヤー 4)より奥に出す。BG スプライトはレイヤーと同じ
@@ -9506,8 +9528,8 @@ function isBossWeakPoint(b, x, y, bullet) {
   // 発射口の左右にはガードがあるので、斜めの弾は弾かれる。
   if (laserPhase(b) !== 'fade') return false;
   if (bullet && Math.abs(bullet.vx) > 2.5) return false;   // 斜めの弾は弾く
-  const lx = b.sx + LASER_X;
-  return x > lx && x < lx + LASER_W && y > b.sy + HEAD_H;
+  const lx = b.hx + LASER_X;
+  return x > lx && x < lx + LASER_W && y > b.hy + HEAD_H;
 }
 
 function updateBoss() {
@@ -9532,7 +9554,7 @@ function updateBoss() {
         spawnBoom(b.x + Math.random() * KING_MAN_W, b.y + Math.random() * KING_MAN_H);
         mmsxx.audio.playSE('boom', SE_HIT);
       }
-      b.sx = b.x; b.sy = b.y;
+      b.sx = b.x; b.sy = b.y; b.hx = b.x; b.hy = b.y;
       drawBossBody();
       updateRedSpace();
       if (b.dying <= 0) bossDefeated();
@@ -9558,7 +9580,11 @@ function updateBoss() {
     if (b.brow) b.brow.visible = false;
     if (b.crown) b.crown.visible = false;
     for (const sp of b.clawSps || []) sp.visible = false;
-    b.sx = snap8(b.x); b.sy = snap8(b.y);
+    // **見た目は 8 ドット刻み**(BG スプライトがそこにしか置けない)。
+  // **当たりは別**にして、丸めるかどうかをゲームが決められるようにする。
+  // 既定(hitSnap = 8)ではどちらも同じ値になるので、いまの手ざわりは変わらない
+  b.sx = snapView(b.x); b.sy = snapView(b.y);
+  b.hx = snapHit(b.x); b.hy = snapHit(b.y);
     drawBossBody();
     if (b.dying <= 0) bossDefeated();
     return;
@@ -9586,7 +9612,11 @@ function updateBoss() {
   // 実際に表示される位置(sx, sy)を求めて目のスプライトと当たり判定に使う。
   // BG スプライトは 8 ドット単位に丸められるので、
   // 当たり判定などに使う画面座標もそろえておく
-  b.sx = snap8(b.x); b.sy = snap8(b.y);
+  // **見た目は 8 ドット刻み**(BG スプライトがそこにしか置けない)。
+  // **当たりは別**にして、丸めるかどうかをゲームが決められるようにする。
+  // 既定(hitSnap = 8)ではどちらも同じ値になるので、いまの手ざわりは変わらない
+  b.sx = snapView(b.x); b.sy = snapView(b.y);
+  b.hx = snapHit(b.x); b.hy = snapHit(b.y);
   drawBossBody();
   b.eyeL.visible = b.eyeR.visible = bossVisible;
   const sink = b.phase2 ? 0 : HEAD_SINK;
@@ -10708,8 +10738,8 @@ function updatePlay() {
       for (const lg of boss.legs) {
         if (lg.hp <= 0) continue;
         // 脚は BG スプライト。見えている位置(8 ドットに丸めたもの)で判定する
-        if (Math.abs((b.sp.x + 8) - (snap8(lg.sp.x) + 12)) < 13 &&
-            Math.abs((b.sp.y + 8) - (snap8(lg.sp.y) + 8)) < 8) {
+        if (Math.abs((b.sp.x + 8) - (snapHit(lg.sp.x) + 12)) < 13 &&
+            Math.abs((b.sp.y + 8) - (snapHit(lg.sp.y) + 8)) < 8) {
           bulletHits(b);
           lg.hp -= BOSS_DMG;
           tallyHit(boss, 'leg', BOSS_DMG);
@@ -11203,8 +11233,8 @@ function updatePlay() {
       }
       // レーザーの帯に触れたら即死(バリアでも防げない)
       if (laserPhase(boss) === 'full') {
-        const lx = boss.sx + LASER_X;
-        const top = boss.sy + BOSS_H;
+        const lx = boss.hx + LASER_X;
+        const top = boss.hy + BOSS_H;
         if (px > lx - 2 && px < lx + LASER_W + 2 &&
             py > top && py < top + (boss.laserLen || 0)) {
           // **バリアでも肩代わりできない**(第 2 引数)。
@@ -11423,7 +11453,7 @@ function updateHitArea() {
       haAt(cx, boss.y + bh, bw, bh, HA_BOSS);
       // 脚の絵は 24x16。判定(中心 +12/+8、半分 14/12)に合わせて枠を描く
       for (const lg of boss.legs || []) if (lg.hp > 0 && lg.sp.visible) {
-        haAt(snap8(lg.sp.x) + 12, snap8(lg.sp.y) + 8, 13, 8, HA_BOSS);
+        haAt(snapHit(lg.sp.x) + 12, snapHit(lg.sp.y) + 8, 13, 8, HA_BOSS);
       }
       // 本体に付いたハサミ。生えかけのぶんは伸びた先までしか無い
       if (crab && !boss.phase2) (boss.partClaws || []).forEach((sp, i) => {
