@@ -52,7 +52,7 @@ export class StateMachine {
    * その場で分かる**ので、常に取る(1 回の移りにつき 1 つ積むだけ)。
    */
   static log = [];
-  /** ためておく数。古いものから捨てる */
+  /** ためておく数。古いものから捨てる。**0 にすると取らない**(本番用) */
   static logMax = 300;
   /** いまが何コマ目か。**呼ぶ側が入れ替える**(エンジンを知らないため) */
   static clock = () => 0;
@@ -129,9 +129,12 @@ export class StateMachine {
     this._entered = false;
     this.trail.push(name);
     if (this.trail.length > 8) this.trail.shift();
-    // **移り変わりを 1 本の記録へ。**あとから「何コマ目に何が起きたか」を追える
-    StateMachine.log.push({ at: StateMachine.clock(), who: this.name, from, to: name });
-    if (StateMachine.log.length > StateMachine.logMax) StateMachine.log.shift();
+    // **移り変わりを 1 本の記録へ。**あとから「何コマ目に何が起きたか」を追える。
+    // logMax が 0 なら何もしない(本番では取らない)
+    if (StateMachine.logMax > 0) {
+      StateMachine.log.push({ at: StateMachine.clock(), who: this.name, from, to: name });
+      if (StateMachine.log.length > StateMachine.logMax) StateMachine.log.shift();
+    }
     if (this.onChange) this.onChange(from, name, ctx);
     return name;
   }

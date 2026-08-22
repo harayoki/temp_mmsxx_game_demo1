@@ -300,9 +300,10 @@ if (shareBtnEl) {
 }
 
 // 色合いと音は、エンジンを作ったあとに効かせる(?palette= / ?mute= / ?volume=)
-// 局面の移り変わりの記録に、コマ番号を入れてもらう
-// (道具はエンジンを知らないので、こちらから渡す)
-StateMachine.clock = () => mmsxx.frame;
+// 局面の移り変わりの記録。**開発版だけ**取る
+// (コマ番号は道具のほうでは分からないので、こちらから渡す)
+if (DEV) StateMachine.clock = () => mmsxx.frame;
+else StateMachine.logMax = 0;
 URL_OPT.apply(mmsxx);
 // **開発版だけ**: 乱数の種を決める。同じ出かたをくり返し見られる
 if (DEV) {
@@ -9384,7 +9385,8 @@ const BOSS_HITS = {
 let lastTally = null;   // 倒したあとも見られるように、最後のぶんを覚えておく
 
 function tallyHit(b, where, dmg = 0) {
-  if (!b) return;
+  // **本番では数えない。**遊ぶ人には要らないし、当たるたびに積むのは無駄
+  if (!DEV || !b) return;
   // **いちばん細かい局面で引く。**ラスボスは段階と技の 2 段あるので両方
   const st = ((b.fsm && b.fsm.state) || '-') + (b.actFsm ? '/' + b.actFsm.state : '');
   const t = b.tally || (b.tally = { 種類: b.kind });
@@ -10441,6 +10443,7 @@ function updatePlay() {
         const dmg = DAMAGE_TABLE[damageLevel - 1];
         if (moaiShape(moai) === 'one') {
           moai.hp -= dmg;
+          tallyHit(moai, 'body', dmg);
           p.flash = 4;
           mmsxx.audio.playSE('weak');
           spawnWeakSpark(b.sp.x, b.sp.y);
@@ -10458,6 +10461,7 @@ function updatePlay() {
         } else {
           // 上下 2 つのときは、どちらを撃っても同じ体力を削る(一心同体)
           moai.insideHp -= dmg;
+          tallyHit(moai, 'inside', dmg);
           p.flash = 4;
           mmsxx.audio.playSE('guardhit', SE_HIT);
           spawnWeakSpark(b.sp.x, b.sp.y);
@@ -10483,10 +10487,11 @@ function updatePlay() {
         if (Math.abs(bx - (g.sp.x + 8)) > r || Math.abs(by - (g.sp.y + 8)) > r) continue;
         bulletHits(b);
         done = true;
-        if (!g.weak || boss.phase2) { mmsxx.audio.playSE('armor'); break; }
+        if (!g.weak || boss.phase2) { tallyHit(boss, 'armor'); mmsxx.audio.playSE('armor'); break; }
         // 弱点の装甲だけがへこむ。攻撃力によらず 1 発 1 ダメージ。
         // 本体の体力(ゲージ)は減らない
         boss.weakHp -= 1;
+        tallyHit(boss, 'panel', 1);
         // ほかの当たり音と区別できるよう、パネル用の音にする
         mmsxx.audio.playSE('panel', SE_HIT);
         spawnWeakSpark(b.sp.x, b.sp.y);
@@ -10543,7 +10548,10 @@ function updatePlay() {
       }
       // 中に入って撃つぶんは、すき間ごしの小ダメージの 2 倍。
       // 装備によらず一定なので、あっという間に終わらない
-      boss.hp -= inside ? 2 : 1;
+      const nautDmg = inside ? 2 : 1;
+      boss.hp -= nautDmg;
+      // **中へ入って撃ったか、すき間ごしか**が分かれる
+      tallyHit(boss, inside ? 'core' : 'gap', nautDmg);
 
       boss.flash = 6;
       mmsxx.audio.playSE('weak');
@@ -10578,6 +10586,7 @@ function updatePlay() {
         if (by < sp.y + 8 || by > sp.y + CRAB_CLAW_H - 8) continue;
         bulletHits(b);
         boss.clawHp[i] -= BOSS_DMG;
+        tallyHit(boss, 'claw', BOSS_DMG);
         mmsxx.audio.playSE('guardhit', 1);
         spawnWeakSpark(b.sp.x, b.sp.y);
         if (boss.clawHp[i] <= 0) {
@@ -10610,6 +10619,7 @@ function updatePlay() {
             Math.abs((b.sp.y + 8) - (snap8(lg.sp.y) + 8)) < 8) {
           bulletHits(b);
           lg.hp -= BOSS_DMG;
+          tallyHit(boss, 'leg', BOSS_DMG);
           // 脚に当たったことがはっきり分かる光と音
           spawnWeakSpark(lg.sp.x, lg.sp.y);
           mmsxx.audio.playSE(lg.hp <= 0 ? 'bigboom' : 'guardhit', 1);
@@ -10650,6 +10660,7 @@ function updatePlay() {
             Math.abs((b.sp.y + 8) - (g.sp.y + 8)) < 10) {
           bulletHits(b);
           g.hp -= BOSS_DMG;
+          tallyHit(boss, 'guard', BOSS_DMG);
           if (g.hp <= 0) {
             g.sp.visible = false;
             spawnBoom(g.sp.x, g.sp.y);
