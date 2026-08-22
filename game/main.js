@@ -9400,6 +9400,83 @@ function tallyHit(b, where, dmg = 0) {
   if (dmg) row.dmg = Math.round(((row.dmg || 0) + dmg) * 10) / 10;
 }
 
+/**
+ * **同じ一覧の中でぶつかるもの。**「誰と誰が当たるか」の残り半分。
+ *
+ * 自弾の表([SHOT_HITS](#))が「自弾 vs 相手」なのに対して、こちらは
+ * 「敵弾 vs 敵弾」「敵 vs 敵」のような**同じ種類どうし**を受け持つ。
+ *
+ * **いまはどれも止めてある**(`on: false`)。遊びの中身が変わるので、
+ * 出す前に手ざわりを見たい。開発版では `mmsxxPairs('enemyShot', true)` で試せる。
+ *
+ * | | |
+ * |---|---|
+ * | `on`   | 当てるかどうか。**ここが唯一の切り替え** |
+ * | `list` | 一覧を返す |
+ * | `only` | ぶつかるものだけ選ぶ(重い弾だけ、など) |
+ * | `box`  | 中心と半分の大きさ `[cx, cy, hw, hh]`。**重なりは半分どうしの和**で見る |
+ * | `hit`  | ぶつかったときにすること |
+ */
+const SELF_HITS = {
+  // **敵弾どうし。**ぶつかるのは重い弾(撃ち落とせるリング)だけにする。
+  // 小さい弾まで巻き込むと、避ける材料が勝手に消えて弾幕がゆるくなる
+  enemyShot: {
+    on: false,
+    list: () => enemyBullets,
+    only: (b) => b.breakable,
+    box: (b) => [b.sp.x + 8, b.sp.y + 8, 5, 5],
+    // **点は入らない。**遊ぶ人が落としたわけではないので
+    hit: (a, b) => {
+      removeEnemyBullet(a);
+      removeEnemyBullet(b);
+      spawnBoom(a.sp.x, a.sp.y);
+      mmsxx.audio.playSE('clink', SE_HIT);
+    },
+  },
+  // **敵どうし。**ぶつかったら何が起きるか決まっていないので止めてある
+  // (押し合う / 両方壊れる / 片方だけ壊れる)
+  enemy: {
+    on: false,
+    list: () => enemies,
+    box: (e) => [e.sp.x + 8, e.sp.y + 8, 8, 8],
+    hit: (a, b) => { hitEnemy(a, 1, false); hitEnemy(b, 1, false); },
+  },
+};
+
+/**
+ * 同じ一覧の中で総当たりする。
+ *
+ * **当たりを見る順は座標の順(上から、同じなら左から)。**
+ * 配列の順に頼ると、弾どうしが当たるゲームでは
+ * **同じ入力から同じ結果が出なくなる**(録画の再生と記録の再現が崩れる)。
+ *
+ * 60 発なら 1770 組。四角どうしの比較なので 1 コマぶんとしてはまだ軽い。
+ * 200 発を超えるようなら 16 ドット四方の升に分けて、隣の升だけ見る形にする。
+ */
+function selfHits(rule) {
+  if (!rule.on) return;
+  const src = rule.list();
+  if (!src || src.length < 2) return;
+  const list = rule.only ? src.filter(rule.only) : [...src];
+  if (list.length < 2) return;
+  list.sort((a, b) => (a.sp.y - b.sp.y) || (a.sp.x - b.sp.x));
+  const gone = new Set();
+  for (let i = 0; i < list.length; i++) {
+    if (gone.has(list[i])) continue;
+    const [ax, ay, ahw, ahh] = rule.box(list[i]);
+    for (let j = i + 1; j < list.length; j++) {
+      if (gone.has(list[j])) continue;
+      const [bx, by, bhw, bhh] = rule.box(list[j]);
+      if (Math.abs(ax - bx) < ahw + bhw && Math.abs(ay - by) < ahh + bhh) {
+        rule.hit(list[i], list[j]);
+        gone.add(list[i]);
+        gone.add(list[j]);
+        break;
+      }
+    }
+  }
+}
+
 /** いまの局面で、自弾がどう通るか。表に無いボスは null */
 function bossHitRule(b) {
   const t = b && BOSS_HITS[b.kind];
@@ -9658,10 +9735,18 @@ function hitAsteroid(a) {
   asteroids.splice(asteroids.indexOf(a), 1);
 }
 
+/** 敵弾を 1 つ片づける。撃ち落としでも、弾どうしのぶつかりでも通る */
+function removeEnemyBullet(eb) {
+  const i = enemyBullets.indexOf(eb);
+  if (i < 0) return false;
+  mmsxx.removeSprite(eb.sp);
+  enemyBullets.splice(i, 1);
+  return true;
+}
+
 /** 撃ち落とせる敵弾を落としたとき。タコの弾は高得点 */
 function shootDownBullet(eb) {
-  mmsxx.removeSprite(eb.sp);
-  enemyBullets.splice(enemyBullets.indexOf(eb), 1);
+  if (!removeEnemyBullet(eb)) return;
   score += 300;
   drawHUD();
 }
@@ -10364,6 +10449,10 @@ function updatePlay() {
       items.splice(items.indexOf(it), 1);
     }
   }
+
+  // --- 当たり判定: 同じ種類どうし(敵弾どうし・敵どうし) ---
+  // **既定では止めてある。**SELF_HITS の on を立てると当たるようになる
+  for (const rule of Object.values(SELF_HITS)) selfHits(rule);
 
   // --- 当たり判定: 自弾 vs ふつうの相手 ---
   // **形がそろっているものは表で持つ。**下に続く「ボスの部位」は
@@ -11574,6 +11663,20 @@ function kingToPhase2() {
 }
 
 /**
+ * デバッグ用: **同じ種類どうしの当たりを入れたり切ったりする。**
+ * 手ざわりを見てから、出すかどうかを決めるためのもの
+ *
+ *   mmsxxPairs()                    // いまの入り切り
+ *   mmsxxPairs('enemyShot', true)   // 敵弾どうしを当てる
+ */
+mmsxx.expose('mmsxxPairs', (name, on) => {
+  if (name && SELF_HITS[name]) SELF_HITS[name].on = !!on;
+  const out = {};
+  for (const [k, v] of Object.entries(SELF_HITS)) out[k] = v.on;
+  return out;
+});
+
+/**
  * デバッグ用: **局面の移り変わりの記録**を読む。
  * 「何コマ目に、どの機械が、どこからどこへ移ったか」が並ぶ
  */
@@ -11836,6 +11939,7 @@ mmsxx.expose('mmsxxDebug', () => ({
   score,
   gear: { shotLevel, speedLevel, maxVolleys, damageLevel, barrierHP, ships },
   playerX: Math.round(player.x), playerY: Math.round(player.y), bullets: bullets.length,
+  enemyBullets: enemyBullets.length,
   talkHold, continueStages: { ...continueStages },
   // こすり打ちの案内(出すまでの残りコマ / もう出した場面)
   rub: { in: rubHintIn, done: [...rubHintDone] },
