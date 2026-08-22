@@ -15,6 +15,42 @@ import { join, relative, sep } from 'node:path';
 import { minify } from 'terser';
 
 /**
+ * **開発用の口を丸ごと切り落とす。**
+ *
+ * `mmsxx.expose()` は公開版では `window` に付けないので外から呼べないが、
+ * **中身はバンドルに残る**。読まれれば仕組みが分かるし、
+ * 手を入れれば呼べてしまう。だから配る前に消す。
+ *
+ * terser の `global_defs` では消せない ── 難読化は**ファイルごと**に掛けていて、
+ * `DEV` は別のファイルから import した値なので、定数として畳めないため。
+ * そこで**印で囲んだ区間を、terser に渡す前に落とす**。
+ *
+ *   // ---- 開発用の口 ここから ----
+ *   mmsxx.expose('mmsxxBoss', ...);
+ *   // ---- 開発用の口 ここまで ----
+ *
+ * 何度出てきてもよい。
+ */
+const DEV_BEGIN = '// ---- 開発用の口 ここから ----';
+const DEV_END = '// ---- 開発用の口 ここまで ----';
+let cutBlocks = 0;
+
+/** 印で囲まれたところを消す。消した数も返す */
+function stripDevHooks(src) {
+  let out = '', rest = src, n = 0;
+  for (;;) {
+    const i = rest.indexOf(DEV_BEGIN);
+    if (i < 0) break;
+    const j = rest.indexOf(DEV_END, i);
+    if (j < 0) throw new Error('開発用の口の「ここまで」が見つかりません');
+    out += rest.slice(0, i);
+    rest = rest.slice(j + DEV_END.length);
+    n++;
+  }
+  return { code: out + rest, n };
+}
+
+/**
  * 難読化しないファイル(配布フォルダからの相対パス)。
  * コンソールのロゴは見せるためのものなので、素通しにする。
  */
@@ -43,7 +79,7 @@ if (!root) {
 let before = 0, after = 0, files = 0, skipped = 0;
 for await (const p of walk(root)) {
   const rel = relative(root, p).split(sep).join('/');
-  const src = await readFile(p, 'utf8');
+  let src = await readFile(p, 'utf8');
   before += src.length;
   if (SKIP.includes(rel)) {
     after += src.length;
@@ -51,6 +87,14 @@ for await (const p of walk(root)) {
     console.log(`  素通し ${rel}`);
     continue;
   }
+  // **開発用の口を先に落とす。**terser に渡したあとでは、
+  // 名前もコメントも潰れて印が追えない
+  const cut = stripDevHooks(src);
+  if (cut.n) {
+    cutBlocks += cut.n;
+    console.log(`  開発用の口を ${cut.n} か所 落とした ${rel}`);
+  }
+  src = cut.code;
   // ES モジュールとして扱う(export はそのまま残り、中の名前だけ短くなる)
   const out = await minify(src, {
     module: true,
@@ -68,5 +112,6 @@ for await (const p of walk(root)) {
   files++;
 }
 const pct = before ? Math.round((1 - after / before) * 100) : 0;
+console.log(`  開発用の口を ${cutBlocks} か所 落とした`);
 console.log(`  ${files} 個を難読化 / ${skipped} 個は素通し`);
 console.log(`  ${before.toLocaleString()} -> ${after.toLocaleString()} バイト (${pct}% 減)`);

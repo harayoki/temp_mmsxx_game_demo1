@@ -337,8 +337,10 @@ mmsxx.audio.reserveSE({
 // 種はゲームを始めるたびに作り直すので、遊ぶぶんには毎回ちがう
 const rnd = () => mmsxx.rng().next();
 const rndBoss = () => mmsxx.rng('boss').next();
+// ---- 開発用の口 ここから ----
 // コンソールから触れる入口は、開発版のときだけ付く(公開版では名前ごと無い)
 mmsxx.expose('mmsxx', mmsxx);
+// ---- 開発用の口 ここまで ----
 // 公開版では、コンソールを開いた人にだけ見えるロゴとひとことを出す。
 // ゲームの動きには関わらない、おまけの隠し要素。
 // -LogoTrap 付きでビルドすると、ロゴを見てもらうために
@@ -1731,6 +1733,7 @@ function cueRubHint(who, delay = 36) {
   rubHintDone.add(who);
   rubHintIn = delay;
 }
+// ---- 開発用の口 ここから ----
 // **開発版だけ**: 狙いどきまで遊び進まなくても、案内の出かたを見られるように
 // (出す場面はどれもボス戦の途中なので、そこまで行くのが手間)
 if (DEV) {
@@ -1740,6 +1743,7 @@ if (DEV) {
     return PAD_ON ? '0.5 秒後に出ます' : '指で遊ぶ端末ではないので出ません';
   });
 }
+// ---- 開発用の口 ここまで ----
 let moaiToldWait = false;     // 「色が変わるまで待て」を出したか(1 プレイに 1 回)
 // 石の表(外側)を撃つと怒る。4 発で赤とピンクになり、壊せなくなる
 // 色が付く前に**切り口(内側)**へ撃ち込んだ数。これだけ当てると怒る。
@@ -11499,6 +11503,7 @@ function statsFinish() {
  * 戻すのは**この端末に残っているぶんだけ**。
  * 供給元がサーバになっても、サーバ側の記録には触らない
  */
+// ---- 開発用の口 ここから ----
 mmsxx.expose('mmsxxResetHiScores', () => {
   hardTable.reset();
   normalTable.reset();
@@ -11888,6 +11893,7 @@ mmsxx.expose('mmsxxStats', () => {
 mmsxx.expose('mmsxxStatsCompact', () => stats.compact(STAT_AGGREGATORS));
 /** デバッグ用: 統計を全部消す */
 mmsxx.expose('mmsxxStatsReset', () => { stats.reset(); return 'クリアしました'; });
+// ---- 開発用の口 ここまで ----
 
 // ---- ボスラッシュ ----// ---- ボスラッシュ ----
 // 実装済みのボスをランダムな順で 1 巡する。
@@ -12299,7 +12305,9 @@ function sceneRush(stage) {
 function sceneList() {
   const list = [
     { label: 'ENDING', run: () => enterEnding() },
-    { label: 'NAME ENTRY', run: () => mmsxxNameEntry('score', 123456) },
+    // **開発用の口は経由しない。**あれは公開版のビルドで切り落とされるので、
+    // ここから呼ぶと参照だけが残ってしまう
+    { label: 'NAME ENTRY', run: () => { score = 123456; enterNameEntry('score'); } },
   ];
   for (let n = 1; n <= LAST_STAGE; n++) {
     list.push({ label: 'STAGE ' + n, run: () => sceneStart(n, false) });
@@ -14671,8 +14679,10 @@ if (PAD_ON) {
   }
   // ボタンを移したぶん帯の中身が変わっているので、もう一度測る
   touchGui.layout();
+  // ---- 開発用の口 ここから ----
   // 実機を繋いで中を覗くとき用(touch-tool の window.touch と同じ考えかた)
   mmsxx.expose('touchGui', touchGui);
+  // ---- 開発用の口 ここまで ----
   // **十字を出すかどうかは遊びかたしだい**(ポーズ中の CONTROL)。
   // パッドレスでは絵と当たりが消えて指がうしろへ抜けるので、
   // canvas を直に叩けるようになる。連射の四角はどちらでも残る。
@@ -14689,10 +14699,12 @@ if (PAD_ON) {
   setupPadless();
   traceMove = createTrace();
   bindPadlessTaps();
+  // ---- 開発用の口 ここから ----
   // 実機を繋いで中を覗くとき用(touchGui と同じ考えかた)。
   // つまみもここから当てられる: padless.state / padless.marker / padless.heading
   mmsxx.expose('padless', padlessMove);
   mmsxx.expose('trace', traceMove);
+  // ---- 開発用の口 ここまで ----
 }
 
 function bindPadlessTaps() {
@@ -16105,9 +16117,11 @@ function closeHowTo() {
   howToPaused = false;
 }
 
+// ---- 開発用の口 ここから ----
 // **開発版だけ**: 遊びはじめまで進まなくても案内を出せるようにする。
 // 中身を詰めているあいだ、毎回ゲームを始め直すのは手間なので
 if (DEV) mmsxx.expose('mmsxxHowTo', () => { openHowTo(); return howToPages().length + ' ページ'; });
+// ---- 開発用の口 ここまで ----
 
 /** ポーズ中の ? ボタン。**スマホだけ**(PC には案内が画面の下に出ている) */
 function bindHowToButton() {
