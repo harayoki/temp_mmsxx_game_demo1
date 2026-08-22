@@ -53,6 +53,19 @@ function checkVirtualSize(v, name) {
   return v;
 }
 
+/**
+ * **レイヤーが実際に描かれる位置。**`snap` が 0 なら丸めない。
+ *
+ * かつては `render()` の中で計算していたので、**画面を描かないと存在しなかった**。
+ * ゲームは背景に描いた絵を的にすることがあり(STAR FABLE の そらのドラゴン)、
+ * そのとき「いま絵がどこにあるか」が要る。**式を外に出して 1 か所にする** ──
+ * `render()` もここを呼ぶので、写しが生えない。
+ *
+ * **`snapTo()` とは丸めかたが違う**(あちらは先に四捨五入する)。
+ * ここは実機の見えかたに合わせて、負の側も下へ丸める
+ */
+export const layerView = (v, snap) => (snap ? Math.floor(v / snap) * snap : Math.round(v));
+
 /** 裏画面の中へ丸め込む(負の値でも正しく回り込む) */
 const wrapTo = (v, n) => { const m = v % n; return m < 0 ? m + n : m; };
 
@@ -1976,8 +1989,9 @@ export class VDP {
       if (!L.visible || L.empty) continue;
       const px = L.pixels;
       const snap = L.snap | 0;
-      const sx = snap ? Math.floor(L.scrollX / snap) * snap : Math.round(L.scrollX);
-      const sy = snap ? Math.floor(L.scrollY / snap) * snap : Math.round(L.scrollY);
+      // **式はここに書かない。**ゲームからも同じ値が要る(layerView)
+      const sx = layerView(L.scrollX, snap);
+      const sy = layerView(L.scrollY, snap);
       // 走査線: null 以外なら、その位相の行を飛ばして 1 ライン おきに描く。
       // 位相を毎コマ入れ替えると、抜ける行が交互になる
       const scan = L.scanline;

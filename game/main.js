@@ -695,8 +695,11 @@ let dragonSpot = null;
 
 /** ドラゴンの顔のいまの画面位置(レイヤーのスクロールに合わせて動く) */
 function dragonSpotY() {
-  // レイヤーは 8 ドット単位で表示されるので、同じ刻みに合わせる
-  return dragonSpot.ly - Math.floor(neb.scrollY / 8) * 8;
+  // **絵が実際にある位置を、エンジンから聞く**(viewY)。
+  // ここで `Math.floor(scrollY / 8) * 8` と書いていたが、それは
+  // **描画と同じ式の写し**で、片方だけ変わると絵と当たりが黙ってずれる。
+  // 機械を替えて刻みが 1 ドットになれば、当たりも勝手に追従する
+  return dragonSpot.ly - neb.viewY;
 }
 
 /**

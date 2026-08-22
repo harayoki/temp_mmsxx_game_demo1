@@ -1,4 +1,4 @@
-﻿import { VDP, SCREEN_W, SCREEN_H, VIRTUAL_W, VIRTUAL_H, snapTo } from './video.js';
+﻿import { VDP, SCREEN_W, SCREEN_H, VIRTUAL_W, VIRTUAL_H, snapTo, layerView } from './video.js';
 import { PSGPlayer } from '../vendor/mmsxx-mml-studio/sound/audio.js';
 import { Input } from './input.js';
 import { ErrorLog } from './errorlog.js';
@@ -93,6 +93,22 @@ class LayerHandle {
   }
   get scrollX() { return this._vdp.layers[this._index].scrollX; }
   get scrollY() { return this._vdp.layers[this._index].scrollY; }
+  /**
+   * **絵が実際にある位置。**`snap` の刻みに丸めた `scrollX` / `scrollY`。
+   *
+   * `scrollX` / `scrollY` は**小数のまま**にしてある。丸めて持つと、
+   * **機械の粒度がゲームの論理値に染み出す** ──「背景が N 進んだら出す」まで
+   * 8 ドット刻みになってしまう。機械によらず同じであってほしい値はあちらを読む。
+   *
+   * こちらは**背景に描いた絵を的にする**ときに使う。
+   * 絵とずれては困るので、丸めかたは描画と同じでなければならない。
+   * **画面は見ないので、画面が無くても同じ値が出る**(`snapHit` と同じ形)。
+   *
+   * 機械を替えて `snap = 1` になれば、当たりも勝手になめらかに追従する。
+   * **ゲーム側は 1 文字も直らない**
+   */
+  get viewX() { const L = this._vdp.layers[this._index]; return layerView(L.scrollX, L.snap | 0); }
+  get viewY() { const L = this._vdp.layers[this._index]; return layerView(L.scrollY, L.snap | 0); }
   get visible() { return this._vdp.layers[this._index].visible; }
   set visible(v) { this._vdp.layers[this._index].visible = v; }
   /**
