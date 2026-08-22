@@ -4168,7 +4168,11 @@ function enterPlay(fromContinue = false) {
   cancelFlash();
   // **初めて遊びはじめるときだけ、遊びかたを出す**(スマホだけ)。
   // 続きから始めたときは出さない — もう一度遊んでいる人には要らない
-  if (!fromContinue) maybeShowHowTo();
+  //
+  // 出したときは**閉じるまで面を始めない**。
+  // 始めてしまうと、読んでいるあいだに開始のファンファーレが鳴ってしまう
+  // (絵は止まるが音は止まらない)
+  const howToUp = !fromContinue && maybeShowHowTo();
   // タイトルへ戻ったときに、この難易度を選んだ状態にする。
   // **難易度のあるモードのときだけ**書き換える(ボスラッシュなどでは触らない)。
   // CONTINUE は続けている難易度そのものなので、書いても値は変わらない
@@ -4251,8 +4255,10 @@ function enterPlay(fromContinue = false) {
   statStageScore = 0;
   rushStartFrame = -1;
   rushFrames = 0;
-  if (gameMode() === 'bossrush') startBossRush();
-  else startStage();
+  // 案内が出ているあいだは待つ。閉じたときに closeHowTo() がここを呼ぶ
+  const begin = () => { if (gameMode() === 'bossrush') startBossRush(); else startStage(); };
+  if (howToUp) howToThen = begin;
+  else begin();
   // 音を消したまま始めた人に、**1 回だけ**知らせる(消えていることに
   // 気づかないまま遊び続けてしまわないように)。
   // 面の始まりで HUD を消すので、**そのあと**に出す
@@ -15877,6 +15883,8 @@ function howToArt() { return HOWTO_ART_PAD; }
 
 /** 開いている板。**開いているあいだはゲームを止める** */
 let howToEl = null;
+// 案内を閉じたときにやること(遊びはじめに出したときの、面の始まり)
+let howToThen = null;
 /** 案内で止めたのか(自分で止めていたポーズを、閉じるときに戻さないため) */
 let howToPaused = false;
 /** ページ送りの部品。**キーとパッドから送るのに要る**(下の howToNext) */
@@ -16071,19 +16079,20 @@ function howToBox() {
  * **初めて遊びはじめるときに 1 度だけ出す。**
  * `?howto=1` で毎回出せる(見た目を確かめるため)。
  *
- * **PC では毎回出す。** あちらで案内を読むのは中身を確かめるときなので、
- * 1 度きりだと**書き替えたぶんを見るのに覚えた印を消して回る**ことになる。
- * 指で遊ぶ端末では今までどおり 1 度きり(遊ぶ人の邪魔をしない)
+ * **PC では出さない。**キーボードで遊ぶ人には案内が要らないうえ、
+ * 遊びはじめるたびに止まる。中身を確かめたいときは `?howto=1` を付ける。
+ * 指で遊ぶ端末では 1 度きり出す(遊ぶ人の邪魔をしない)
  */
 function maybeShowHowTo() {
-  if (!PAD_ON) { openHowTo(); return; }      // PC は毎回
   if (OPT.get('howto') !== '1') {
-    if (DEVICE) return;                      // 機種を渡り歩くときは出さない
-    if (settings.get('howToSeen')) return;
+    if (!PAD_ON) return false;               // PC は出さない(?howto=1 で出せる)
+    if (DEVICE) return false;                // 機種を渡り歩くときは出さない
+    if (settings.get('howToSeen')) return false;
     settings.set('howToSeen', true);
     settings.flush();
   }
   openHowTo();
+  return !!howToEl;
 }
 
 /** 案内を開く。**ポーズ中の ? からも、遊びはじめからも ここへ来る** */
@@ -16252,6 +16261,9 @@ function closeHowTo() {
   howToPager = null;
   if (howToPaused) setPaused(false);
   howToPaused = false;
+  // 遊びはじめに出したぶんは、ここで面を始める。
+  // **こうしないと、読んでいるあいだに開始のファンファーレが鳴る**
+  if (howToThen) { const f = howToThen; howToThen = null; f(); }
 }
 
 // ---- 開発用の口 ここから ----
