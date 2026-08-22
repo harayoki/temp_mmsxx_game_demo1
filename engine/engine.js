@@ -158,7 +158,7 @@ export class MMSXXEngine {
    * @param {{scale?:number, virtualWidth?:number, virtualHeight?:number,
    *          layers?: {width?:number,height?:number}[],
    *          screen?: {width?:number,height?:number,borderX?:number,borderY?:number}}} [opts]
-   *   virtualWidth / virtualHeight は裏画面の既定サイズ(256〜2048 の 2 の冪、既定 1024x1024)。
+   *   virtualWidth / virtualHeight は裏画面の既定サイズ(256〜2048 の 8 の倍数、既定 1024x1024)。
    *   layers を渡すとレイヤーごとに別々のサイズを持てる。配列の長さが枚数になり、上限はない。
    *   screen は表示画面の大きさ(8 ドット単位、既定 256x192)とボーダーの厚み。
    *   maxVoices は同時に鳴らせる音の数(既定 8)。エンジン側に上限はない。

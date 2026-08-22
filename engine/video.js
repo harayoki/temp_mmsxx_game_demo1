@@ -32,18 +32,29 @@ function check8(v, name, min, max) {
   }
   return v;
 }
-/** 仮想画面(裏画面)の既定サイズ。256〜2048 の 2 の冪から選べる */
+/** 仮想画面(裏画面)の既定サイズ。256〜2048 の 8 の倍数から選べる */
 export const VIRTUAL_W = 1024;
 export const VIRTUAL_H = 1024;
 const MIN_VIRTUAL = 256, MAX_VIRTUAL = 2048;
 
-/** 仮想画面サイズとして使える値かどうか検査する(2 の冪であることを利用してラップする) */
+/**
+ * 仮想画面サイズとして使える値かどうか検査する。
+ *
+ * **8 の倍数**であればよい(セルが 8x8 なので、そこだけは要る)。
+ * かつては 2 のべき乗しか許さず、端の回り込みを `& (w-1)` で出していた。
+ * **測ったら、それで買えていたのは 1 コマの 0.5% 未満だった** ——
+ * 行ごとに端で区間を切れば、画素ごとの折り返しはそもそも要らない。
+ * 詳しくは [SCROLL.md](../docs/SCROLL.md)
+ */
 function checkVirtualSize(v, name) {
-  if (!Number.isInteger(v) || v < MIN_VIRTUAL || v > MAX_VIRTUAL || (v & (v - 1)) !== 0) {
-    throw new Error(`${name} は ${MIN_VIRTUAL}〜${MAX_VIRTUAL} の 2 の冪で指定してください (指定値: ${v})`);
+  if (!Number.isInteger(v) || v < MIN_VIRTUAL || v > MAX_VIRTUAL || v % 8 !== 0) {
+    throw new Error(`${name} は ${MIN_VIRTUAL}〜${MAX_VIRTUAL} の 8 の倍数で指定してください (指定値: ${v})`);
   }
   return v;
 }
+
+/** 裏画面の中へ丸め込む(負の値でも正しく回り込む) */
+const wrapTo = (v, n) => { const m = v % n; return m < 0 ? m + n : m; };
 
 /** パレット番号 c を、a と b のうち色が近い方に寄せる(透明 0 は黒 1 として扱う) */
 function nearerColor(c, a, b) {
@@ -243,7 +254,7 @@ export function transformImage(img, flipX, flipY, rot) {
  * MSX1 風の仮想 VDP。
  * - 表示画面 256x192。仮想画面(裏画面)のレイヤーを奥から順に合成する
  * - レイヤーの枚数に上限はなく、1 枚ごとに違う裏画面サイズを持てる
- *   (幅・高さは 256〜2048 の 2 の冪。既定 1024x1024)
+ *   (幅・高さは 256〜2048 の 8 の倍数。既定 1024x1024)
  * - 各レイヤーは独立したスクロール位置を持ち、上下左右にリピート
  * - 色は MSX1 の 15 色 + 透明(0)。書き込みは常に SCREEN2 制約(横8ドット2色)に保たれる
  * - スプライトは枚数・横並び制限なし。レイヤーより手前に描画される
@@ -252,13 +263,13 @@ export class VDP {
   /**
    * @param {HTMLCanvasElement} canvas
    * @param {number} scale 表示倍率(整数推奨)
-   * @param {number} [virtualWidth=1024] 既定の裏画面の幅 (256〜2048 の 2 の冪)
-   * @param {number} [virtualHeight=1024] 既定の裏画面の高さ (256〜2048 の 2 の冪)
+   * @param {number} [virtualWidth=1024] 既定の裏画面の幅 (256〜2048 の 8 の倍数)
+   * @param {number} [virtualHeight=1024] 既定の裏画面の高さ (256〜2048 の 8 の倍数)
    * @param {{width?:number,height?:number}[]} [layerSpecs]
    *   レイヤーごとの裏画面サイズ。配列の長さがレイヤー枚数になる(既定 4 枚)
    */
   constructor(canvas, scale = 3, virtualWidth = VIRTUAL_W, virtualHeight = VIRTUAL_H, layerSpecs, screen = {}) {
-    // 既定の裏画面サイズ。2 の冪なので & でラップできる
+    // 既定の裏画面サイズ。回り込みは wrapTo() で出す
     this.vw = checkVirtualSize(virtualWidth, 'virtualWidth');
     this.vh = checkVirtualSize(virtualHeight, 'virtualHeight');
     /**
@@ -445,9 +456,8 @@ export class VDP {
         pixels: new Uint8Array(w * h),
         width: w,
         height: h,
-        maskX: w - 1,
-        maskY: h - 1,
-        shift: Math.log2(w), // 行の先頭 = y << shift
+        // **マスクもシフトも持たない。**行の先頭は wrapTo(y, height) * width。
+        // 2 のべき乗しばりを外したときに落とした(SCROLL.md)
         scrollX: 0,
         scrollY: 0,
         visible: true,
@@ -1441,13 +1451,12 @@ export class VDP {
     // BG は 8 ドット単位でしか置けない(実機のキャラクタ単位に合わせる)
     x = snap8(x); y = snap8(y);
     for (let iy = 0; iy < img.height; iy++) {
-      const dy = (y + iy) & L.maskY;
-      const rowBase = dy << L.shift;
+      const rowBase = wrapTo(y + iy, L.height) * L.width;
       const srcBase = iy * img.width;
       for (let ix = 0; ix < img.width; ix++) {
         const c = img.pixels[srcBase + ix];
         if (transparent && c === 0) continue;
-        layer[rowBase | ((x + ix) & L.maskX)] = c;
+        layer[rowBase + wrapTo(x + ix, L.width)] = c;
       }
     }
     L.empty = false;
@@ -1497,16 +1506,16 @@ export class VDP {
       for (let cx = cx0; cx < x + w; cx += 8) {
         let hasPattern = false;
         for (let iy = 0; iy < 8 && !hasPattern; iy++) {
-          const rowBase = ((cy + iy) & L.maskY) << L.shift;
+          const rowBase = wrapTo(cy + iy, L.height) * L.width;
           for (let ix = 0; ix < 8; ix++) {
-            if (layer[rowBase | ((cx + ix) & L.maskX)] >= 2) { hasPattern = true; break; }
+            if (layer[rowBase + wrapTo(cx + ix, L.width)] >= 2) { hasPattern = true; break; }
           }
         }
         if (!hasPattern) continue;
         for (let iy = 0; iy < 8; iy++) {
-          const rowBase = ((cy + iy) & L.maskY) << L.shift;
+          const rowBase = wrapTo(cy + iy, L.height) * L.width;
           for (let ix = 0; ix < 8; ix++) {
-            const idx = rowBase | ((cx + ix) & L.maskX);
+            const idx = rowBase + wrapTo(cx + ix, L.width);
             if (layer[idx] === 0) layer[idx] = 1;
           }
         }
@@ -1524,10 +1533,10 @@ export class VDP {
     const count = new Uint32Array(16);
     const rx0 = Math.floor(x / 8) * 8;
     for (let iy = 0; iy < h; iy++) {
-      const rowBase = ((y + iy) & L.maskY) << L.shift;
+      const rowBase = wrapTo(y + iy, L.height) * L.width;
       for (let rx = rx0; rx < x + w; rx += 8) {
         count.fill(0);
-        for (let i = 0; i < 8; i++) count[layer[rowBase | ((rx + i) & L.maskX)]]++;
+        for (let i = 0; i < 8; i++) count[layer[rowBase + wrapTo(rx + i, L.width)]]++;
         // 使用色を数える
         let used = 0;
         for (let c = 0; c < 16; c++) if (count[c]) used++;
@@ -1540,7 +1549,7 @@ export class VDP {
           else if (c2 < 0 || count[c] > count[c2]) { c2 = c; }
         }
         for (let i = 0; i < 8; i++) {
-          const idx = rowBase | ((rx + i) & L.maskX);
+          const idx = rowBase + wrapTo(rx + i, L.width);
           const c = layer[idx];
           if (c === c1 || c === c2) continue;
           layer[idx] = nearerColor(c, c1, c2);
@@ -1574,9 +1583,9 @@ export class VDP {
       x = snap8(x); y = snap8(y); w = ceil8(w); h = ceil8(h);
     }
     for (let iy = 0; iy < h; iy++) {
-      const rowBase = ((y + iy) & L.maskY) << L.shift;
+      const rowBase = wrapTo(y + iy, L.height) * L.width;
       for (let ix = 0; ix < w; ix++) {
-        layer[rowBase | ((x + ix) & L.maskX)] = color;
+        layer[rowBase + wrapTo(x + ix, L.width)] = color;
       }
     }
     this._markCells(L, x, y, w, h, color === 0 ? 0 : 1);
@@ -1610,13 +1619,13 @@ export class VDP {
       for (let iy = 0; iy < 8; iy++) {
         const row = glyph[iy] || '';
         for (let sy = 0; sy < k; sy++) {
-          const rowBase = ((y + iy * k + sy) & L.maskY) << L.shift;
+          const rowBase = wrapTo(y + iy * k + sy, L.height) * L.width;
           for (let ix = 0; ix < 8; ix++) {
             const on = row[ix] === '#';
             const c = on ? color : bg;
             if (c === 0 && bg === 0 && !on) continue;
             for (let sx = 0; sx < k; sx++) {
-              layer[rowBase | ((cx + ix * k + sx) & L.maskX)] = c;
+              layer[rowBase + wrapTo(cx + ix * k + sx, L.width)] = c;
             }
           }
         }
@@ -1973,41 +1982,62 @@ export class VDP {
       // 位相を毎コマ入れ替えると、抜ける行が交互になる
       const scan = L.scanline;
       const cells = L.cells, cw = L.cellW;
+      const LW = L.width, LH = L.height;
+      // 端をまたぐ手前で区間を切るので、**画素ごとの折り返しが要らない**。
+      // 裏画面の大きさが 2 のべき乗でなくてよいのはこのため(SCROLL.md)
+      const startX = wrapTo(sx, LW);
       // **まばらなときだけ**セル単位で飛ばす。
       // 星空のように全部のセルに何か入っていると、飛ばす判定が丸損になる
       const sparse = L.cellsOn < cells.length * this.sparseRatio;
       for (let y = 0; y < H; y++) {
         if (scan !== null && ((y + scan) & 1)) continue;
         const vy = y + sy;
-        if (!L.repeatY && (vy < 0 || vy >= L.height)) continue;
-        const rowBase = (vy & L.maskY) << L.shift;
+        if (!L.repeatY && (vy < 0 || vy >= LH)) continue;
+        const rowBase = wrapTo(vy, LH) * LW;
         let o = y * W;
         if (!sparse) {
-          for (let x = 0; x < W; x++, o++) {
-            const vx = x + sx;
-            if (!L.repeatX && (vx < 0 || vx >= L.width)) continue;
-            const c = px[rowBase | (vx & L.maskX)];
-            if (c !== 0) frame[o] = c;
+          if (!L.repeatX) {
+            // 繰り返さないレイヤーは、裏画面に入っているところだけ
+            const x0 = Math.max(0, -sx), x1 = Math.min(W, LW - sx);
+            const base = rowBase + sx;
+            for (let x = x0; x < x1; x++) {
+              const c = px[base + x];
+              if (c !== 0) frame[o + x] = c;
+            }
+            continue;
+          }
+          // 端で 2 本に割る。**内側は足し算だけ**(プロパティも読まない)
+          let x = 0, vx = startX;
+          while (x < W) {
+            const run = Math.min(W - x, LW - vx);
+            const base = rowBase + vx;
+            for (let i = 0; i < run; i++) {
+              const c = px[base + i];
+              if (c !== 0) frame[o + i] = c;
+            }
+            x += run; o += run; vx += run;
+            if (vx >= LW) vx = 0;
           }
           continue;
         }
         // このセル行の先頭。**空のセルは 8 ドットまとめて飛ばす**
-        const cellRow = ((vy & L.maskY) >> 3) * cw;
+        const cellRow = (wrapTo(vy, LH) >> 3) * cw;
+        let vx = startX;
         for (let x = 0; x < W;) {
           const vxRaw = x + sx;
-          const vx = vxRaw & L.maskX;
           // このセルに残っている幅(セルの切れ目でそろえる)
           const run = Math.min(8 - (vx & 7), W - x);
-          if ((L.repeatX || (vxRaw >= 0 && vxRaw < L.width))
+          if ((L.repeatX || (vxRaw >= 0 && vxRaw < LW))
               && cells[cellRow + (vx >> 3)]) {
             // セルの中では折り返しが起きないので、添字の丸めが要らない
-            const base = rowBase | vx;
+            const base = rowBase + vx;
             for (let i = 0; i < run; i++) {
               const c = px[base + i];
               if (c !== 0) frame[o + i] = c;
             }
           }
-          x += run; o += run;
+          x += run; o += run; vx += run;
+          if (vx >= LW) vx = 0;
         }
       }
     }
